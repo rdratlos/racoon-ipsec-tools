@@ -1,0 +1,14 @@
+#! /bin/sh
+# postrm script for racoon 
+#
+# see: dh_installdeb(1)
+
+set -e
+
+if [ "$1" = purge ]; then
+	rm -f /etc/default/racoon
+fi
+
+#DEBHELPER#
+
+exit 0

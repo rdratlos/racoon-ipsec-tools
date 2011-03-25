@@ -1,0 +1,60 @@
+# translation of ipsec-tools_1:0.7-2_de.po to German
+#
+#    Translators, if you are not familiar with the PO format, gettext
+#    documentation is worth reading, especially sections dedicated to
+#    this format, e.g. by running:
+#         info -n '(gettext)PO Files'
+#         info -n '(gettext)Header Entry'
+#    Some information specific to po-debconf are available at
+#            /usr/share/doc/po-debconf/README-trans
+#         or http://www.debian.org/intl/l10n/po-debconf/README-trans#
+#    Developers do not need to manually edit POT or PO files.
+#
+# Erik Schanze <eriks@debian.org>, 2004-2008.
+msgid ""
+msgstr ""
+"Project-Id-Version: ipsec-tools_1:0.7-2_de\n"
+"Report-Msgid-Bugs-To: ipsec-tools@packages.debian.org\n"
+"POT-Creation-Date: 2008-04-21 08:51+0000\n"
+"PO-Revision-Date: 2008-05-04 00:25+0200\n"
+"Last-Translator: Erik Schanze <eriks@debian.org>\n"
+"Language-Team: German <debian-l10n-german@lists.debian.org>\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: KBabel 1.11.4\n"
+"Plural-Forms:  nplurals=2; plural=(n != 1);\n"
+
+#. Type: select
+#. Choices
+#: ../racoon.templates:1001
+msgid "direct"
+msgstr "direkt"
+
+#. Type: select
+#. Choices
+#: ../racoon.templates:1001
+msgid "racoon-tool"
+msgstr "Racoon-tool"
+
+#. Type: select
+#. Description
+#: ../racoon.templates:1002
+msgid "Configuration mode for racoon IKE daemon."
+msgstr "Art der Einrichtung des Racoon-IKE-Diensts."
+
+#. Type: select
+#. Description
+#: ../racoon.templates:1002
+msgid ""
+"Racoon can be configured two ways, either by directly editing /etc/racoon/"
+"racoon.conf or using the racoon-tool administrative front end. racoon-tool "
+"is now deprecated and is only available for backward compatibility. New "
+"installations should always use the \"direct\" method."
+msgstr ""
+"Racoon kann auf zwei Arten eingerichtet werden, entweder durch direktes "
+"Ändern der Datei /etc/racoon/racoon.conf oder mit Hilfe der "
+"Systemverwaltungsoberfläche »Racoon-tool«. Racoon-tool ist veraltet und nur "
+"noch wegen der Rückwärtsverträglichkeit dabei. Neuinstallationen sollten "
+"immer die Methode »direkt« verwenden."

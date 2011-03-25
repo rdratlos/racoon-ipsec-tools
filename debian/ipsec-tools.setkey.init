@@ -1,0 +1,61 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          setkey
+# Required-Start:    $remote_fs
+# Required-Stop:     $remote_fs
+# Default-Start:     S
+# Default-Stop:
+# Short-Description: option to manually manipulate the IPsec SA/SP database 
+### END INIT INFO
+
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+SETKEY=/usr/sbin/setkey
+SETKEY_CONF=/etc/ipsec-tools.conf
+SETKEY_CONF_DIR=/etc/ipsec-tools.d
+NAME=setkey
+
+
+RUN_SETKEY="yes"
+if [ -f /etc/default/setkey ] ; then
+	. /etc/default/setkey
+fi
+
+test -x $SETKEY -a -f $SETKEY_CONF || exit 0
+
+if [ $RUN_SETKEY != "yes" ] ; then
+	exit 0
+fi
+
+set -e
+
+case "$1" in
+  start)
+	echo "Loading IPsec SA/SP database: "
+
+	for file in $SETKEY_CONF $SETKEY_CONF_DIR/*.conf ; do
+	if [ -r "$file" ] ; then
+	echo " - ${file}"
+	$SETKEY -f $file
+	fi
+	done
+	echo "done."
+	;;
+  stop)
+	echo -n "Flushing IPsec SA/SP database: "
+	$SETKEY -F 
+	$SETKEY -FP
+	echo "done."
+	;;
+  restart|force-reload)
+	$0 stop
+	$0 start
+	echo "done."
+	;;
+  *)
+	N=/etc/init.d/$NAME
+	echo "Usage: $N {start|stop|restart|force-reload}" >&2
+	exit 1
+	;;
+esac
+
+exit 0

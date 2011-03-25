@@ -1,0 +1,14 @@
+this patch is setting the rpath in ltmain.sh to move the private libraries
+afterwards in a subfolder under /usr/lib/ to follow the recommendations of
+debian policy 10.2
+--- ipsec-tools-0.8.0-orig/ltmain.sh	2011-03-21 11:29:31.000000000 +0100
++++ ipsec-tools-0.8.0/ltmain.sh		2011-03-21 11:35:07.000000000 +0100
+@@ -4057,7 +4057,7 @@
+     finalize_command=$nonopt
+ 
+     compile_rpath=
+-    finalize_rpath=
++    finalize_rpath=/usr/lib/ipsec-tools
+     compile_shlibpath=
+     finalize_shlibpath=
+     convenience=

@@ -1,0 +1,62 @@
+Debian README for racoon 
+------------------------
+
+This package requires a 2.6 kernel with IPSEC available, or a 2.4 kernel
+with the new IPSEC backport as in the latest 2.4 kernel source in sid and
+sarge.
+
+Please note that the xfrm_user.o module must be loaded unless statically
+compiled into the kernel so that the /proc/net/pfkey file is available for
+setkey and racoon.
+
+If a suitable kernel is not installed, or /proc/net/pfkey is not available
+racoon will fail to start properly.
+
+You will also have to make sure all required kernel encryption and xfrm 
+modules are loaded, or that they are statically linked if using 'direct' 
+debconf configuration.
+
+racoon-tool
+-----------
+racoon-tool is now officially deprecated. It used to be the preferred method 
+of configuration in older releases (till 0.3.1) but is now deprecated because 
+of several reasons; it's debian specific, upstream doesn't like it, it lags
+behind in features when compared to racoon.conf(5). If you're interested in
+using the latest and greatest feature in racoon, use /etc/racoon/racoon.conf
+directly. 
+
+iPhone OS Support
+--------------------
+
+The iPhone OS has a strange set of VPN features.  Using L2TP over IPsec 
+it only supports main mode with pre-shared keys (no certificates). 
+Since L2TP provides the per-user authentication we want to use a single 
+pre-shared key for all VPN users, but this is hard to do with 
+ipsec-tools since racoon only supports pskey lookup by address when 
+identity protection is used and we do not know the address of the client 
+in advance. There is now support for a wildcard match in psk.txt. Simply
+specify * in the id-filed of psk.txt to match any client.
+
+
+Plainrsa to PEM file format converter
+---------------------------------------
+
+You'll find a perl script to convert the OpenBSD key file format to the one
+racoon is using called plainrsa-convert in /usr/share/doc/racoon/examples
+
+Further information can be found here:
+
+http://www.mail-archive.com/misc@openbsd.org/msg59741.html
+
+Keep in mind, that this script requires package libparse-recdescent-perl
+and libcrypt-openssl-rsa-perl.
+
+
+Further Information
+-------------------
+Further information about the new Linux KAME/racoon IPSEC can be found
+up at http://ipsec-tools.sourceforge.net, and a HOWTO can be found up at
+"http://www.ipsec-howto.org/t1.html".
+
+ -- Stefan Bauer <stefan.bauer@cubewerk.de>, Thu, 12 Aug 2010 13:16:11 +0200 
+ -- Ganesan Rajagopal <rganesan@debian.org>, Mon, 21 Apr 2008 13:47:57 +0530

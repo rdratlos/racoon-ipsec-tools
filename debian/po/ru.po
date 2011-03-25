@@ -1,0 +1,54 @@
+# translation of ipsec-tools_1:0.7-2.1_ru.po to Russian
+# Russian translation of ipsec-tools_1:0.6.5-6.po.
+# This file is distributed under the same license as the ipsec-tools package.
+#
+#
+# Aleksandr Bouksha <abook@purpe.ru>, 2006.A <abook@purpe.ru>, 2006.
+# Yuri Kozlov <kozlov.y@gmail.com>, 2008.
+msgid ""
+msgstr ""
+"Project-Id-Version: ipsec-tools 1:0.6.5-6\n"
+"Report-Msgid-Bugs-To: ipsec-tools@packages.debian.org\n"
+"POT-Creation-Date: 2008-04-21 08:51+0000\n"
+"PO-Revision-Date: 2008-06-03 21:25+0400\n"
+"Last-Translator: Yuri Kozlov <kozlov.y@gmail.com>\n"
+"Language-Team: Russian <debian-l10n-russian@lists.debian.org>\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: KBabel 1.11.4\n"
+"Plural-Forms:  nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n"
+"%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+#. Type: select
+#. Choices
+#: ../racoon.templates:1001
+msgid "direct"
+msgstr "вручную"
+
+#. Type: select
+#. Choices
+#: ../racoon.templates:1001
+msgid "racoon-tool"
+msgstr "racoon-tool"
+
+#. Type: select
+#. Description
+#: ../racoon.templates:1002
+msgid "Configuration mode for racoon IKE daemon."
+msgstr "Способ настройки службы racoon IKE:"
+
+#. Type: select
+#. Description
+#: ../racoon.templates:1002
+msgid ""
+"Racoon can be configured two ways, either by directly editing /etc/racoon/"
+"racoon.conf or using the racoon-tool administrative front end. racoon-tool "
+"is now deprecated and is only available for backward compatibility. New "
+"installations should always use the \"direct\" method."
+msgstr ""
+"racoon может быть настроен двумя способами: редактированием /etc/init.d/"
+"racoon.conf вручную или при помощи инструмента racoon-tool. racoon-tool "
+"является устаревшим и доступен только для обратной совместимости. При новой "
+"установке всегда выбирайте настройку вручную."

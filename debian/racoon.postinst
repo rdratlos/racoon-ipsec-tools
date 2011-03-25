@@ -1,0 +1,102 @@
+#! /bin/sh
+# postinst script for racoon
+#
+# see: dh_installdeb(1)
+
+set -e
+
+update_param() {                                                               
+        eval old=\"'$'$1\"
+        eval new=\"'$'new_$1\"
+
+        if test "$old" = "$new"; then
+                return
+        fi
+
+        if test -z "$old"; then
+                grep -Eq "^ *$1=" "$INITCONFFILE" || echo "$1=" \
+                       >> "$INITCONFFILE"
+        fi
+
+	sed -e "s/^ *$1=.*/$1=\"$new\"/" < $INITCONFFILE > $INITCONFFILE.$$
+	mv -f $INITCONFFILE.$$ $INITCONFFILE
+}
+
+# summary of how this script can be called:
+#        * <postinst> `configure' <most-recently-configured-version>
+#        * <old-postinst> `abort-upgrade' <new version>
+#        * <conflictor's-postinst> `abort-remove' `in-favour' <package>
+#          <new-version>
+#        * <deconfigured's-postinst> `abort-deconfigure' `in-favour'
+#          <failed-install-package> <version> `removing'
+#          <conflicting-package> <version>
+# for details, see http://www.debian.org/doc/debian-policy/ or
+# the debian-policy package
+#
+
+case "$1" in
+    configure)
+	if [ -L /etc/rc2.d/S20racoon ]; then
+	    # remove this old entry, we'll add correct one below
+	    update-rc.d -f racoon remove > /dev/null || exit 0
+	fi
+    ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+    exit 0	
+    ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+    ;;
+esac
+
+# Handle debconf
+. /usr/share/debconf/confmodule
+                                                                                                                              
+INITCONFFILE=/etc/default/racoon
+ 
+# We generate several files during the postinst, and we don't want
+#       them to be readable only by root.
+umask 022
+ 
+# Generate configuration file if it does not exist, using default values.
+[ -r "${INITCONFFILE}" ] || {
+        echo Generating ${INITCONFFILE}... >&2
+        cat >${INITCONFFILE} <<'EOFMAGICNUMBER1234'
+# Defaults for racoon initscript
+# sourced by /etc/init.d/racoon
+# installed at /etc/default/racoon by the maintainer scripts
+ 
+#
+# This is a POSIX shell fragment
+#
+ 
+# Which configuration mode shall we use for racoon?
+#       Should be either "direct" (edit racoon.conf by hand)
+#       or "racoon-tool" (use this tool to do it).
+#       Unknown values are treated as if "direct" was given.
+CONFIG_MODE=""
+# Arguments to pass to racoon (ignored when config mode is racoon-tool)
+RACOON_ARGS=""
+EOFMAGICNUMBER1234
+}
+
+# ------------------------- Debconf questions start ---------------------
+
+db_get racoon/config_mode || true
+new_CONFIG_MODE="${RET}"
+update_param CONFIG_MODE
+db_stop
+                                                                                                                              
+# ------------------------- Debconf questions end ---------------------
+
+# Fix psk.txt permissions
+[ -f /etc/racoon/psk.txt ] && chmod 0600 /etc/racoon/psk.txt
+
+#DEBHELPER#
+
+exit 0
+
+

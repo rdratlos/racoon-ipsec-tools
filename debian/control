@@ -1,0 +1,26 @@
+Source: ipsec-tools
+Section: net
+Priority: extra
+Maintainer: Stefan Bauer <stefan.bauer@cubewerk.de>
+Build-Depends: debhelper (>=7.0.50~), flex, bison, libkrb5-dev, libssl-dev (>= 0.9.6), libpam0g-dev, po-debconf, chrpath, hardening-wrapper, libldap2-dev
+Build-Conflicts: bison++
+DM-Upload-Allowed: yes
+Standards-Version: 3.9.1
+
+Package: ipsec-tools
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: IPsec tools for Linux
+ IPsec-Tools is a port of the KAME IPsec utilities for Linux. It can be
+ used with the ipsec implementation in 2.6 and later kernels or with
+ the 2.4 backport of the ipsec changes.
+
+Package: racoon
+Architecture: any
+Provides: ike-server
+Conflicts: ike-server
+Depends: ${misc:Depends}, ${shlibs:Depends}, ipsec-tools (= ${binary:Version}), debconf (>= 0.2.26) | debconf-2.0, ${perl:Depends}
+Description: IPsec IKE keying daemon
+ racoon is the KAME IKE (ipsec key exchange) server. It can be used with
+ the Linux ipsec implementation in 2.6 and later kernels or with
+ the 2.4 backport of the ipsec changes.

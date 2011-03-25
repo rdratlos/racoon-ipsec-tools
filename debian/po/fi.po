@@ -1,0 +1,47 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: ipsec-tools\n"
+"Report-Msgid-Bugs-To: ipsec-tools@packages.debian.org\n"
+"POT-Creation-Date: 2008-04-21 08:51+0000\n"
+"PO-Revision-Date: \n"
+"Last-Translator: Esko Arajärvi <edu@iki.fi>\n"
+"Language-Team: Finnish <debian-l10n-finnish@lists.debian.org>\n"
+"Language: fi\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Poedit-Language: Finnish\n"
+"X-Poedit-Country: FINLAND\n"
+
+#. Type: select
+#. Choices
+#: ../racoon.templates:1001
+msgid "direct"
+msgstr "suora"
+
+#. Type: select
+#. Choices
+#: ../racoon.templates:1001
+msgid "racoon-tool"
+msgstr "racoon-tool"
+
+#. Type: select
+#. Description
+#: ../racoon.templates:1002
+msgid "Configuration mode for racoon IKE daemon."
+msgstr "Racoon IKE -taustaohjelman asetustapa:"
+
+#. Type: select
+#. Description
+#: ../racoon.templates:1002
+msgid ""
+"Racoon can be configured two ways, either by directly editing /etc/racoon/"
+"racoon.conf or using the racoon-tool administrative front end. racoon-tool "
+"is now deprecated and is only available for backward compatibility. New "
+"installations should always use the \"direct\" method."
+msgstr ""
+"Racoonin asetukset voidaan tehdä joko muokkaamalla suoraan tiedostoa /etc/"
+"racoon/racoon.conf tai käyttämällä ylläpitokäyttöliittymää racoon-tool. "
+"racoon-tool on nyt vanhentunut ja käytettävissä vain aiempien versioiden "
+"yhteensopivuuden varmistamiseksi. Uusissa asennuksissa tulisi aina käyttää "
+"”suoraa” tapaa."

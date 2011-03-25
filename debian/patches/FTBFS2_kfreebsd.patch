@@ -1,0 +1,167 @@
+this patch addresses build problems on kfreebsd
+diff -Naurp ipsec-tools-0.8.0.orig/configure ipsec-tools-0.8.0/configure
+--- ipsec-tools-0.8.0.orig/configure	2011-03-18 14:27:41.000000000 +0100
++++ ipsec-tools-0.8.0/configure	2011-03-21 15:43:06.000000000 +0100
+@@ -11550,6 +11550,9 @@ case $host in
+ 
+ 
+ 	;;
++*kfreebsd*)
++	LIBS="$LIBS -lresolv"
++	;;
+ *darwin*)
+ 	LIBS="$LIBS -lresolv"
+ 	;;
+@@ -14100,6 +14103,7 @@ $as_echo_n "checking for advanced API su
+ #define INET6
+ #endif
+ #include <sys/types.h>
++#define __USE_GNU 1	/* GNU/kFreeBSD */
+ #include <netinet/in.h>
+ int
+ main ()
+@@ -14266,7 +14270,7 @@ fi
+ rm -f conftest*
+ 
+ 	;;
+-freebsd*|netbsd*)
++freebsd*|kfreebsd*|netbsd*)
+ # NetBSD case
+ # Same check for FreeBSD
+ ac_fn_c_check_member "$LINENO" "struct sadb_x_nat_t_type" "sadb_x_nat_t_type_len" "ac_cv_member_struct_sadb_x_nat_t_type_sadb_x_nat_t_type_len" "
+diff -Naurp ipsec-tools-0.8.0.orig/configure.ac ipsec-tools-0.8.0/configure.ac
+--- ipsec-tools-0.8.0.orig/configure.ac	2011-03-18 14:25:12.000000000 +0100
++++ ipsec-tools-0.8.0/configure.ac	2011-03-21 15:48:54.000000000 +0100
+@@ -34,6 +34,9 @@ case $host in
+ 	AC_SUBST(INCLUDE_GLIBC)
+ 	AC_SUBST(RPM)
+ 	;;
++*kfreebsd*)
++	LIBS="$LIBS -lresolv"
++	;;
+ *darwin*)
+ 	LIBS="$LIBS -lresolv"
+ 	;;
+@@ -620,6 +623,7 @@ if test "$ipv6" = "yes"; then
+ #define INET6
+ #endif
+ #include <sys/types.h>
++#define __USE_GNU 1	/* GNU/kFreeBSD */
+ #include <netinet/in.h>],
+ 		[struct in6_pktinfo a;],
+ 		[AC_MSG_RESULT(yes)
+@@ -646,7 +650,7 @@ yes
+ #endif
+ ], [kernel_natt="yes"])
+ 	;;
+-freebsd*|netbsd*)
++freebsd*|kfreebsd*|netbsd*)
+ # NetBSD case
+ # Same check for FreeBSD
+ AC_CHECK_MEMBER(struct sadb_x_nat_t_type.sadb_x_nat_t_type_len,
+diff -Naurp ipsec-tools-0.8.0.orig/src/libipsec/key_debug.c ipsec-tools-0.8.0/src/libipsec/key_debug.c
+--- ipsec-tools-0.8.0.orig/src/libipsec/key_debug.c	2008-12-05 07:02:20.000000000 +0100
++++ ipsec-tools-0.8.0/src/libipsec/key_debug.c	2011-03-21 14:48:08.000000000 +0100
+@@ -790,7 +790,7 @@ kdebug_mbufhdr(m)
+ 		    m->m_pkthdr.len, m->m_pkthdr.rcvif);
+ 	}
+ 
+-#ifdef __FreeBSD__
++#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
+ 	if (m->m_flags & M_EXT) {
+ 		printf("  m_ext{ ext_buf:%p ext_free:%p "
+ 		       "ext_size:%u ext_ref:%p }\n",
+diff -Naurp ipsec-tools-0.8.0.orig/src/libipsec/policy_token.c ipsec-tools-0.8.0/src/libipsec/policy_token.c
+--- ipsec-tools-0.8.0.orig/src/libipsec/policy_token.c	2011-03-18 14:28:03.000000000 +0100
++++ ipsec-tools-0.8.0/src/libipsec/policy_token.c	2011-03-21 14:48:08.000000000 +0100
+@@ -625,7 +625,7 @@ char *__libipsectext;
+ #include "libpfkey.h"
+ 
+ #if !defined(__NetBSD__) && !defined(__FreeBSD__) && !defined(__linux__)  && \
+-!defined(__APPLE__) && !defined(__MACH__)
++!defined(__APPLE__) && !defined(__MACH__) && !defined(__FreeBSD_kernel__)
+ #include "y.tab.h"
+ #else
+ #include "policy_parse.h"
+diff -Naurp ipsec-tools-0.8.0.orig/src/libipsec/policy_token.l ipsec-tools-0.8.0/src/libipsec/policy_token.l
+--- ipsec-tools-0.8.0.orig/src/libipsec/policy_token.l	2007-07-18 14:07:50.000000000 +0200
++++ ipsec-tools-0.8.0/src/libipsec/policy_token.l	2011-03-21 14:48:08.000000000 +0100
+@@ -52,7 +52,7 @@
+ #include "libpfkey.h"
+ 
+ #if !defined(__NetBSD__) && !defined(__FreeBSD__) && !defined(__linux__)  && \
+-!defined(__APPLE__) && !defined(__MACH__)
++!defined(__APPLE__) && !defined(__MACH__) && !defined(__FreeBSD_kernel__)
+ #include "y.tab.h"
+ #else
+ #include "policy_parse.h"
+diff -Naurp ipsec-tools-0.8.0.orig/src/racoon/isakmp.c ipsec-tools-0.8.0/src/racoon/isakmp.c
+--- ipsec-tools-0.8.0.orig/src/racoon/isakmp.c	2011-03-15 14:20:14.000000000 +0100
++++ ipsec-tools-0.8.0/src/racoon/isakmp.c	2011-03-21 14:48:08.000000000 +0100
+@@ -122,12 +122,15 @@
+ #  endif
+ # endif /* __linux__ */
+ # if defined(__NetBSD__) || defined(__FreeBSD__) ||	\
+-  (defined(__APPLE__) && defined(__MACH__))
++  (defined(__APPLE__) && defined(__MACH__)) || defined(__FreeBSD_kernel__)
++#  define __FAVOR_BSD	/* GNU/kFreeBSD */
+ #  include <netinet/in.h>
+ #  include <netinet/udp.h>
+ #  include <netinet/in_systm.h>
+ #  include <netinet/ip.h>
+-#  define SOL_UDP IPPROTO_UDP
++#  ifndef SOL_UDP
++#   define SOL_UDP IPPROTO_UDP
++#  endif
+ # endif /* __NetBSD__ / __FreeBSD__ */
+ 
+ static int nostate1 __P((struct ph1handle *, vchar_t *));
+diff -Naurp ipsec-tools-0.8.0.orig/src/racoon/nattraversal.c ipsec-tools-0.8.0/src/racoon/nattraversal.c
+--- ipsec-tools-0.8.0.orig/src/racoon/nattraversal.c	2011-03-14 18:18:13.000000000 +0100
++++ ipsec-tools-0.8.0/src/racoon/nattraversal.c	2011-03-21 14:48:08.000000000 +0100
+@@ -38,7 +38,7 @@
+ #ifdef __linux__
+ #include <linux/udp.h>
+ #endif
+-#if defined(__NetBSD__) || defined (__FreeBSD__)
++#if defined(__NetBSD__) || defined (__FreeBSD__) || defined(__FreeBSD_kernel__)
+ #include <netinet/udp.h>
+ #endif
+ 
+diff -Naurp ipsec-tools-0.8.0.orig/src/racoon/pfkey.c ipsec-tools-0.8.0/src/racoon/pfkey.c
+--- ipsec-tools-0.8.0.orig/src/racoon/pfkey.c	2011-03-15 14:20:14.000000000 +0100
++++ ipsec-tools-0.8.0/src/racoon/pfkey.c	2011-03-21 14:48:08.000000000 +0100
+@@ -50,7 +50,7 @@
+ #  include <linux/udp.h>
+ # endif
+ # if defined(__NetBSD__) || defined(__FreeBSD__) ||	\
+-  (defined(__APPLE__) && defined(__MACH__))
++  (defined(__APPLE__) && defined(__MACH__)) || defined(__FreeBSD_kernel__)
+ #  include <netinet/udp.h>
+ # endif
+ #endif
+diff -Naurp ipsec-tools-0.8.0.orig/src/setkey/token.c ipsec-tools-0.8.0/src/setkey/token.c
+--- ipsec-tools-0.8.0.orig/src/setkey/token.c	2011-03-18 14:28:03.000000000 +0100
++++ ipsec-tools-0.8.0/src/setkey/token.c	2011-03-21 14:48:08.000000000 +0100
+@@ -1051,7 +1051,7 @@ char *yytext;
+ 
+ #include "vchar.h"
+ #if defined(__NetBSD__) || defined(__FreeBSD__) || defined(__linux__) || \
+-(defined(__APPLE__) && defined(__MACH__))
++(defined(__APPLE__) && defined(__MACH__)) || defined(__FreeBSD_kernel__)
+ #include "parse.h"
+ #else
+ #include "y.tab.h"
+diff -Naurp ipsec-tools-0.8.0.orig/src/setkey/token.l ipsec-tools-0.8.0/src/setkey/token.l
+--- ipsec-tools-0.8.0.orig/src/setkey/token.l	2010-06-04 15:06:03.000000000 +0200
++++ ipsec-tools-0.8.0/src/setkey/token.l	2011-03-21 14:48:08.000000000 +0100
+@@ -53,7 +53,7 @@
+ 
+ #include "vchar.h"
+ #if defined(__NetBSD__) || defined(__FreeBSD__) || defined(__linux__) || \
+-(defined(__APPLE__) && defined(__MACH__))
++(defined(__APPLE__) && defined(__MACH__)) || defined(__FreeBSD_kernel__)
+ #include "parse.h"
+ #else
+ #include "y.tab.h"
+

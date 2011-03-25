@@ -1,0 +1,291 @@
+.TH RACOON-TOOL.CONF 5
+.SH NAME
+racoon-tool.conf \- configuration file for
+.BR racoon-tool (8).
+.SH "DESCRIPTION"
+This manual page documents briefly the
+.BR racoon-tool.conf (5) ,
+configuration file format. 
+.PP
+Please consult the
+.BR racoon.conf (5)
+man-page first to better understand what is written about here.
+.SH SYNTAX
+The
+.BR racoon-tool.conf (5)
+file is laid out in sections.
+.PP
+Comments are delimited on the left by `#', and can be on a line by
+themselves, or at the end of a line.
+.PP
+The possible sections are
+.I global,
+.I connection,
+and
+.I peer.
+The possible templates are
+.I spdadd,
+.I spdinit,
+.I sadinit,
+.I sadadd,
+.I remote,
+.I sainfo,
+and
+.I racooninit.
+.PP
+Sections start with
+.I section:
+and then continue with their properties (name terminated by `:' then
+value), and templates ALWAYS have to have each line started with
+.I template:
+Sections and templates can be named, with the name occurring in
+parenthesis between the last character of their type and the final
+colon.
+.SH SECTIONS
+The possible sections are:
+.TP
+.BR global:
+Contains global parameters for the generated
+.BR racoon.conf (5), 
+and global settings used by
+.BR racoon-tool (8).
+Available settings are:
+.I path_pre_shared_key,
+.I path_certificate,
+.I path_racoon_conf,
+.I racoon_command,
+.I racoon_pid_file,
+.I log,
+.I listen[[0-9a-z]],
+and
+.I complex_bundle.
+
+Apart from
+.I racoon-command
+and
+.I racoon_pid_file,
+the setting map across to the similar names in
+.BR racoon.conf (5).
+
+The
+.I listen
+directive is a bit different from the man-page and takes multiple
+.I {ip-address} [[port]]
+statements by attaching an index `0-9',`a-z' in square brackets immediately
+before the colon.
+.TP
+.BR connection( "%default|%anonymous|[-_a-z0-9]+" ):
+Connection as described by the complementary SPD entries.  Creates 
+`sainfo' sections in the generated
+.BR racoon.conf (5),
+and associated SPD entries. 
+
+Directives and values are basically one for
+one with the relevant entries in
+.BR racoon.conf (5).
+
+The `%default' VPN connection fills in entries in other specified
+connections, unless they are otherwise defined within the specific
+connection. The `%anonymous' connection is there for a passive VPN
+server.
+.TP
+.BR peer( "%default|%anonymous|[a-f0-9:\.]+" ):
+Defines the phase 1 attributes associated with a peer.  This creates
+`remote' entries in the generated
+.BR racoon.conf (5). 
+
+Directives and values are basically one for one with the relevant
+entries in
+.BR racoon.conf (5).
+Different proposals are signified by adding an index `0-9', or `a-z' to
+the
+.I encryption_algorithm,
+.I hash_algorithm,
+.I dh_group,
+and
+.I authentication_method
+entries, within square brackets immediately before the colon.
+
+The `%default' VPN connection fills in entries in other specified
+connections, unless they are otherwise defined within the specific
+connection. The `%anonymous' connection is there for a passive VPN
+server.
+.SH TEMPLATES
+Templates are described briefly here.  You will have to look inside the
+.BR racoon-tool (8)
+perl script to see exactly what you can do.
+.TP
+.BR spdinit:
+Portion that can be used to initialise the SPD.  Uses setkey syntax.
+See
+.BR setkey (8).
+.TP
+.BR sadinit:
+Portion that can be used to initialise the SAD.  Uses setkey syntax.
+See
+.BR setkey (8).
+.TP
+.BR spdadd(%default|[-_a-z0-9]+):
+Template for adding SPD entries. Different templates can be used.
+Keys for replacement are of the form `___setkey_name___', with names
+found in
+.BR setkey (8).
+The built in template is named `%default'.
+.TP
+.BR sadadd(%default|[-_a-z0-9]+):
+Template for adding SAD entries. Different templates can be used.
+Keys for replacement are of the form `___setkey_name___', with names
+found in
+.BR setkey (8).
+The built in template is named `%default'.
+.TP
+.BR remote(%default|[-_a-z0-9]+):
+Template for adding 'remote' entries to the generated
+.BR racoon.conf(5).
+Different templates can be used.  Keys for replacement are
+of the form `___setkey_name___', with names found in
+.BR setkey (8).
+The built in template is named `%default'.
+.TP
+.BR sainfo(%default|[-_a-z0-9]+):
+Template for adding 'sainfo' entries to the generated 
+.BR racoon.conf (5).
+Different templates can be used.
+Keys for replacement are of the form `___setkey_name___', with names
+found in
+.BR setkey (8).
+The built in template is named `%default'.
+.TP
+.BR racooninit:
+Template for adding your own section to the start of the generated
+.BR racoon.conf (5).
+
+.SH "EXAMPLES"
+Example of a simple configuration using PSK authentication.
+.PP
+.nf
+#
+# Configuration file for racoon-tool
+#
+# See racoon-tool.conf(5) for details
+#
+
+#
+# Simple PSK - authentication defaults to pre_shared_key  
+#
+connection(bacckdoor-doormat):
+	src_range: 192.168.223.1/32
+	dst_range: 192.168.200.0/24
+	src_ip: 172.31.1.1
+	dst_ip: 10.0.0.1
+	admin_status: enabled
+	compression: no
+	lifetime: time 20 min
+	authentication_algorithm: hmac_sha1
+	encryption_algorithm: 3des
+
+peer(10.0.0.1):
+	verify_cert: on
+	passive: off
+	verify_identifier: off
+	lifetime: time 60 min
+	hash_algorithm[0]: sha1
+	encryption_algorithm[0]: 3des
+
+.fi
+.PP
+Example of a complex configuration with multple networks betweenthe
+same endpoints, as well as use of `%default' for common settings.
+.PP
+.nf
+#
+# Configuration file for racoon-tool
+#
+
+global:
+	log: notify
+
+# default settings to save typing
+peer(%default):
+	certificate_type: x509 blurke-ipsec.crt blurke-ipsec.key
+	my_identifier: fqdn blurke.bar.com
+	lifetime: time 60 min
+	verify_identifier: on
+	verify_cert: on
+	hash_algorithm[0]: sha1
+	encryption_algorithm[0]: 3des
+	authentication_method[0]: rsasig
+
+connection(%default):
+	authentication_algorithm: hmac_sha1
+	encryption_algorithm: 3des
+	src_ip: 172.31.1.1
+	lifetime: time 20 min
+
+# Connection to work
+peer(10.0.0.1):
+	peers_identifier: fqdn blue.sky.com
+
+connection(blurke-blue-sky-work):
+	src_range: 192.168.203.1/32
+	dst_range: 172.16.0.0/24
+	dst_ip: 10.0.0.1
+	admin_status: enabled
+
+# Connection to telehoused servers
+connection(blurke-mail):
+	src_range: 192.168.203.0/24
+	dst_range: 172.20.1.1
+	dst_ip: 10.100.0.1
+	encryption_algorithm: blowfish
+	compression: on
+	admin_status: yes
+
+peer(10.100.0.1):
+	peers_identifier: fqdn mail.bar.com
+
+connection(blurke-web1):
+	src_range: 192.168.203.0/24
+	dst_range: 172.20.1.23
+	dst_ip: 10.100.0.1
+	encryption_algorithm: blowfish
+	admin_status: yes
+
+connection(blurke-web2):
+	src_range: 192.168.203.0/24
+	dst_range: 172.20.1.24
+	dst_ip: 10.100.0.1
+	encryption_algorithm: blowfish
+	admin_status: yes
+
+
+
+# Test connection to Free S/WAN
+connection(blurke-freeswan):
+	src_range: 192.168.203.0/24
+	dst_range: 172.17.100.0/24
+	dst_ip: 172.30.1.1
+	admin_status: yes
+
+peer(172.30.1.1):
+	peers_identifier: fqdn banshee
+.fi
+
+.SH "FILES"
+.TP
+.I /etc/racoon/racoon-tool.conf
+The file that this man page describes.
+.TP
+.I /var/lib/racoon/racoon.conf
+The generated racoon.conf.
+
+.SH "SEE ALSO"
+.BR racoon.conf (5),
+.BR racoon-tool (8),
+.BR racoon (8),
+.BR setkey (8).
+.SH BUGS
+This man page is by no means complete.
+.SH AUTHOR
+This manual page was written by Matthew Grant <grantma@anathoth.gen.nz>
+for the Debian GNU/Linux system (but may be used by others).

@@ -1,0 +1,51 @@
+# Vietnamese Translation for ipsec-tools.
+# Copyright © 2008 Free Software Foundation, Inc.
+# Clytie Siddall <clytie@riverland.net.au>, 2005-2008.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: ipsec-tools 1:0.7-2.1\n"
+"Report-Msgid-Bugs-To: ipsec-tools@packages.debian.org\n"
+"POT-Creation-Date: 2008-04-21 08:51+0000\n"
+"PO-Revision-Date: 2008-05-22 14:29+0930\n"
+"Last-Translator: Clytie Siddall <clytie@riverland.net.au>\n"
+"Language-Team: Vietnamese <vi-VN@googlegroups.com>\n"
+"Language: vi\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Generator: LocFactoryEditor 1.7b3\n"
+
+#. Type: select
+#. Choices
+#: ../racoon.templates:1001
+msgid "direct"
+msgstr "trực tiếp"
+
+#. Type: select
+#. Choices
+#: ../racoon.templates:1001
+msgid "racoon-tool"
+msgstr "racoon-tool"
+
+#. Type: select
+#. Description
+#: ../racoon.templates:1002
+msgid "Configuration mode for racoon IKE daemon."
+msgstr "Chế độ cấu hình cho trình nền IKE racoon."
+
+#. Type: select
+#. Description
+#: ../racoon.templates:1002
+msgid ""
+"Racoon can be configured two ways, either by directly editing /etc/racoon/"
+"racoon.conf or using the racoon-tool administrative front end. racoon-tool "
+"is now deprecated and is only available for backward compatibility. New "
+"installations should always use the \"direct\" method."
+msgstr ""
+"Trình racoon có thể được cấu hình bằng hai cách khác nhau, hoặc bằng cách "
+"hiệu chỉnh trực tiếp tập tin cấu hình « /etc/init.d/racoon.conf », hoặc bằng "
+"cách sử dụng tiền tiêu quản trị racoon-tool. Tùy nhiên, racoon-tool lúc bây "
+"giờ bị phản đối và công bố chỉ để tương thích ngược. Việc cài đặt mới lúc "
+"nào cũng nên dùng phương pháp « trực tiếp »."

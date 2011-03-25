@@ -1,0 +1,95 @@
+# 
+#    Translators, if you are not familiar with the PO format, gettext
+#    documentation is worth reading, especially sections dedicated to
+#    this format, e.g. by running:
+#         info -n '(gettext)PO Files'
+#         info -n '(gettext)Header Entry'
+# 
+#    Some information specific to po-debconf are available at
+#            /usr/share/doc/po-debconf/README-trans
+#         or http://www.debian.org/intl/l10n/po-debconf/README-trans
+# 
+#    Developers do not need to manually edit POT or PO files.
+# 
+msgid ""
+msgstr ""
+"Project-Id-Version: ipsec-tools 1:0.7.1-1\n"
+"Report-Msgid-Bugs-To: ipsec-tools@packages.debian.org\n"
+"POT-Creation-Date: 2008-04-21 08:51+0000\n"
+"PO-Revision-Date: 2008-08-06 20:05+0900\n"
+"Last-Translator: Hideki Yamane (Debian-JP) <henrich@debian.or.jp>\n"
+"Language-Team: Japanese <debian-japanese@lists.debian.org>\n"
+"Language: ja\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#. Type: select
+#. Choices
+#: ../racoon.templates:1001
+msgid "direct"
+msgstr "直接"
+
+#. Type: select
+#. Choices
+#: ../racoon.templates:1001
+msgid "racoon-tool"
+msgstr "racoon-tool"
+
+#. Type: select
+#. Description
+#: ../racoon.templates:1002
+msgid "Configuration mode for racoon IKE daemon."
+msgstr "racoon IKE デーモンの設定方法"
+
+#. Type: select
+#. Description
+#: ../racoon.templates:1002
+msgid ""
+"Racoon can be configured two ways, either by directly editing /etc/racoon/"
+"racoon.conf or using the racoon-tool administrative front end. racoon-tool "
+"is now deprecated and is only available for backward compatibility. New "
+"installations should always use the \"direct\" method."
+msgstr ""
+"racoon は、/etc/racoon/racoon.conf を直接編集する、もしくは racoon-tool 管理"
+"フロントエンドを利用するという、2 つの方法のどちらを使っても設定可能です。"
+"racoon-tool はすでに廃止される予定になっており、後方互換性のためにのみ残され"
+"ています。新規インストールでは必ず「直接」設定してください。"
+
+#~ msgid "Please select the racoon configuration mode."
+#~ msgstr "racoon IKE デーモンの設定方法を選択してください。"
+
+#~ msgid "Racoon can now be configured two ways."
+#~ msgstr "racoon は 2 つの方法で設定可能です。"
+
+#~ msgid ""
+#~ "The traditional one (direct), which is for direct editing of  /etc/racoon/"
+#~ "racoon.conf and setup of the SPD using setkey via a shell  script written "
+#~ "by the systems administrator. You will have to make sure that the kernel "
+#~ "has all required modules loaded or the racoon daemon can exit with a "
+#~ "'failed to parse configuration file' error."
+#~ msgstr ""
+#~ "従来の方法 (直接) では、/etc/racoon/racoon.conf を直接編集し、管理者によっ"
+#~ "て書かれたシェルスクリプトによる setkey を用いて SPD を設定します。カーネ"
+#~ "ルに必要な全てのモジュールが読み込まれていなければ、racoon デーモンは '設"
+#~ "定ファイルの解析エラー' で終了します。"
+
+#~ msgid ""
+#~ "The new one is the racoon-tool administration front end which configures "
+#~ "both, as well as handling module loading and can handle most common "
+#~ "setups.  Please  read /usr/share/doc/racoon/README.Debian for more "
+#~ "details."
+#~ msgstr ""
+#~ "新しい方法は、racoon-tool 管理フロントエンドでは、モジュールのロードと、一"
+#~ "般的なセットアップの両方が行えます。より詳細な情報については、/usr/share/"
+#~ "doc/racoon/README.Debian を読んでください。"
+
+#~ msgid ""
+#~ "Would you like to use the new racoon-tool program to configure VPNs, or "
+#~ "the direct editing of /etc/racoon/racoon.conf?"
+#~ msgstr ""
+#~ "VPN の設定に新しい racoon-tool プログラムを利用しますか？もしくは、直接 /"
+#~ "etc/racoon/racoon.conf を編集しますか？"
+
+#~ msgid "Please select from either 'direct' or 'racoon-tool'."
+#~ msgstr "'直接' もしくは 'racoon-tool' のいづれかを選択してください"

@@ -1,0 +1,12 @@
+Template: racoon/config_mode
+Type: select
+__Choices: direct, racoon-tool
+# The above choices have to be left as they are as the values are used directly
+# in the postinst script.  They do not need translation.
+# Please explain what they are in any rewritten description.
+Default: direct
+_Description: Configuration mode for racoon IKE daemon.
+ Racoon can be configured two ways, either by directly editing
+ /etc/racoon/racoon.conf or using the racoon-tool administrative front end.
+ racoon-tool is now deprecated and is only available for backward
+ compatibility. New installations should always use the "direct" method.

@@ -1,0 +1,121 @@
+#! /bin/sh
+### BEGIN INIT INFO
+# Provides:          racoon
+# Required-Start:    $remote_fs setkey
+# Required-Stop:
+# Should-Start:	     $portmap
+# Should-Stop:	     $portmap
+# Default-Start:     S
+# Default-Stop:      0 1 6
+# X-Stop-After:	     sendsigs
+# Short-Description: start the ipsec key exchange server 
+### END INIT INFO
+#
+# netscript	script to fire up netscript network configuration system
+#
+#		Written by Miquel van Smoorenburg <miquels@cistron.nl>.
+#		Modified for Debian GNU/Linux
+#		by Ian Murdock <imurdock@gnu.ai.mit.edu>.
+#		Modified from /etc/init.d/skeleton
+#		by Matthew Grant <grantma@anathoth.gen.nz>
+#
+
+set -e
+
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+TOOL=/usr/sbin/racoon-tool
+DAEMON=/usr/sbin/racoon
+NAME=racoon
+DESC="racoon"
+DEF_CFG="/etc/default/racoon"
+PID_FILE="/var/run/racoon.pid"
+PROC_FILE="/proc/net/pfkey"
+
+test -f $TOOL || exit 0
+test -f $DAEMON || exit 0
+
+CONFIG_MODE="direct"
+RACOON_ARGS=""
+
+[ -f "$DEF_CFG" ] && . $DEF_CFG
+
+if [ ! -d /var/run/racoon ]; then
+	mkdir -p /var/run/racoon
+fi
+
+check_kernel () {
+	local MOD_DIR=/lib/modules/`uname -r`
+	local FOUT
+
+	[ -f "$PROC_FILE" ] && return 0
+	[ ! -d "$MOD_DIR" ] && return 1
+	FOUT=`find $MOD_DIR -name "*af_key*"`
+	[ -z "$FOUT" ] && return 1
+	return 0
+}
+
+if [ "$(uname -s)" = "Linux" ] && ! check_kernel ; then
+        echo "racoon - IKE keying daemon will not be started as $PROC_FILE is not" 1>&2
+        echo "         available or a suitable 2.6 (or 2.4 with IPSEC backport)" 1>&2
+        echo "         kernel with af_key.[k]o module installed." 1>&2
+	exit 0
+fi
+
+if [ "$(uname -s)" = "GNU/kFreeBSD" ]; then
+	result=0
+	setkey -DP >/dev/null || result=$?
+	if [ $result -ne 0 ]; then
+		echo "racoon - IKE keying daemon will not be started as this kFreeBSD kernel" 1>&2
+		echo "is not compiled with support for IPsec." 1>&2
+		exit 0;
+	fi
+fi
+
+case  $CONFIG_MODE in
+  racoon-tool)
+  # /usr/sbin/racoon-tool command complies with Debian Policy so just do this:
+  # NB the following makes lintian happy
+	case "$1" in
+	  start|stop|reload|force-reload|restart)
+		$TOOL $*
+		;;
+	  *)
+		$TOOL $*
+		;;
+	esac
+	;;
+  *)
+	case "$1" in
+          start)
+                echo -n "Starting IKE (ISAKMP/Oakley) server: racoon"
+	        start-stop-daemon --start --quiet --exec ${DAEMON} -- ${RACOON_ARGS}
+        	echo "."
+                ;;
+         
+	  stop)
+        	echo -n "Stopping IKE (ISAKMP/Oakley) server: racoon"
+                start-stop-daemon --stop --retry 25 --quiet --oknodo \
+                    --pidfile $PID_FILE --name racoon
+                rm -f $PID_FILE /var/run/racoon/racoon.sock
+	        echo "."
+        	;;
+         
+	  reload|force-reload)
+                racoonctl reload-config
+	        ;;
+        
+
+	  restart)
+                $0 stop
+                $0 start
+		;;
+
+ 
+          *)
+                echo "Usage: $0 {start|stop|reload|force-reload|restart}" >&2
+	        exit 1
+	esac
+	;;
+esac
+
+exit 0

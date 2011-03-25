@@ -1,0 +1,143 @@
+.TH RACOON-TOOL 8
+.\" NAME should be all caps, SECTION should be 1-8, maybe w/ subsection
+.\" other parms are allowed: see man(7), man(1)
+.SH NAME
+racoon-tool \- program to manage the 
+.BR racoon (8)
+IPSEC IKE daemon.
+.SH SYNOPSIS
+.B racoon-tool
+.I "[-h] reload|restart|force-reload|start|stop"
+.br
+.B racoon-tool
+.I "[-h] sadflush|spdflush|saddump|spddump"
+.br
+.B racoon-tool
+.I "[-h] vpndown|vdown|vpnup|vup connection-name|all"
+.br
+.B racoon-tool
+.I "[-h] vpnreload|vreload connection-name|all"
+.br
+.B racoon-tool
+.I "[-h] vpnlist|vlist [connection-name|all]"
+.br
+.B racoon-tool
+.I "[-h] vpnmenu|vmenu [connection-name-regexp]"
+.br
+.B racoon-tool
+.I "[-h] racoonstart|racoonstop|rstart|rstop"
+.br
+.SH "DESCRIPTION"
+This manual page documents briefly the
+.BR racoon-tool
+command.
+.BR racoon-tool (8)
+is a perl script that can be used to control the
+.BR racoon (8)
+IKE daemon and the SPD database within the kernel via the
+.BR setkey (8)
+command.  Various operations that it can do
+are described below.
+.PP
+You can also optionally choose not to use it via reconfiguring the 
+.I racoon
+package using
+.BR dpkg-reconfigure (8). 
+
+.SH OPTIONS
+A summary of options are included below.
+.TP
+.B \-h
+Show summary of options.
+
+.SH COMMANDS
+.TP
+.B start
+Start 
+.BR racoon (8), 
+loading any needed modules, configuring the SPD, and generating
+a configuration from
+.I /etc/racoon/racoon-tool.conf.
+.TP
+.B stop
+Stop
+.BR racoon (8)
+unloading any crypto/IPSEC modules, flushing the SAD and SPD.
+.TP
+.B reload
+Regenerate configuration from
+.I /etc/racoon/racoon.conf, HUP
+.BR racoon (8)
+and reinitialise the SPD and SAD.
+.TP
+.B restart|force-reload
+Perform a
+.I stop
+followed by a
+.I start
+.TP
+.B sadflush
+Flush the SAD via
+.BR setkey (8).
+.TP
+.B spdflush
+Flush the SPD via
+.BR setkey (8).
+.TP 
+.B saddump|dump
+Dump the SAD to screen via
+.BR setkey (8),
+paginating via your pager.
+.TP
+.B spddump
+Dump the SPD to screen via
+.BR setkey (8),
+paginating via your pager.
+.TP
+.BR "vpnup|vup" " connection-name|all"
+Bring up the VPN connection(s).
+.TP
+.BR "vpndown|vdown" " connection-name|all"
+Take down the VPN connection(s).
+.TP
+.BR "vpnreload|vreload" " connection-name|all"
+Reload the VPN connection(s).
+.TP
+.BR "vpnlist|vlist" " [connection-name|all]"
+List the known VPN connections in
+.I /etc/racoon/racoon-tool.conf.
+Can be used by a script or administrator to see 
+if a VPN connection exists.
+.TP
+.BR "vpnmenu|vmenu" " [connection-name-regexp]"
+Start the VPN menu management mode.  This displays the SPD, 
+and you can shutdown VPNs from here.  Latter on support will
+be added for checking status and reloading the chosen connection.
+.TP
+.B racoonstart|rstart
+Start only the
+.BR racoon (8)
+daemon.
+.TP
+.B racoonstop|rstop
+Stop only the
+.BR racoon (8)
+daemon.
+.SH "FILES"
+.TP
+.I /etc/racoon/racoon-tool.conf 
+\- configuration file.
+.TP
+.I /var/lib/racoon/racoon.conf 
+\- generated racoon.conf
+.SH "SEE ALSO"
+.BR racoon (8),
+.BR racoon.conf (5),
+.BR setkey (8),
+.BR racoon-tool.conf (5).
+
+.SH AUTHOR
+This manual page was written by Matthew Grant <grantma@anathoth.gen.nz>,
+for the Debian GNU/Linux system (but may be used by others).
+
+\"  LocalWords:  RACOON

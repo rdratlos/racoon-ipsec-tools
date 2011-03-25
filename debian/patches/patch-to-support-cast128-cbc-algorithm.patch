@@ -1,0 +1,16 @@
+This patch adds support for cast128-cbc algorithm
+patch supplied by Hiroyuki YAMAMORI <h-yamamo@db3.so-net.ne.jp>
+
+
+
+--- ipsec-tools-0.7.3.orig/src/include-glibc/net/pfkeyv2.h	2010-02-24 21:06:06.000000000 +0100
++++ ipsec-tools-0.7.3/src/include-glibc/net/pfkeyv2.h	2010-02-24 21:06:30.000000000 +0100
+@@ -18,7 +18,7 @@
+ #define SADB_X_AALG_SHA              250
+ 
+ /* private allocations - based on RFC2407/IANA assignment */
+-#define SADB_X_EALG_CAST128CBC	5	/* SADB_X_EALG_CASTCBC? == 6 */
++#define SADB_X_EALG_CAST128CBC		SADB_X_EALG_CASTCBC
+ #define SADB_X_EALG_RIJNDAELCBC		SADB_X_EALG_AESCBC
+ #define SADB_X_EALG_AES			SADB_X_EALG_AESCBC
+ 
