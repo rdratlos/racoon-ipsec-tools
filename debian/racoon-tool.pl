@@ -1346,16 +1346,22 @@ sub match_spd_connection (\@\%) {
 				  && $spd->{'src_range'} eq $conn->{'dst_range'}
 				  && $spd->{'direction'} eq 'fwd'
 				  && $spd->{'target'} eq 'ipsec'
-				|| $spd->{'src_range' } eq $conn->{'src_subnet'}
-				  && $spd->{'dst_range'} eq $conn->{'dst_subnet'}
+				|| ($spd->{'src_range' } eq $conn->{'src_subnet'}
+					|| $spd->{'src_range' } eq $conn->{'src_subnet'} .'[500]')
+				  && ($spd->{'dst_range'} eq $conn->{'dst_subnet'}
+				  	|| $spd->{'dst_range'} eq $conn->{'dst_subnet'} . '[500]')
 				  && $spd->{'direction'} eq 'out'
 				  && $spd->{'target'} =~ m/^(none|discard)$/ 
-				||  $spd->{'dst_range'} eq $conn->{'src_subnet'}
-				  && $spd->{'src_range'} eq $conn->{'dst_subnet'}
+				||  ($spd->{'dst_range'} eq $conn->{'src_subnet'}
+					|| $spd->{'dst_range'} eq $conn->{'src_subnet'} . '[500]')
+				  && ($spd->{'src_range'} eq $conn->{'dst_subnet'}
+				  	|| $spd->{'src_range'} eq $conn->{'dst_subnet'} . '[500]')
 				  && $spd->{'direction'} eq 'in'
 				  && $spd->{'target'} =~ m/^(none|discard)$/ 
-				|| $spd->{'dst_range'} eq $conn->{'src_subnet'}
-				  && $spd->{'src_range'} eq $conn->{'dst_subnet'}
+				|| ($spd->{'dst_range'} eq $conn->{'src_subnet'}
+					|| $spd->{'dst_range'} eq $conn->{'src_subnet'} . '[500]')
+				  && ($spd->{'src_range'} eq $conn->{'dst_subnet'}
+				  	|| $spd->{'src_range'} eq $conn->{'dst_subnet'} . '[500]')
 				  && $spd->{'direction'} eq 'fwd'
 				  && $spd->{'target'} =~ m/^(none|discard)$/){
 				$spd->{'connection'} = $connection;

@@ -1,3 +1,11 @@
+ipsec-tools (1:0.8.0-5) unstable; urgency=low
+
+  * Fix required-stop $remotefs with lintian override as otherwise causes 
+    dependency boot order loops sith sendsigs.
+  * Add racoon-tool match code for udp port 500 traffic.
+
+ -- Matthew Grant <matthewgrant5@gmail.com>  Mon, 26 Sep 2011 10:52:50 +1300
+
 ipsec-tools (1:0.8.0-4.1) unstable; urgency=low
 
   * Update raccon-tool transport mode to ignore dup port 500 <-> 500 traffic.

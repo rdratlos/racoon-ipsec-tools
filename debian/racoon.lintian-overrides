@@ -1,1 +1,2 @@
 racoon: possible-gpl-code-linked-with-openssl
+racoon binary: init.d-script-missing-dependency-on-remote_fs etc/init.d/netscript: required-stop
