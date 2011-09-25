@@ -55,35 +55,70 @@ sub basename($$);
 sub openlog($$$);
 sub syslog($$);
 
-$proc_modules = "/proc/modules";
-$kver = `uname -r`; chomp $kver;
-$modpath = "/lib/modules/" . $kver;
-$modpath_ipsec = "$modpath/kernel/net/ipv4";
-$modpath_ipsec6 = "$modpath/kernel/net/ipv6";
-$modpath_xfrm = "$modpath/kernel/net/xfrm";
-$modpath_key = "$modpath/kernel/net/key";
-$modpath_crypto = "$modpath/kernel/crypto";
-$modpath_zlib = "$modpath/kernel/lib/zlib_deflate";
-$modext = ( $kver =~ /^2\.6\./ ? ".ko" : ".o" );
-$progname = basename($0, "");
-$proc_ipv4 = "/proc/sys/net/ipv4";
-$proc_ipv6 = "/proc/sys/net/ipv6";
+if ($^O =~ /linux/i ) {
+	$proc_modules = "/proc/modules";
+	$kver = `uname -r`; chomp $kver;
+	$modpath = "/lib/modules/" . $kver;
+	$modpath_ipsec = "$modpath/kernel/net/ipv4";
+	$modpath_ipsec6 = "$modpath/kernel/net/ipv6";
+	$modpath_xfrm = "$modpath/kernel/net/xfrm";
+	$modpath_key = "$modpath/kernel/net/key";
+	$modpath_crypto = "$modpath/kernel/crypto";
+	$modpath_zlib = "$modpath/kernel/lib/zlib_deflate";
+	$modext = ( $kver =~ /^2\.6\.|^3\./ ? ".ko" : ".o" );
+	$proc_ipv4 = "/proc/sys/net/ipv4";
+	$proc_ipv6 = "/proc/sys/net/ipv6";
+} # endif linux
 
-$setkey_cmd = "/usr/sbin/setkey";
-$confdir = "/etc/racoon";
-$vardir = "/var/lib/racoon";
-$conffile = "${confdir}/racoon-tool.conf";
-$less_cmd = "/usr/bin/less";
-$more_cmd = "/bin/more";
+
+if ($^O =~ /linux|gnukfreebsd/i) {
+	$setkey_cmd = "/usr/sbin/setkey";
+	$confdir = "/etc/racoon";
+	$vardir = "/var/lib/racoon";
+	$conffile = "${confdir}/racoon-tool.conf";
+	$conffiledir = "${confdir}/racoon-tool.conf.d";
+	$racoon_cmd = "/usr/sbin/racoon";
+	$less_cmd = "/usr/bin/less";
+	$more_cmd = "/bin/more";
+} elsif ($^O =~ /freebsd/i) {
+	$setkey_cmd = "/usr/local/sbin/setkey";
+	$confdir = "/usr/local/etc/racoon";
+	$vardir = "/var/db/racoon";
+	$conffile = "${confdir}/racoon-tool.conf";
+	$conffiledir = "${confdir}/racoon-tool.conf.d";
+	$racoon_cmd = "/usr/local/sbin/racoon";
+	$less_cmd = "/usr/bin/less";
+	$more_cmd = "/usr/bin/more";
+} elsif ($^O =~ /netbsd/i) {
+	# This set of paths is a guess, and needs confirmation
+	$setkey_cmd = "/usr/sbin/setkey";
+	$confdir = "/etc/racoon";
+	$vardir = "/var/db/racoon";
+	$conffile = "${confdir}/racoon-tool.conf";
+	$conffiledir = "${confdir}/racoon-tool.conf.d";
+	$racoon_cmd = "/usr/sbin/racoon";
+	$less_cmd = "/usr/bin/less";
+	$more_cmd = "/usr/bin/more";
+} else {
+	prog_die("unsupported platform - '$^O'.");
+}
+
+# Some OS kernels need time for their SAD and SPD to settle.
+$quiesce = 0;
+if ($^O =~ /freebsd/i) {
+	$quiesce = 1; # seconds
+}
+
 $pager_cmd =  ( -x $less_cmd ? $less_cmd : $more_cmd );
 @pager_flags = ( -x $less_cmd ? ( '-MMXEi' ): ());
 # Handle BSD and SYSV ps...
 $ps_cmd = ($^O =~ /bsd/i ? "ps axc" : "ps -e");
 $psf_cmd = ($^O =~ /bsd/i ? "ps axw" : "ps -eo pid,cmd");
-$racoon_cmd = "/usr/sbin/racoon";
+
 %fmt = ( 'normal' => 1, 'brief' => 2, 'comma' => 3 );
 $global_format = $fmt{'normal'};
 local $proc_id = $$;
+$progname = basename($0, "");
 $racoon_kill_delay = 25; # seconds
 
 # global settings hash
@@ -112,19 +147,22 @@ my %peer_list = (	'%default' => {
 			} );
 
 # Connection related stuff
-my $conn_proplist = 'src_range|dst_range|src_ip|dst_ip|upperspec|encap|mode|level|admin_status|spdadd_template|sadadd_template|sainfo_template|pfs_group|lifetime|encryption_algorithm|authentication_algorithm|compression';
+my $conn_proplist = 'src_range|dst_range|src_ip|dst_ip|upperspec|encap|mode|level|admin_status|spdadd_template|sadadd_template|sainfo_template|pfs_group|lifetime|encryption_algorithm|authentication_algorithm|compression|id_type|auto_ah_on_esp|always_ah_on_esp';
 my @conn_required_props = ( 'src_ip', 'dst_ip');
 my %connection_list = ( '%default' => {
 			'admin_status' 		=> 'disabled',
 			'upperspec' 		=> 'any',
 			'encap' 		=> 'esp',
-			'level' 		=> 'unique',
+			'level' 		=> 'require',
 			'spdadd_template' 	=> '%default',
 			'sadadd_template' 	=> '%default',
 			'sainfo_template' 	=> '%default',
 			'pfs_group'		=> 'modp1024',
 			'encryption_algorithm'	=> 'aes,3des',
-			'authentication_algorithm'	=> 'hmac_sha1,hmac_md5'
+			'authentication_algorithm'	=> 'hmac_sha1,hmac_md5',
+			'id_type'		=> 'address',
+			'auto_ah_on_esp'	=> 'off',
+			'always_ah_on_esp'	=> 'off'
 			},
 			'%anonymous'		=> {
 			'admin_status'		=> 'disabled'
@@ -147,7 +185,10 @@ my %prop_typehash = ( 	'connection'	=> {
 			'lifetime'		=> 'lifetime',
 			'encryption_algorithm'	=> 'phase2_encryption',
 			'authentication_algorithm' => 'phase2_auth_algorithm',
-			'compression'		=> 'boolean' 
+			'compression'		=> 'boolean',
+			'id_type'		=> 'id_type',
+			'auto_ah_on_esp'	=> 'boolean',
+			'always_ah_on_esp'	=> 'boolean'
 			},
 			'peer'		=> {
 			'exchange_mode' 	=> 'phase1_exchange_mode',
@@ -187,22 +228,22 @@ my %prop_typehash = ( 	'connection'	=> {
 
 my %prop_syntaxhash = (	'range'		=> '{ip-address|ip-address/masklen|ip-address[port]|ip-address/masklen[port]}',
 			'ip'		=> '{ip-address} - IPv4 or IPv6',
-			'uppserspec'	=> '{protocol} - number or /etc/protocols or any or icmp6',
+			'uppserspec'	=> '{protocol} - number or from /etc/protocols or any or icmp6',
 			'encap'		=> '{ah|esp}',
 			'mode'		=> '{tunnel|transport}',
 			'boolean'	=> '{enabled|disabled|true|false|yes|no|up|down|on|off|0|1}',
 			'template_name'	=> '{template-name} - can be %default or ^[-a-zA-Z0-9_]+',
 			'level'		=> '{default|use|require|unique}',
 			'phase1_exchange_mode' 	=> '{main|aggressive|base}',
-			'phase1_encryption'	=> '{aes|des|3des|blowfish|cast128}',
-			'hash_algorithm'	=> '{md5|sha1}',
-			'dh_group'		=> '{modp768|modp1024|modp1536|1|2|5}',
-			'pfs_group'		=> '{none|modp768|modp1024|modp1536|1|2|5}',
+			'phase1_encryption'	=> '{des|3des|blowfish|cast128|aes|camellia}',
+			'hash_algorithm'	=> '{md5|sha1|sha256|sha384|sha512}',
+			'dh_group'		=> '{modp768|modp1024|modp1536|modp2048|modp3072|modp4096|modp6144|modp8192|1|2|5|14|15|16|17|18}',
+			'pfs_group'		=> '{none|modp768|modp1024|modp1536|modp2048|modp3072|modp4096|modp6144|modp8192|1|2|5|14|15|16|17|18}',
 			'phase1_auth_method'	=> '{pre_shared_key|rsasig}',
 			'switch'		=> '{on|off}',
 			'lifetime'		=> '{time} {integer} {hour|hours|min|mins|minutes|sec|secs|seconds}',
-			'phase2_encryption'	=> '{aes|des|3des|des_iv64|des_iv32|rc5|rc4|idea|3idea|cast128|blowfish|null_enc|twofish|rijndael}',
-			'phase2_auth_algorithm'	=> '{aes|des|3des|des_iv64|des_iv32|hmac_md5|hmac_sha1|non_auth}',
+			'phase2_encryption'	=> '{des|3des|des_iv64|des_iv32|rc5|rc4|idea|3idea|cast128|blowfish|null_enc|twofish|rijndael|aes|camellia}',
+			'phase2_auth_algorithm'	=> '{des|3des|des_iv64|des_iv32|hmac_md5|hmac_sha1|hmac_sha256|hmac_sha384|hmac_sha512|non_auth}',
 			'identifier'		=> '{address [ip-address]|fqdn dns-name|user_fqdn user@dns-name|keyid file-name|asn1dn [asn1-name]}',
 			'certificate'		=> '{x509 cert-file privkey-file}',
 			'peers_certfile'	=> '{x509|plain_rsa|dnssec} {cert-file}',
@@ -214,7 +255,8 @@ my %prop_syntaxhash = (	'range'		=> '{ip-address|ip-address/masklen|ip-address[p
 			'listen'		=> '{ip-address} [[port]]',
 			'proposal_check'	=> '{obey|strict|claim|exact}',
 			'nat_traversal'		=> '{on|off|force}',
-			'nonce_size'		=> '{number} - between 8 and 256'
+			'nonce_size'		=> '{number} - between 8 and 256',
+			'id_type'		=> '{address|subnet} - ID type of ISAKMP Phase II identifier'
 			);
 
 my %bool_val = ( 	'enabled' => 1,
@@ -240,9 +282,41 @@ spdadd ___dst_range___ ___src_range___ ___upperspec___ -P in ipsec
 	___encap___/___mode___/___dst_ip___-___src_ip___/___level___;
 
 EOF
-%spdadd_addons = (	'ipcomp_in'	=> 'ipcomp/___mode___/___dst_ip___-___src_ip___/use',
-			'ipcomp_out'	=> 'ipcomp/___mode___/___src_ip___-___dst_ip___/use'
+%spdadd_addons = (	'ipcomp_in'	=> '	ipcomp/___mode___/___dst_ip___-___src_ip___/use',
+			'ipcomp_out'	=> '	ipcomp/___mode___/___src_ip___-___dst_ip___/use',
+			'ah_in'		=> '	ah/transport/___dst_ip___-___src_ip___/___level___',
+			'ah_out'		=> '	ah/transport/___src_ip___-___dst_ip___/___level___'
 		);
+# allow the following icmp control traffic
+# - echo reply (0)
+# - destination unreachable (3)
+# - source quench (4)
+# - echo request (8)
+# - time exceeded (11)
+my $spdadd_transport_ip4_default = <<'EOF';
+spdadd ___src_subnet___ ___dst_subnet___ icmp -P out priority 1 none;
+
+spdadd ___dst_subnet___ ___src_subnet___ icmp -P in priority 1 none;
+
+spdadd ___src_range___ ___dst_range___ ___upperspec___ -P out ipsec
+	___encap___/___mode___/___src_ip___-___dst_ip___/___level___;
+
+spdadd ___dst_range___ ___src_range___ ___upperspec___ -P in ipsec
+	___encap___/___mode___/___dst_ip___-___src_ip___/___level___;
+
+EOF
+my $spdadd_transport_ip6_default = <<'EOF';
+spdadd ___src_subnet___ ___dst_subnet___ icmp6 -P out priority 1 none;
+
+spdadd ___dst_subnet___ ___src_subnet___ icmp6 -P in priority 1 none;
+
+spdadd ___src_range___ ___dst_range___ ___upperspec___ -P out ipsec
+	___encap___/___mode___/___src_ip___-___dst_ip___/___level___;
+
+spdadd ___dst_range___ ___src_range___ ___upperspec___ -P in ipsec
+	___encap___/___mode___/___dst_ip___-___src_ip___/___level___;
+
+EOF
 
 my $racoon_init_default = <<"EOF";
 path pre_shared_key ___path_pre_shared_key___;
@@ -290,7 +364,7 @@ EOF
 		);
 
 my $sainfo_default = <<'EOF';
-sainfo address ___src_range___ ___upperspec___ address ___dst_range___ ___upperspec___ {
+sainfo ___id_type___ ___local_id___ ___upperspec___ ___id_type___ ___remote_id___ ___upperspec___ {
         encryption_algorithm ___encryption_algorithm___;
         authentication_algorithm ___authentication_algorithm___;
 	compression_algorithm deflate;
@@ -758,6 +832,7 @@ sub racoon_write_config ($$) {
 	my @spd_list;
 	my %conn_spd_hash;
 	my @remote_done = ();
+	my @sainfo_done = ();
 
 	parse_spd (@spd_list, %conn_spd_hash);
 
@@ -779,6 +854,7 @@ EOF
 	my $stuff = racoon_fill_init();
 	print RCF $stuff;
 
+
 	foreach my $connection ( keys %conn_spd_hash ) {
 		my $stuff = '';
 		my $hndl = $connection_list{$connection};
@@ -792,6 +868,12 @@ EOF
 			print RCF $stuff;
 		}
 
+		my $id_string = $hndl->{'local_id'} . '_' . $hndl->{'remote_id'};
+		if ( grep { $id_string eq $_ } @sainfo_done) {
+			print RCF "# using sainfo above here\n\n";
+			next;
+		}
+		push @sainfo_done, $id_string;
 		# print sainfo clauses needed...
 		$stuff = racoon_fill_sainfo($connection);
 		print RCF $stuff;
@@ -815,25 +897,23 @@ EOF
 		$stuff = racoon_fill_sainfo('%anonymous');
 		print RCF $stuff;
 	}
-	
+
 	close RCF;
 }
 
 sub log_backend () {
-foreach my $arg ( @ARGV ) {
-	next if $arg ne '-l';
-	
-	my $error = 0;
-	while ( <STDIN> ) {
-		chomp;
-		prog_warn 0, "setkey said: $_";
-		$error = 1;
+	foreach my $arg ( @ARGV ) {
+		next if $arg ne '-l';
+
+		my $error = 0;
+		while ( <STDIN> ) {
+			chomp;
+			prog_warn 0, "setkey said: $_";
+			$error = 1;
+		}
+
+		exit $error;
 	}
-	
-	exit $error;
-}
-
-
 }
 
 # List all connections
@@ -854,14 +934,14 @@ sub conn_list ($) {
 		print PAGER "$conn\n";
 	}
 	close PAGER or die "$progname: conn_list () - $pager_cmd failed - exit code " . ($? >> 8) . "\n";
-	
+
 	exit ( scalar(@conns) == 0 );
 }
 
 # Connection up
 sub conn_up_handle ($) {
 	my $connection = shift;
-	
+
 	if (! defined $connection ) {
 		usage ();
 		exit 1;
@@ -908,7 +988,7 @@ sub conn_down_handle ($) {
 		usage ();
 		exit 1;
 	}
-	
+
 	if ( $connection eq 'all' ) {
 		# Flush SPD and SAD
 		ipsec_flush ();
@@ -932,7 +1012,7 @@ sub conn_down_handle ($) {
 	}
 	print "done.\n";
 	prog_warn 'info', "$connection shutdown.";
-	
+
 	exit 0
 }
 
@@ -963,19 +1043,19 @@ sub conn_reload_handle ($) {
 		print "not found in SPD, ";
 	}
 
-        if ((my $ret = spd_load($connection)) <= 0 ) {
-                print "not found in configuration.\n" if $ret == 0;
-                print "syntax problem in configuration.\n" if $ret == -1;
-                print "already in SPD.\n" if $ret == -2;
-                exit 1;
-        }
+	if ((my $ret = spd_load($connection)) <= 0 ) {
+		print "not found in configuration.\n" if $ret == 0;
+		print "syntax problem in configuration.\n" if $ret == -1;
+		print "already in SPD.\n" if $ret == -2;
+		exit 1;
+	}
 
 	# Do dee racoon...
 	exit 1 if racoon_configure($fmt{'brief'}) < 0;
 
 	print "done.\n";
 	prog_warn 'info', "$connection reloaded.";
-	
+
 	exit 0;
 }
 
@@ -988,7 +1068,7 @@ sub spd_show_header () {
 sub spd_show_entry ($) {
 	my $entry = shift;
 	my $conn_name;
-	
+
 	if (defined $$entry{'connection'}) {
 		$conn_name = $$entry{'connection'};
 	} else {
@@ -1020,7 +1100,7 @@ sub conn_menu ($) {
 	my @spd = grep { ( defined $$_{'connection'} && $$_{'connection'} =~ m/${term}/ )
 				|| $$_{'src_range'} =~ m/${term}/
 				|| $$_{'dst_range'} =~ m/${term}/ } @spd_list;
-	
+
 	if ( ! @spd ) {
 		print "No SPD entries found.\n";
 		return;
@@ -1082,7 +1162,7 @@ sub conn_down (\@\%$;$$) {
 	my $spd = shift;
 	my $conn_force = shift;
 	my $no_racoon = shift;
-	
+
 	my @ret = ();
 	my @spd_to_del = ();
 	if ( $conn_force || $spd !~ m/^[0-9]+$/ ) {
@@ -1109,11 +1189,11 @@ sub conn_down (\@\%$;$$) {
 GO:
 	# Delete entries from SPD
 	open( SETKEY, '|-')
-		|| exec ("$setkey_cmd", '-c');
-	
+		|| exec ("$setkey_cmd", '-f', '/dev/stdin');
+
 	foreach my $spdnum ( @spd_to_del ) {
 		my ($spdentry) = grep { $$_{'index'} == $spdnum }  @$spd_list;
-		print SETKEY <<"EOF";
+	print SETKEY <<"EOF";
 spddelete -n $$spdentry{'src_range'} $$spdentry{'dst_range'} $$spdentry{'upperspec'} -P $$spdentry{'direction'};
 EOF
 		push @ret, $spdnum;
@@ -1122,6 +1202,7 @@ EOF
 	close SETKEY
 		or prog_die ("conn_down() - setkey connection deletion failed - exit code ". ($? >> 8) );
 
+	sleep($quiesce) if ($quiesce > 0);
 	# Deal with racoon
 	if ( ! $no_racoon ) {
 		racoon_configure();
@@ -1193,28 +1274,30 @@ sub parse_spd (\@\%) {
 
 	open (SETKEY, '-|')
 		|| exec ($setkey_cmd, '-PD');
-	
+
 	while (my $line = <SETKEY>) {
 		# print "$line";
-		if ( $line =~ m/^\s*([0-9a-fny\.\:\/\[\]]+)\s+([0-9a-fny\.\:\/\[\]]+)\s+([0-9a-z]+)\s*$/ ){
+		if ( $line =~ m/^\s*([0-9a-fny\.\:\/\[\]]+)\s+([0-9a-fny\.\:\/\[\]]+)\s+([-0-9a-z]+)\s*$/ ){
 			$src_range = $1;
 			$dst_range = $2;
 			$upperspec = $3;
+			# For Linux
+			$upperspec = 'any' if ($upperspec eq '255');
 			$onespd_flag = 1
 		} 
 		elsif ($onespd_flag > 0) {
 			$onespd_flag = 0;
-			$line =~ m/^\s*(in|out)\s+(prio def)?\s?(ipsec|none|discard)\s*$/;
+			$line =~ m/^\s*(in|out|fwd)\s+(prio)?.*\s?(ipsec|none|discard)\s*$/;
 			$direction = $1;
+			$target = $3;
 			push @$spd_list, { 'src_range', $src_range, 'dst_range', $dst_range, 
-					'upperspec', $upperspec, 'direction', $direction };
+					'upperspec', $upperspec, 'direction', $direction, 'target', $target };
 			# print "[ src_range=$src_range, dst_range=$dst_range, upperspec=$upperspec, direction=$direction ]\n";
 		}
 	}
 
 	close (SETKEY)
 		or prog_die "parse_spd() - can't parse SPD - exit code " . ($? >> 8);
-
 	# match the SPD policies to configuration data.
 	match_spd_connection (@$spd_list, %$conn_spd_hash);
 
@@ -1239,14 +1322,34 @@ sub match_spd_connection (\@\%) {
 			
 			# Quick handle - read only
 			my $conn = $connection_list{$connection};
-
-			if ( ($spd->{'src_range' } eq $conn->{'src_range'}
+			# Below covers ipsec and none 
+			if ($spd->{'upperspec'} eq $conn->{'upperspec'}
+				  && $spd->{'src_range' } eq $conn->{'src_range'}
 				  && $spd->{'dst_range'} eq $conn->{'dst_range'}
 				  && $spd->{'direction'} eq 'out'
-				|| $spd->{'dst_range'} eq $conn->{'src_range'}
+				  && $spd->{'target'} eq 'ipsec'
+				|| $spd->{'upperspec'} eq $conn->{'upperspec'}
+				  && $spd->{'dst_range'} eq $conn->{'src_range'}
 				  && $spd->{'src_range'} eq $conn->{'dst_range'}
-				  && $spd->{'direction'} eq 'in')
-				&& $spd->{'upperspec'} eq $conn->{'upperspec'} ) {
+				  && $spd->{'direction'} eq 'in'
+				  && $spd->{'target'} eq 'ipsec'
+				|| $spd->{'upperspec'} eq $conn->{'upperspec'} 
+				  && $spd->{'dst_range'} eq $conn->{'src_range'}
+				  && $spd->{'src_range'} eq $conn->{'dst_range'}
+				  && $spd->{'direction'} eq 'fwd'
+				  && $spd->{'target'} eq 'ipsec'
+				|| $spd->{'src_range' } eq $conn->{'src_subnet'}
+				  && $spd->{'dst_range'} eq $conn->{'dst_subnet'}
+				  && $spd->{'direction'} eq 'out'
+				  && $spd->{'target'} =~ m/^(none|discard)$/ 
+				||  $spd->{'dst_range'} eq $conn->{'src_subnet'}
+				  && $spd->{'src_range'} eq $conn->{'dst_subnet'}
+				  && $spd->{'direction'} eq 'in'
+				  && $spd->{'target'} =~ m/^(none|discard)$/ 
+				|| $spd->{'dst_range'} eq $conn->{'src_subnet'}
+				  && $spd->{'src_range'} eq $conn->{'dst_subnet'}
+				  && $spd->{'direction'} eq 'fwd'
+				  && $spd->{'target'} =~ m/^(none|discard)$/){
 				$spd->{'connection'} = $connection;
 				push @{ $conn_spd_hash->{$connection} }, $index;
 			}
@@ -1292,7 +1395,7 @@ sub ipsec_flush () {
 	print "Flushing SAD and SPD...\n";
 	# Flush the SAD
 	sad_flush ();
-	
+
 	# Flush the SPD
 	spd_flush ();
 	print "SAD and SPD flushed.\n";
@@ -1301,220 +1404,254 @@ sub ipsec_flush () {
 
 # Read configuration
 sub parse_config () {
-        my $line = 0;
-        my $barf = 0;
+	my $line = 0;
+	my $barf = 0;
 	my $section = "";
 	my $connection = "";
 	my $peer = "";
 	my $stuff = "";
-                                                                                                                              
-        open(CONF, "< $conffile")
-                || prog_die "can't open $conffile - $!";
-                                                                                                                              
-        LINE: while (<CONF>) {
-                $line +=1;
-                                                                                                                              
-                # Deal with blank lines
-                if ( m/^\s*$/) {
-                        next LINE;
-                }
-                                                                                                                              
-                # Comments
-                if ( m/^[ \t]*#.*$/ ) {
-                        next LINE;
-                }
-                # Comments at the end of lines
-                if ( m/^([^#]*)#.*$/ ) {
-                        $_ = $1;
-                }
-                                                                                                                              
-                chomp;
+	my @conffiles = ();
 
-                if (! m/^[-\"{}()\[\]_;\%\@\w\s.:\/=]+$/) {
-                        prog_warn 0, "bad data in $conffile, line $line:";
-                        prog_warn 0, $_;
-                        # $barf = 1;
-                        next LINE;
-                }
-                
-                if ( m/^\s*SPDADD\((\%default|[-_a-z0-9]+)\):([\S \t]*)$/i ) {
-			$name = $1;
-			$stuff = $2 . "\n";
-			if ( defined $spdadd{"$name"} ) {
-				$spdadd{"$name"} .= $stuff;
-			} else {
-				$spdadd{"$name"} = $stuff;
-			}
-			next LINE;
-		} elsif ( m/^\s*SADADD\((\%default|[-_a-z0-9]+)\):([\S \t]*)$/i ) {
-			$name = $1;
-			$stuff = $2 . "\n";
-			if ( defined $sadadd{"$name"} ) {
-				$sadadd{"$name" } .= $stuff;
-			} else {
-				$sadadd{"$name"} = $stuff;
-			}
-			next LINE;
-		} elsif ( m/^\s*REMOTE\((\%default|[-_a-z0-9]+)\):([\S \t]*)$/i ) {
-			$name = $1;
-			$stuff = $2 . "\n";
-			if ( defined $remote{"$name"} ) {
-				$remote{"$name" } .= $stuff;
-			} else {
-				$remote{"$name"} = $stuff;
-			}
-			next LINE;
+	if (-e  "$conffiledir") {
+		opendir(CONFDIR, $conffiledir) || prog_die "can't open $conffiledir - $!";
+		@conffiles = grep { not /^\.{1,2}\z/ or /^.*\.conf$/ } readdir(CONFDIR);
+		@conffiles = map { $conffiledir . '/' . $_ } @conffiles;
+		closedir CONFDIR;
+	}
+	unshift @conffiles, $conffile;
 
-		} elsif ( m/^\s*SAINFO\((\%default|[-_a-z0-9]+)\):([\S \t]*)$/i ) {
-			$name = $1;
-			$stuff = $2 . "\n";
-			if ( defined $sainfo{"$name"} ) {
-				$sainfo{"$name" } .= $stuff;
-			} else {
-				$sainfo{"$name"} = $stuff;
-			}
-			next LINE;
+	CF: for my $cf (@conffiles) {
 
-		} elsif ( m/^\s*SADINIT:([\S \t]*)$/i ) {
-			$name = '';
-			$stuff = $1 . "\n";
-			if ( defined $sadinit ) {
-				$sadinit .= $stuff;
-			} else {
-				$sadinit = $stuff;
-			}
-			next LINE;
-		} elsif ( m/^\s*SPDINIT:([\S \t]*)$/i ) {
-			$name = '';
-			$stuff = $1 . "\n";
-			if ( defined $spdinit ) {
-				$spdinit .= $stuff;
-			} else {
-				$spdinit = $stuff;
-			}
-			next LINE;
-		} elsif ( m/^\s*RACOONINIT:([\S \t]*)$/i ) {
-			$name = '';
-			$stuff = $1 . "\n";
-			if ( defined $racoon_init ) {
-				$racoon_init .= $stuff;
-			} else {
-				$racoon_init = $stuff;
-			}
-			next LINE;
+		# next CF if ( not -r $cf );
 
-		} elsif ( m/^\s*CONNECTION\((\%default|\%anonymous|[-_a-z0-9]+)\):\s*$/i ) {
-			$section = 'connection';
-			$connection = lc $1;
-			# Make place holder so that error message gets generated
-			$connection_list{$connection}{'makelive'} = 0;
-			next LINE;
-		} 
-       
-		elsif ( m/^\s*PEER\((\%default|\%anonymous|[a-f0-9:\.]+)\):\s*$/i ) {
-			$peer = lc $1;
-			if ( $peer ne '%default' && $peer ne '%anonymous' && ! ip_check_syntax ($peer)) {
-                        	prog_warn 0, "unrecognised tag in $conffile, line $line:";
-                        	prog_warn 0, "$_";
-				prog_warn 0, "invalid peer name - $peer";
+		open(CONF, "< $cf")
+			|| prog_die "can't open $cf - $!";
+																      
+		LINE: while (<CONF>) {
+			$line +=1;
+																      
+			# Deal with blank lines
+			if ( m/^\s*$/) {
 				next LINE;
 			}
-			$section = 'peer';
-			# Make place holder so that error message gets generated
-			$peer_list{$peer}{'makelive'} = 0;
-			next LINE;
-		}
-	
-		elsif  ( m/^\s*GLOBAL:\s*$/i ) {
-			$section = 'global';
-			next LINE;
-		} 
-         
-		elsif ( $section eq 'connection' &&  m/^\s*($conn_proplist):\s*(.+)\s*$/i ) {
-			my $property = lc $1;
-			my $value = $2;
-			$value =~ s/^(.*\S)\s*$/$1/;
-		
-			if ( ! check_property_syntax($section, $property, $value) ) {
-	                        prog_warn 0, "$connection - unrecognised connection property syntax.";
-				prog_warn 0, "$connection - file $conffile, line $line:";
-				prog_warn 0, error_getmsg($section, $property);
+																      
+			# Comments
+			if ( m/^[ \t]*#.*$/ ) {
+				next LINE;
+			}
+			# Comments at the end of lines
+			if ( m/^([^#]*)#.*$/ ) {
+				$_ = $1;
+			}
+																      
+			chomp;
+
+			if (! m/^[-\"{}()\[\]_;\%\@\w\s.:\/=]+$/) {
+				prog_warn 0, "bad data in $cf, line $line:";
 				prog_warn 0, $_;
+				# $barf = 1;
+				next LINE;
+			}
+			
+			if ( m/^\s*SPDADD\((\%default|[-_a-z0-9]+)\):([\S \t]*)$/i ) {
+				$name = $1;
+				$stuff = $2 . "\n";
+				if ( defined $spdadd{"$name"} ) {
+					$spdadd{"$name"} .= $stuff;
+				} else {
+					$spdadd{"$name"} = $stuff;
+				}
+				next LINE;
+			} elsif ( m/^\s*SPDADD_TRANSPORT_IP4\((\%transport_ip4_default|[-_a-z0-9]+)\):([\S \t]*)$/i ) {
+				$name = $1;
+				$stuff = $2 . "\n";
+				if ( defined $spdadd{"$name"} ) {
+					$spdadd{"$name"} .= $stuff;
+				} else {
+					$spdadd{"$name"} = $stuff;
+				}
+				next LINE;
+			} elsif ( m/^\s*SPDADD_TRANSPORT_IP6\((\%transport_ip6_default|[-_a-z0-9]+)\):([\S \t]*)$/i ) {
+				$name = $1;
+				$stuff = $2 . "\n";
+				if ( defined $spdadd{"$name"} ) {
+					$spdadd{"$name"} .= $stuff;
+				} else {
+					$spdadd{"$name"} = $stuff;
+				}
+				next LINE;
+			} elsif ( m/^\s*SADADD\((\%default|[-_a-z0-9]+)\):([\S \t]*)$/i ) {
+				$name = $1;
+				$stuff = $2 . "\n";
+				if ( defined $sadadd{"$name"} ) {
+					$sadadd{"$name" } .= $stuff;
+				} else {
+					$sadadd{"$name"} = $stuff;
+				}
+				next LINE;
+			} elsif ( m/^\s*REMOTE\((\%default|[-_a-z0-9]+)\):([\S \t]*)$/i ) {
+				$name = $1;
+				$stuff = $2 . "\n";
+				if ( defined $remote{"$name"} ) {
+					$remote{"$name" } .= $stuff;
+				} else {
+					$remote{"$name"} = $stuff;
+				}
+				next LINE;
+
+			} elsif ( m/^\s*SAINFO\((\%default|[-_a-z0-9]+)\):([\S \t]*)$/i ) {
+				$name = $1;
+				$stuff = $2 . "\n";
+				if ( defined $sainfo{"$name"} ) {
+					$sainfo{"$name" } .= $stuff;
+				} else {
+					$sainfo{"$name"} = $stuff;
+				}
+				next LINE;
+
+			} elsif ( m/^\s*SADINIT:([\S \t]*)$/i ) {
+				$name = '';
+				$stuff = $1 . "\n";
+				if ( defined $sadinit ) {
+					$sadinit .= $stuff;
+				} else {
+					$sadinit = $stuff;
+				}
+				next LINE;
+			} elsif ( m/^\s*SPDINIT:([\S \t]*)$/i ) {
+				$name = '';
+				$stuff = $1 . "\n";
+				if ( defined $spdinit ) {
+					$spdinit .= $stuff;
+				} else {
+					$spdinit = $stuff;
+				}
+				next LINE;
+			} elsif ( m/^\s*RACOONINIT:([\S \t]*)$/i ) {
+				$name = '';
+				$stuff = $1 . "\n";
+				if ( defined $racoon_init ) {
+					$racoon_init .= $stuff;
+				} else {
+					$racoon_init = $stuff;
+				}
+				next LINE;
+
+			} elsif ( m/^\s*CONNECTION\((\%default|\%anonymous|[-_a-z0-9]+)\):\s*$/i ) {
+				$section = 'connection';
+				$connection = lc $1;
+				# Make place holder so that error message gets generated
+				$connection_list{$connection}{'makelive'} = 0;
+				next LINE;
+			} 
+
+			elsif ( m/^\s*PEER\((\%default|\%anonymous|[a-f0-9:\.]+)\):\s*$/i ) {
+				$peer = lc $1;
+				if ( $peer ne '%default' && $peer ne '%anonymous' && ! ip_check_syntax ($peer)) {
+					prog_warn 0, "unrecognised tag in $cf, line $line:";
+					prog_warn 0, "$_";
+					prog_warn 0, "invalid peer name - $peer";
+					next LINE;
+				}
+				$section = 'peer';
+				# Make place holder so that error message gets generated
+				$peer_list{$peer}{'makelive'} = 0;
+				next LINE;
+			}
+
+			elsif  ( m/^\s*GLOBAL:\s*$/i ) {
+				$section = 'global';
+				next LINE;
+			} 
+		 
+			elsif ( $section eq 'connection' &&  m/^\s*($conn_proplist):\s*(.+)\s*$/i ) {
+				my $property = lc $1;
+				my $value = $2;
+				$value =~ s/^(.*\S)\s*$/$1/;
+			
+				if ( ! check_property_syntax($section, $property, $value) ) {
+					prog_warn 0, "$connection - unrecognised connection property syntax.";
+					prog_warn 0, "$connection - file $cf, line $line:";
+					prog_warn 0, error_getmsg($section, $property);
+					prog_warn 0, $_;
+					$connection_list{$connection}{'syntax_error'} = 1;
+					next LINE;
+				}
+				$value = value_lc($section, $property, $value);
+				$connection_list{$connection}{$property} = $value; 
+			} elsif ( $section eq 'connection' ) {
+				prog_warn 0, "$connection - unrecognised tag in $cf, line $line:";
+				prog_warn 0, $_;
+				prog_warn 0, "$connection - allowed tags are $conn_proplist";
 				$connection_list{$connection}{'syntax_error'} = 1;
 				next LINE;
 			}
-			$value = value_lc($section, $property, $value);
-		 	$connection_list{$connection}{$property} = $value; 
-		} elsif ( $section eq 'connection' ) {
-                        prog_warn 0, "$connection - unrecognised tag in $conffile, line $line:";
-			prog_warn 0, $_;
-			prog_warn 0, "$connection - allowed tags are $conn_proplist";
-			$connection_list{$connection}{'syntax_error'} = 1;
-                        next LINE;
-		}
 
-		elsif ( $section eq 'peer' &&  m/^\s*($peer_proplist):\s*(.+)\s*$/i ) {
-			my $property = lc $1;
-			my $value = $2;
-			$value =~ s/^(.*\S)\s*$/$1/;
-		
-			if ( ! check_property_syntax($section, $property, $value) ) {
-	                        prog_warn 0, "$peer - unrecognised peer property syntax or unreadable file(s).";
-				prog_warn 0, "$peer - file $conffile, line $line:";
-				prog_warn 0, error_getmsg($section, $property);
+			elsif ( $section eq 'peer' &&  m/^\s*($peer_proplist):\s*(.+)\s*$/i ) {
+				my $property = lc $1;
+				my $value = $2;
+				$value =~ s/^(.*\S)\s*$/$1/;
+			
+				if ( ! check_property_syntax($section, $property, $value) ) {
+					prog_warn 0, "$peer - unrecognised peer property syntax or unreadable file(s).";
+					prog_warn 0, "$peer - file $cf, line $line:";
+					prog_warn 0, error_getmsg($section, $property);
+					prog_warn 0, $_;
+					$peer_list{$peer}{'syntax_error'} = 1;
+					next LINE;
+				}
+				# $value = value_lc($section, $property, $value);
+				$peer_list{$peer}{$property} = $value; 
+			} elsif ( $section eq 'peer' ) {
+				prog_warn 0, "$peer - unrecognised tag in $cf, line $line:";
 				prog_warn 0, $_;
+				prog_warn 0, "$peer - allowed tags are $peer_proplist";
 				$peer_list{$peer}{'syntax_error'} = 1;
 				next LINE;
 			}
-			# $value = value_lc($section, $property, $value);
-		 	$peer_list{$peer}{$property} = $value; 
-		} elsif ( $section eq 'peer' ) {
-                        prog_warn 0, "$peer - unrecognised tag in $conffile, line $line:";
-			prog_warn 0, $_;
-			prog_warn 0, "$peer - allowed tags are $peer_proplist";
-			$peer_list{$peer}{'syntax_error'} = 1;
-                        next LINE;
-		}
 
-		elsif ( $section eq 'global' && m /^\s*($global_proplist):\s*(.+)\s*$/i ) {
-			my $property = lc $1;
-			my $value = $2;
-			$value =~  s/^(.*\S)\s*$/$1/;
-			
-			if (! check_property_syntax($section, $property, $value)) {
-	                        prog_warn 0, "global - unrecognised global property syntax or unreadable file(s).";
-				prog_warn 0, "global - file $conffile, line $line:";
-				prog_warn 0, error_getmsg($section, $property);
+			elsif ( $section eq 'global' && m /^\s*($global_proplist):\s*(.+)\s*$/i ) {
+				my $property = lc $1;
+				my $value = $2;
+				$value =~  s/^(.*\S)\s*$/$1/;
+				
+				if (! check_property_syntax($section, $property, $value)) {
+					prog_warn 0, "global - unrecognised global property syntax or unreadable file(s).";
+					prog_warn 0, "global - file $cf, line $line:";
+					prog_warn 0, error_getmsg($section, $property);
+					prog_warn 0, $_;
+					prog_warn 0, "global - allowed tags are $global_proplist";
+					$global{'deadly_error'} = 1;
+					next LINE;
+				}
+				$value = value_lc($section, $property, $value);
+				$global{$property} = $value;
+
+			} elsif ( $section eq 'global' ) {
+				prog_warn 0, "$global - unrecognised tag in $cf, line $line:";
 				prog_warn 0, $_;
-				prog_warn 0, "global - allowed tags are $global_proplist";
-				$global{'deadly_error'} = 1;
+				prog_warn 0, "$global - allowed tags are $global_proplist";
+			}
+
+			else {
+				prog_warn 0, "unrecognised tag in $cf, line $line:";
+				prog_warn 0, $_;
 				next LINE;
 			}
-			$value = value_lc($section, $property, $value);
-			$global{$property} = $value;
-
-		} elsif ( $section eq 'global' ) {
-                        prog_warn 0, "$global - unrecognised tag in $conffile, line $line:";
-			prog_warn 0, $_;
-			prog_warn 0, "$global - allowed tags are $global_proplist";
+																      
 		}
-
-                else {
-                        prog_warn 0, "unrecognised tag in $conffile, line $line:";
-			prog_warn 0, $_;
-                        next LINE;
-                }
-                                                                                                                              
-        }
-        close (CONF);
-                                                                                                                              
-        if ( $barf ) {
+		close (CONF);
+	}											      
+	
+	if ( $barf ) {
 		exit 1;
-        }
-                                                                                                                              
-        # apply defaults
-        $spdadd{'%default'} = $spdadd_default if ( ! defined $spdadd{'%default'} );
-        $sadadd{'%default'} = $sadadd_default if ( ! defined $sadadd{'%default'} );
+	}
+															      
+	# apply defaults
+	$spdadd{'%default'} = $spdadd_default if ( ! defined $spdadd{'%default'} );
+	$spdadd{'%transport_ip4_default'} = $spdadd_transport_ip4_default if ( ! defined $spdadd{'%transport_ip4_default'} );
+	$spdadd{'%transport_ip6_default'} = $spdadd_transport_ip6_default if ( ! defined $spdadd{'%transport_ip6_default'} );
+	$sadadd{'%default'} = $sadadd_default if ( ! defined $sadadd{'%default'} );
 	$remote{'%default'} = $remote_default if ( ! defined $remote{'%default'} );
 	$sainfo{'%default'} = $sainfo_default if ( ! defined $sainfo{'%default'} );
 	$racoon_init = $racoon_init_default if ( ! defined $racoon_init );
@@ -1533,7 +1670,7 @@ sub value_lc ($$$) {
 	my $value = shift;
 
 	my $ptype = get_proptype($section, $property);
-	
+
 	if ( $ptype eq 'path_conf_file' ) {
 		$value = $value;
 	} elsif ( $ptype eq 'path_generated_file' ) {
@@ -1637,6 +1774,8 @@ sub check_property_syntax ($$$) {
 
 	if ( $ptype eq 'boolean' ) {
 		$value =~ m/^(enabled|disabled|true|false|up|down|on|off|yes|no|0|1)$/i && return 1;
+	} elsif ( $ptype eq 'id_type' ) {
+		$value =~ m/^(address|subnet)$/i && return 1;
 	} elsif ( $ptype eq 'encap' ) {
 		$value =~ m/^(ah|esp)$/i && return 1;
 	} elsif ( $ptype eq 'mode' ) {
@@ -1646,9 +1785,9 @@ sub check_property_syntax ($$$) {
 	} elsif ( $ptype eq 'phase1_exchange_mode' ) {
 		$value =~ m/^((main|aggressive|base),? ?){1,3}$/i && return 1;
 	} elsif ( $ptype eq 'phase1_encryption' ) {
-		$value =~ m/^(aes|des|3des|blowfish|cast128)$/i && return 1;
+		$value =~ m/^(des|3des|blowfish|cast128|aes|camellia)$/i && return 1;
 	} elsif ( $ptype eq 'hash_algorithm' ) {
-		$value =~ m/^(md5|sha1)$/i && return 1;
+		$value =~ m/^(md5|sha1|sha256|sha384|sha512)$/i && return 1;
 	} elsif ( $ptype eq 'phase1_auth_method' ) {
 		$value =~ m/^(pre_shared_key|rsasig)$/i && return 1;
 	} elsif ( $ptype eq 'switch' ) {
@@ -1656,13 +1795,13 @@ sub check_property_syntax ($$$) {
 	} elsif ( $ptype eq 'lifetime' ) {
 		$value =~ m/^time\s+[0-9]+\s+(hour|hours|min|mins|minutes|sec|secs|seconds)$/i && return 1;
 	} elsif ( $ptype eq 'phase2_encryption' ) {
-		$value =~ m/^((aes|des|3des|des_iv64|des_iv32|rc5|rc4|idea|3idea|cast128|blowfish|null_enc|twofish|rijndael),? ?)+$/i && return 1;
+		$value =~ m/^((des|3des|des_iv64|des_iv32|rc5|rc4|idea|3idea|cast128|blowfish|null_enc|twofish|rijndael|aes|camellia),? ?)+$/i && return 1;
 	} elsif ( $ptype eq 'phase2_auth_algorithm' ) {
-		$value =~ m/^((des|3des|des_iv64|des_iv32|hmac_md5|hmac_sha1|non_auth),? ?)+$/i && return 1;
+		$value =~ m/^((des|3des|des_iv64|des_iv32|hmac_md5|hmac_sha1|hmac_sha256|hmac_sha384|hmac_sha512|non_auth),? ?)+$/i && return 1;
 	} elsif ( $ptype eq 'dh_group' ) {
-		$value =~ m/^(modp768|modp1024|modp1536|1|2|5)$/i && return 1;
+		$value =~ m/^(modp768|modp1024|modp1536|modp2048|modp3072|modp4096|modp6144|modp8192|1|2|5|14|15|16|17|18)$/i && return 1;
 	} elsif ( $ptype eq 'pfs_group' ) {
-		$value =~ m/^(none|modp768|modp1024|modp1536|1|2|5)$/i && return 1;
+		$value =~ m/^(none|modp768|modp1024|modp1536|modp2048|modp3072|modp4096|modp6144|modp8192|1|2|5|14|15|16|17|18)$/i && return 1;
 	} elsif ( $ptype eq 'level') {
 		$value =~ m/^(default|use|require|unique)$/i && return 1;
 	} elsif ( $ptype eq 'log') {
@@ -1672,7 +1811,7 @@ sub check_property_syntax ($$$) {
 	} elsif ( $ptype eq 'nat_traversal' ) {
 		$value =~ m/^(on|off|force)$/i && return 1;
 	} elsif ( $ptype =~ 'nonce_size' ) {
-		$value =~ m/^[0-9]{1,3}$/ && $value >= 8 && $value <= 256 && return 1;
+	$value =~ m/^[0-9]{1,3}$/ && $value >= 8 && $value <= 256 && return 1;
 	} elsif ( $ptype eq 'listen' ) {
 		if ( $value =~ m/^[0-9a-f:\.]+$/i ) {
 			return ip_check_syntax( $value );
@@ -1861,7 +2000,7 @@ sub check_property_syntax ($$$) {
 	return 0;
 }
 
-# Check for required paarameters for activation
+# Check for required parameters for activation
 sub conn_check_required () {
 	foreach my $connection ( keys %connection_list ) {
 		my $makelive = 1;
@@ -1870,6 +2009,9 @@ sub conn_check_required () {
 			foreach my $property ( @conn_required_props ) {
 				$makelive = 0 if ! defined $connection_list{$connection}{$property};
 			}
+			my $src_range_iptype = $connection_list{$connection}{'src_range_iptype'};
+			my $dst_range_iptype = $connection_list{$connection}{'dst_range_iptype'};
+			$makelive = 0 if ($src_range_iptype ne $dst_range_iptype);
 			my $dst_ip = $connection_list{$connection}{'dst_ip'};
 			if ( ! defined $dst_ip
 				|| ! defined $peer_list{$dst_ip}  
@@ -1912,10 +2054,25 @@ sub conn_fillin_defaults () {
 				$connection_list{$connection}{"${p}_range"} .= "[any]";
 			}
 			# Remove full length netmasks to avoid confusing things...
-			$connection_list{$connection}{"${p}_range"} =~ s/\/32//;
-			$connection_list{$connection}{"${p}_range"} =~ s/\/128//;
-				
+			if ($connection_list{$connection}{"${p}_range"} =~ m/^[0-9]{1,3}\./) {
+				$connection_list{$connection}{"${p}_range"} =~ s/\/32//;
+				$connection_list{$connection}{"${p}_range_iptype"} = 'ip4';
+			} elsif ($connection_list{$connection}{"${p}_range"} =~ m/^([0-9a-f]{1,4}:|::)/) {
+				$connection_list{$connection}{"${p}_range"} =~ s/\/128//;
+				$connection_list{$connection}{"${p}_range_iptype"} = 'ip6';
+			}
 		}
+
+		# Work out IDs for use with racoon configuration
+		# Remove any port information as racoon sees it as duplicate sainfo...
+		my $local_id = $connection_list{$connection}{'src_range'};
+		$local_id =~ s/\[(any|[0-9]{1,5})\]$//;
+		$connection_list{$connection}{'local_id'} = $local_id;
+		$connection_list{$connection}{'src_subnet'} = $local_id;
+		my $remote_id = $connection_list{$connection}{'dst_range'};
+		$remote_id =~ s/\[(any|[0-9]{1,5})\]$//;
+		$connection_list{$connection}{'remote_id'} = $remote_id; 
+		$connection_list{$connection}{'dst_subnet'} = $remote_id; 
 		
 		# Set the mode appropriately if not already set
 		if ( !defined $connection_list{$connection}{'mode'} ) {
@@ -2119,16 +2276,43 @@ sub spd_fill_add ($) {
 
 	my $hndl = $connection_list{$connection};
 	$stuff = $spdadd{$$hndl{'spdadd_template'}};
-	
+
+	# We only do interesting things on %default templates	
 	if ($hndl->{'spdadd_template'} eq '%default') {
+		# Use transport template if needed
+		if ($hndl->{'mode'} eq 'transport'
+			&& $hndl->{'upperspec'} eq 'any'
+	       		&& $hndl->{'src_range'} =~ m/^.*\[any\]$/
+			&& $hndl->{'dst_range'} =~ m/^.*\[any\]$/) {
+			if ($hndl->{'src_range_iptype'} eq 'ip4') {
+				$stuff = $spdadd{'%transport_ip4_default'};
+			} elsif ($hndl->{'src_range_iptype'} eq 'ip6') {
+				$stuff = $spdadd{'%transport_ip6_default'};
+			}
+			if ($^O !~ /linux/i) {
+				# spd priority only supported on Linux kernels
+				$stuff =~ s/^(\s*spdadd.*(in|out))\s+prio.*(ipsec|discard;|none;)$/${1} ${3}/mg;
+			}	
+		}
+				
+		#
+		# Do fill in AH header if asked for.
+		if ($hndl->{'encap'} eq 'esp' 
+			&& ($hndl->{'mode'} eq 'transport' 
+				&& $bool_val{"$hndl->{'auto_ah_on_esp'}"} != 0
+				|| $bool_val{"$hndl->{'always_ah_on_esp'}"} != 0)) {
+			$stuff =~ s/^(\s*spdadd.*out ipsec\s*\n.*);$/${1}\n${spdadd_addons{'ah_out'}};/mg;
+			$stuff =~ s/^(\s*spdadd.*in ipsec\s*\n.*);$/${1}\n${spdadd_addons{'ah_in'}};/mg;
+		}
+		#  
 		# Do fill in values for compression
 		if (defined $hndl->{'compression'} 
 			&& $bool_val{"$hndl->{'compression'}"} != 0) {
-			$stuff =~ s/^(\s*spdadd.*out ipsec\s*)$/${1}\n${spdadd_addons{'ipcomp_out'}}/m;
-			$stuff =~ s/^(\s*spdadd.*in ipsec\s*)$/${1}\n${spdadd_addons{'ipcomp_in'}}/m;
+			$stuff =~ s/^(\s*spdadd.*out ipsec\s*)$/${1}\n${spdadd_addons{'ipcomp_out'}}/mg;
+			$stuff =~ s/^(\s*spdadd.*in ipsec\s*)$/${1}\n${spdadd_addons{'ipcomp_in'}}/mg;
 		}
-	}
-	
+	}	
+
 	foreach my $key (keys %$hndl) {
 		$stuff =~ s/___${key}___/$$hndl{$key}/img;
 	}
@@ -2156,7 +2340,7 @@ sub spd_load (;$) {
 	}
 
 	open ( SETKEY, '|-' )
-		|| exec ("$setkey_cmd -c 2>&1 | $0 -l" );
+		|| exec ("$setkey_cmd -f /dev/stdin 2>&1 | $0 -l" );
 	for my $connection ( @conns ) {
 		next if $connection eq '%default';
 		next if $connection eq '%anonymous';
@@ -2181,13 +2365,14 @@ EOF
 		}
 		prog_die "loading SPD failed - exit code " . ($err >> 8);
 	}
+	sleep($quiesce) if ($quiesce > 0);
 	return 1;
 }
 
 # Initialise the SPD
 sub spd_init() {
 	open ( SETKEY, '|-' )
-		|| exec ($setkey_cmd, '-c');
+		|| exec ($setkey_cmd, '-f', '/dev/stdin');
 	$spdinit = '' if ! defined $spdinit;
 	print SETKEY <<"EOF";
 spdflush;
@@ -2195,19 +2380,21 @@ $spdinit
 EOF
 
 	close SETKEY or prog_die "initialising SPD failed - exit code " . ($? >> 8);
+	sleep($quiesce) if ($quiesce > 0);
 	return 1;
 }
 
 # Initialise the SAD
 sub sad_init() {
 	open ( SETKEY, '|-' )
-		|| exec ($setkey_cmd, '-c');
+		|| exec ($setkey_cmd, '-f', '/dev/stdin');
 	$sadinit = '' if ! defined $sadinit;
 	print SETKEY <<"EOF";
 $sadinit
 EOF
 
 	close SETKEY or prog_die "initialising SPD failed - exit code " . ($? >> 8);
+	sleep($quiesce) if ($quiesce > 0);
 	return 1;
 }
 
@@ -2251,6 +2438,7 @@ sub setkey_flush ($) {
 	close SETKEY;
 	prog_die ("flushing $table failed - exit code " . ($? >> 8)) 
 			if ( $? && ! $cleanret);
+	sleep($quiesce) if ($quiesce > 0);
 	return 0
 }
 
@@ -2282,7 +2470,10 @@ sub setkey_show ($) {
 }
 
 sub mod_start () {
-	
+
+	# Only do this if on linux
+	return 0 if ($^O !~ /linux/i);
+
 	print "Loading IPSEC/crypto modules...\n";
 
 	# Load cryptographic modules
@@ -2306,6 +2497,9 @@ sub mod_start () {
 
 sub mod_stop () {
 	
+	# Only do this if on linux
+	return 0 if ($^O !~ /linux/i);
+
 	print "Unloading IPSEC/crypto modules...\n";
 
 	# Unload crypto modules
@@ -2443,6 +2637,9 @@ sub mod_unload ($) {
 
 sub mod_ls () {
 	local $module;
+	
+	# Only do this if on linux
+	return 0 if ($^O !~ /linux/i);
 
 	if (@modules > 0) {
 		return 0

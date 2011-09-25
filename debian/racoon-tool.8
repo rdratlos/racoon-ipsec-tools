@@ -57,7 +57,11 @@ Start
 .BR racoon (8), 
 loading any needed modules, configuring the SPD, and generating
 a configuration from
-.I /etc/racoon/racoon-tool.conf.
+.I /etc/racoon/racoon-tool.conf
+(head) and following up with
+.I *.conf
+files from
+.I /etc/racoon/racoon-tool.conf.d/.
 .TP
 .B stop
 Stop
@@ -66,7 +70,10 @@ unloading any crypto/IPSEC modules, flushing the SAD and SPD.
 .TP
 .B reload
 Regenerate configuration from
-.I /etc/racoon/racoon.conf, HUP
+.I /etc/racoon/racoon.conf,
+and
+.I /etc/racoon/racoon.conf.d/,
+.I HUP
 .BR racoon (8)
 and reinitialise the SPD and SAD.
 .TP
@@ -105,7 +112,7 @@ Reload the VPN connection(s).
 .TP
 .BR "vpnlist|vlist" " [connection-name|all]"
 List the known VPN connections in
-.I /etc/racoon/racoon-tool.conf.
+.I /etc/racoon/racoon-tool.conf, etc.
 Can be used by a script or administrator to see 
 if a VPN connection exists.
 .TP
@@ -126,7 +133,10 @@ daemon.
 .SH "FILES"
 .TP
 .I /etc/racoon/racoon-tool.conf 
-\- configuration file.
+\- configuration file (head).
+.TP
+.I /etc/racoon/racoon-tool.conf.d
+\- configuration file segment directory read after the above.
 .TP
 .I /var/lib/racoon/racoon.conf 
 \- generated racoon.conf
@@ -137,7 +147,7 @@ daemon.
 .BR racoon-tool.conf (5).
 
 .SH AUTHOR
-This manual page was written by Matthew Grant <grantma@anathoth.gen.nz>,
+This manual page was written by Matthew Grant <matthewgrant5@gmail.com>,
 for the Debian GNU/Linux system (but may be used by others).
 
 \"  LocalWords:  RACOON

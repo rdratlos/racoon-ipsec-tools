@@ -1,3 +1,13 @@
+ipsec-tools (1:0.8.0-4) unstable; urgency=low
+
+  * New Maintainer.  Have conferred with Stefan Bauer.
+  * Changed to gcc-4.5 only as 4.6 does not support -R flag that ipsec-tools
+    requires. (Closes: #625184)
+  * Marked automake, autoconf, and autoheader as Build-Conflicts.
+  * Added updated racoon-tool.pl and associated manpages.
+
+ -- Matthew Grant <matthewgrant5@gmail.com>  Sun, 25 Sep 2011 17:41:02 +1300
+
 ipsec-tools (1:0.8.0-3) unstable; urgency=low
 
   * Apply patch from Mats Erik Andersson to fix build problems on *BSD

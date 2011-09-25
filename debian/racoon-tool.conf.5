@@ -25,6 +25,8 @@ and
 .I peer.
 The possible templates are
 .I spdadd,
+.I spdadd_transport_ip4,
+.I spdadd_transport_ip6,
 .I spdinit,
 .I sadinit,
 .I sadadd,
@@ -83,6 +85,32 @@ and associated SPD entries.
 Directives and values are basically one for
 one with the relevant entries in
 .BR racoon.conf (5).
+.I Spdadd:
+can be used to override the template automatically selected. 
+The templates that are automatically selected depending om connection
+.I mode
+and IPv4 or IPv6 addresssing are
+.BR spdadd,
+.BR spdadd_transport_ip4,
+and
+.BR spdadd_transport_ip6.
+The supplied default transport mode templates do not encrypt ICMP as this
+can easily result in SPD policy difficulties.
+Boolean parameters
+.I auto_ah_on_esp, always_ah_on_esp
+can be used to add AH encapsulation to the `esp' mode transform supplied by
+the default
+.BR spdadd
+templates.  The IKE phase 2 identifier type can be set with the
+.I id_type
+option, either `address' or `subnet'.  Compression can be added to the default
+transforms by using the
+.I compression
+boolean. 
+
+Please note that on the FreeBSD kernel ( 
+.BR ipsec (4)
+) nested ipsec policy transforms are not supported, and that ipcomp is buggy. 
 
 The `%default' VPN connection fills in entries in other specified
 connections, unless they are otherwise defined within the specific
@@ -131,6 +159,28 @@ Keys for replacement are of the form `___setkey_name___', with names
 found in
 .BR setkey (8).
 The built in template is named `%default'.
+.TP
+.BR spdadd_transport_ip4(%transport_ip4_default|[-_a-z0-9]+):
+Template for adding SPD entries for IPv4 when transport
+.I mode
+is desired. Different templates can be used, but have to be selected with the
+.I spdadd
+connection property.
+Keys for replacement are of the form `___setkey_name___', with names
+found in
+.BR setkey (8).
+The built in template is named `%transport_ip4_default'.
+.TP
+.BR spdadd_transport_ip6(%transport_ip6_default|[-_a-z0-9]+):
+Template for adding SPD entries for IPv6 when transport
+.I mode
+is desired. Different templates can be used, but have to be selected with the
+.I spdadd
+connection property.
+Keys for replacement are of the form `___setkey_name___', with names
+found in
+.BR setkey (8).
+The built in template is named `%transport_ip4_default'.
 .TP
 .BR sadadd(%default|[-_a-z0-9]+):
 Template for adding SAD entries. Different templates can be used.
@@ -274,7 +324,10 @@ peer(172.30.1.1):
 .SH "FILES"
 .TP
 .I /etc/racoon/racoon-tool.conf
-The file that this man page describes.
+(configuration header file)
+.TP
+.I /etc/racoon/racoon-tool.conf.d/*.conf
+optional portions.  The file(s) that this man page describes.
 .TP
 .I /var/lib/racoon/racoon.conf
 The generated racoon.conf.
@@ -283,9 +336,11 @@ The generated racoon.conf.
 .BR racoon.conf (5),
 .BR racoon-tool (8),
 .BR racoon (8),
-.BR setkey (8).
+.BR setkey (8),
+.BR ipsec(4)
+on FreeBSD.
 .SH BUGS
 This man page is by no means complete.
 .SH AUTHOR
-This manual page was written by Matthew Grant <grantma@anathoth.gen.nz>
+This manual page was written by Matthew Grant <matthewgrant5@gmail.com>
 for the Debian GNU/Linux system (but may be used by others).

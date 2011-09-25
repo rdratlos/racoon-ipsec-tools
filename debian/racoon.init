@@ -2,7 +2,7 @@
 ### BEGIN INIT INFO
 # Provides:          racoon
 # Required-Start:    $remote_fs setkey
-# Required-Stop:
+# Required-Stop:     $remote_fs
 # Should-Start:	     $portmap
 # Should-Stop:	     $portmap
 # Default-Start:     S
