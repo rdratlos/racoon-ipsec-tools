@@ -298,6 +298,10 @@ spdadd ___src_subnet___ ___dst_subnet___ icmp -P out priority 1 none;
 
 spdadd ___dst_subnet___ ___src_subnet___ icmp -P in priority 1 none;
 
+spdadd ___src_subnet___[500] ___dst_subnet___[500] udp -P out priority 1 none;
+
+spdadd ___dst_subnet___[500] ___src_subnet___[500] udp -P in priority 1 none;
+
 spdadd ___src_range___ ___dst_range___ ___upperspec___ -P out ipsec
 	___encap___/___mode___/___src_ip___-___dst_ip___/___level___;
 
@@ -309,6 +313,10 @@ my $spdadd_transport_ip6_default = <<'EOF';
 spdadd ___src_subnet___ ___dst_subnet___ icmp6 -P out priority 1 none;
 
 spdadd ___dst_subnet___ ___src_subnet___ icmp6 -P in priority 1 none;
+
+spdadd ___src_subnet___[500] ___dst_subnet___[500] udp -P out priority 1 none;
+
+spdadd ___dst_subnet___[500] ___src_subnet___[500] udp -P in priority 1 none;
 
 spdadd ___src_range___ ___dst_range___ ___upperspec___ -P out ipsec
 	___encap___/___mode___/___src_ip___-___dst_ip___/___level___;
