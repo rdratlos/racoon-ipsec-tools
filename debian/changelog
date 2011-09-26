@@ -1,3 +1,9 @@
+ipsec-tools (1:0.8.0-6) unstable; urgency=low
+
+  * Remove Requires-Stop $remotefs from init script. (Closes: #643006) 
+
+ -- Matthew Grant <matthewgrant5@gmail.com>  Tue, 27 Sep 2011 07:51:09 +1300
+
 ipsec-tools (1:0.8.0-5.1) unstable; urgency=low
 
   * Minor version to kick over reprepro 
