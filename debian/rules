@@ -8,7 +8,6 @@ DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
 DEB_HOST_ARCH   ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
 DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 
-CC = gcc-4.5 # Won't build with gcc-4.6 because of removed -R gcc flag
 CFLAGS = -Wall -g -fno-strict-aliasing -isystem /usr/include -D_FORTIFY_SOURCE=0
 
 ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
@@ -32,7 +31,7 @@ endif
 
 
 override_dh_auto_configure:
-	CFLAGS="$(CFLAGS)" CC="$(CC)" ./configure --verbose \
+	CFLAGS="$(CFLAGS)" ./configure --verbose \
 					--host=$(DEB_HOST_GNU_TYPE) \
 					--build=$(DEB_BUILD_GNU_TYPE) \
 					--prefix=/usr \

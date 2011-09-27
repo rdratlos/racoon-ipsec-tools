@@ -1,3 +1,11 @@
+ipsec-tools (1:0.8.0-7) unstable; urgency=low
+
+  * Temporarily fix gcc-4.6 build on most architectures. Need to contact 
+    upstream about proper use of autoconf and configure.ac for gcc-4.6 support
+    as autoconf  for this package appears to be brittle. 
+
+ -- Matthew Grant <matthewgrant5@gmail.com>  Wed, 28 Sep 2011 10:09:20 +1300
+
 ipsec-tools (1:0.8.0-6) unstable; urgency=low
 
   * Remove Requires-Stop $remotefs from init script. (Closes: #643006) 

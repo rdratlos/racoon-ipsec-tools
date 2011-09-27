@@ -2,7 +2,7 @@ Source: ipsec-tools
 Section: net
 Priority: extra
 Maintainer: Matthew Grant <matthewgrant5@gmail.com>
-Build-Depends: debhelper (>=7.0.50~), flex, bison, libkrb5-dev, libssl-dev (>= 0.9.6), libpam0g-dev, po-debconf, chrpath, hardening-wrapper, libldap2-dev, gcc-4.5
+Build-Depends: debhelper (>=7.0.50~), flex, bison, libkrb5-dev, libssl-dev (>= 0.9.6), libpam0g-dev, po-debconf, chrpath, hardening-wrapper, libldap2-dev
 Build-Conflicts: bison++, autoheader, autoconf, automake
 DM-Upload-Allowed: yes
 Standards-Version: 3.9.2
