@@ -1,3 +1,10 @@
+ipsec-tools (1:0.8.0-8) unstable; urgency=low
+
+  * Revert racoon-tool default SPD level to unique for comaptibilty and 
+    individual VPN reload speed.
+
+ -- Matthew Grant <matthewgrant5@gmail.com>  Wed, 28 Sep 2011 12:12:12 +1300
+
 ipsec-tools (1:0.8.0-7) unstable; urgency=low
 
   * Temporarily fix gcc-4.6 build on most architectures. Need to contact 

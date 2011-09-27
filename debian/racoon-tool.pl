@@ -153,7 +153,7 @@ my %connection_list = ( '%default' => {
 			'admin_status' 		=> 'disabled',
 			'upperspec' 		=> 'any',
 			'encap' 		=> 'esp',
-			'level' 		=> 'require',
+			'level' 		=> 'unique',
 			'spdadd_template' 	=> '%default',
 			'sadadd_template' 	=> '%default',
 			'sainfo_template' 	=> '%default',
