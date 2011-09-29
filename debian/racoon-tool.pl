@@ -46,7 +46,7 @@ sub conn_up_handle($);
 sub conn_menu($);
 sub racoon_write_config($$);
 sub racoon_configure(;$);
-sub peer_get_indexes (\%);
+sub prop_get_indexes (\%);
 sub conn_reload_handle($);
 sub check_if_running ();
 sub racoon_start();
@@ -122,7 +122,7 @@ $progname = basename($0, "");
 $racoon_kill_delay = 25; # seconds
 
 # global settings hash
-my $global_proplist = 'path_pre_shared_key|path_certificate|path_racoon_conf|racoon_command|racoon_pid_file|log|listen\[[0-9a-z]\]|complex_bundle';
+my $global_proplist = 'path_pre_shared_key|path_certificate|path_racoon_conf|racoon_command|racoon_pid_file|log|listen\[[0-9_a-z]+\]|complex_bundle';
 my %global = (
 		'path_pre_shared_key'	=> "$confdir/psk.txt",
 		'path_certificate'	=> "$confdir/certs",
@@ -132,7 +132,7 @@ my %global = (
 	);
 
 # Peer related stuff
-my $peer_proplist = 'exchange_mode|encryption_algorithm\[[0-9a-z]\]|hash_algorithm\[[0-9a-z]\]|dh_group\[[0-9a-z]\]|authentication_method\[[0-9a-z]\]|remote_template|lifetime|verify_identifier|verify_cert|passive|generate_policy|my_identifier|peers_identifier|certificate_type|peers_certfile|support_mip6|send_cr|send_cert|initial_contact|proposal_check|nat_traversal|nonce_size';
+my $peer_proplist = 'exchange_mode|encryption_algorithm\[[0-9_a-z]+\]|hash_algorithm\[[0-9_a-z]+\]|dh_group\[[0-9_a-z]+\]|authentication_method\[[0-9_a-z]+\]|remote_template|lifetime|verify_identifier|verify_cert|passive|generate_policy|my_identifier|peers_identifier|certificate_type|peers_certfile|support_mip6|send_cr|send_cert|initial_contact|proposal_check|nat_traversal|nonce_size';
 my %peer_list = (	'%default' => {
 			'exchange_mode'			=> 'main',
 			'encryption_algorithm[0]'	=> '3des',
@@ -147,13 +147,14 @@ my %peer_list = (	'%default' => {
 			} );
 
 # Connection related stuff
-my $conn_proplist = 'src_range|dst_range|src_ip|dst_ip|upperspec|encap|mode|level|admin_status|spdadd_template|sadadd_template|sainfo_template|pfs_group|lifetime|encryption_algorithm|authentication_algorithm|compression|id_type|auto_ah_on_esp|always_ah_on_esp';
+my $conn_proplist = 'src_range|dst_range|src_ip|dst_ip|src_port\[[_0-9a-z]+\]|dst_port\[[_0-9a-z]+\]|upperspec|encap|encap\[[_0-9a-z]+\]|mode|level|level\[[_0-9a-z]+\]|admin_status|spdadd_template|sadadd_template|sainfo_template|pfs_group|lifetime|encryption_algorithm|authentication_algorithm|compression|id_type|auto_ah_on_esp|always_ah_on_esp|guard_policy|policy|policy\[[_0-9a-z]+\]';
 my @conn_required_props = ( 'src_ip', 'dst_ip');
 my %connection_list = ( '%default' => {
 			'admin_status' 		=> 'disabled',
 			'upperspec' 		=> 'any',
 			'encap' 		=> 'esp',
 			'level' 		=> 'unique',
+			'policy'		=> 'ipsec',
 			'spdadd_template' 	=> '%default',
 			'sadadd_template' 	=> '%default',
 			'sainfo_template' 	=> '%default',
@@ -162,7 +163,9 @@ my %connection_list = ( '%default' => {
 			'authentication_algorithm'	=> 'hmac_sha1,hmac_md5',
 			'id_type'		=> 'address',
 			'auto_ah_on_esp'	=> 'off',
-			'always_ah_on_esp'	=> 'off'
+			'always_ah_on_esp'	=> 'off',
+			'guard_policy'		=> 'discard',
+			'policy'		=> 'ipsec'
 			},
 			'%anonymous'		=> {
 			'admin_status'		=> 'disabled'
@@ -173,6 +176,8 @@ my %prop_typehash = ( 	'connection'	=> {
 		 	'dst_range' 	=> 'range',
 			'src_ip' 	=> 'ip',
 			'dst_ip'	=> 'ip',
+			'src_port'	=> 'port',
+			'dst_port'	=> 'port',
 			'upperspec'	=> 'upperspec',
 			'encap'		=> 'encap',
 			'level'		=> 'level',
@@ -188,7 +193,9 @@ my %prop_typehash = ( 	'connection'	=> {
 			'compression'		=> 'boolean',
 			'id_type'		=> 'id_type',
 			'auto_ah_on_esp'	=> 'boolean',
-			'always_ah_on_esp'	=> 'boolean'
+			'always_ah_on_esp'	=> 'boolean',
+			'policy'		=> 'policy',
+			'guard_policy'		=> 'policy'
 			},
 			'peer'		=> {
 			'exchange_mode' 	=> 'phase1_exchange_mode',
@@ -228,6 +235,7 @@ my %prop_typehash = ( 	'connection'	=> {
 
 my %prop_syntaxhash = (	'range'		=> '{ip-address|ip-address/masklen|ip-address[port]|ip-address/masklen[port]}',
 			'ip'		=> '{ip-address} - IPv4 or IPv6',
+			'port'		=> '{[any]|[port]} - any or port number, []s required',
 			'uppserspec'	=> '{protocol} - number or from /etc/protocols or any or icmp6',
 			'encap'		=> '{ah|esp}',
 			'mode'		=> '{tunnel|transport}',
@@ -256,7 +264,8 @@ my %prop_syntaxhash = (	'range'		=> '{ip-address|ip-address/masklen|ip-address[p
 			'proposal_check'	=> '{obey|strict|claim|exact}',
 			'nat_traversal'		=> '{on|off|force}',
 			'nonce_size'		=> '{number} - between 8 and 256',
-			'id_type'		=> '{address|subnet} - ID type of ISAKMP Phase II identifier'
+			'id_type'		=> '{address|subnet} - ID type of ISAKMP Phase II identifier',
+			'policy'		=> '{discard|ipsec|none} - SPD policy'
 			);
 
 my %bool_val = ( 	'enabled' => 1,
@@ -282,6 +291,12 @@ spdadd ___dst_range___ ___src_range___ ___upperspec___ -P in ipsec
 	___encap___/___mode___/___dst_ip___-___src_ip___/___level___;
 
 EOF
+my $spdadd_alternate_policy = <<'EOF';
+spdadd ___src_range___ ___dst_range___ ___upperspec___ -P out ___policy___;
+
+spdadd ___dst_range___ ___src_range___ ___upperspec___ -P in ___policy___;
+
+EOF
 %spdadd_addons = (	'ipcomp_in'	=> '	ipcomp/___mode___/___dst_ip___-___src_ip___/use',
 			'ipcomp_out'	=> '	ipcomp/___mode___/___src_ip___-___dst_ip___/use',
 			'ah_in'		=> '	ah/transport/___dst_ip___-___src_ip___/___level___',
@@ -293,36 +308,28 @@ EOF
 # - source quench (4)
 # - echo request (8)
 # - time exceeded (11)
-my $spdadd_transport_ip4_default = <<'EOF';
+my $spdadd_ip4_header = << 'EOF';
 spdadd ___src_subnet___ ___dst_subnet___ icmp -P out priority 1 none;
 
 spdadd ___dst_subnet___ ___src_subnet___ icmp -P in priority 1 none;
 
-spdadd ___src_subnet___[500] ___dst_subnet___[500] udp -P out priority 1 none;
-
-spdadd ___dst_subnet___[500] ___src_subnet___[500] udp -P in priority 1 none;
-
-spdadd ___src_range___ ___dst_range___ ___upperspec___ -P out ipsec
-	___encap___/___mode___/___src_ip___-___dst_ip___/___level___;
-
-spdadd ___dst_range___ ___src_range___ ___upperspec___ -P in ipsec
-	___encap___/___mode___/___dst_ip___-___src_ip___/___level___;
-
 EOF
-my $spdadd_transport_ip6_default = <<'EOF';
+
+my $spdadd_ip6_header = << 'EOF';
 spdadd ___src_subnet___ ___dst_subnet___ icmp6 -P out priority 1 none;
 
 spdadd ___dst_subnet___ ___src_subnet___ icmp6 -P in priority 1 none;
 
-spdadd ___src_subnet___[500] ___dst_subnet___[500] udp -P out priority 1 none;
+EOF
 
-spdadd ___dst_subnet___[500] ___src_subnet___[500] udp -P in priority 1 none;
+my $spdadd_transport_ip4_default = "$spdadd_ip4_header" . "$spdadd_default"; 
 
-spdadd ___src_range___ ___dst_range___ ___upperspec___ -P out ipsec
-	___encap___/___mode___/___src_ip___-___dst_ip___/___level___;
+my $spdadd_transport_ip6_default = "$spdadd_ip6_header" . "$spdadd_default"; 
 
-spdadd ___dst_range___ ___src_range___ ___upperspec___ -P in ipsec
-	___encap___/___mode___/___dst_ip___-___src_ip___/___level___;
+my $spdadd_trailer = << 'EOF';
+spdadd ___src_subnet___ ___dst_subnet___ ___upperspec___ -P out priority -1 ___guard_policy___;
+
+spdadd ___dst_subnet___ ___src_subnet___ ___upperspec___ -P in priority -1 ___guard_policy___;
 
 EOF
 
@@ -757,7 +764,7 @@ sub racoon_fill_remote ($) {
 				$stuff =~ s/^(\s*remote.*{\s*)$/${1}\n\t${remote_addons{"$property"}}/m;
 			}
 		}
-		my @pindexes = peer_get_indexes ( %$hndl );
+		my @pindexes = prop_get_indexes ( %$hndl );
 		foreach my $ind ( @pindexes ) {
 			my $to_add = $remote_proposal;
 			$to_add =~ s/___(\S+)___/___$1\[$ind\]___/gm;
@@ -812,12 +819,12 @@ sub racoon_fill_init () {
 	my $stuff = $racoon_init;
 
 	foreach my $key ( keys %global ) {
-		$key =~ s/^(\S+)\[[0-9a-z]\]$/$1/i;
+		$key =~ s/^(\S+)\[[0-9_a-z]+\]$/$1/i;
 		if ( defined $init_addons{"$key"} ) {
 			$stuff =~ s/^(\s*path certificate.*)$/${1}\n${init_addons{"$key"}}/m;
 		}
 	}
-	my @indexes = peer_get_indexes ( %global );
+	my @indexes = prop_get_indexes ( %global );
 	foreach my $ind ( @indexes ) {
 		my $to_add = $init_addons{'isakmp'};
 		$to_add =~ s/___(\S+)___/___$1\[$ind\]___/gm;
@@ -1071,6 +1078,7 @@ sub spd_show_header () {
 	print "Number  Connection Name                                     UpperSpec  DirN\n";
 	print "          src_range\n";
 	print "          dst_range\n";
+	print "          policy\n";
 }
 
 sub spd_show_entry ($) {
@@ -1088,6 +1096,7 @@ sub spd_show_entry ($) {
 		$$entry{'upperspec'}, $$entry{'direction'};
 	print "          $$entry{'src_range'}\n";
 	print "          $$entry{'dst_range'}\n";
+	print "          $$entry{'policy'}\n";
 }
 
 sub spd_show_footer () {
@@ -1102,6 +1111,8 @@ sub conn_menu ($) {
 
 	# Initialise the SPD data structure
 	parse_spd(@spd_list, %conn_spd_hash);
+	# Reverse dirN for better human recongition so that it is in config file order
+	@spd_list = reverse @spd_list;
 
 	my ($pos,$rows,$cols,$do_fill) = 0;
 	$term = '.*' if ! defined $term;
@@ -1117,10 +1128,10 @@ sub conn_menu ($) {
 REDRAW:	while ($pos < @spd_list) {
 		# get terminal size 
 		($rows, $cols) = split ' ', `stty size`;
-		my $ntoshow = ($rows - 6) / 3;
+		my $ntoshow = ($rows - 7) / 4;
 		my $fill = $rows % $ntoshow;
 		if ( ($pos +$ntoshow)  > @spd) {
-			$fill += 3*($pos + $ntoshow - @spd);
+			$fill += 4*($pos + $ntoshow - @spd);
 		}
 		# display SPD list
 		if ( $do_fill ) {
@@ -1297,9 +1308,9 @@ sub parse_spd (\@\%) {
 			$onespd_flag = 0;
 			$line =~ m/^\s*(in|out|fwd)\s+(prio)?.*\s?(ipsec|none|discard)\s*$/;
 			$direction = $1;
-			$target = $3;
+			$policy = $3;
 			push @$spd_list, { 'src_range', $src_range, 'dst_range', $dst_range, 
-					'upperspec', $upperspec, 'direction', $direction, 'target', $target };
+					'upperspec', $upperspec, 'direction', $direction, 'policy', $policy };
 			# print "[ src_range=$src_range, dst_range=$dst_range, upperspec=$upperspec, direction=$direction ]\n";
 		}
 	}
@@ -1329,41 +1340,51 @@ sub match_spd_connection (\@\%) {
 			next if ! defined $connection_list{$connection}{'dst_ip'};
 			
 			# Quick handle - read only
-			my $conn = $connection_list{$connection};
-			# Below covers ipsec and none 
-			if ($spd->{'upperspec'} eq $conn->{'upperspec'}
-				  && $spd->{'src_range' } eq $conn->{'src_range'}
-				  && $spd->{'dst_range'} eq $conn->{'dst_range'}
+			my $chndl = $connection_list{$connection};
+			# Below covers ipsec and none
+			my @pindexes = prop_get_indexes (%$chndl);
+			foreach my $ind (@pindexes) {
+				if ($spd->{'upperspec'} eq $chndl->{'upperspec'}
+					  && $spd->{'src_range' } eq $chndl->{"src_range[${ind}]"}
+					  && $spd->{'dst_range'} eq $chndl->{"dst_range[${ind}]"}
+					  && $spd->{'direction'} eq 'out'
+					|| $spd->{'upperspec'} eq $chndl->{'upperspec'}
+					  && $spd->{'dst_range'} eq $chndl->{"src_range[${ind}]"}
+					  && $spd->{'src_range'} eq $chndl->{"dst_range[${ind}]"}
+					  && $spd->{'direction'} eq 'in'
+					|| $spd->{'upperspec'} eq $chndl->{'upperspec'} 
+					  && $spd->{'dst_range'} eq $chndl->{"src_range[${ind}]"}
+					  && $spd->{'src_range'} eq $chndl->{"dst_range[${ind}]"}
+					  && $spd->{'direction'} eq 'fwd') {
+					$spd->{'connection'} = $connection;
+					push @{ $conn_spd_hash->{$connection} }, $index;
+				}
+			}	
+			# Match for non-multi SPD connections
+			if ($spd->{'upperspec'} eq $chndl->{'upperspec'}
+				  && $spd->{'src_range' } eq $chndl->{'src_range'}
+				  && $spd->{'dst_range'} eq $chndl->{'dst_range'}
 				  && $spd->{'direction'} eq 'out'
-				  && $spd->{'target'} eq 'ipsec'
-				|| $spd->{'upperspec'} eq $conn->{'upperspec'}
-				  && $spd->{'dst_range'} eq $conn->{'src_range'}
-				  && $spd->{'src_range'} eq $conn->{'dst_range'}
+				|| $spd->{'upperspec'} eq $chndl->{'upperspec'}
+				  && $spd->{'dst_range'} eq $chndl->{'src_range'}
+				  && $spd->{'src_range'} eq $chndl->{'dst_range'}
 				  && $spd->{'direction'} eq 'in'
-				  && $spd->{'target'} eq 'ipsec'
-				|| $spd->{'upperspec'} eq $conn->{'upperspec'} 
-				  && $spd->{'dst_range'} eq $conn->{'src_range'}
-				  && $spd->{'src_range'} eq $conn->{'dst_range'}
+				|| $spd->{'upperspec'} eq $chndl->{'upperspec'} 
+				  && $spd->{'dst_range'} eq $chndl->{'src_range'}
+				  && $spd->{'src_range'} eq $chndl->{'dst_range'}
 				  && $spd->{'direction'} eq 'fwd'
-				  && $spd->{'target'} eq 'ipsec'
-				|| ($spd->{'src_range' } eq $conn->{'src_subnet'}
-					|| $spd->{'src_range' } eq $conn->{'src_subnet'} .'[500]')
-				  && ($spd->{'dst_range'} eq $conn->{'dst_subnet'}
-				  	|| $spd->{'dst_range'} eq $conn->{'dst_subnet'} . '[500]')
+				|| $spd->{'src_range' } eq $chndl->{'src_subnet'}
+				  && $spd->{'dst_range'} eq $chndl->{'dst_subnet'}
 				  && $spd->{'direction'} eq 'out'
-				  && $spd->{'target'} =~ m/^(none|discard)$/ 
-				||  ($spd->{'dst_range'} eq $conn->{'src_subnet'}
-					|| $spd->{'dst_range'} eq $conn->{'src_subnet'} . '[500]')
-				  && ($spd->{'src_range'} eq $conn->{'dst_subnet'}
-				  	|| $spd->{'src_range'} eq $conn->{'dst_subnet'} . '[500]')
+				  && $spd->{'policy'} =~ m/^(none|discard)$/ 
+				||  $spd->{'dst_range'} eq $chndl->{'src_subnet'}
+				  && $spd->{'src_range'} eq $chndl->{'dst_subnet'}
 				  && $spd->{'direction'} eq 'in'
-				  && $spd->{'target'} =~ m/^(none|discard)$/ 
-				|| ($spd->{'dst_range'} eq $conn->{'src_subnet'}
-					|| $spd->{'dst_range'} eq $conn->{'src_subnet'} . '[500]')
-				  && ($spd->{'src_range'} eq $conn->{'dst_subnet'}
-				  	|| $spd->{'src_range'} eq $conn->{'dst_subnet'} . '[500]')
+				  && $spd->{'policy'} =~ m/^(none|discard)$/ 
+				|| $spd->{'dst_range'} eq $chndl->{'src_subnet'}
+				  && $spd->{'src_range'} eq $chndl->{'dst_subnet'}
 				  && $spd->{'direction'} eq 'fwd'
-				  && $spd->{'target'} =~ m/^(none|discard)$/){
+				  && $spd->{'policy'} =~ m/^(none|discard)$/){
 				$spd->{'connection'} = $connection;
 				push @{ $conn_spd_hash->{$connection} }, $index;
 			}
@@ -1769,7 +1790,7 @@ sub get_proptype($$) {
 	my $property = shift;
 	my $ptype;
 
-	if ( $property =~ m/^(.*)\[[0-9a-z]+\]$/ ) {
+	if ( $property =~ m/^(.*)\[[0-9_a-z]+\]$/ ) {
 		$property = $1;
 	}
 	$ptype = $prop_typehash{$section}{$property};	
@@ -1824,6 +1845,8 @@ sub check_property_syntax ($$$) {
 		$value =~ m/^(obey|strict|claim|exact)$/i && return 1;
 	} elsif ( $ptype eq 'nat_traversal' ) {
 		$value =~ m/^(on|off|force)$/i && return 1;
+	} elsif ( $ptype eq 'policy' ) { 
+		$value =~ m/^(discard|ipsec|none)$/i && return 1;
 	} elsif ( $ptype =~ 'nonce_size' ) {
 	$value =~ m/^[0-9]{1,3}$/ && $value >= 8 && $value <= 256 && return 1;
 	} elsif ( $ptype eq 'listen' ) {
@@ -1950,7 +1973,21 @@ sub check_property_syntax ($$$) {
 		}
 		return 0
 	} elsif ( $ptype eq 'ip' ) {
-		return ip_check_syntax($value); 
+		return ip_check_syntax($value);
+	} elsif ( $ptype eq 'port' ) {
+		my $port;
+		if (  $port = getservbyname ($value, '' )) {
+			return 1;
+		}
+		if ($value =~ m/^\[?(any|[0-9]{1,5})\]?$/i ) {
+			$port = $1;
+		} else {
+			return 0;
+		}
+		if ( $port ne 'any' ) {
+			return 0 if ( $port < 0 || $port > 65535 );
+		}
+		return 1;
 	} elsif ( $ptype eq 'range' ) {
 		my $valid = 1;
 		my ($ip, $mask, $port, $type);
@@ -2018,15 +2055,28 @@ sub check_property_syntax ($$$) {
 sub conn_check_required () {
 	foreach my $connection ( keys %connection_list ) {
 		my $makelive = 1;
+		my $chndl = $connection_list{$connection};
 		next if $connection eq '%default';
 		if ( $connection ne '%anonymous' ) {
 			foreach my $property ( @conn_required_props ) {
-				$makelive = 0 if ! defined $connection_list{$connection}{$property};
+				$makelive = 0 if ! defined $chndl->{$property};
 			}
-			my $src_range_iptype = $connection_list{$connection}{'src_range_iptype'};
-			my $dst_range_iptype = $connection_list{$connection}{'dst_range_iptype'};
-			$makelive = 0 if ($src_range_iptype ne $dst_range_iptype);
-			my $dst_ip = $connection_list{$connection}{'dst_ip'};
+			# Check that address families of src_range and dst_range match 
+			my $src_range_iptype = $chndl->{'src_range_iptype'};
+			my $dst_range_iptype = $chndl->{'dst_range_iptype'};
+			if ($src_range_iptype ne $dst_range_iptype) {
+				prog_warn 0, "$connection - src_range '${src_range_iptype}' does not match dst_range '${dst_range_iptype}'.";
+				$makelive = 0;
+			}
+			# Check that address families of dst_ip and src_ip match
+			my $src_ip_iptype = $chndl->{'src_ip_iptype'};
+			my $dst_ip_iptype = $chndl->{'dst_ip_iptype'};
+			if ($src_ip_iptype ne $dst_ip_iptype) {
+				prog_warn 0, "$connection - src_ip '${src_ip_iptype}' does not match dst_ip '${dst_ip_iptype}'.";
+				$makelive = 0;
+			}
+			# check peer
+			my $dst_ip = $chndl->{'dst_ip'};
 			if ( ! defined $dst_ip
 				|| ! defined $peer_list{$dst_ip}  
 				|| ! defined $peer_list{$dst_ip}{'makelive'}
@@ -2034,82 +2084,143 @@ sub conn_check_required () {
 				$makelive = 0;
 			}
 		}
-		$makelive = 0 if ( $connection_list{$connection}{'syntax_error'} );
+		# Check that dst_port and src_port are valid if multi SPD
+		if ( $chndl->{'multi_spd'} ) {
+			my @pindexes = prop_get_indexes ( %$chndl );
+			foreach my $ind ( @pindexes ) {
+				my $src_port_name = "src_port" . "[${ind}]";
+				my $dst_port_name = "dst_port" . "[${ind}]";
+				if ($chndl->{$src_port_name} eq '[any]' && $chndl->{$dst_port_name} eq '[any]') {
+					prog_warn 0, "$connection - $src_port_name or $dst_port_name missing.";
+					$makelive = 0;
+				}
+			}
+		}
+		$makelive = 0 if ( $chndl->{'syntax_error'} );
 		if (! $makelive) {
 			prog_warn 0, "$connection - required parameters missing, peer missing or syntax error.";
 			prog_warn 0, "$connection - not activating.";
-			$connection_list{$connection}{'makelive'} = 0;
+			$chndl->{'makelive'} = 0;
 			next;
 		}
-		$connection_list{$connection}{'makelive'} = 1;
+		$chndl->{'makelive'} = 1;
 	}
+}
+
+# Translate /etc/services name to port
+sub getportnum($) {
+	my $port = shift;
+	my $value;
+
+	if ($port =~ m/^(any|\[any\])$/ ) {
+		return $port;
+	}
+	if ($value = getservbyname( $port, '')){
+		return $value;
+	}
+	return $port;
 }
 
 # Fill in default missing parameters
 sub conn_fillin_defaults () {
 	foreach my $connection ( keys %connection_list ) {
 		next if $connection eq '%default';
+		my $chndl = $connection_list{$connection};
 		foreach my $property ( keys %{ $connection_list{'%default'} } ) {
-			if ( ! defined $connection_list{$connection}{$property} ) {
-				$connection_list{$connection}{$property} = $connection_list{'%default'}{$property};
+			if ( ! defined $chndl->{$property} ) {
+				$chndl->{$property} = $connection_list{'%default'}{$property};
 			}
 		}
-		next if ! defined $connection_list{$connection}{'src_ip'};
-		next if ! defined $connection_list{$connection}{'dst_ip'};
+		next if ! defined $chndl->{'src_ip'};
+		next if ! defined $chndl->{'dst_ip'};
 
 		# Set up default values for range and ID if they do not exist already
 		foreach my $p ( 'src', 'dst' ) {
-			if ( ! defined $connection_list{$connection}{"${p}_range"} ) {
-				$connection_list{$connection}{"${p}_range"}
-					= $connection_list{$connection}{"${p}_ip"};
+			if ( ! defined $chndl->{"${p}_range"} ) {
+				$chndl->{"${p}_range"}
+					= $chndl->{"${p}_ip"};
 			}
-			if ( $connection_list{$connection}{"${p}_range"} 
+			if ( $chndl->{"${p}_range"} 
 				!~ m/^.*\[(any|[0-9]{1,5})\]$/ ) {
-				$connection_list{$connection}{"${p}_range"} .= "[any]";
+				$chndl->{"${p}_range"} .= "[any]";
 			}
 			# Remove full length netmasks to avoid confusing things...
-			if ($connection_list{$connection}{"${p}_range"} =~ m/^[0-9]{1,3}\./) {
-				$connection_list{$connection}{"${p}_range"} =~ s/\/32//;
-				$connection_list{$connection}{"${p}_range_iptype"} = 'ip4';
-			} elsif ($connection_list{$connection}{"${p}_range"} =~ m/^([0-9a-f]{1,4}:|::)/) {
-				$connection_list{$connection}{"${p}_range"} =~ s/\/128//;
-				$connection_list{$connection}{"${p}_range_iptype"} = 'ip6';
+			if ($chndl->{"${p}_range"} =~ m/^[0-9]{1,3}\./) {
+				$chndl->{"${p}_range"} =~ s/\/32//;
+				$chndl->{"${p}_range_iptype"} = 'ip4';
+			} elsif ($chndl->{"${p}_range"} =~ m/^([0-9a-f]{1,4}:|::)/) {
+				$chndl->{"${p}_range"} =~ s/\/128//;
+				$chndl->{"${p}_range_iptype"} = 'ip6';
+			}
+			# Record IP types if dst_ip and src_ip
+			if ($chndl->{"${p}_ip"} =~ m/^[0-9]{1,3}\./) {
+				$chndl->{"${p}_ip_iptype"} = 'ip4';
+			} elsif ($chndl->{"${p}_ip"} =~ m/^([0-9a-f]{1,4}:|::)/) {
+				$chndl->{"${p}_ip_iptype"} = 'ip6';
 			}
 		}
 
 		# Work out IDs for use with racoon configuration
 		# Remove any port information as racoon sees it as duplicate sainfo...
-		my $local_id = $connection_list{$connection}{'src_range'};
-		$local_id =~ s/\[(any|[0-9]{1,5})\]$//;
-		$connection_list{$connection}{'local_id'} = $local_id;
-		$connection_list{$connection}{'src_subnet'} = $local_id;
-		my $remote_id = $connection_list{$connection}{'dst_range'};
-		$remote_id =~ s/\[(any|[0-9]{1,5})\]$//;
-		$connection_list{$connection}{'remote_id'} = $remote_id; 
-		$connection_list{$connection}{'dst_subnet'} = $remote_id; 
+		my $local_id = $chndl->{'src_range'};
+		$local_id =~ m/^(\S+)(\[(any|[0-9]{1,5}|[-0-9a-z]+)\])$/;
+		my $src_port = $2;
+		$local_id = $1;
+		$chndl->{'local_id'} = $local_id;
+		$chndl->{'src_subnet'} = $local_id;
+		$chndl->{'src_port'} = getportnum($src_port);
+		my $remote_id = $chndl->{'dst_range'};
+		$remote_id =~ m/^(\S+)(\[(any|[0-9]{1,5}|[-0-9a-z]+)\])$/;
+		my $dst_port = $2;
+		$remote_id = $1;
+		$chndl->{'remote_id'} = $remote_id; 
+		$chndl->{'dst_subnet'} = $remote_id; 
+		$chndl->{'dst_port'} = getportnum($dst_port); 
 		
 		# Set the mode appropriately if not already set
-		if ( !defined $connection_list{$connection}{'mode'} ) {
-			if ( $connection_list{$connection}{'src_range'}
-					eq $connection_list{$connection}{'src_ip'} . "[any]"
-				&& $connection_list{$connection}{'dst_range'}
-					eq $connection_list{$connection}{'dst_ip'} . "[any]" ) {
-				$connection_list{$connection}{'mode'} = 'transport';
+		if ( !defined $chndl->{'mode'} ) {
+			if ( $chndl->{'src_range'}
+					eq $chndl->{'src_ip'} . "[any]"
+				&& $chndl->{'dst_range'}
+					eq $chndl->{'dst_ip'} . "[any]" ) {
+				$chndl->{'mode'} = 'transport';
 			} else {
-				$connection_list{$connection}{'mode'} = 'tunnel';
+				$chndl->{'mode'} = 'tunnel';
 			}
 		}
-		
+
+		# Deal with SPD port rules
+		my @pindexes = prop_get_indexes ( %$chndl );
+		# Work out if this is a multi SPD connection
+		if ( ! scalar(@pindexes)) {
+			$chndl->{'multi_spd'} = 0;
+			next;
+		}
+		$chndl->{'multi_spd'} = 1;
+		foreach my $ind ( @pindexes ) {
+			# fill in missing ports, and add missing '[]'s
+			foreach my $p ( 'src', 'dst' ) {
+				my $pname = "${p}_port" . "[${ind}]";
+				$chndl->{$pname} = '[any]' if ( ! defined $chndl->{$pname} );
+				$chndl->{$pname} = getportnum($chndl->{$pname});
+				$chndl->{$pname} =~ s/^(any|[0-9]{1,5})$/[${1}]/;
+				$chndl->{"${p}_range[${ind}]"} = $chndl->{"${p}_subnet"} . $chndl->{"${p}_port[${ind}]"};
+			}
+			foreach my $p ( 'level', 'encap', 'policy' ) {
+				my $pname = "${p}" . "[${ind}]";
+				$chndl->{$pname} = $chndl->{$p} if ( ! defined $chndl->{$pname} );
+			}
+		}
 	} 
 }
 
-sub peer_get_indexes (\%) {
+sub prop_get_indexes (\%) {
 	my $hndl = shift;
 	my %tmp;
 
 	my @keys = keys %$hndl;
-	@keys = grep /^.*\[[0-9]+\]$/, @keys;
-	map { s/^.*\[([0-9]+)\]$/$1/; } @keys;
+	@keys = grep /^.*\[[0-9_a-z]+\]$/, @keys;
+	map { s/^.*\[([0-9_a-z]+)\]$/$1/; } @keys;
 	$tmp{$_} = 1 foreach (@keys);
 	@keys = reverse (sort (keys (%tmp)));
 	
@@ -2134,8 +2245,8 @@ sub peer_fillin_defaults () {
 	foreach my $peer ( keys %peer_list ) {
 		my $phndl = $peer_list{$peer};
 		# Fill in all proposals...
-		my @pindexes = peer_get_indexes ( %$phndl );
-		foreach my $property ( grep { $_ = $1 if /^(.*)\[[0-9]+\]$/;  } keys %$dhndl ) {
+		my @pindexes = prop_get_indexes ( %$phndl );
+		foreach my $property ( grep { $_ = $1 if /^(.*)\[[0-9_a-z]+\]$/;  } keys %$dhndl ) {
 			foreach my $ind ( @pindexes ) {
 				next if $peer eq '%default' && $ind == 0;
 				my $name =  "$property" . '[' . "$ind" . "]";
@@ -2293,21 +2404,48 @@ sub spd_fill_add ($) {
 
 	# We only do interesting things on %default templates	
 	if ($hndl->{'spdadd_template'} eq '%default') {
-		# Use transport template if needed
-		if ($hndl->{'mode'} eq 'transport'
-			&& $hndl->{'upperspec'} eq 'any'
-	       		&& $hndl->{'src_range'} =~ m/^.*\[any\]$/
-			&& $hndl->{'dst_range'} =~ m/^.*\[any\]$/) {
+		my @pindexes = prop_get_indexes ( %$hndl );
+		my $multi_spd = scalar( @pindexes );
+		if ($multi_spd > 0) {
 			if ($hndl->{'src_range_iptype'} eq 'ip4') {
-				$stuff = $spdadd{'%transport_ip4_default'};
+				$stuff = $spdadd_ip4_header;
 			} elsif ($hndl->{'src_range_iptype'} eq 'ip6') {
-				$stuff = $spdadd{'%transport_ip6_default'};
+				$stuff = $spdadd_ip6_header;
 			}
-			if ($^O !~ /linux/i) {
-				# spd priority only supported on Linux kernels
-				$stuff =~ s/^(\s*spdadd.*(in|out))\s+prio.*(ipsec|discard;|none;)$/${1} ${3}/mg;
-			}	
+			# Build multi SPD template
+			foreach my $ind ( @pindexes ) {
+				my $to_add;
+				my $pname = "policy[${ind}]";
+				if ($hndl->{$pname} eq 'ipsec') {
+					$to_add = $spdadd_default;
+				} else {
+					$to_add = $spdadd_alternate_policy;
+				}
+				$to_add =~ s/___(encap|level|policy|src_range|dst_range)___/___$1\[$ind\]___/gm;
+				$stuff .= $to_add;
+			}
+			$stuff .= $spdadd_trailer;
+
+		} else {
+			# Original non-multi SPD template action
+			# Use transport template if needed
+			if ($hndl->{'mode'} eq 'transport'
+				&& $hndl->{'upperspec'} eq 'any'
+				&& $hndl->{'src_range'} =~ m/^.*\[any\]$/
+				&& $hndl->{'dst_range'} =~ m/^.*\[any\]$/) {
+				if ($hndl->{'src_range_iptype'} eq 'ip4') {
+					$stuff = $spdadd{'%transport_ip4_default'};
+				} elsif ($hndl->{'src_range_iptype'} eq 'ip6') {
+					$stuff = $spdadd{'%transport_ip6_default'};
+				}
+			}
 		}
+
+		#
+		# spd priority only supported on Linux kernels
+		if ($^O !~ /linux/i) {
+			$stuff =~ s/^(\s*spdadd.*(in|out))\s+prio.*(ipsec|discard;|none;)$/${1} ${3}/mg;
+		}	
 				
 		#
 		# Do fill in AH header if asked for.
@@ -2325,10 +2463,14 @@ sub spd_fill_add ($) {
 			$stuff =~ s/^(\s*spdadd.*out ipsec\s*)$/${1}\n${spdadd_addons{'ipcomp_out'}}/mg;
 			$stuff =~ s/^(\s*spdadd.*in ipsec\s*)$/${1}\n${spdadd_addons{'ipcomp_in'}}/mg;
 		}
+
 	}	
 
 	foreach my $key (keys %$hndl) {
-		$stuff =~ s/___${key}___/$$hndl{$key}/img;
+		my $key_reg = $key;
+		$key_reg =~ s/\[/\\[/g;
+		$key_reg =~ s/\]/\\]/g;
+		$stuff =~ s/___${key_reg}___/$$hndl{"$key"}/img;
 	}
 
 

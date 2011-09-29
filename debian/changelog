@@ -1,3 +1,9 @@
+ipsec-tools (1:0.8.0-8.1) unstable; urgency=low
+
+  * New racoon-tool Multi relation SPD code for my testing. 
+
+ -- Matthew Grant <matthewgrant5@gmail.com>  Fri, 30 Sep 2011 10:48:28 +1300
+
 ipsec-tools (1:0.8.0-8) unstable; urgency=low
 
   * Revert racoon-tool default SPD level to unique for comaptibilty and 
