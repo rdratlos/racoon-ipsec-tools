@@ -11550,9 +11550,6 @@ case $host in
 
 
 	;;
-*kfreebsd*)
-	LIBS="$LIBS -lresolv"
-	;;
 *darwin*)
 	LIBS="$LIBS -lresolv"
 	;;
@@ -13076,7 +13073,7 @@ fi
 			as_fn_error $? "ICONV libs or includes not found. Aborting." "$LINENO" 5
 	  	fi
 	fi
-	LIBS="$LIBS -L$libiconv_dir/lib -Wl,-R$libiconv_dir/lib -liconv"
+	LIBS="$LIBS -L$libiconv_dir/lib -R$libiconv_dir/lib -liconv"
 	for ac_func in iconv_open
 do :
   ac_fn_c_check_func "$LINENO" "iconv_open" "ac_cv_func_iconv_open"
@@ -13333,7 +13330,7 @@ fi
 
 $as_echo "#define HAVE_LIBRADIUS /**/" >>confdefs.h
 
-	LIBS="$LIBS -L$libradius_dir/lib -Wl,-R$libradius_dir/lib -lradius"
+	LIBS="$LIBS -L$libradius_dir/lib -R$libradius_dir/lib -lradius"
 	for ac_func in rad_create_request
 do :
   ac_fn_c_check_func "$LINENO" "rad_create_request" "ac_cv_func_rad_create_request"
@@ -13536,7 +13533,7 @@ fi
 
 $as_echo "#define HAVE_LIBPAM /**/" >>confdefs.h
 
-	LIBS="$LIBS -L$libpam_dir/lib -Wl,-R$libpam_dir/lib -lpam"
+	LIBS="$LIBS -L$libpam_dir/lib -R$libpam_dir/lib -lpam"
 	for ac_func in pam_start
 do :
   ac_fn_c_check_func "$LINENO" "pam_start" "ac_cv_func_pam_start"
@@ -13739,7 +13736,7 @@ fi
 
 $as_echo "#define HAVE_LIBLDAP /**/" >>confdefs.h
 
-	LIBS="$LIBS -L$libldap_dir/lib -Wl,-R$libldap_dir/lib -lldap"
+	LIBS="$LIBS -L$libldap_dir/lib -R$libldap_dir/lib -lldap"
 
 	saved_CFLAGS=$CFLAGS
 	CFLAGS="$CFLAGS -Wall -Werror"
@@ -14103,7 +14100,6 @@ $as_echo_n "checking for advanced API support... " >&6; }
 #define INET6
 #endif
 #include <sys/types.h>
-#define __USE_GNU 1	/* GNU/kFreeBSD */
 #include <netinet/in.h>
 int
 main ()
@@ -14270,7 +14266,7 @@ fi
 rm -f conftest*
 
 	;;
-freebsd*|kfreebsd*|netbsd*)
+freebsd*|netbsd*)
 # NetBSD case
 # Same check for FreeBSD
 ac_fn_c_check_member "$LINENO" "struct sadb_x_nat_t_type" "sadb_x_nat_t_type_len" "ac_cv_member_struct_sadb_x_nat_t_type_sadb_x_nat_t_type_len" "

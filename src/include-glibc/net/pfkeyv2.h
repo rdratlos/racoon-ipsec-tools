@@ -18,7 +18,7 @@
 #define SADB_X_AALG_SHA              250
 
 /* private allocations - based on RFC2407/IANA assignment */
-#define SADB_X_EALG_CAST128CBC		SADB_X_EALG_CASTCBC
+#define SADB_X_EALG_CAST128CBC	5	/* SADB_X_EALG_CASTCBC? == 6 */
 #define SADB_X_EALG_RIJNDAELCBC		SADB_X_EALG_AESCBC
 #define SADB_X_EALG_AES			SADB_X_EALG_AESCBC
 

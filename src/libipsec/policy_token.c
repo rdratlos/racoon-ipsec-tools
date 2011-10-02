@@ -625,7 +625,7 @@ char *__libipsectext;
 #include "libpfkey.h"
 
 #if !defined(__NetBSD__) && !defined(__FreeBSD__) && !defined(__linux__)  && \
-!defined(__APPLE__) && !defined(__MACH__) && !defined(__FreeBSD_kernel__)
+!defined(__APPLE__) && !defined(__MACH__)
 #include "y.tab.h"
 #else
 #include "policy_parse.h"
