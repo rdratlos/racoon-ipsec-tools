@@ -29,36 +29,6 @@ diff -Naurp ipsec-tools-0.8.0.orig/configure ipsec-tools-0.8.0/configure
  # NetBSD case
  # Same check for FreeBSD
  ac_fn_c_check_member "$LINENO" "struct sadb_x_nat_t_type" "sadb_x_nat_t_type_len" "ac_cv_member_struct_sadb_x_nat_t_type_sadb_x_nat_t_type_len" "
-diff -Naurp ipsec-tools-0.8.0.orig/configure.ac ipsec-tools-0.8.0/configure.ac
---- ipsec-tools-0.8.0.orig/configure.ac	2011-03-18 14:25:12.000000000 +0100
-+++ ipsec-tools-0.8.0/configure.ac	2011-03-21 15:48:54.000000000 +0100
-@@ -34,6 +34,9 @@ case $host in
- 	AC_SUBST(INCLUDE_GLIBC)
- 	AC_SUBST(RPM)
- 	;;
-+*kfreebsd*)
-+	LIBS="$LIBS -lresolv"
-+	;;
- *darwin*)
- 	LIBS="$LIBS -lresolv"
- 	;;
-@@ -620,6 +623,7 @@ if test "$ipv6" = "yes"; then
- #define INET6
- #endif
- #include <sys/types.h>
-+#define __USE_GNU 1	/* GNU/kFreeBSD */
- #include <netinet/in.h>],
- 		[struct in6_pktinfo a;],
- 		[AC_MSG_RESULT(yes)
-@@ -646,7 +650,7 @@ yes
- #endif
- ], [kernel_natt="yes"])
- 	;;
--freebsd*|netbsd*)
-+freebsd*|kfreebsd*|netbsd*)
- # NetBSD case
- # Same check for FreeBSD
- AC_CHECK_MEMBER(struct sadb_x_nat_t_type.sadb_x_nat_t_type_len,
 diff -Naurp ipsec-tools-0.8.0.orig/src/libipsec/key_debug.c ipsec-tools-0.8.0/src/libipsec/key_debug.c
 --- ipsec-tools-0.8.0.orig/src/libipsec/key_debug.c	2008-12-05 07:02:20.000000000 +0100
 +++ ipsec-tools-0.8.0/src/libipsec/key_debug.c	2011-03-21 14:48:08.000000000 +0100

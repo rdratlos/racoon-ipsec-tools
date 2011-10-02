@@ -1,3 +1,11 @@
+ipsec-tools (1:0.8.0-9~1.gbpaa3111) UNRELEASED; urgency=low
+
+  ** SNAPSHOT build @aa31110de2ad811c4b63376ceea15d8df1d09350 **
+
+  * UNRELEASED
+
+ -- Matthew Grant <matthewgrant5@gmail.com>  Sun, 02 Oct 2011 17:44:34 +1300
+
 ipsec-tools (1:0.8.0-8.1) unstable; urgency=low
 
   * New racoon-tool Multi relation SPD code for my testing. 

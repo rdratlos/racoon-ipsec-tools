@@ -29,6 +29,11 @@ endif
 %:
 	dh  \$@
 
+patch:
+	quilt push -a
+
+unpatch:
+	quilt pop -a
 
 override_dh_auto_configure:
 	CFLAGS="$(CFLAGS)" ./configure --verbose \
@@ -78,7 +83,7 @@ override_dh_installchangelogs:
 	dh_installchangelogs ChangeLog
 
 override_dh_installexamples:
-	dh_installexamples -pracoon src/racoon/samples
+	dh_installexamples -pracoon -X.in src/racoon/samples
 	dh_installexamples
 
 override_dh_installinit:
@@ -88,11 +93,6 @@ override_dh_installinit:
 override_dh_installman:
 	dh_installman
 	dh_installman -pracoon debian/racoon-tool.8 debian/racoon-tool.conf.5
-
-override_dh_perl:
-	dh_perl
-	dpkg-gensymbols -pipsec-tools -esrc/libipsec/.libs/libipsec.so.0.0.1 -d -Odebian/ipsec-tools.symbols
-	dpkg-gensymbols -pracoon -esrc/racoon/.libs/libracoon.so.0.0.0 -d -Odebian/racoon.symbols
 
 override_dh_makeshlibs:
 	dh_makeshlibs -n
