@@ -59,6 +59,13 @@ override_dh_auto_configure:
 					--disable-security-context \
 					--enable-natt	
 
+override_dh_clean:
+	# Remove this as it upsets git-buildpackage
+	- rm -f config.log
+	dh_testdir
+	dh_auto_clean
+	dh_clean
+
 override_dh_install:
 	chrpath -r /usr/lib/ipsec-tools  debian/tmp/usr/lib/ipsec-tools/*.so.0.* \
                    debian/tmp/usr/sbin/*
