@@ -1,10 +1,11 @@
-ipsec-tools (1:0.8.0-9~1.gbpaa3111) UNRELEASED; urgency=low
+ipsec-tools (1:0.8.0-9~1.gbp446871) UNRELEASED; urgency=low
 
-  ** SNAPSHOT build @aa31110de2ad811c4b63376ceea15d8df1d09350 **
+  ** SNAPSHOT build @446871e09d8b8d5356a929037bd5c6eba0d86712 **
 
-  * UNRELEASED
+  * Apply new patchs which enable GNU/kfreebsd build.
+  * Add latest racoon.pl with multi SPD, no doc yet.
 
- -- Matthew Grant <matthewgrant5@gmail.com>  Sun, 02 Oct 2011 17:44:34 +1300
+ -- Matthew Grant <matthewgrant5@gmail.com>  Sun, 02 Oct 2011 18:44:22 +1300
 
 ipsec-tools (1:0.8.0-8.1) unstable; urgency=low
 
