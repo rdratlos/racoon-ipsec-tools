@@ -255,6 +255,8 @@ is one of following:
 ESP based on rfc2406
 .It Li esp-old
 ESP based on rfc1827
+.It Li esp-udp
+ESP-UDP based on rfc3948
 .It Li ah
 AH based on rfc2402
 .It Li ah-old
@@ -700,7 +702,7 @@ hmac-ripemd160	160		ah: 96bit ICV (RFC2857)
 				ah-old: 128bit ICV (no document)
 aes-xcbc-mac	128		ah: 96bit ICV (RFC3566)
 		128		ah-old: 128bit ICV (no document)
-tcp-md5		8 to 640	tcp: rfc2385
+tcp-md5		8 to 640	tcp: rfc2385 (tcp-md5 support only on BSD)
 .Ed
 .Pp
 These encryption algorithms can be used as

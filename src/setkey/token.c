@@ -1051,7 +1051,7 @@ char *yytext;
 
 #include "vchar.h"
 #if defined(__NetBSD__) || defined(__FreeBSD__) || defined(__linux__) || \
-(defined(__APPLE__) && defined(__MACH__))
+(defined(__APPLE__) && defined(__MACH__)) || defined(__FreeBSD_kernel__)
 #include "parse.h"
 #else
 #include "y.tab.h"

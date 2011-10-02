@@ -50,7 +50,7 @@
 #  include <linux/udp.h>
 # endif
 # if defined(__NetBSD__) || defined(__FreeBSD__) ||	\
-  (defined(__APPLE__) && defined(__MACH__))
+  (defined(__APPLE__) && defined(__MACH__)) || defined(__FreeBSD_kernel__)
 #  include <netinet/udp.h>
 # endif
 #endif
