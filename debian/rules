@@ -60,11 +60,12 @@ override_dh_auto_configure:
 					--enable-natt	
 
 override_dh_clean:
-	# Remove this as it upsets git-buildpackage
-	- rm -f config.log
 	dh_testdir
 	dh_auto_clean
 	dh_clean
+	# Remove this after make clean as it upsets git-buildpackage
+	# make clean will invoke configure!!
+	- rm -f config.log
 
 override_dh_install:
 	chrpath -r /usr/lib/ipsec-tools  debian/tmp/usr/lib/ipsec-tools/*.so.0.* \
