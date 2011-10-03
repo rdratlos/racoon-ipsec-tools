@@ -1,6 +1,4 @@
-ipsec-tools (1:0.8.0-9~1.gbp9a3258) UNRELEASED; urgency=low
-
-  ** SNAPSHOT build @9a3258c9d820c6006d3d736e864deb705824ef43 **
+ipsec-tools (1:0.8.0-9) UNRELEASED; urgency=low
 
   * Apply new patchs which enable GNU/kfreebsd build.
   * Add latest racoon.pl with multi SPD, no doc yet.
@@ -10,8 +8,10 @@ ipsec-tools (1:0.8.0-9~1.gbp9a3258) UNRELEASED; urgency=low
   * Revert "Really add config.log Hmmm..."
   * Revert "Add config.log Mmmmm..."
   * Fix debian/rules clean for config.log
+  * Snapshot for new kfreebsd patches/build etc.
+  * Put removing of config.log at end of dh_clean
 
- -- Matthew Grant <matthewgrant5@gmail.com>  Sun, 02 Oct 2011 19:06:05 +1300
+ -- Matthew Grant <grantma@sid-dev.internal.anathoth.net>  Mon, 03 Oct 2011 20:04:48 +1300
 
 ipsec-tools (1:0.8.0-8.1) unstable; urgency=low
 
