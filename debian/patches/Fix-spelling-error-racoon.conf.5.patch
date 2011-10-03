@@ -1,0 +1,13 @@
+Index: ipsec-tools/src/racoon/racoon.conf.5
+===================================================================
+--- ipsec-tools.orig/src/racoon/racoon.conf.5	2011-10-03 19:43:47.778635363 +1300
++++ ipsec-tools/src/racoon/racoon.conf.5	2011-10-03 20:41:04.878434600 +1300
+@@ -521,7 +521,7 @@
+ specification should correspond to RFC 2253; in particular, commas and certain
+ other characters -
+ .Ic ,=+\*[Lt]\*[Gt]#;
+-- may be included in a name by preceeding them with a backslash "\e", and
++- may be included in a name by preceding them with a backslash "\e", and
+ arbitrary characters may be inserted in a name with the "\enn" escape, where
+ nn is the hex representation of the ascii value of the desired character.
+ Alternative acceptable peer identifiers may be specified by repeating the
