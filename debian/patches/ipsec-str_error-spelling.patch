@@ -1,0 +1,22 @@
+--- ipsec-tools-0.7.3//src/libipsec/ipsec_strerror.h.~1~	2006-09-09 18:22:09.000000000 +0200
++++ ipsec-tools-0.7.3//src/libipsec/ipsec_strerror.h	2011-09-25 19:18:37.000000000 +0200
+@@ -54,7 +54,7 @@
+ #define EIPSEC_INVAL_KEYLEN	14	/*invalid key length*/
+ #define EIPSEC_INVAL_FAMILY	15	/*invalid address family*/
+ #define EIPSEC_INVAL_PREFIXLEN	16	/*SPI range violation*/
+-#define EIPSEC_INVAL_DIR	17	/*Invalid direciton*/
++#define EIPSEC_INVAL_DIR	17	/*Invalid direction*/
+ #define EIPSEC_INVAL_SPI	18	/*invalid prefixlen*/
+ #define EIPSEC_NO_PROTO		19	/*no protocol specified*/
+ #define EIPSEC_NO_ALGS		20	/*No algorithm specified*/
+--- ipsec-tools-0.7.3//src/libipsec/ipsec_strerror.c.~1~	2007-08-01 13:52:17.000000000 +0200
++++ ipsec-tools-0.7.3//src/libipsec/ipsec_strerror.c	2011-09-25 19:19:01.000000000 +0200
+@@ -63,7 +63,7 @@
+ "Invalid key length",				/*EIPSEC_INVAL_KEYLEN*/
+ "Invalid address family",			/*EIPSEC_INVAL_FAMILY*/
+ "Invalid prefix length",			/*EIPSEC_INVAL_PREFIXLEN*/
+-"Invalid direciton",				/*EIPSEC_INVAL_DIR*/
++"Invalid direction",				/*EIPSEC_INVAL_DIR*/
+ "SPI range violation",				/*EIPSEC_INVAL_SPI*/
+ "No protocol specified",			/*EIPSEC_NO_PROTO*/
+ "No algorithm specified",			/*EIPSEC_NO_ALGS*/
