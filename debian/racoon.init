@@ -71,6 +71,8 @@ if [ "$(uname -s)" = "GNU/kFreeBSD" ]; then
 	fi
 fi
 
+. /lib/lsb/init-functions
+
 case  $CONFIG_MODE in
   racoon-tool)
   # /usr/sbin/racoon-tool command complies with Debian Policy so just do this:
@@ -87,17 +89,19 @@ case  $CONFIG_MODE in
   *)
 	case "$1" in
           start)
-                echo -n "Starting IKE (ISAKMP/Oakley) server: racoon"
-	        start-stop-daemon --start --quiet --exec ${DAEMON} -- ${RACOON_ARGS}
-        	echo "."
+                log_begin_msg "Starting IKE (ISAKMP/Oakley) server: racoon"
+		err=0
+	        start-stop-daemon --start --quiet --exec ${DAEMON} -- ${RACOON_ARGS} || err=1
+        	log_end_msg $err
                 ;;
          
 	  stop)
-        	echo -n "Stopping IKE (ISAKMP/Oakley) server: racoon"
+        	log_begin_msg "Stopping IKE (ISAKMP/Oakley) server: racoon"
+		err=0
                 start-stop-daemon --stop --retry 25 --quiet --oknodo \
-                    --pidfile $PID_FILE --name racoon
+                    --pidfile $PID_FILE --name racoon || err=1
                 rm -f $PID_FILE /var/run/racoon/racoon.sock
-	        echo "."
+        	log_end_msg $err
         	;;
          
 	  reload|force-reload)
@@ -112,7 +116,7 @@ case  $CONFIG_MODE in
 
  
           *)
-                echo "Usage: $0 {start|stop|reload|force-reload|restart}" >&2
+                log_success_msg "Usage: $0 {start|stop|reload|force-reload|restart}" >&2
 	        exit 1
 	esac
 	;;
