@@ -13,7 +13,7 @@ ipsec-tools (1:0.8.0-8.1~1.gbp88e44d) UNRELEASED; urgency=low
   * Fix typo in libipsec_strerror.h (Closes: #642926)
   * Updated racoon-tool.conf.5 manpage, minor regexps
 
- -- Matthew Grant <grantma@sid-dev.internal.anathoth.net>  Tue, 04 Oct 2011 13:39:43 +1300
+ -- Matthew Grant <matthewgrant5@gmail.com>  Tue, 04 Oct 2011 13:39:43 +1300
 
 ipsec-tools (1:0.8.0-8.1) unstable; urgency=low
 
