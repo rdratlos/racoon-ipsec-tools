@@ -123,7 +123,7 @@ $progname = basename($0, "");
 $racoon_kill_delay = 25; # seconds
 
 # global settings hash
-my $global_proplist = 'path_pre_shared_key|path_certificate|path_racoon_conf|racoon_command|racoon_pid_file|log|listen\[[0-9_a-z]+\]|complex_bundle';
+my $global_proplist = 'path_pre_shared_key|path_certificate|path_racoon_conf|racoon_command|racoon_pid_file|log|listen\[[-_0-9a-z]+\]|complex_bundle';
 my %global = (
 		'path_pre_shared_key'	=> "$confdir/psk.txt",
 		'path_certificate'	=> "$confdir/certs",
@@ -133,7 +133,7 @@ my %global = (
 	);
 
 # Peer related stuff
-my $peer_proplist = 'exchange_mode|encryption_algorithm\[[0-9_a-z]+\]|hash_algorithm\[[0-9_a-z]+\]|dh_group\[[0-9_a-z]+\]|authentication_method\[[0-9_a-z]+\]|remote_template|lifetime|verify_identifier|verify_cert|passive|generate_policy|my_identifier|peers_identifier|certificate_type|peers_certfile|support_mip6|send_cr|send_cert|initial_contact|proposal_check|nat_traversal|nonce_size';
+my $peer_proplist = 'exchange_mode|encryption_algorithm\[[-_0-9a-z]+\]|hash_algorithm\[[-_0-9a-z]+\]|dh_group\[[-_0-9a-z]+\]|authentication_method\[[-_0-9a-z]+\]|remote_template|lifetime|verify_identifier|verify_cert|passive|generate_policy|my_identifier|peers_identifier|certificate_type|peers_certfile|support_mip6|send_cr|send_cert|initial_contact|proposal_check|nat_traversal|nonce_size';
 my %peer_list = (	'%default' => {
 			'exchange_mode'			=> 'main',
 			'encryption_algorithm[0]'	=> '3des',
@@ -150,7 +150,7 @@ my %peer_list = (	'%default' => {
 			} );
 
 # Connection related stuff
-my $conn_proplist = 'src_range|dst_range|src_ip|dst_ip|src_port\[[_0-9a-z]+\]|dst_port\[[_0-9a-z]+\]|upperspec|encap|encap\[[_0-9a-z]+\]|mode|level|level\[[_0-9a-z]+\]|admin_status|spdadd_template|sadadd_template|sainfo_template|pfs_group|lifetime|encryption_algorithm|authentication_algorithm|compression|id_type|auto_ah_on_esp|always_ah_on_esp|policy|policy\[[_0-9a-z]+\]';
+my $conn_proplist = 'src_range|dst_range|src_ip|dst_ip|src_port\[[-_0-9a-z]+\]|dst_port\[[-_0-9a-z]+\]|upperspec|encap|encap\[[-_0-9a-z]+\]|mode|level|level\[[-_0-9a-z]+\]|admin_status|spdadd_template|sadadd_template|sainfo_template|pfs_group|lifetime|encryption_algorithm|authentication_algorithm|compression|id_type|auto_ah_on_esp|always_ah_on_esp|policy|policy\[[-_0-9a-z]+\]';
 my @conn_required_props = ( 'src_ip', 'dst_ip');
 my %connection_list = ( '%default' => {
 			'admin_status' 		=> 'disabled',
@@ -813,7 +813,7 @@ sub racoon_fill_init () {
 	my $stuff = $racoon_init;
 
 	foreach my $key ( keys %global ) {
-		$key =~ s/^(\S+)\[[0-9_a-z]+\]$/$1/i;
+		$key =~ s/^(\S+)\[[-0-9_a-z]+\]$/$1/i;
 		if ( defined $init_addons{"$key"} ) {
 			$stuff =~ s/^(\s*path certificate.*)$/${1}\n${init_addons{"$key"}}/m;
 		}
@@ -1788,7 +1788,7 @@ sub get_proptype($$) {
 	my $property = shift;
 	my $ptype;
 
-	if ( $property =~ m/^(.*)\[[0-9_a-z]+\]$/ ) {
+	if ( $property =~ m/^(.*)\[[-_0-9a-z]+\]$/ ) {
 		$property = $1;
 	}
 	$ptype = $prop_typehash{$section}{$property};	
@@ -2206,8 +2206,8 @@ sub prop_get_indexes (\%) {
 	my %tmp;
 
 	my @keys = keys %$hndl;
-	@keys = grep /^.*\[[0-9_a-z]+\]$/, @keys;
-	map { s/^.*\[([0-9_a-z]+)\]$/$1/; } @keys;
+	@keys = grep /^.*\[[-_0-9a-z]+\]$/, @keys;
+	map { s/^.*\[([-_0-9a-z]+)\]$/$1/; } @keys;
 	$tmp{$_} = 1 foreach (@keys);
 	@keys = reverse (sort (keys (%tmp)));
 	
@@ -2221,7 +2221,7 @@ sub prop_store_index (\%$) {
 	if ( ! defined $hndl->{'pindexes'} ) {
 		$hndl->{'pindexes'} = [];
 	}
-	if ($property =~ m/^\S+\[([_0-9a-z]+)\]$/) {
+	if ($property =~ m/^\S+\[([-_0-9a-z]+)\]$/) {
 		$pindex = $1;
 		return if ( grep { $_ eq $pindex} @{ $hndl->{'pindexes'}});  
 		push @{ $hndl->{'pindexes'} }, $pindex;
@@ -2247,7 +2247,7 @@ sub peer_fillin_defaults () {
 		my $phndl = $peer_list{$peer};
 		# Fill in all proposals...
 		my $pindexes = $phndl->{'pindexes'};
-		foreach my $property ( grep { $_ = $1 if /^(.*)\[[0-9_a-z]+\]$/;  } keys %$dhndl ) {
+		foreach my $property ( grep { $_ = $1 if /^(.*)\[[-_0-9a-z]+\]$/;  } keys %$dhndl ) {
 			foreach my $ind ( @$pindexes ) {
 				next if $peer eq '%default' && $ind == 0;
 				my $name =  "$property" . '[' . "$ind" . "]";

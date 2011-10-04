@@ -108,6 +108,21 @@ transforms by using the
 .I compression
 boolean. 
 
+Multiple SPD rule pairs can be entered in place of the pair supplied by the
+default spdadd templates. They are signified by adding an index made up from
+the characters (case-insensitive) in the regular expression `[-_0-9a-z]+'
+to the
+.I src_port,
+and/or
+.I dst_port
+entries, within square brackets immediately before the colon. Only one port
+needs to be defined, with the other defaulting to `[any]'. Additional
+properties for the rule pair can be given by
+.I encap,
+and
+.I policy
+entries, with the appropriate index entry in square brackets before the colon.
+
 Please note that on the FreeBSD kernel ( 
 .BR ipsec (4)
 ) nested ipsec policy transforms are not supported, and that ipcomp is buggy. 
@@ -125,8 +140,9 @@ Defines the phase 1 attributes associated with a peer.  This creates
 Directives and values are basically one for one with the relevant
 entries in
 .BR racoon.conf (5).
-Different proposals are signified by adding an index `0-9', or `a-z' to
-the
+Different proposals are signified by adding an index `0-9', `a-z', or made up
+from characters (case-insensitive) in the regular expression `[-_0-9a-z]+'
+to the
 .I encryption_algorithm,
 .I hash_algorithm,
 .I dh_group,
