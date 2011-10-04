@@ -1,17 +1,19 @@
-ipsec-tools (1:0.8.0-9) UNRELEASED; urgency=low
+ipsec-tools (1:0.8.0-9~1.gbp88e44d) UNRELEASED; urgency=low
+
+  ** SNAPSHOT build @88e44dda404c0ecd4fe0a85b48d16c4ab427be29 **
 
   * Apply new patchs which enable GNU/kfreebsd build.
-  * Add latest racoon.pl with multi SPD, no doc yet.
-  * Snapshot build with Mats work and racoon-tool.pl
-  * Add config.log Mmmmm...
-  * Really add config.log Hmmm...
-  * Revert "Really add config.log Hmmm..."
-  * Revert "Add config.log Mmmmm..."
-  * Fix debian/rules clean for config.log
-  * Snapshot for new kfreebsd patches/build etc.
-  * Put removing of config.log at end of dh_clean
+    Thnks to Mats Erik Andersson <mats.andersson@gisladisker.se>
+    (Closes: #617859, #639970)
+  * Put removing of config.log at end of dh_clean to stop file changed
+    problems during git-buildpackage
+  * Fix lots of minor lintian warnings.
+  * LSB-fy init scripts. (Closes: #629828)
+  * Fix spelling error in racoon.conf.5 manpage.
+  * Fix typo in libipsec_strerror.h (Closes: #642926)
+  * Updated racoon-tool.conf.5 manpage, minor regexps
 
- -- Matthew Grant <grantma@sid-dev.internal.anathoth.net>  Mon, 03 Oct 2011 20:04:48 +1300
+ -- Matthew Grant <grantma@sid-dev.internal.anathoth.net>  Tue, 04 Oct 2011 13:39:43 +1300
 
 ipsec-tools (1:0.8.0-8.1) unstable; urgency=low
 
