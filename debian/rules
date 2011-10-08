@@ -27,7 +27,7 @@ endif
 #endif
 
 %:
-	dh  \$@
+	dh $@
 
 patch:
 	quilt push -a
@@ -57,7 +57,7 @@ override_dh_auto_configure:
 					--with-libpam \
 					--without-readline \
 					--disable-security-context \
-					--enable-natt	
+					--enable-natt
 
 override_dh_clean:
 	dh_testdir
@@ -85,8 +85,6 @@ override_dh_install:
 	install -m 755 -o root -g root debian/ipsec-tools.conf \
             debian/ipsec-tools/etc/ipsec-tools.conf
 
-override_dh_auto_test:
-
 override_dh_installchangelogs:
 	dh_installchangelogs ChangeLog
 
@@ -96,7 +94,7 @@ override_dh_installexamples:
 
 override_dh_installinit:
 	dh_installinit -R -pracoon -- start 40 S . stop 07 0 1 6 .
-	dh_installinit -R -pipsec-tools --name=setkey --no-start -- start 14 S . 
+	dh_installinit -R -pipsec-tools --name=setkey --no-start -- start 14 S .
 
 override_dh_installman:
 	dh_installman

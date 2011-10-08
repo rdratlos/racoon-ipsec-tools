@@ -1,25 +1,18 @@
-ipsec-tools (1:0.8.0-8.1~1.gbp88e44d) UNRELEASED; urgency=low
-
-  ** SNAPSHOT build @88e44dda404c0ecd4fe0a85b48d16c4ab427be29 **
+ipsec-tools (1:0.8.0-9) unstable; urgency=low
 
   * Apply new patchs which enable GNU/kfreebsd build.
-    Thnks to Mats Erik Andersson <mats.andersson@gisladisker.se>
-    (Closes: #617859, #639970)
+    Thanks to Mats Erik Andersson. (Closes: #617859, #639970)
   * Put removing of config.log at end of dh_clean to stop file changed
     problems during git-buildpackage
   * Fix lots of minor lintian warnings.
   * LSB-fy init scripts. (Closes: #629828)
   * Fix spelling error in racoon.conf.5 manpage.
   * Fix typo in libipsec_strerror.h (Closes: #642926)
-  * Updated racoon-tool.conf.5 manpage, minor regexps
+  * Updated racoon-tool.conf.5 manpage, minor regexps.
+  * New racoon-tool, Multi relation SPD code.
+  * debian/control: Add Vcs-* stanzas.
 
- -- Matthew Grant <matthewgrant5@gmail.com>  Tue, 04 Oct 2011 13:39:43 +1300
-
-ipsec-tools (1:0.8.0-8.1) unstable; urgency=low
-
-  * New racoon-tool Multi relation SPD code for my testing. 
-
- -- Matthew Grant <matthewgrant5@gmail.com>  Fri, 30 Sep 2011 10:48:28 +1300
+ -- Matthew Grant <matthewgrant5@gmail.com>  Sat, 08 Oct 2011 16:30:22 +1300
 
 ipsec-tools (1:0.8.0-8) unstable; urgency=low
 

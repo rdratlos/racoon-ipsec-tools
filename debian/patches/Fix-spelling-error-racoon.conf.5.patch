@@ -1,3 +1,8 @@
+Description: Spelling error
+ Amend a common mis-spelling.
+Author: Matthew Grant
+Last-Update: 2011-10-03
+
 Index: ipsec-tools/src/racoon/racoon.conf.5
 ===================================================================
 --- ipsec-tools.orig/src/racoon/racoon.conf.5	2011-10-03 19:43:47.778635363 +1300

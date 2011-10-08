@@ -1,0 +1,3 @@
+version=3
+
+http://sf.net/ipsec-tools/ipsec-tools-([0-9.]+)\.tar\.gz	debian	uupdate

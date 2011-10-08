@@ -36,6 +36,8 @@ case "$1" in
 	err=0
 	for file in $SETKEY_CONF $SETKEY_CONF_DIR/*.conf ; do
 	if [ -r "$file" ] ; then
+	# Insert a manual newline until lsb-base amends its code.
+	echo
 	log_progress_msg " - ${file}"
 	$SETKEY -f $file || err=1
 	fi

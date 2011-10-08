@@ -1,3 +1,8 @@
+Description: Trivial spelling error
+ Code comment has a mis-spelled word.
+Author: Matthew Grant
+Last-Update: 2011-10-03
+
 Index: ipsec-tools/src/libipsec/ipsec_strerror.h
 ===================================================================
 --- ipsec-tools.orig/src/libipsec/ipsec_strerror.h	2011-10-03 19:43:47.000000000 +1300

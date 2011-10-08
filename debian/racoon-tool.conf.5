@@ -5,7 +5,7 @@ racoon-tool.conf \- configuration file for
 .SH "DESCRIPTION"
 This manual page documents briefly the
 .BR racoon-tool.conf (5) ,
-configuration file format. 
+configuration file format.
 .PP
 Please consult the
 .BR racoon.conf (5)
@@ -48,7 +48,7 @@ The possible sections are:
 .TP
 .BR global:
 Contains global parameters for the generated
-.BR racoon.conf (5), 
+.BR racoon.conf (5),
 and global settings used by
 .BR racoon-tool (8).
 Available settings are:
@@ -77,16 +77,16 @@ statements by attaching an index `0-9',`a-z' in square brackets immediately
 before the colon.
 .TP
 .BR connection( "%default|%anonymous|[-_a-z0-9]+" ):
-Connection as described by the complementary SPD entries.  Creates 
+Connection as described by the complementary SPD entries.  Creates
 `sainfo' sections in the generated
 .BR racoon.conf (5),
-and associated SPD entries. 
+and associated SPD entries.
 
 Directives and values are basically one for
 one with the relevant entries in
 .BR racoon.conf (5).
 .I Spdadd:
-can be used to override the template automatically selected. 
+can be used to override the template automatically selected.
 The templates that are automatically selected depending om connection
 .I mode
 and IPv4 or IPv6 addresssing are
@@ -106,11 +106,11 @@ templates.  The IKE phase 2 identifier type can be set with the
 option, either `address' or `subnet'.  Compression can be added to the default
 transforms by using the
 .I compression
-boolean. 
+boolean.
 
 Multiple SPD rule pairs can be entered in place of the pair supplied by the
 default spdadd templates. They are signified by adding an index made up from
-the characters (case-insensitive) in the regular expression `[-_0-9a-z]+'
+the characters (case-insensitive) in the regular expression `[\-_0-9a-z]+'
 to the
 .I src_port,
 and/or
@@ -123,9 +123,9 @@ and
 .I policy
 entries, with the appropriate index entry in square brackets before the colon.
 
-Please note that on the FreeBSD kernel ( 
+Please note that on the FreeBSD kernel (
 .BR ipsec (4)
-) nested ipsec policy transforms are not supported, and that ipcomp is buggy. 
+) nested ipsec policy transforms are not supported, and that ipcomp is buggy.
 
 The `%default' VPN connection fills in entries in other specified
 connections, unless they are otherwise defined within the specific
@@ -135,13 +135,13 @@ server.
 .BR peer( "%default|%anonymous|[a-f0-9:\.]+" ):
 Defines the phase 1 attributes associated with a peer.  This creates
 `remote' entries in the generated
-.BR racoon.conf (5). 
+.BR racoon.conf (5).
 
 Directives and values are basically one for one with the relevant
 entries in
 .BR racoon.conf (5).
 Different proposals are signified by adding an index `0-9', `a-z', or made up
-from characters (case-insensitive) in the regular expression `[-_0-9a-z]+'
+from characters (case-insensitive) in the regular expression `[\-_0-9a-z]+'
 to the
 .I encryption_algorithm,
 .I hash_algorithm,
@@ -214,7 +214,7 @@ of the form `___setkey_name___', with names found in
 The built in template is named `%default'.
 .TP
 .BR sainfo(%default|[-_a-z0-9]+):
-Template for adding 'sainfo' entries to the generated 
+Template for adding 'sainfo' entries to the generated
 .BR racoon.conf (5).
 Different templates can be used.
 Keys for replacement are of the form `___setkey_name___', with names
@@ -237,7 +237,7 @@ Example of a simple configuration using PSK authentication.
 #
 
 #
-# Simple PSK - authentication defaults to pre_shared_key  
+# Simple PSK - authentication defaults to pre_shared_key
 #
 connection(bacckdoor-doormat):
 	src_range: 192.168.223.1/32
