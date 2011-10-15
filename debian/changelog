@@ -1,3 +1,10 @@
+ipsec-tools (1:0.8.0-10) unstable; urgency=low
+
+  * Correctly close bugs related to Debian GNU/kfreebsd build failures.
+    Bugs #617859 and #639970 reopened. (Closes: #619687, #643570) 
+
+ -- Matthew Grant <matthewgrant5@gmail.com>  Sun, 16 Oct 2011 11:43:09 +1300
+
 ipsec-tools (1:0.8.0-9) unstable; urgency=low
 
   * Apply new patchs which enable GNU/kfreebsd build.
