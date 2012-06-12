@@ -1,3 +1,11 @@
+ipsec-tools (1:0.8.0-11~1.gbpca2206) UNRELEASED; urgency=low
+
+  ** SNAPSHOT build @ca2206eaa7cd9420168b137a105361657ba831c0 **
+
+  * UNRELEASED
+
+ -- Matthew Grant <matthewgrant5@gmail.com>  Tue, 12 Jun 2012 16:46:03 +1200
+
 ipsec-tools (1:0.8.0-10) unstable; urgency=low
 
   * Correctly close bugs related to Debian GNU/kfreebsd build failures.

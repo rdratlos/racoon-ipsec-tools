@@ -18,12 +18,37 @@ debconf configuration.
 
 racoon-tool
 -----------
-racoon-tool is now officially deprecated. It used to be the preferred method 
-of configuration in older releases (till 0.3.1) but is now deprecated because 
-of several reasons; it's debian specific, upstream doesn't like it, it lags
-behind in features when compared to racoon.conf(5). If you're interested in
-using the latest and greatest feature in racoon, use /etc/racoon/racoon.conf
-directly. 
+racoon-tool is back.  It is a management script that simplifies looking after
+setkey SPD rules, and basic racoon.conf on a connection oriented basis.  It now functions in transport mode and tunnel mode, with anonymous VPN service, 
+and supports PSK/X509 authentication and IPv6. It should also function on the
+FreeBSD kernel.
+
+Yes, racoon-tool is debian specific, upstream doesn't like it, it does
+have all the features when compared to racoon.conf(5). If you're interested in
+using the latest and greatest feature in racoon, and advanced functionality
+use /etc/racoon/racoon.conf directly. 
+
+X509 Certificates
+-----------------
+
+You will need to place the PEM certificate, PEM private key and the CA cert 
+and CA CRL in /etc/racoon/certs.  Racoon requires the CRL file for X509 
+certificate verification. Hash names for the CRL and the CA cert will
+have to be set up in the directory with:
+
+# ln -s ca-cacert.pem `openssl x509 -hash -noout -in ca-cacert.pem`.0
+# ln -s ca-crl.pem `openssl x509 -hash -noout -in ca-cacert.pem`.r0
+
+Note that the CRL symlink has to use the hash of the ca-cert.  The certificates
+must also have SubjectAltName X509v3 additional attribute set type DNS name,
+and the machines DNS ID.  Peer/remote my_dentifier and peers_identifier must
+be set correctly to the DNS IDs specified in SubjectAltName, and peer/remote 
+verify_identifier, and verify_cert turned on.  Peer/remote 
+authentication_method must be set to rsasig.  See README.certifcate for
+further details.
+
+After this is done, configure the key and cert with the certificate_type x509
+racoon.conf or certificate_type: racoon-tool.conf statements.  
 
 iPhone OS Support
 --------------------
