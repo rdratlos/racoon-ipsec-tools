@@ -3,7 +3,7 @@ Section: net
 Priority: extra
 Maintainer: Matthew Grant <matthewgrant5@gmail.com>
 Build-Depends: debhelper (>=7.0.50~), flex, bison, libkrb5-dev, libssl-dev (>= 0.9.6), libpam0g-dev, po-debconf, chrpath, hardening-wrapper, libldap2-dev
-Standards-Version: 3.9.2
+Standards-Version: 3.9.3
 Vcs-Git: git://anonscm.debian.org/collab-maint/ipsec-tools.git
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=collab-maint/ipsec-tools.git
 Homepage: http://ipsec-tools.sourceforge.net/
