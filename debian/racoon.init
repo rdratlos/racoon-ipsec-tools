@@ -11,8 +11,6 @@
 # Short-Description: start the ipsec key exchange server 
 ### END INIT INFO
 #
-# netscript	script to fire up netscript network configuration system
-#
 #		Written by Miquel van Smoorenburg <miquels@cistron.nl>.
 #		Modified for Debian GNU/Linux
 #		by Ian Murdock <imurdock@gnu.ai.mit.edu>.
@@ -26,7 +24,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 TOOL=/usr/sbin/racoon-tool
 DAEMON=/usr/sbin/racoon
 NAME=racoon
-DESC="racoon"
+DESC="IKE (ISAKMP/Oakley) server"
 DEF_CFG="/etc/default/racoon"
 PID_FILE="/var/run/racoon.pid"
 PROC_FILE="/proc/net/pfkey"
@@ -71,7 +69,27 @@ if [ "$(uname -s)" = "GNU/kFreeBSD" ]; then
 	fi
 fi
 
+. /lib/init/vars.sh
 . /lib/lsb/init-functions
+
+do_start () {
+        start-stop-daemon --start --quiet --pidfile $PID_FILE --exec $DAEMON --test > /dev/null \
+		|| return 1
+	start-stop-daemon --start --quiet --exec ${DAEMON} -- ${RACOON_ARGS} \
+		|| return 2
+}
+
+do_stop () {
+	start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile $PID_FILE --name $NAME
+	RETVAL="$?"
+	[ "$RETVAL" = 2 ] && return 2
+	start-stop-daemon --stop --quiet --oknodo --retry=0/30/KILL/5 --exec $DAEMON
+	[ "$?" = 2 ] && return 2
+        rm -f $PID_FILE /var/run/racoon/racoon.sock
+	return "$RETVAL"
+}
+
+
 
 case  $CONFIG_MODE in
   racoon-tool)
@@ -81,6 +99,9 @@ case  $CONFIG_MODE in
 	  start|stop|reload|force-reload|restart)
 		$TOOL $*
 		;;
+	  status)
+        	status_of_proc "$DAEMON" "$NAME" && exit 0 || exit $?
+		;;
 	  *)
 		$TOOL $*
 		;;
@@ -88,35 +109,51 @@ case  $CONFIG_MODE in
 	;;
   *)
 	case "$1" in
-          start)
-                log_begin_msg "Starting IKE (ISAKMP/Oakley) server: racoon"
-		err=0
-	        start-stop-daemon --start --quiet --exec ${DAEMON} -- ${RACOON_ARGS} || err=1
-        	log_end_msg $err
+        start)
+                [ "$VERBOSE" != no ] && log_begin_msg "Starting $DESC" "$NAME"
+		do_start
+		case "$?" in
+			0|1) [ "$VERBOSE" != no ] && log_end_msg 0 ;;
+			2) [ "$VERBOSE" != no ] && log_end_msg 1 ;;
+		esac
                 ;;
          
-	  stop)
-        	log_begin_msg "Stopping IKE (ISAKMP/Oakley) server: racoon"
-		err=0
-                start-stop-daemon --stop --retry 25 --quiet --oknodo \
-                    --pidfile $PID_FILE --name racoon || err=1
-                rm -f $PID_FILE /var/run/racoon/racoon.sock
-        	log_end_msg $err
-        	;;
+	stop)	
+		[ "$VERBOSE" != no ] && log_begin_msg "Stopping $DESC" "$NAME"
+		do_stop
+		case "$?" in
+			0|1) [ "$VERBOSE" != no ] && log_end_msg 0 ;;
+			2) [ "$VERBOSE" != no ] && log_end_msg 1 ;;
+		esac
+                ;;
          
-	  reload|force-reload)
+	reload)
                 racoonctl reload-config
 	        ;;
         
+	status)
+        	status_of_proc "$DAEMON" "$NAME" && exit 0 || exit $?
+        	;;
 
-	  restart)
-                $0 stop
-                $0 start
+	restart|force-reload)
+		log_daemon_msg "Restarting $DESC" "$NAME"
+		do_stop
+		case "$?" in
+			0|1)
+				do_start
+                		case "$?" in
+                        		0) log_end_msg 0 ;;
+                        		1) log_end_msg 1 ;; # Old process is still running
+                        		*) log_end_msg 1 ;; # Failed to start
+                		esac
+			;;
+		*)
+			log_end_msg 1
+			;;
+		esac
 		;;
-
- 
-          *)
-                log_success_msg "Usage: $0 {start|stop|reload|force-reload|restart}" >&2
+        *)
+                log_success_msg "Usage: $0 {start|stop|status|reload|force-reload|restart}" >&2
 	        exit 1
 	esac
 	;;
