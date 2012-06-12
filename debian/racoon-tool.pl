@@ -255,7 +255,7 @@ my %prop_syntaxhash = (	'range'		=> '{ip-address|ip-address/masklen|ip-address[p
 			'phase2_auth_algorithm'	=> '{des|3des|des_iv64|des_iv32|hmac_md5|hmac_sha1|hmac_sha256|hmac_sha384|hmac_sha512|non_auth}',
 			'identifier'		=> '{address [ip-address]|fqdn dns-name|user_fqdn user@dns-name|keyid file-name|asn1dn [asn1-name]}',
 			'certificate'		=> '{x509 cert-file privkey-file}',
-			'peers_certfile'	=> '{x509|plain_rsa|dnssec} {cert-file}',
+			'peers_certfile'	=> '{x509 cert-file|plain_rsa cert-file|dnssec}',
 			'path_conf_file'	=> '{full-path-file-name}',
 			'shell_command'		=> '{shell-command}',
 			'path_generated_file'	=> '{full-path-file-name}',
@@ -2240,6 +2240,7 @@ sub peer_fillin_defaults () {
 			if ( ! defined $phndl->{$property} ) {
 				$phndl->{$property} = $dhndl->{$property};
 			}
+			prop_store_index(%{ $phndl }, $property)
 		}
 	}
 			
