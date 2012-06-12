@@ -18,8 +18,6 @@
 #		by Matthew Grant <grantma@anathoth.gen.nz>
 #
 
-set -e
-
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 TOOL=/usr/sbin/racoon-tool
 DAEMON=/usr/sbin/racoon
