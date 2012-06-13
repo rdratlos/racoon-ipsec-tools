@@ -47,6 +47,19 @@ verify_identifier, and verify_cert turned on.  Peer/remote
 authentication_method must be set to rsasig.  See README.certifcate for
 further details.
 
+The ca CRL, cacert and all other certificates whould be installed with
+owner/group root:root, permissions 644:
+
+# chmod 644 *cert.pem *crl.pem
+# chown root:root *cert.pem *crl.pem
+
+and keys:
+
+# chmod 600 *key.pem
+# chown root:root *key.pem
+
+This is important if you want to use privilege seperation.
+
 After this is done, configure the key and cert with the certificate_type x509
 racoon.conf or certificate_type: racoon-tool.conf statements.  
 
@@ -85,3 +98,4 @@ up at http://ipsec-tools.sourceforge.net, and a HOWTO can be found up at
 
  -- Stefan Bauer <stefan.bauer@cubewerk.de>, Thu, 12 Aug 2010 13:16:11 +0200 
  -- Ganesan Rajagopal <rganesan@debian.org>, Mon, 21 Apr 2008 13:47:57 +0530
+ -- Matthew Grant <matthewgrant5@gmail.com>, Wed, 13 Jun 2012 15:51:29 +1200

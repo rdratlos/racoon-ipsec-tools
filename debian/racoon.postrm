@@ -7,6 +7,12 @@ set -e
 
 if [ "$1" = purge ]; then
 	rm -f /etc/default/racoon
+	if which deluser >/dev/null 2>&1; then
+		deluser --quiet --system racoon > /dev/null || true
+	fi
+	if which delgroup >/dev/null 2>&1; then
+		delgroup --quiet --system racoon > /dev/null || true
+	fi
 fi
 
 #DEBHELPER#

@@ -53,6 +53,7 @@ sub check_if_running ();
 sub racoon_start();
 sub racoon_stop();
 sub basename($$);
+sub dirname($);
 sub openlog($$$);
 sub syslog($$);
 
@@ -123,11 +124,16 @@ $progname = basename($0, "");
 $racoon_kill_delay = 25; # seconds
 
 # global settings hash
-my $global_proplist = 'path_pre_shared_key|path_certificate|path_racoon_conf|racoon_command|racoon_pid_file|log|listen\[[-_0-9a-z]+\]|complex_bundle';
+my $global_proplist = 'path_pre_shared_key|path_certificate|path_script|path_racoon_conf|privsep|privsep_chroot|privsep_user|privsep_group|racoon_command|racoon_pid_file|log|listen\[[-_0-9a-z]+\]|complex_bundle';
 my %global = (
 		'path_pre_shared_key'	=> "$confdir/psk.txt",
 		'path_certificate'	=> "$confdir/certs",
+		'path_script'		=> "$confdir/scripts",
 		'path_racoon_conf'	=> "${vardir}/racoon.conf",
+		'privsep'		=> "off",
+		'privsep_chroot'	=> "/",
+		'privsep_user'		=> "racoon",
+		'privsep_group'		=> "racoon",
 		'racoon_command'	=> "${racoon_cmd} -f ___path_racoon_conf___",
 		'racoon_pid_file'	=> "/var/run/racoon.pid",
 	);
@@ -228,6 +234,11 @@ my %prop_typehash = ( 	'connection'	=> {
 			'path_pre_shared_key'	=> 'path_conf_file',
 			'path_racoon_conf'	=> 'path_generated_file',
 			'path_certificate'	=> 'path_certificate',
+			'path_script'		=> 'path_script',
+			'privsep'		=> 'boolean',
+			'privsep_chroot'	=> 'path_chroot_dir',
+			'privsep_user'		=> 'user',
+			'privsep_group'		=> 'group',
 			'log'			=> 'log',
 			'listen'		=> 'listen',
 			'complex_bundle'	=> 'switch'
@@ -260,13 +271,18 @@ my %prop_syntaxhash = (	'range'		=> '{ip-address|ip-address/masklen|ip-address[p
 			'shell_command'		=> '{shell-command}',
 			'path_generated_file'	=> '{full-path-file-name}',
 			'path_certificate'	=> '{full-path-dir}',
+			'path_script'		=> '{full-path-dir}',
 			'log'			=> '{notify|debug|debug2}',
 			'listen'		=> '{ip-address} [[port]]',
 			'proposal_check'	=> '{obey|strict|claim|exact}',
 			'nat_traversal'		=> '{on|off|force}',
 			'nonce_size'		=> '{number} - between 8 and 256',
 			'id_type'		=> '{address|subnet} - ID type of ISAKMP Phase II identifier',
-			'policy'		=> '{discard|ipsec|none} - SPD policy'
+			'policy'		=> '{discard|ipsec|none} - SPD policy',
+			'path_chroot_dir'	=> '{full-path-chroot-dir} - racoon privsep chroot dir',
+			'user'			=> '{system-user} - racoon privsep user',
+			'group'			=> '{system-group} - racoon privsep group',
+
 			);
 
 my %bool_val = ( 	'enabled' => 1,
@@ -328,6 +344,7 @@ my $spdadd_transport_ip4_default = "$spdadd_ip4_header" . "$spdadd_default";
 my $spdadd_transport_ip6_default = "$spdadd_ip6_header" . "$spdadd_default"; 
 
 my $racoon_init_default = <<"EOF";
+path script ___path_script___;
 path pre_shared_key ___path_pre_shared_key___;
 path certificate ___path_certificate___;
 
@@ -338,6 +355,14 @@ EOF
 		'complex_bundle' => 'complex_bundle ___complex_bundle___;'
 		);
 
+my $racoon_privsep = <<'EOF';
+privsep {
+        chroot ___privsep_chroot___;
+        user   ___privsep_user___;
+        group  ___privsep_group___;
+}
+
+EOF
 
 my $remote_default = <<'EOF';
 remote ___dst_ip___ {
@@ -577,6 +602,15 @@ sub basename ($$) {
 	my $ext = shift;
 	$name =~ s/^.*\/(.*)$/$1/;
 	$name =~ s/^(.*)${ext}$/$1/;
+	return $name;
+}
+
+sub dirname ($) {
+	my $name = shift;
+	if ( $name eq '/' ) {
+		return $name;
+	}
+	$name =~ s/^(.*)\/(.*)$/$1/;
 	return $name;
 }
 
@@ -823,6 +857,10 @@ sub racoon_fill_init () {
 		my $to_add = $init_addons{'isakmp'};
 		$to_add =~ s/___(\S+)___/___$1\[$ind\]___/gm;
 		$stuff =~ s/^(\s*listen.*{\s*)$/${1}\n\t${to_add}/m
+	}
+
+	if ( $bool_val{ $global{'privsep'} } != 0 ) {
+		$stuff = $stuff . $racoon_privsep;
 	}
 
 	foreach my $key (keys %global) {
@@ -1439,6 +1477,7 @@ sub parse_config () {
 	my $connection = "";
 	my $peer = "";
 	my $stuff = "";
+	my $name = "";
 	my @conffiles = ();
 
 	if (-e  "$conffiledir") {
@@ -1649,7 +1688,7 @@ sub parse_config () {
 				$value =~  s/^(.*\S)\s*$/$1/;
 				
 				if (! check_property_syntax($section, $property, $value)) {
-					prog_warn 0, "global - unrecognised global property syntax or unreadable file(s).";
+					prog_warn 0, "global - unrecognised global property syntax, non existent user/group or unreadable file(s).";
 					prog_warn 0, "global - file $cf, line $line:";
 					prog_warn 0, error_getmsg($section, $property);
 					prog_warn 0, $_;
@@ -1708,6 +1747,12 @@ sub value_lc ($$$) {
 		$value = $value;
 	} elsif ( $ptype eq 'path_generated_file' ) {
 		$value = $value;
+	} elsif ( $ptype eq 'path_chroot_dir' ) {
+		$value = $value;
+	} elsif ( $ptype eq 'user' ) {
+		$value = $value;
+	} elsif ( $ptype eq 'group' ) {
+		$value = $value;
 	} elsif ( $ptype eq 'shell_command' ) {
 		$value = $value;
 	} elsif ( $ptype eq 'path_certificate' ) {
@@ -1743,7 +1788,8 @@ sub error_getmsg ($$) {
 
 #Fill in global defaults
 sub global_fillin_defaults () {
-	foreach $prop ('path_pre_shared_key', 'path_certificate') {
+	foreach $prop ('path_pre_shared_key', 'path_certificate', 'path_script',
+			'privsep_chroot', 'privsep_user', 'privsep_group' ) {
 		if ( defined $global{$prop} && $global{$prop} =~ m/^"?(\S+)"?$/i ) {
 			$global{$prop} = "\"${1}\"";
 		}
@@ -1868,6 +1914,17 @@ sub check_property_syntax ($$$) {
 			return 1;
 		}
 		return 0;
+	} elsif ( $ptype =~ m/^(group|user)$/ ){
+		if ( $value !~ m/^[-_0-9a-zA-Z]+$/i ) {
+			return 1;
+		}
+		if ( $ptype eq 'group' && getgrnam($value) ne '' ) {
+			return 1;
+		}
+		if ( $ptype eq 'user' && getpwnam($value) ne '' ) {
+			return 1;
+		}
+		return 0;
 	} elsif ( $ptype eq 'path_conf_file' ) {
 		if ( $value =~ m/^\"?([^\"\s]+)\"?$/i ) {
 			if ( ! -r $1 ) {
@@ -1877,10 +1934,10 @@ sub check_property_syntax ($$$) {
 			return 1;
 		}
 		return 0;
-	} elsif ( $ptype eq 'path_generated_file' ) {
+	} elsif ( $ptype =~ m/^(path_generated_file|path_chroot_dir)$/ ) {
 		if ( $value =~ m/^\"?([^\"\s]+)\"?$/i ) {
 			my $dir = dirname($1);
-			if ( ! defined $dir || $dir == '' ) {
+			if ( ! defined $dir || $dir eq '' ) {
 				prog_warn 0, "$property - directory does not exist"; 
 				return 0;
 			}	

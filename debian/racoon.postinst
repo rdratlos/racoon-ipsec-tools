@@ -40,6 +40,9 @@ case "$1" in
 	    # remove this old entry, we'll add correct one below
 	    update-rc.d -f racoon remove > /dev/null || exit 0
 	fi
+	if ! getent passwd racoon >/dev/null; then
+                adduser --quiet --system --group --no-create-home --home /var/lib/racoon --shell /bin/false racoon
+        fi
     ;;
 
     abort-upgrade|abort-remove|abort-deconfigure)
