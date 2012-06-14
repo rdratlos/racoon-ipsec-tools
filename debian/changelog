@@ -1,3 +1,10 @@
+ipsec-tools (1:0.8.0-12) unstable; urgency=low
+
+  * racoon - add adduser dependency (Closes:  #677572)
+  * Fix racoon debconf template.
+
+ -- Matthew Grant <matthewgrant5@gmail.com>  Fri, 15 Jun 2012 11:33:48 +1200
+
 ipsec-tools (1:0.8.0-11) unstable; urgency=low
 
   * Update racoon-tool to 0.1.5 to fix proposal bug and add privsep support.
