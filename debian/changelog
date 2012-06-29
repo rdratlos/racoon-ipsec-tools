@@ -1,3 +1,10 @@
+ipsec-tools (1:0.8.0-13) unstable; urgency=low
+
+  * Set CFLAGS _FORTIFY_SOURCE=2 cf 0 (Closes: #679481)
+  * Make peer_sertfile dnssec DNSSEC validate on linux (Closes: #679483)
+
+ -- Matthew Grant <matthewgrant5@gmail.com>  Fri, 29 Jun 2012 22:11:10 +1200
+
 ipsec-tools (1:0.8.0-12) unstable; urgency=low
 
   * racoon - add adduser dependency (Closes:  #677572)
