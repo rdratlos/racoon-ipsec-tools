@@ -1,7 +1,7 @@
 Index: ipsec-tools/src/racoon/getcertsbyname.c
 ===================================================================
---- ipsec-tools.orig/src/racoon/getcertsbyname.c	2012-06-14 10:41:28.616223402 +1200
-+++ ipsec-tools/src/racoon/getcertsbyname.c	2012-06-29 21:55:58.477755164 +1200
+--- ipsec-tools.orig/src/racoon/getcertsbyname.c	2012-06-29 22:19:52.569078120 +1200
++++ ipsec-tools/src/racoon/getcertsbyname.c	2012-06-29 22:20:44.599749858 +1200
 @@ -213,6 +213,8 @@
  	char hostbuf[1024];	/* XXX */
  	int qtype, qclass, keytag, algorithm;
@@ -29,7 +29,7 @@ Index: ipsec-tools/src/racoon/getcertsbyname.c
  
  	} while (buflen < anslen);
 +	/* Undo resolver options */
-+	_resp->options _res_options;
++	_resp->options = _res_options;
  
  #ifdef DNSSEC_DEBUG
  	printf("get a DNS packet len=%d\n", anslen);
