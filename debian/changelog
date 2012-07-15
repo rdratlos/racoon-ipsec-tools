@@ -1,24 +1,3 @@
-ipsec-tools (1:0.8.0-14) unstable; urgency=low
-
-  * Debconf templates and debian/control reviewed by the debian-l10n-
-    english team as part of the Smith review project. Kudos to Christian
-    Perrier <bubulle@debian.org> for organising it.  Closes: #677713
-  * [Debconf translation updates]
-  * Russian (Yuri Kozlov).  Closes: #679732
-  * Italian (Luca Monducci).  Closes: #679743
-  * Slovak (Ivan Masár).  Closes: #679808
-  * Danish (Joe Hansen).  Closes: #680068
-  * Portuguese (Américo Monteiro).  Closes: #680131
-  * German (Erik Pfannenstein).  Closes: #680295
-  * French (Jean-Christope GARNIER).  Closes: #680270
-  * Czech (Miroslav Kure).  Closes: #680471
-  * Polish (Michał Kułach).  Closes: #680526
-  * Swedish (Martin Bagge / brother).  Closes: #680560
-  * Spanish (Javier Fernández-Sanguino). Last in the gate.  Maintainer added.
-    Closes: #681400
-
- -- Matthew Grant <matthewgrant5@gmail.com>  Sun, 15 Jul 2012 20:58:17 +1200
-
 ipsec-tools (1:0.8.0-13) unstable; urgency=low
 
   * Set CFLAGS _FORTIFY_SOURCE=2 cf 0 (Closes: #679481)
