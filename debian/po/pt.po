@@ -3,49 +3,82 @@
 # This file is distributed under the same license as the ipsec-tools package.
 #
 # Manuel Padilha <m.padilha@ieee.org>, 2006.
-# Américo Monteiro <a_monteiro@netcabo.pt>, 2008.
+# Américo Monteiro <a_monteiro@netcabo.pt>, 2008, 2012.
 msgid ""
 msgstr ""
-"Project-Id-Version: ipsec-tools 1:0.7-2\n"
+"Project-Id-Version: ipsec-tools 1:0.8.0-13\n"
 "Report-Msgid-Bugs-To: ipsec-tools@packages.debian.org\n"
-"POT-Creation-Date: 2008-04-21 08:51+0000\n"
-"PO-Revision-Date: 2008-05-25 19:39+0100\n"
+"POT-Creation-Date: 2012-06-30 16:16+0200\n"
+"PO-Revision-Date: 2012-07-03 21:58+0100\n"
 "Last-Translator: Américo Monteiro <a_monteiro@netcabo.pt>\n"
 "Language-Team: Portuguese <traduz@debianpt.org>\n"
 "Language: pt\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"X-Generator: KBabel 1.11.4\n"
+"X-Generator: Lokalize 1.4\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #. Type: select
 #. Choices
-#: ../racoon.templates:1001
+#: ../racoon.templates:2001
 msgid "direct"
 msgstr "directo"
 
 #. Type: select
 #. Choices
-#: ../racoon.templates:1001
+#: ../racoon.templates:2001
 msgid "racoon-tool"
 msgstr "raccon-tool"
 
 #. Type: select
 #. Description
-#: ../racoon.templates:1002
-msgid "Configuration mode for racoon IKE daemon."
-msgstr "Modo de configuração para o daemon racoon IKE."
+#: ../racoon.templates:2002
+msgid "Configuration mode for racoon IKE daemon:"
+msgstr "Modo de configuração para o daemon racoon IKE:"
 
 #. Type: select
 #. Description
-#: ../racoon.templates:1002
+#: ../racoon.templates:2002
 msgid ""
-"Racoon can be configured two ways, either by directly editing /etc/racoon/"
-"racoon.conf or using the racoon-tool administrative front end. racoon-tool "
-"is now deprecated and is only available for backward compatibility. New "
-"installations should always use the \"direct\" method."
+"Racoon can be configured either directly, by editing /etc/racoon/racoon."
+"conf, or using the racoon-tool administrative front end."
 msgstr ""
-"O racoon pode ser configurado de duas formas, ou editando directamente o "
-"ficheiro /etc/racoon/racoon.conf ou usando o front-end administrativo racoon-"
-"tool. O racoon-tool está obsoleto e só é disponibilizado para garantir retro-"
-"compatibilidade. As instalações novas devem usar sempre o método \"directo\"."
+"O racoon pode ser configurado ou directamente, ao editar /etc/racoon/racoon."
+"conf, ou usando o front-end administrativo racoon-tool."
+
+#. Type: select
+#. Description
+#: ../racoon.templates:2002
+msgid ""
+"Use of the \"direct\" method is strongly recommended if you want to use all "
+"the racoon examples on the Net, and if you want to use the full racoon "
+"feature set. You will have to directly edit /etc/racoon/racoon.conf and "
+"possibly manually set up the Security Policy Database via setkey."
+msgstr ""
+"O uso do método directo é \"fortemente\" recomendado se você deseja usar "
+"todos os exemplos do racoon da Net, e se deseja usar o conjunto total de "
+"funcionalidades do racoon. Você terá que editar directamente /etc/racoon/"
+"racoon.conf e possivelmente ter que definir manualmente a Base de Dados de "
+"Politicas de Segurança via setkey."
+
+#. Type: select
+#. Description
+#: ../racoon.templates:2002
+msgid ""
+"Racoon-tool has been updated for racoon 0.8.0, and is for use in basic "
+"configuration setups. It gives the benefit of managing the SPD along with "
+"the IKE that strongSwan offers. IPv6, transport/tunnel mode (ESP/AH), PSK/"
+"X509 auth, and basic \"anonymous\" VPN server are supported."
+msgstr ""
+"O racoon-tool foi actualizado para o racoon 0.8.0, e é usado para definir "
+"configurações básicas. Oferece o benefício de gerir o SPD juntamente com a "
+"IKE que o strongSwan oferece. são suportados IPv6, modo de transporte em "
+"túnel (ESP/AH), autenticação PSK/X509, e servidor VPN \"anonimo\" básico."
+
+#. Type: select
+#. Description
+#: ../racoon.templates:2002
+msgid "More information is available in /usr/share/doc/racoon/README.Debian."
+msgstr ""
+"Mais informações estão disponíveis em /usr/share/doc/racoon/README.Debian."
