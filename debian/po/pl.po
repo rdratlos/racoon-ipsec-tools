@@ -1,60 +1,51 @@
-# translation of xd-ipsec-tools-eu.po to Euskara
-# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
-# This file is distributed under the same license as the PACKAGE package.
+# Translation of ipsec-tools debconf templates to Polish.
+# Copyright (C) 2012
+# This file is distributed under the same license as the ipsec-tools package.
 #
-# xabier bilbao <xabidu@gmail.com>, 2008.
-# Piarres Beobide <pi@beobide.net>, 2008.
+# Michał Kułach <michal.kulach@gmail.com>, 2012.
 msgid ""
 msgstr ""
-"Project-Id-Version: xd-ipsec-tools-eu\n"
+"Project-Id-Version: ipsec-tools\n"
 "Report-Msgid-Bugs-To: ipsec-tools@packages.debian.org\n"
 "POT-Creation-Date: 2012-06-30 16:16+0200\n"
-"PO-Revision-Date: 2008-05-24 23:47+0200\n"
-"Last-Translator: Piarres Beobide <pi@beobide.net>\n"
-"Language-Team: Euskara <debian-l10n-basque@lists.debian.org>\n"
-"Language: \n"
+"PO-Revision-Date: 2012-07-06 16:53+0200\n"
+"Last-Translator: Michał Kułach <michal.kulach@gmail.com>\n"
+"Language-Team: Polish <debian-l10n-polish@lists.debian.org>\n"
+"Language: pl\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"X-Generator: KBabel 1.11.4\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 "
+"|| n%100>=20) ? 1 : 2);\n"
+"X-Generator: Lokalize 1.4\n"
 
 #. Type: select
 #. Choices
 #: ../racoon.templates:2001
 msgid "direct"
-msgstr "zuzena"
+msgstr "bezpośrednia"
 
 #. Type: select
 #. Choices
 #: ../racoon.templates:2001
 msgid "racoon-tool"
-msgstr "racoon-tool bidez"
+msgstr "racoon-tool"
 
 #. Type: select
 #. Description
 #: ../racoon.templates:2002
-#, fuzzy
-#| msgid "Configuration mode for racoon IKE daemon."
 msgid "Configuration mode for racoon IKE daemon:"
-msgstr "Racoon IKE deabrua konfiguratzeko modua:"
+msgstr "Tryb konfiguracji do demona IKE racoon:"
 
 #. Type: select
 #. Description
 #: ../racoon.templates:2002
-#, fuzzy
-#| msgid ""
-#| "Racoon can be configured two ways, either by directly editing /etc/racoon/"
-#| "racoon.conf or using the racoon-tool administrative front end. racoon-"
-#| "tool is now deprecated and is only available for backward compatibility. "
-#| "New installations should always use the \"direct\" method."
 msgid ""
 "Racoon can be configured either directly, by editing /etc/racoon/racoon."
 "conf, or using the racoon-tool administrative front end."
 msgstr ""
-"Bi era daude Racoon konfiguratzeko: /etc/racoon/racoon.conf zuzenean "
-"editatuz, edo racoon-tool administrazio interfazea erabiliz. Racoon-tool "
-"zaharkitua geratu da, eta atzeranzko bateragarritasunagatik soilik dago "
-"eskura. Instalazio berrietan erabili beti \"zuzena\" modua."
+"Racoon może zostać skonfigurowane bezpośrednio, za pomocą edycji pliku /etc/"
+"racoon/racoon.conf lub używając interfejsu administracyjnego racoon-tool."
 
 #. Type: select
 #. Description
@@ -65,6 +56,10 @@ msgid ""
 "feature set. You will have to directly edit /etc/racoon/racoon.conf and "
 "possibly manually set up the Security Policy Database via setkey."
 msgstr ""
+"Użycie metody bezpośredniej jest zalecane, jeśli chce się używać wszystkich "
+"przykładów racoon z sieci i aby wykorzystać pełne możliwości racoon. "
+"Konieczne będzie bezpośrednie edytowanie pliku /etc/racoon/racoon.conf i "
+"prawdopodobnie ręczna konfiguracja Security Policy Database za pomocą setkey."
 
 #. Type: select
 #. Description
@@ -75,9 +70,14 @@ msgid ""
 "the IKE that strongSwan offers. IPv6, transport/tunnel mode (ESP/AH), PSK/"
 "X509 auth, and basic \"anonymous\" VPN server are supported."
 msgstr ""
+"Racoon-tool zostało zaktualizowane do racoon w wersji 0.8.0 i przydaje się w "
+"prostych konfiguracjach. Daje zaletę zarządzania SPD razem z IKE, które "
+"oferuje strongSwan. Obsługiwane są: IPv6, tryb transport/tunel (ESP/AH), "
+"autoryzacja PSK/X509 i prosty serwer \"anonimowy\" VPN."
 
 #. Type: select
 #. Description
 #: ../racoon.templates:2002
 msgid "More information is available in /usr/share/doc/racoon/README.Debian."
 msgstr ""
+"Więcej informacji znajduje się w pliku /usr/share/doc/racoon/README.Debian."

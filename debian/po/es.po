@@ -29,8 +29,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ipsec-tools 1:0.6.6-3\n"
 "Report-Msgid-Bugs-To: ipsec-tools@packages.debian.org\n"
-"POT-Creation-Date: 2008-04-21 08:51+0000\n"
-"PO-Revision-Date: 2008-05-22 01:00+0200\n"
+"POT-Creation-Date: 2012-06-30 16:16+0200\n"
+"PO-Revision-Date: 2012-07-12 23:06+0200\n"
 "Last-Translator: Javier Fernández-Sanguino <jfs@debian.org>\n"
 "Language-Team: Debian l10n spanish <debian-l10n-spanish@lists.debian.org>\n"
 "Language: \n"
@@ -43,36 +43,55 @@ msgstr ""
 
 #. Type: select
 #. Choices
-#: ../racoon.templates:1001
+#: ../racoon.templates:2001
 msgid "direct"
 msgstr "directo"
 
 #. Type: select
 #. Choices
-#: ../racoon.templates:1001
+#: ../racoon.templates:2001
 msgid "racoon-tool"
 msgstr "racoon-tool"
 
 #. Type: select
 #. Description
-#: ../racoon.templates:1002
-msgid "Configuration mode for racoon IKE daemon."
-msgstr "Modo de configuración para el demonio IKE de racoon"
+#: ../racoon.templates:2002
+msgid "Configuration mode for racoon IKE daemon:"
+msgstr "Modo de configuración para el demonio IKE de racoon:"
 
 #. Type: select
 #. Description
-#: ../racoon.templates:1002
+#: ../racoon.templates:2002
 msgid ""
-"Racoon can be configured two ways, either by directly editing /etc/racoon/"
-"racoon.conf or using the racoon-tool administrative front end. racoon-tool "
-"is now deprecated and is only available for backward compatibility. New "
-"installations should always use the \"direct\" method."
-msgstr ""
-"Puede configurar racoon de dos formas distintas: editando directamente el "
-"fichero «/etc/racoon/racoon.conf» o utilizando la interfaz de administración "
-"«racoon-tool». La herramienta «Racoon-tool» está ahora obsoleta y sólo se "
-"proporciona para tener compatibilidad hacia atrás. Las nuevas instalaciones "
-"deberían siempre utilizar el método «directo»."
+"Racoon can be configured either directly, by editing /etc/racoon/racoon."
+"conf, or using the racoon-tool administrative front end."
+msgstr "Se puede configurar racoon de dos formas distintas: editando directamente el fichero «/etc/racoon/racoon.conf» o utilizando la interfaz de administración «racoon-tool»."
+
+#. Type: select
+#. Description
+#: ../racoon.templates:2002
+msgid ""
+"Use of the \"direct\" method is strongly recommended if you want to use all "
+"the racoon examples on the Net, and if you want to use the full racoon "
+"feature set. You will have to directly edit /etc/racoon/racoon.conf and "
+"possibly manually set up the Security Policy Database via setkey."
+msgstr "Se recomienda encarecidamente el método «direct» si quiere utilizar todos los ejemplos de racoon disponibles en la red, y si desea utilizar el conjunto completo de funcionalidades. Tendrá que editar directamente «/etc/racoon/racoon.conf» y seguramente deba configurar manualmente la Base de datos de la Política de Seguridad con «setkey»."
+
+#. Type: select
+#. Description
+#: ../racoon.templates:2002
+msgid ""
+"Racoon-tool has been updated for racoon 0.8.0, and is for use in basic "
+"configuration setups. It gives the benefit of managing the SPD along with "
+"the IKE that strongSwan offers. IPv6, transport/tunnel mode (ESP/AH), PSK/"
+"X509 auth, and basic \"anonymous\" VPN server are supported."
+msgstr "Se ha actualizado «acoon-tool» para la versión 0.8.0 de racoon y se ha de utilizar para conjuntos de configuración básicos. Esta herramienta tiene como beneficio la gestión de SPF junto con el IKE que ofrece strongSwam. También incluye soporte para las funcionalidades de IPv6, modo de transporte/túnel (ESP/AH), autenticación PSK/X509, y el servidor VPN «anónimo»."
+
+#. Type: select
+#. Description
+#: ../racoon.templates:2002
+msgid "More information is available in /usr/share/doc/racoon/README.Debian."
+msgstr "Tiene más información disponible en «/usr/share/doc/racoon/README.Debian»."
 
 #~ msgid "Racoon can now be configured two ways."
 #~ msgstr "Racoon puede configurarse de dos formas."
