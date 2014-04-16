@@ -95,6 +95,7 @@ override_dh_installexamples:
 override_dh_installinit:
 	dh_installinit -R -pracoon -- start 40 S . stop 07 0 1 6 .
 	dh_installinit -R -pipsec-tools --name=setkey --no-start -- start 14 S .
+	dh_systemd_enable -pracoon
 
 override_dh_installman:
 	dh_installman
