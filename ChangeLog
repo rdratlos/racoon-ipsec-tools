@@ -1,3 +1,130 @@
+2013-07-12  Timo Teras <timo.teras@iki.fi>
+
+	* src/racoon/main.c: From Sven Vermeulen
+	  <sven.vermeulen@siphos.be>: Moves ploginit() up, allowing logging
+	  events from init_avc() to show up as well.
+
+2013-06-18  Timo Teras <timo.teras@iki.fi>
+
+	* src/racoon/ipsec_doi.c: From Paul Barker: Remove redundant memset
+	  after calloc that caused compile failures with gcc 4.8 due to error:
+	  argument to 'sizeof' in 'memset' call is the same expression as the
+	  destination; did you mean to dereference.
+
+2013-06-03  Timo Teras <timo.teras@iki.fi>
+
+	* src/racoon/admin.c: From Alexander Sbitnev
+	  <alexander.sbitnev@gmail.com>: fix admin port establish-sa for
+	  tunnel mode SAs.
+
+2013-05-23  Timo Teras <timo.teras@iki.fi>
+
+	* src/include-glibc/net/pfkeyv2.h: From Rainer Weikusat
+	  <rweikusat@mobileactivedefense.com>: Fix SADB_X_EALG_CASTCBC
+	  definition to use system definition (which differs at least on
+	  Linux).
+
+2013-04-12  Timo Teras <timo.teras@iki.fi>
+
+	* src/racoon/isakmp_cfg.c: From Rainer Weikusat
+	  <rweikusat@mobileactivedefense.com>: Do not send out illegal zero
+	  length MODE_CFG attributes.
+
+	* src/racoon/: grabmyaddr.c, isakmp_inf.c: Some logging
+	  improvements.
+
+2013-02-05  Timo Teras <timo.teras@iki.fi>
+
+	* src/racoon/grabmyaddr.c: Fix source port selection
+
+	* src/racoon/isakmp_xauth.c: From Ian West <ian@niw.com.au>: Fix
+	  double free of the radius info on config reload.
+
+2013-01-24  Timo Teras <timo.teras@iki.fi>
+
+	* src/racoon/isakmp_inf.c: Fix handling of deletion notification.
+
+2013-01-08  tag ipsec-tools-0_8_1
+
+2013-01-08  Timo Teras <timo.teras@iki.fi>
+
+	* NEWS, configure.ac: ipsec-tools-0.8.1
+
+	* configure.ac: Fix errors from automake 1.13
+
+	* src/include-glibc/Makefile.am: Don't derefence the directory
+	  symlink which we might be recreating.
+
+2012-12-24  Timo Teras <timo.teras@iki.fi>
+
+	* src/racoon/crypto_openssl.c: From Götz Babin-Ebell
+	  <g.babin-ebell@novamedia.de>: Smarter X.509 subject name compare.
+
+	* configure.ac, src/racoon/crypto_openssl.c,
+	  src/racoon/missing/crypto/sha2/sha2.c: From Götz Babin-Ebell
+	  <g.babin-ebell@novamedia.de>: Require OpenSSL 0.9.8s or higher
+
+2012-08-29  Timo Teras <timo.teras@iki.fi>
+
+	* src/racoon/isakmp_inf.c: From Roman Hoog Antink <rha@open.ch>:
+	  Accept DPD messages with cookies also in reversed order for
+	  compatiblity. At least Cisco 836 running IOS 12.3(8)T does this.
+
+	* src/racoon/oakley.c: From Roman Hoog Antink <rha@open.ch>: add
+	  remote's IP address to the "certificate not verified" error message.
+
+	* src/racoon/oakley.c: From Roman Hoog Antink <rha@open.ch>: do not
+	  print unnecessary warning about non-verified certificate when using
+	  raw plain-rsa.
+
+	* src/racoon/isakmp.c: From Rainer Weikusat
+	  <rweikusat@mobileactivedefense.com>: Release unused phase2 of
+	  passive remotes after acquire.
+
+	* src/racoon/isakmp.c: From Wolfgang Schmieder
+	  <wolfgang.schmieder@honeywell.com>: setup phase1 port properly.
+
+	* src/racoon/: cfparse.y, cftoken.l, racoon.conf.5: Allow inherited
+	  remote blocks without additional remote statements to be specified
+	  in a simpler way. patch by Roman Hoog Antink <rha@open.ch>
+
+2012-08-23  Timo Teras <timo.teras@iki.fi>
+
+	* src/racoon/crypto_openssl.c: From Nakano Takaharu: Fix bignum
+	  memory allocation.
+
+2012-01-01  Timo Teras <timo.teras@iki.fi>
+
+	* src/racoon/isakmp_unity.c: From Rainer Weikusat
+	  <rweikusat@mobileactivedefense.com>: Fix one byte too short memory
+	  allocation in isakmp_unity.c:splitnet_list_2str().
+
+2011-11-17  Yvan Vanhullebus <vanhu@netasq.com>
+
+	* src/racoon/handler.c: fixed some crashes in LIST_FOREACH where
+	  current element could be removed during the loop
+
+2011-11-14  Timo Teras <timo.teras@iki.fi>
+
+	* src/libipsec/pfkey.c: From Marcelo Leitner <mleitner@redhat.com>:
+	  do not shrink pfkey socket buffers (if system default is larger than
+	  what we want as minimum)
+
+2011-08-12  Timo Teras <timo.teras@iki.fi>
+
+	* src/racoon/privsep.c: Have privilege separation child process
+	  exit if the parent exits.
+
+	* Makefile.am: Create ChangeLog for proper CVS branch.
+
+2011-03-18  tag ipsec-tools-0_8_0
+
+2011-03-18  Yvan Vanhullebus <vanhu@netasq.com>
+
+	* configure.ac: Yes: 0.8.0 is out !!!
+
+	* NEWS: updated News for 0.8 branch
+
 2011-03-17  Yvan Vanhullebus <vanhu@netasq.com>
 
 	* src/racoon/oakley.c: fixed a memory leak in
@@ -1539,8 +1666,6 @@
 
 	* src/racoon/crypto_openssl.c: From Joy Latten: fix a memory leak
 
-2006-12-10  tag ipsec-tools-0_7-base
-
 2006-12-10  Emmanuel Dreyfus <manu@netbsd.org>
 
 	* src/: libipsec/Makefile.am, libipsec/libpfkey.h,
@@ -1784,18 +1909,6 @@
 	  isakmp_inf.c, racoon.conf.5, remoteconf.c: From Matthew Grooms:
 	  ike_frag force option to force the use of IKE on first packet
 	  exchange (prior to peer consent)
-
-2006-09-18  Yvan Vanhullebus <vanhu@netasq.com>
-
-	* rpm/suse/ipsec-tools.spec, src/racoon/prsa_tok.c: removed
-	  generated files from the CVS
-
-	* src/racoon/prsa_par.c: removed generated files from the CVS
-
-	* src/racoon/: cfparse.c, cftoken.c: removed generated files from
-	  the CVS
-
-2006-09-18  Emmanuel Dreyfus <manu@netbsd.org>
 
 	* src/racoon/isakmp.c: From Matthew Grooms: handle IKE frag used in
 	  the first packet. That should not normally happen, as the initiator
