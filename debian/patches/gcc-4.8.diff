@@ -1,0 +1,13 @@
+Index: b/src/racoon/ipsec_doi.c
+===================================================================
+--- a/src/racoon/ipsec_doi.c
++++ b/src/racoon/ipsec_doi.c
+@@ -1183,7 +1183,7 @@
+ 			"failed to get buffer.\n");
+ 		goto bad;
+ 	}
+-	memset(pair, 0, sizeof(pair));
++	memset(pair, 0, sizeof(*pair));
+ 
+ 	bp = (caddr_t)(sab + 1);
+ 	tlen = sa->l - sizeof(*sab);

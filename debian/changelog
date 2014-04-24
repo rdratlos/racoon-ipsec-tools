@@ -1,3 +1,13 @@
+ipsec-tools (1:0.8.0-14.1) unstable; urgency=low
+
+  * Non-maintainer upload.
+  * Fix "ftbfs with GCC-4.8":
+    add patch from Ubuntu / Matthias Klose, which dereferences argument to
+    'sizeof' in 'memset'
+    (Closes: #701299)
+
+ -- gregor herrmann <gregoa@debian.org>  Sat, 23 Nov 2013 20:39:37 +0100
+
 ipsec-tools (1:0.8.0-14) unstable; urgency=low
 
   * Debconf templates and debian/control reviewed by the debian-l10n-
