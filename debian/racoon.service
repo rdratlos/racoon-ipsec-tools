@@ -5,6 +5,7 @@ Description=ipsec key exchange server
 Type=forking
 PIDFile=/var/run/racoon.pid
 EnvironmentFile=-/etc/default/racoon
+ExecStartPre=-/bin/mkdir -p /var/run/racoon
 ExecStart=/usr/sbin/racoon $RACOON_ARGS
 ExecReload=/bin/kill -HUP $MAINPID
 
