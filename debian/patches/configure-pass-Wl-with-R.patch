@@ -6,9 +6,11 @@ Origin: serge.hallyn@ubuntu.com
 Forwarded: no
 Last-Update: 2011-06-08
 
---- ipsec-tools-0.8.0.orig/configure
-+++ ipsec-tools-0.8.0/configure
-@@ -13076,7 +13076,7 @@ fi
+Index: pkg-ipsec-tools/configure
+===================================================================
+--- pkg-ipsec-tools.orig/configure	2014-04-25 23:35:53.695882978 -0700
++++ pkg-ipsec-tools/configure	2014-04-25 23:36:07.023949073 -0700
+@@ -13427,7 +13427,7 @@
  			as_fn_error $? "ICONV libs or includes not found. Aborting." "$LINENO" 5
  	  	fi
  	fi
@@ -17,7 +19,7 @@ Last-Update: 2011-06-08
  	for ac_func in iconv_open
  do :
    ac_fn_c_check_func "$LINENO" "iconv_open" "ac_cv_func_iconv_open"
-@@ -13333,7 +13333,7 @@ fi
+@@ -13684,7 +13684,7 @@
  
  $as_echo "#define HAVE_LIBRADIUS /**/" >>confdefs.h
  
@@ -26,7 +28,7 @@ Last-Update: 2011-06-08
  	for ac_func in rad_create_request
  do :
    ac_fn_c_check_func "$LINENO" "rad_create_request" "ac_cv_func_rad_create_request"
-@@ -13536,7 +13536,7 @@ fi
+@@ -13887,7 +13887,7 @@
  
  $as_echo "#define HAVE_LIBPAM /**/" >>confdefs.h
  
@@ -35,7 +37,7 @@ Last-Update: 2011-06-08
  	for ac_func in pam_start
  do :
    ac_fn_c_check_func "$LINENO" "pam_start" "ac_cv_func_pam_start"
-@@ -13739,7 +13739,7 @@ fi
+@@ -14090,7 +14090,7 @@
  
  $as_echo "#define HAVE_LIBLDAP /**/" >>confdefs.h
  

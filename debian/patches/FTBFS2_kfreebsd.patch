@@ -1,8 +1,9 @@
 this patch addresses build problems on kfreebsd
-diff -Naurp ipsec-tools-0.8.0.orig/configure ipsec-tools-0.8.0/configure
---- ipsec-tools-0.8.0.orig/configure	2011-03-18 14:27:41.000000000 +0100
-+++ ipsec-tools-0.8.0/configure	2011-03-21 15:43:06.000000000 +0100
-@@ -11550,6 +11550,9 @@ case $host in
+Index: pkg-ipsec-tools/configure
+===================================================================
+--- pkg-ipsec-tools.orig/configure	2014-04-25 23:35:22.859730075 -0700
++++ pkg-ipsec-tools/configure	2014-04-25 23:35:53.695882978 -0700
+@@ -11900,6 +11900,9 @@
  
  
  	;;
@@ -12,7 +13,7 @@ diff -Naurp ipsec-tools-0.8.0.orig/configure ipsec-tools-0.8.0/configure
  *darwin*)
  	LIBS="$LIBS -lresolv"
  	;;
-@@ -14100,6 +14103,7 @@ $as_echo_n "checking for advanced API su
+@@ -14451,6 +14454,7 @@
  #define INET6
  #endif
  #include <sys/types.h>
@@ -20,7 +21,7 @@ diff -Naurp ipsec-tools-0.8.0.orig/configure ipsec-tools-0.8.0/configure
  #include <netinet/in.h>
  int
  main ()
-@@ -14266,7 +14270,7 @@ fi
+@@ -14617,7 +14621,7 @@
  rm -f conftest*
  
  	;;
@@ -29,10 +30,11 @@ diff -Naurp ipsec-tools-0.8.0.orig/configure ipsec-tools-0.8.0/configure
  # NetBSD case
  # Same check for FreeBSD
  ac_fn_c_check_member "$LINENO" "struct sadb_x_nat_t_type" "sadb_x_nat_t_type_len" "ac_cv_member_struct_sadb_x_nat_t_type_sadb_x_nat_t_type_len" "
-diff -Naurp ipsec-tools-0.8.0.orig/src/libipsec/key_debug.c ipsec-tools-0.8.0/src/libipsec/key_debug.c
---- ipsec-tools-0.8.0.orig/src/libipsec/key_debug.c	2008-12-05 07:02:20.000000000 +0100
-+++ ipsec-tools-0.8.0/src/libipsec/key_debug.c	2011-03-21 14:48:08.000000000 +0100
-@@ -790,7 +790,7 @@ kdebug_mbufhdr(m)
+Index: pkg-ipsec-tools/src/libipsec/key_debug.c
+===================================================================
+--- pkg-ipsec-tools.orig/src/libipsec/key_debug.c	2014-04-25 23:35:22.859730075 -0700
++++ pkg-ipsec-tools/src/libipsec/key_debug.c	2014-04-25 23:35:53.695882978 -0700
+@@ -790,7 +790,7 @@
  		    m->m_pkthdr.len, m->m_pkthdr.rcvif);
  	}
  
@@ -41,10 +43,11 @@ diff -Naurp ipsec-tools-0.8.0.orig/src/libipsec/key_debug.c ipsec-tools-0.8.0/sr
  	if (m->m_flags & M_EXT) {
  		printf("  m_ext{ ext_buf:%p ext_free:%p "
  		       "ext_size:%u ext_ref:%p }\n",
-diff -Naurp ipsec-tools-0.8.0.orig/src/libipsec/policy_token.c ipsec-tools-0.8.0/src/libipsec/policy_token.c
---- ipsec-tools-0.8.0.orig/src/libipsec/policy_token.c	2011-03-18 14:28:03.000000000 +0100
-+++ ipsec-tools-0.8.0/src/libipsec/policy_token.c	2011-03-21 14:48:08.000000000 +0100
-@@ -625,7 +625,7 @@ char *__libipsectext;
+Index: pkg-ipsec-tools/src/libipsec/policy_token.c
+===================================================================
+--- pkg-ipsec-tools.orig/src/libipsec/policy_token.c	2014-04-25 23:35:22.859730075 -0700
++++ pkg-ipsec-tools/src/libipsec/policy_token.c	2014-04-25 23:35:53.699883002 -0700
+@@ -625,7 +625,7 @@
  #include "libpfkey.h"
  
  #if !defined(__NetBSD__) && !defined(__FreeBSD__) && !defined(__linux__)  && \
@@ -53,9 +56,10 @@ diff -Naurp ipsec-tools-0.8.0.orig/src/libipsec/policy_token.c ipsec-tools-0.8.0
  #include "y.tab.h"
  #else
  #include "policy_parse.h"
-diff -Naurp ipsec-tools-0.8.0.orig/src/libipsec/policy_token.l ipsec-tools-0.8.0/src/libipsec/policy_token.l
---- ipsec-tools-0.8.0.orig/src/libipsec/policy_token.l	2007-07-18 14:07:50.000000000 +0200
-+++ ipsec-tools-0.8.0/src/libipsec/policy_token.l	2011-03-21 14:48:08.000000000 +0100
+Index: pkg-ipsec-tools/src/libipsec/policy_token.l
+===================================================================
+--- pkg-ipsec-tools.orig/src/libipsec/policy_token.l	2014-04-25 23:35:22.859730075 -0700
++++ pkg-ipsec-tools/src/libipsec/policy_token.l	2014-04-25 23:35:53.699883002 -0700
 @@ -52,7 +52,7 @@
  #include "libpfkey.h"
  
@@ -65,9 +69,10 @@ diff -Naurp ipsec-tools-0.8.0.orig/src/libipsec/policy_token.l ipsec-tools-0.8.0
  #include "y.tab.h"
  #else
  #include "policy_parse.h"
-diff -Naurp ipsec-tools-0.8.0.orig/src/racoon/isakmp.c ipsec-tools-0.8.0/src/racoon/isakmp.c
---- ipsec-tools-0.8.0.orig/src/racoon/isakmp.c	2011-03-15 14:20:14.000000000 +0100
-+++ ipsec-tools-0.8.0/src/racoon/isakmp.c	2011-03-21 14:48:08.000000000 +0100
+Index: pkg-ipsec-tools/src/racoon/isakmp.c
+===================================================================
+--- pkg-ipsec-tools.orig/src/racoon/isakmp.c	2014-04-25 23:35:22.859730075 -0700
++++ pkg-ipsec-tools/src/racoon/isakmp.c	2014-04-25 23:35:53.703883018 -0700
 @@ -122,12 +122,15 @@
  #  endif
  # endif /* __linux__ */
@@ -86,9 +91,10 @@ diff -Naurp ipsec-tools-0.8.0.orig/src/racoon/isakmp.c ipsec-tools-0.8.0/src/rac
  # endif /* __NetBSD__ / __FreeBSD__ */
  
  static int nostate1 __P((struct ph1handle *, vchar_t *));
-diff -Naurp ipsec-tools-0.8.0.orig/src/racoon/nattraversal.c ipsec-tools-0.8.0/src/racoon/nattraversal.c
---- ipsec-tools-0.8.0.orig/src/racoon/nattraversal.c	2011-03-14 18:18:13.000000000 +0100
-+++ ipsec-tools-0.8.0/src/racoon/nattraversal.c	2011-03-21 14:48:08.000000000 +0100
+Index: pkg-ipsec-tools/src/racoon/nattraversal.c
+===================================================================
+--- pkg-ipsec-tools.orig/src/racoon/nattraversal.c	2014-04-25 23:35:22.859730075 -0700
++++ pkg-ipsec-tools/src/racoon/nattraversal.c	2014-04-25 23:35:53.703883018 -0700
 @@ -38,7 +38,7 @@
  #ifdef __linux__
  #include <linux/udp.h>
@@ -98,9 +104,10 @@ diff -Naurp ipsec-tools-0.8.0.orig/src/racoon/nattraversal.c ipsec-tools-0.8.0/s
  #include <netinet/udp.h>
  #endif
  
-diff -Naurp ipsec-tools-0.8.0.orig/src/racoon/pfkey.c ipsec-tools-0.8.0/src/racoon/pfkey.c
---- ipsec-tools-0.8.0.orig/src/racoon/pfkey.c	2011-03-15 14:20:14.000000000 +0100
-+++ ipsec-tools-0.8.0/src/racoon/pfkey.c	2011-03-21 14:48:08.000000000 +0100
+Index: pkg-ipsec-tools/src/racoon/pfkey.c
+===================================================================
+--- pkg-ipsec-tools.orig/src/racoon/pfkey.c	2014-04-25 23:35:22.859730075 -0700
++++ pkg-ipsec-tools/src/racoon/pfkey.c	2014-04-25 23:35:53.707883042 -0700
 @@ -50,7 +50,7 @@
  #  include <linux/udp.h>
  # endif
@@ -110,10 +117,11 @@ diff -Naurp ipsec-tools-0.8.0.orig/src/racoon/pfkey.c ipsec-tools-0.8.0/src/raco
  #  include <netinet/udp.h>
  # endif
  #endif
-diff -Naurp ipsec-tools-0.8.0.orig/src/setkey/token.c ipsec-tools-0.8.0/src/setkey/token.c
---- ipsec-tools-0.8.0.orig/src/setkey/token.c	2011-03-18 14:28:03.000000000 +0100
-+++ ipsec-tools-0.8.0/src/setkey/token.c	2011-03-21 14:48:08.000000000 +0100
-@@ -1051,7 +1051,7 @@ char *yytext;
+Index: pkg-ipsec-tools/src/setkey/token.c
+===================================================================
+--- pkg-ipsec-tools.orig/src/setkey/token.c	2014-04-25 23:35:22.859730075 -0700
++++ pkg-ipsec-tools/src/setkey/token.c	2014-04-25 23:35:53.711883058 -0700
+@@ -1051,7 +1051,7 @@
  
  #include "vchar.h"
  #if defined(__NetBSD__) || defined(__FreeBSD__) || defined(__linux__) || \
@@ -122,9 +130,10 @@ diff -Naurp ipsec-tools-0.8.0.orig/src/setkey/token.c ipsec-tools-0.8.0/src/setk
  #include "parse.h"
  #else
  #include "y.tab.h"
-diff -Naurp ipsec-tools-0.8.0.orig/src/setkey/token.l ipsec-tools-0.8.0/src/setkey/token.l
---- ipsec-tools-0.8.0.orig/src/setkey/token.l	2010-06-04 15:06:03.000000000 +0200
-+++ ipsec-tools-0.8.0/src/setkey/token.l	2011-03-21 14:48:08.000000000 +0100
+Index: pkg-ipsec-tools/src/setkey/token.l
+===================================================================
+--- pkg-ipsec-tools.orig/src/setkey/token.l	2014-04-25 23:35:22.859730075 -0700
++++ pkg-ipsec-tools/src/setkey/token.l	2014-04-25 23:35:53.711883058 -0700
 @@ -53,7 +53,7 @@
  
  #include "vchar.h"
@@ -134,4 +143,3 @@ diff -Naurp ipsec-tools-0.8.0.orig/src/setkey/token.l ipsec-tools-0.8.0/src/setk
  #include "parse.h"
  #else
  #include "y.tab.h"
-

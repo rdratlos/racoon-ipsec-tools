@@ -9,9 +9,11 @@ reading code, specifying an id of * will match any client.
 
 (John Keith Hohm <john@hohm.net>)
 
---- ipsec-tools-0.7.3.orig/src/racoon/localconf.c	2010-08-12 12:52:27.000000000 +0200
-+++ ipsec-tools-0.7.3/src/racoon/localconf.c	2010-08-12 12:55:01.000000000 +0200
-@@ -211,7 +211,8 @@
+Index: pkg-ipsec-tools/src/racoon/localconf.c
+===================================================================
+--- pkg-ipsec-tools.orig/src/racoon/localconf.c	2014-04-25 23:35:22.635728960 -0700
++++ pkg-ipsec-tools/src/racoon/localconf.c	2014-04-25 23:36:02.787928062 -0700
+@@ -207,7 +207,8 @@
  		if (*p == '\0')
  			continue;	/* no 2nd parameter */
  		p--;
