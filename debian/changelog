@@ -1,4 +1,4 @@
-ipsec-tools (1:0.8.2-1) UNRELEASED; urgency=medium
+ipsec-tools (1:0.8.2-1) unstable; urgency=medium
 
   * New upstream release 0.8.2
   * Add a systemd unit file for racoon.
@@ -9,7 +9,7 @@ ipsec-tools (1:0.8.2-1) UNRELEASED; urgency=medium
   * Update Dutch debconf translation (Closes: #692817)
   * Update Japanese debconf translation (Closes: #715193)
 
- --
+ -- Noah Meyerhans <noahm@debian.org>  Sun, 27 Apr 2014 22:40:37 -0700
 
 ipsec-tools (1:0.8.0-14.1) unstable; urgency=low
 
