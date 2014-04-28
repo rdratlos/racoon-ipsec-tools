@@ -5,6 +5,8 @@ ipsec-tools (1:0.8.2-1) UNRELEASED; urgency=medium
   * Update maintainer and VCS details in debian/control.
   * Update standards compliance to 3.9.5 (no changes)
   * Update config.{sub,guess} (Closes: 727294)
+  * Update Dutch debconf translation (Closes: #692817)
+  * Update Japanese debconf translation (Closes: #715193)
 
  --
 
