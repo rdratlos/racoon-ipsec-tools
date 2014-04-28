@@ -4,6 +4,7 @@ ipsec-tools (1:0.8.2-1) UNRELEASED; urgency=medium
   * Add a systemd unit file for racoon.
   * Update maintainer and VCS details in debian/control.
   * Update standards compliance to 3.9.5 (no changes)
+  * Update config.{sub,guess} (Closes: 727294)
 
  --
 
