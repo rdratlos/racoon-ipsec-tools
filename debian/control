@@ -6,7 +6,7 @@ Uploaders: Noah Meyerhans <noahm@debian.org>, Matt Grant <matt@mattgrant.net.nz>
 Build-Depends: debhelper (>=7.0.50~), flex, bison, libkrb5-dev, libssl-dev (>= 0.9.6), libpam0g-dev, po-debconf, chrpath, hardening-wrapper, libldap2-dev, dh-systemd
 Standards-Version: 3.9.5
 Vcs-Git: https://alioth.debian.org/anonscm/git/pkg-ipsec-tools/pkg-ipsec-tools.git
-Vcs-Browser: https://alioth.debian.org/scm/browser.php?group_id=100896
+Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-ipsec-tools/pkg-ipsec-tools.git
 Homepage: http://ipsec-tools.sourceforge.net/
 
 Package: ipsec-tools
