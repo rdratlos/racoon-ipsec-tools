@@ -13,10 +13,10 @@
 # 
 msgid ""
 msgstr ""
-"Project-Id-Version: ipsec-tools 1:0.7.1-1\n"
+"Project-Id-Version: ipsec-tools 1:0.8.0-14\n"
 "Report-Msgid-Bugs-To: ipsec-tools@packages.debian.org\n"
 "POT-Creation-Date: 2012-06-30 16:16+0200\n"
-"PO-Revision-Date: 2008-08-06 20:05+0900\n"
+"PO-Revision-Date: 2012-06-30 23:16+0900\n"
 "Last-Translator: Hideki Yamane (Debian-JP) <henrich@debian.or.jp>\n"
 "Language-Team: Japanese <debian-japanese@lists.debian.org>\n"
 "Language: ja\n"
@@ -39,28 +39,18 @@ msgstr "racoon-tool"
 #. Type: select
 #. Description
 #: ../racoon.templates:2002
-#, fuzzy
-#| msgid "Configuration mode for racoon IKE daemon."
 msgid "Configuration mode for racoon IKE daemon:"
-msgstr "racoon IKE デーモンの設定方法"
+msgstr "racoon IKE デーモンの設定方法:"
 
 #. Type: select
 #. Description
 #: ../racoon.templates:2002
-#, fuzzy
-#| msgid ""
-#| "Racoon can be configured two ways, either by directly editing /etc/racoon/"
-#| "racoon.conf or using the racoon-tool administrative front end. racoon-"
-#| "tool is now deprecated and is only available for backward compatibility. "
-#| "New installations should always use the \"direct\" method."
 msgid ""
 "Racoon can be configured either directly, by editing /etc/racoon/racoon."
 "conf, or using the racoon-tool administrative front end."
 msgstr ""
-"racoon は、/etc/racoon/racoon.conf を直接編集する、もしくは racoon-tool 管理"
-"フロントエンドを利用するという、2 つの方法のどちらを使っても設定可能です。"
-"racoon-tool はすでに廃止される予定になっており、後方互換性のためにのみ残され"
-"ています。新規インストールでは必ず「直接」設定してください。"
+"racoon は /etc/racoon/racoon.conf を直接編集するか racoon-tool 管理用フロント"
+"エンドを利用することにより設定可能です。"
 
 #. Type: select
 #. Description
@@ -71,6 +61,10 @@ msgid ""
 "feature set. You will have to directly edit /etc/racoon/racoon.conf and "
 "possibly manually set up the Security Policy Database via setkey."
 msgstr ""
+"インターネット上にある racoon 使用例を全て使いたい、あるいは racoon の機能群を"
+"全て利用したい場合は「直接」設定する方法を強く勧めます。/etc/racoon/racoon."
+"conf を直接編集する必要があります。setkey を経由して手作業でセキュリティポリ"
+"シーデータベースを用意することも必要となるかもしれません。"
 
 #. Type: select
 #. Description
@@ -81,47 +75,13 @@ msgid ""
 "the IKE that strongSwan offers. IPv6, transport/tunnel mode (ESP/AH), PSK/"
 "X509 auth, and basic \"anonymous\" VPN server are supported."
 msgstr ""
+"Racoon-tool が racoon 0.8.0 用に更新され、基礎的な設定に利用するようになってい"
+"ます。これにより strongSwan が提供する IKE と共に SPD を管理できる利点がもたら"
+"されています。IPv6 や転送/トンネルモード (ESP/AH)、PSK/X509 認証、基本的な「匿"
+"名」VPN サーバをサポートしています。"
 
 #. Type: select
 #. Description
 #: ../racoon.templates:2002
 msgid "More information is available in /usr/share/doc/racoon/README.Debian."
-msgstr ""
-
-#~ msgid "Please select the racoon configuration mode."
-#~ msgstr "racoon IKE デーモンの設定方法を選択してください。"
-
-#~ msgid "Racoon can now be configured two ways."
-#~ msgstr "racoon は 2 つの方法で設定可能です。"
-
-#~ msgid ""
-#~ "The traditional one (direct), which is for direct editing of  /etc/racoon/"
-#~ "racoon.conf and setup of the SPD using setkey via a shell  script written "
-#~ "by the systems administrator. You will have to make sure that the kernel "
-#~ "has all required modules loaded or the racoon daemon can exit with a "
-#~ "'failed to parse configuration file' error."
-#~ msgstr ""
-#~ "従来の方法 (直接) では、/etc/racoon/racoon.conf を直接編集し、管理者によっ"
-#~ "て書かれたシェルスクリプトによる setkey を用いて SPD を設定します。カーネ"
-#~ "ルに必要な全てのモジュールが読み込まれていなければ、racoon デーモンは '設"
-#~ "定ファイルの解析エラー' で終了します。"
-
-#~ msgid ""
-#~ "The new one is the racoon-tool administration front end which configures "
-#~ "both, as well as handling module loading and can handle most common "
-#~ "setups.  Please  read /usr/share/doc/racoon/README.Debian for more "
-#~ "details."
-#~ msgstr ""
-#~ "新しい方法は、racoon-tool 管理フロントエンドでは、モジュールのロードと、一"
-#~ "般的なセットアップの両方が行えます。より詳細な情報については、/usr/share/"
-#~ "doc/racoon/README.Debian を読んでください。"
-
-#~ msgid ""
-#~ "Would you like to use the new racoon-tool program to configure VPNs, or "
-#~ "the direct editing of /etc/racoon/racoon.conf?"
-#~ msgstr ""
-#~ "VPN の設定に新しい racoon-tool プログラムを利用しますか？もしくは、直接 /"
-#~ "etc/racoon/racoon.conf を編集しますか？"
-
-#~ msgid "Please select from either 'direct' or 'racoon-tool'."
-#~ msgstr "'直接' もしくは 'racoon-tool' のいづれかを選択してください"
+msgstr "さらなる情報が /usr/share/doc/racoon/README.Debian にあります。"
