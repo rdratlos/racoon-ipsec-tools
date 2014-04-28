@@ -11,7 +11,7 @@ Homepage: http://ipsec-tools.sourceforge.net/
 
 Package: ipsec-tools
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, lsb-base (>= 3.0-6)
 Description: IPsec utilities
  IPsec (Internet Protocol security) offers end-to-end security for
  network traffic at the IP layer.
@@ -23,7 +23,7 @@ Package: racoon
 Architecture: any
 Provides: ike-server
 Conflicts: ike-server
-Depends: ${misc:Depends}, ${shlibs:Depends}, ipsec-tools (= ${binary:Version}), debconf (>= 0.2.26) | debconf-2.0, adduser, ${perl:Depends}
+Depends: ${misc:Depends}, ${shlibs:Depends}, ipsec-tools (= ${binary:Version}), debconf (>= 0.2.26) | debconf-2.0, adduser, lsb-base (>= 3.0-6), ${perl:Depends}
 Description: IPsec Internet Key Exchange daemon
  IPsec (Internet Protocol security) offers end-to-end security for
  network traffic at the IP layer.
