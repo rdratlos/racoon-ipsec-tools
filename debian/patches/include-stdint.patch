@@ -1,0 +1,14 @@
+Index: pkg-ipsec-tools/src/libipsec/libpfkey.h
+===================================================================
+--- pkg-ipsec-tools.orig/src/libipsec/libpfkey.h	2014-04-22 22:21:21.765043735 -0700
++++ pkg-ipsec-tools/src/libipsec/libpfkey.h	2014-05-08 23:33:54.344638004 -0700
+@@ -55,6 +55,9 @@
+ 
+ /* Accomodate different prototypes in <netinet6/ipsec.h> */
+ #include <sys/types.h>
++#ifdef HAVE_STDINT_H
++#include <stdint.h>
++#endif
+ #include PATH_IPSEC_H
+ 
+ #ifndef HAVE_IPSEC_POLICY_T

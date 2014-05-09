@@ -1,3 +1,9 @@
+ipsec-tools (1:0.8.2-2) UNRELEASED; urgency=low
+
+  * Fix FTBFS on kfreebsd.
+
+ -- Noah Meyerhans <noahm@debian.org>  Thu, 08 May 2014 23:34:45 -0700
+
 ipsec-tools (1:0.8.2-1) unstable; urgency=medium
 
   * New upstream release 0.8.2
