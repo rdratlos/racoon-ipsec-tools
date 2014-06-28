@@ -27,7 +27,7 @@ endif
 #endif
 
 %:
-	dh $@
+	dh $@ --with autoreconf
 
 patch:
 	quilt push -a
@@ -68,8 +68,6 @@ override_dh_clean:
 	- rm -f config.log
 
 override_dh_install:
-	chrpath -r /usr/lib/ipsec-tools  debian/tmp/usr/lib/ipsec-tools/*.so.0.* \
-                   debian/tmp/usr/sbin/*
 	dh_install
 	mkdir -p debian/racoon/var/lib/racoon
 	install -m 755 -o root -g root debian/racoon-tool.pl \

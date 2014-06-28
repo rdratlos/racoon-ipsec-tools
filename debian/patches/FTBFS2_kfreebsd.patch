@@ -1,11 +1,11 @@
 this patch addresses build problems on kfreebsd
-Index: pkg-ipsec-tools/configure
+Index: pkg-ipsec-tools/configure.ac
 ===================================================================
---- pkg-ipsec-tools.orig/configure	2014-04-25 23:35:22.859730075 -0700
-+++ pkg-ipsec-tools/configure	2014-04-25 23:35:53.695882978 -0700
-@@ -11900,6 +11900,9 @@
- 
- 
+--- pkg-ipsec-tools.orig/configure.ac	2014-06-28 17:44:42.000000000 +0200
++++ pkg-ipsec-tools/configure.ac	2014-06-28 17:45:45.846561135 +0200
+@@ -34,6 +34,9 @@ case $host in
+ 	AC_SUBST(INCLUDE_GLIBC)
+ 	AC_SUBST(RPM)
  	;;
 +*kfreebsd*)
 +	LIBS="$LIBS -lresolv"
@@ -13,23 +13,23 @@ Index: pkg-ipsec-tools/configure
  *darwin*)
  	LIBS="$LIBS -lresolv"
  	;;
-@@ -14451,6 +14454,7 @@
+@@ -619,6 +622,7 @@ if test "$ipv6" = "yes"; then
+ 	AC_TRY_COMPILE([#ifndef INET6
  #define INET6
  #endif
- #include <sys/types.h>
 +#define __USE_GNU 1	/* GNU/kFreeBSD */
- #include <netinet/in.h>
- int
- main ()
-@@ -14617,7 +14621,7 @@
- rm -f conftest*
- 
+ #include <sys/types.h>
+ #include <netinet/in.h>],
+ 		[struct in6_pktinfo a;],
+@@ -646,7 +650,7 @@ yes
+ #endif
+ ], [kernel_natt="yes"])
  	;;
 -freebsd*|netbsd*)
 +freebsd*|kfreebsd*|netbsd*)
  # NetBSD case
  # Same check for FreeBSD
- ac_fn_c_check_member "$LINENO" "struct sadb_x_nat_t_type" "sadb_x_nat_t_type_len" "ac_cv_member_struct_sadb_x_nat_t_type_sadb_x_nat_t_type_len" "
+ AC_CHECK_MEMBER(struct sadb_x_nat_t_type.sadb_x_nat_t_type_len,
 Index: pkg-ipsec-tools/src/libipsec/key_debug.c
 ===================================================================
 --- pkg-ipsec-tools.orig/src/libipsec/key_debug.c	2014-04-25 23:35:22.859730075 -0700

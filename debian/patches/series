@@ -1,3 +1,4 @@
+automake-options
 make-peer_certfile-dnssec-validate-dnssec
 ipsec-str_error-spelling.patch
 Fix-spelling-error-racoon.conf.5.patch
@@ -9,5 +10,4 @@ patch-to-support-cast128-cbc-algorithm.patch
 support-iphone-os-main-mode-with-psk.patch
 configure-pass-Wl-with-R.patch
 gcc-4.8.diff
-config-updates.diff
 include-stdint.patch
