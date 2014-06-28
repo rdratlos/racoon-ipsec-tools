@@ -1,3 +1,22 @@
+ipsec-tools (1:0.8.2-3) unstable; urgency=medium
+
+  * Update patch gcc-4.8.diff.
+    As per NetBSD CVS, the memset is unneeded after (racoon_)calloc().
+  * Support building with automake 1.14.
+    Set required options to restore old automake behavior, and run
+    autoreconf during build. Removed patches to configure, removed
+    explicit rpath setting and chrpath. Dropped superfluous symbols
+    files, as we are not a library package and these were probably
+    added by accident.
+  * Only use UTF8 encoding in ASN.1 strings.
+    This is recommended by RFC2459 (2004), and has been made the default in
+    OpenSSL 1.0.1h. Fixes the FTBFS caused by the OpenSSL change.
+    (Closes: #752946)
+  * Add myself to Uploaders
+  * Set Vcs-Git to a git:// URL
+
+ -- Christian Hofstaedtler <zeha@debian.org>  Sat, 28 Jun 2014 18:15:39 +0200
+
 ipsec-tools (1:0.8.2-2) unstable; urgency=low
 
   * Fix FTBFS on kfreebsd.
