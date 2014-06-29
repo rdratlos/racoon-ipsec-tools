@@ -1,8 +1,8 @@
 this patch addresses build problems on kfreebsd
 Index: pkg-ipsec-tools/configure.ac
 ===================================================================
---- pkg-ipsec-tools.orig/configure.ac	2014-06-28 17:44:42.000000000 +0200
-+++ pkg-ipsec-tools/configure.ac	2014-06-28 17:45:45.846561135 +0200
+--- pkg-ipsec-tools.orig/configure.ac	2014-06-29 15:01:30.212814620 +0200
++++ pkg-ipsec-tools/configure.ac	2014-06-29 15:01:40.000000000 +0200
 @@ -34,6 +34,9 @@ case $host in
  	AC_SUBST(INCLUDE_GLIBC)
  	AC_SUBST(RPM)
@@ -13,15 +13,18 @@ Index: pkg-ipsec-tools/configure.ac
  *darwin*)
  	LIBS="$LIBS -lresolv"
  	;;
-@@ -619,6 +622,7 @@ if test "$ipv6" = "yes"; then
- 	AC_TRY_COMPILE([#ifndef INET6
- #define INET6
- #endif
-+#define __USE_GNU 1	/* GNU/kFreeBSD */
- #include <sys/types.h>
- #include <netinet/in.h>],
- 		[struct in6_pktinfo a;],
-@@ -646,7 +650,7 @@ yes
+@@ -95,6 +98,10 @@ case "$host_os" in
+     CPPFLAGS="-D_GNU_SOURCE $CPPFLAGS"
+     AC_SUBST(GLIBC_BUGS)
+     ;;
++ *kfreebsd*)
++    # Define _GNU_SOURCE as this is a glibc platform (and in6_pktinfo is hidden behind that define)
++    CPPFLAGS="-D_GNU_SOURCE $CPPFLAGS"
++    ;;
+  *)
+     if test "$have_net_pfkey$have_netinet_ipsec" != yesyes; then
+       if test "$have_net_pfkey" = yes; then
+@@ -646,7 +653,7 @@ yes
  #endif
  ], [kernel_natt="yes"])
  	;;
