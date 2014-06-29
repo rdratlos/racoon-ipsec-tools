@@ -8,9 +8,9 @@ Last-Update: 2014-06-28
 
 Index: pkg-ipsec-tools/configure.ac
 ===================================================================
---- pkg-ipsec-tools.orig/configure.ac	2014-06-28 17:35:09.160829040 +0200
-+++ pkg-ipsec-tools/configure.ac	2014-06-28 17:35:09.152829070 +0200
-@@ -315,7 +315,7 @@ if test "$libiconv_dir" != "no"; then
+--- pkg-ipsec-tools.orig/configure.ac	2014-06-29 15:01:30.312814492 +0200
++++ pkg-ipsec-tools/configure.ac	2014-06-29 15:01:30.308814497 +0200
+@@ -322,7 +322,7 @@ if test "$libiconv_dir" != "no"; then
  			AC_MSG_ERROR([ICONV libs or includes not found. Aborting.])
  	  	fi
  	fi
@@ -19,7 +19,7 @@ Index: pkg-ipsec-tools/configure.ac
  	AC_CHECK_FUNCS(iconv_open)
  fi
  
-@@ -379,7 +379,7 @@ if test "$libradius_dir" != "no"; then
+@@ -386,7 +386,7 @@ if test "$libradius_dir" != "no"; then
  	  	fi
  	fi
  	AC_DEFINE([HAVE_LIBRADIUS], [], [Hybrid authentication uses RADIUS])
@@ -28,7 +28,7 @@ Index: pkg-ipsec-tools/configure.ac
  	AC_CHECK_FUNCS(rad_create_request)
  fi
  
-@@ -405,7 +405,7 @@ if test "$libpam_dir" != "no"; then
+@@ -412,7 +412,7 @@ if test "$libpam_dir" != "no"; then
  	  	fi
  	fi
  	AC_DEFINE([HAVE_LIBPAM], [], [Hybrid authentication uses PAM])
@@ -37,7 +37,7 @@ Index: pkg-ipsec-tools/configure.ac
  	AC_CHECK_FUNCS(pam_start)
  fi
  
-@@ -431,7 +431,7 @@ if test "$libldap_dir" != "no"; then
+@@ -438,7 +438,7 @@ if test "$libldap_dir" != "no"; then
  	  	fi
  	fi
  	AC_DEFINE([HAVE_LIBLDAP], [], [Hybrid authentication uses LDAP])
