@@ -1,3 +1,13 @@
+ipsec-tools (1:0.8.2-4) unstable; urgency=medium
+
+  * Fix newly introduced FTBFS on kFreeBSD.
+    The previous patch defined __USE_GNU in a fragile way, but as we're
+    really on a glibc platform, we can just define _GNU_SOURCE, similar
+    to what is done on Linux.
+  * Refresh patch "configure-pass-Wl-with-R"
+
+ -- Christian Hofstaedtler <zeha@debian.org>  Sun, 29 Jun 2014 15:08:07 +0200
+
 ipsec-tools (1:0.8.2-3) unstable; urgency=medium
 
   * Update patch gcc-4.8.diff.
