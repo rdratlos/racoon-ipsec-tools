@@ -5,11 +5,11 @@ Only use UTF8 encoding in ASN.1 strings.
 This is recommended by RFC2459 (2004), and has been made the default in
 OpenSSL 1.0.1h. Fixes the FTBFS caused by the OpenSSL change.
 
-diff --git a/src/racoon/eaytest.c b/src/racoon/eaytest.c
-index 1474bdc..b1a3bbf 100644
---- a/src/racoon/eaytest.c
-+++ b/src/racoon/eaytest.c
-@@ -266,17 +266,17 @@ certtest(ac, av)
+Index: pkg-ipsec-tools/src/racoon/eaytest.c
+===================================================================
+--- pkg-ipsec-tools.orig/src/racoon/eaytest.c	2014-07-10 23:20:53.355900367 -0700
++++ pkg-ipsec-tools/src/racoon/eaytest.c	2014-07-10 23:53:06.105484353 -0700
+@@ -266,17 +266,17 @@
  		0x30,0x7a,0x31,0x0b,0x30,0x09,0x06,0x03,
  		0x55,0x04,0x06,0x13,0x02,0x4a,0x50,0x31,
  		0x11,0x30,0x0f,0x06,0x03,0x55,0x04,0x08,
@@ -32,11 +32,11 @@ index 1474bdc..b1a3bbf 100644
  		0x6f,0x69,0x63,0x68,0x69,0x20,0x53,0x61,
  		0x6b,0x61,0x6e,0x65,
  	};
-diff --git a/src/racoon/crypto_openssl.c b/src/racoon/crypto_openssl.c
-index c192904..7d97192 100644
---- a/src/racoon/crypto_openssl.c
-+++ b/src/racoon/crypto_openssl.c
-@@ -147,6 +147,8 @@ eay_str2asn1dn(str, len)
+Index: pkg-ipsec-tools/src/racoon/crypto_openssl.c
+===================================================================
+--- pkg-ipsec-tools.orig/src/racoon/crypto_openssl.c	2014-07-10 23:47:47.407904020 -0700
++++ pkg-ipsec-tools/src/racoon/crypto_openssl.c	2014-07-10 23:53:06.109484378 -0700
+@@ -142,6 +142,8 @@
  	}
  	memcpy(buf, str, len);
  

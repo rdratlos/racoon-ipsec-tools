@@ -6,9 +6,7 @@ Fix-spelling-error-racoon.conf.5.patch
 modify-makefile-to-let-initscript-create-var-run-directory.patch
 move-private-libraries-to-subfolder.patch
 FTBFS2_kfreebsd.patch
-patch-to-support-cast128-cbc-algorithm.patch
 support-iphone-os-main-mode-with-psk.patch
 configure-pass-Wl-with-R.patch
-gcc-4.8.diff
 include-stdint.patch
 asn1_utf8.patch
