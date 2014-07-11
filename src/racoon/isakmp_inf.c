@@ -1,4 +1,4 @@
-/*	$NetBSD: isakmp_inf.c,v 1.47 2011/03/15 13:20:14 vanhu Exp $	*/
+/*	$NetBSD: isakmp_inf.c,v 1.47.2.3 2013/04/12 09:53:52 tteras Exp $	*/
 
 /* Id: isakmp_inf.c,v 1.44 2006/05/06 20:45:52 manubsd Exp */
 
@@ -492,7 +492,7 @@ isakmp_info_recv_d(iph1, delete, msgid, encrypted)
 		"delete payload for protocol %s\n",
 		s_ipsecdoi_proto(delete->proto_id));
 
-	if(!iph1->rmconf->weak_phase1_check && !encrypted) {
+	if((iph1 == NULL || !iph1->rmconf->weak_phase1_check) && !encrypted) {
 		plog(LLV_WARNING, LOCATION, iph1->remote,
 			"Ignoring unencrypted delete payload "
 			"(check the weak_phase1_check option)\n");
@@ -1116,6 +1116,7 @@ purge_ipsec_spi(dst0, proto, spi, n)
 	u_int64_t created;
 	size_t i;
 	caddr_t mhp[SADB_EXT_MAX + 1];
+	unsigned num_purged = 0;
 
 	plog(LLV_DEBUG2, LOCATION, NULL,
 		 "purge_ipsec_spi:\n");
@@ -1172,6 +1173,7 @@ purge_ipsec_spi(dst0, proto, spi, n)
 
 		plog(LLV_DEBUG2, LOCATION, NULL, "src: %s\n", saddr2str(src));
 		plog(LLV_DEBUG2, LOCATION, NULL, "dst: %s\n", saddr2str(dst));
+		plog(LLV_DEBUG2, LOCATION, NULL, "spi: %u\n", ntohl(sa->sadb_sa_spi));
 
 		/* XXX n^2 algorithm, inefficient */
 
@@ -1210,6 +1212,7 @@ purge_ipsec_spi(dst0, proto, spi, n)
 				"purged IPsec-SA proto_id=%s spi=%u.\n",
 				s_ipsecdoi_proto(proto),
 				ntohl(spi[i]));
+			num_purged++;
 		}
 
 		msg = next;
@@ -1217,6 +1220,8 @@ purge_ipsec_spi(dst0, proto, spi, n)
 
 	if (buf)
 		vfree(buf);
+
+	plog(LLV_DEBUG, LOCATION, NULL, "purged %u SAs.\n", num_purged);
 }
 
 /*
@@ -1465,8 +1470,11 @@ isakmp_info_recv_r_u_ack (iph1, ru, msgid)
 		return 0;
 	}
 
-	if (memcmp(ru->i_ck, iph1->index.i_ck, sizeof(cookie_t)) ||
-	    memcmp(ru->r_ck, iph1->index.r_ck, sizeof(cookie_t))) {
+	/* accept cookies in original or reversed order */
+	if ((memcmp(ru->i_ck, iph1->index.i_ck, sizeof(cookie_t)) ||
+	     memcmp(ru->r_ck, iph1->index.r_ck, sizeof(cookie_t))) &&
+	    (memcmp(ru->r_ck, iph1->index.i_ck, sizeof(cookie_t)) ||
+	     memcmp(ru->i_ck, iph1->index.r_ck, sizeof(cookie_t)))) {
 		plog(LLV_ERROR, LOCATION, iph1->remote,
 			 "Cookie mismatch in DPD ACK!.\n");
 		return 0;
@@ -1477,7 +1485,7 @@ isakmp_info_recv_r_u_ack (iph1, ru, msgid)
 	sched_cancel(&iph1->dpd_r_u);
 	isakmp_sched_r_u(iph1, 0);
 
-	plog(LLV_DEBUG, LOCATION, NULL, "received an R-U-THERE-ACK\n");
+	plog(LLV_DEBUG, LOCATION, iph1->remote, "received an R-U-THERE-ACK\n");
 
 	return 0;
 }

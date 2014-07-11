@@ -1,10 +1,8 @@
+/* A Bison parser, made by GNU Bison 2.6.2.  */
 
-/* A Bison parser, made by GNU Bison 2.4.1.  */
-
-/* Skeleton interface for Bison's Yacc-like parsers in C
+/* Bison interface for Yacc-like parsers in C
    
-      Copyright (C) 1984, 1989, 1990, 2000, 2001, 2002, 2003, 2004, 2005, 2006
-   Free Software Foundation, Inc.
+      Copyright (C) 1984, 1989-1990, 2000-2012 Free Software Foundation, Inc.
    
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -32,6 +30,15 @@
    This special exception was added by the Free Software Foundation in
    version 2.2 of Bison.  */
 
+#ifndef _LIBIPSEC_POLICY_PARSE_H
+# define _LIBIPSEC_POLICY_PARSE_H
+/* Enabling traces.  */
+#ifndef YYDEBUG
+# define YYDEBUG 0
+#endif
+#if YYDEBUG
+extern int __libipsecdebug;
+#endif
 
 /* Tokens.  */
 #ifndef YYTOKENTYPE
@@ -77,12 +84,10 @@
 
 
 
-
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 typedef union YYSTYPE
 {
-
-/* Line 1676 of yacc.c  */
+/* Line 2049 of yacc.c  */
 #line 129 "policy_parse.y"
 
 	u_int num;
@@ -93,9 +98,8 @@ typedef union YYSTYPE
 	} val;
 
 
-
-/* Line 1676 of yacc.c  */
-#line 99 "policy_parse.h"
+/* Line 2049 of yacc.c  */
+#line 103 "policy_parse.h"
 } YYSTYPE;
 # define YYSTYPE_IS_TRIVIAL 1
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */
@@ -104,4 +108,18 @@ typedef union YYSTYPE
 
 extern YYSTYPE __libipseclval;
 
+#ifdef YYPARSE_PARAM
+#if defined __STDC__ || defined __cplusplus
+int __libipsecparse (void *YYPARSE_PARAM);
+#else
+int __libipsecparse ();
+#endif
+#else /* ! YYPARSE_PARAM */
+#if defined __STDC__ || defined __cplusplus
+int __libipsecparse (void);
+#else
+int __libipsecparse ();
+#endif
+#endif /* ! YYPARSE_PARAM */
 
+#endif /* !_LIBIPSEC_POLICY_PARSE_H  */
