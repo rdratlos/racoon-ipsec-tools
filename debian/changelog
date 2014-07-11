@@ -6,8 +6,10 @@ ipsec-tools (1:0.8.2+20140711-1) unstable; urgency=medium
     upstream.
   * Remove patch debian/patches/patch-to-support-cast128, which has
     been incorportated upstream.
+  * Import patch for x509 IPv6 literal address subjectAltName support from
+    Adam Majer <adamm@zombino.com> (Closes: #738573)
 
- -- Noah Meyerhans <noahm@debian.org>  Fri, 11 Jul 2014 00:11:56 -0700
+ -- Noah Meyerhans <noahm@debian.org>  Fri, 11 Jul 2014 00:52:38 -0700
 
 ipsec-tools (1:0.8.2-4) unstable; urgency=medium
 
