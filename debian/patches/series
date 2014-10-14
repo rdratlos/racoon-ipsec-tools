@@ -11,3 +11,4 @@ configure-pass-Wl-with-R.patch
 include-stdint.patch
 asn1_utf8.patch
 ipv6literalaltname.patch
+checkpoint-xauth.patch
