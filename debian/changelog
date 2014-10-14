@@ -2,8 +2,9 @@ ipsec-tools (1:0.8.2+20140711-2) unstable; urgency=low
 
   * Stop using hardening-wrapper
   * Import patch for checkpoint xauth. (Closes: 650176)
+  * Bump standards version to 3.9.6 (no changes)
 
- -- Noah Meyerhans <noahm@debian.org>  Mon, 13 Oct 2014 21:51:27 -0700
+ --
 
 ipsec-tools (1:0.8.2+20140711-1) unstable; urgency=medium
 

@@ -4,7 +4,7 @@ Priority: extra
 Maintainer: pkg-ipsec-tools team <pkg-ipsec-tools-devel@lists.alioth.debian.org>
 Uploaders: Noah Meyerhans <noahm@debian.org>, Matt Grant <matt@mattgrant.net.nz>, Christian Hofstaedtler <zeha@debian.org>
 Build-Depends: debhelper (>=7.0.50~), flex, bison, libkrb5-dev, libssl-dev (>= 0.9.6), libpam0g-dev, po-debconf, libldap2-dev, dh-autoreconf, dh-systemd
-Standards-Version: 3.9.5
+Standards-Version: 3.9.6
 Vcs-Git: git://anonscm.debian.org/pkg-ipsec-tools/pkg-ipsec-tools.git
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-ipsec-tools/pkg-ipsec-tools.git
 Homepage: http://ipsec-tools.sourceforge.net/
