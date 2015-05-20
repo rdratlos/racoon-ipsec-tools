@@ -1,3 +1,10 @@
+ipsec-tools (1:0.8.2+20140711-3) unstable; urgency=medium
+
+  * Fix null pointer dereference leading to a possible crash and
+    denial of service attack. (Closes: 785778)
+
+ -- Noah Meyerhans <noahm@debian.org>  Wed, 20 May 2015 10:46:55 -0700
+
 ipsec-tools (1:0.8.2+20140711-2) unstable; urgency=low
 
   * Stop using hardening-wrapper

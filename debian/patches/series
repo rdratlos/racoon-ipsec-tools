@@ -12,3 +12,4 @@ include-stdint.patch
 asn1_utf8.patch
 ipv6literalaltname.patch
 checkpoint-xauth.patch
+bug785778-null-pointer-deref.patch
