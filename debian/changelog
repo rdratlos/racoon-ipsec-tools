@@ -1,3 +1,10 @@
+ipsec-tools (1:0.8.2+20140711-4) UNRELEASED; urgency=medium
+
+  * Fix FTBFS with gcc 5 due to unspecified parameter type in xauth_reply,
+    src/racoon/isakmp_xauth.c (Closes: 777918)
+
+ -- Noah Meyerhans <noahm@debian.org>  Fri, 26 Jun 2015 08:06:43 -0700
+
 ipsec-tools (1:0.8.2+20140711-3) unstable; urgency=medium
 
   * Fix null pointer dereference leading to a possible crash and
