@@ -1,0 +1,12 @@
+Index: pkg-ipsec-tools/src/include-glibc/glibc-bugs.h
+===================================================================
+--- pkg-ipsec-tools.orig/src/include-glibc/glibc-bugs.h
++++ pkg-ipsec-tools/src/include-glibc/glibc-bugs.h
+@@ -4,7 +4,6 @@
+ #define __GLIBC_BUGS_H__ 1
+ 
+ #define _XOPEN_SOURCE 500
+-#define _BSD_SOURCE
+ 
+ #include <features.h>
+ #include <sys/types.h>

@@ -1,3 +1,10 @@
+ipsec-tools (1:0.8.2+20140711-5) UNRELEASED; urgency=medium
+
+  * Fix FTBFS with glibc 2.21 due to _BSD_SOURCE being deprecated and the
+    build system treating all warnings as errors. (Closes: #790244)
+
+ -- Christian Hofstaedtler <zeha@debian.org>  Sat, 27 Jun 2015 22:03:19 +0200
+
 ipsec-tools (1:0.8.2+20140711-4) unstable; urgency=medium
 
   * Fix FTBFS with gcc 5 due to unspecified parameter type in xauth_reply,
