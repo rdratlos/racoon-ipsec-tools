@@ -1,3 +1,13 @@
+ipsec-tools (1:0.8.2+20140711-6) unstable; urgency=medium
+
+  [ Felipe Sateler ]
+  * Add systemd unit for setkey (Closes: #796619)
+
+  [ Christian Hofstaedtler ]
+  * Bump Standards-Version to 3.9.8 (no changes needed)
+
+ -- Christian Hofstaedtler <zeha@debian.org>  Wed, 15 Jun 2016 07:48:10 +0000
+
 ipsec-tools (1:0.8.2+20140711-5) unstable; urgency=medium
 
   * Fix FTBFS with glibc 2.21 due to _BSD_SOURCE being deprecated and the
