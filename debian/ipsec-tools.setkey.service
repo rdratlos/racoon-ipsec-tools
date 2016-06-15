@@ -1,0 +1,14 @@
+[Unit]
+Description=option to manually manipulate the IPsec SA/SP database
+DefaultDependencies=no
+Before=sysinit.target
+ConditionPathExists=/etc/ipsec-tools.conf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/etc/init.d/setkey start
+ExecStop=/etc/init.d/setkey stop
+
+[Install]
+WantedBy=sysinit.target
