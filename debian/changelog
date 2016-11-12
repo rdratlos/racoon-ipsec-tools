@@ -1,3 +1,10 @@
+ipsec-tools (1:0.8.2+20140711-7) unstable; urgency=medium
+
+  * Build against libssl1.0-dev for stretch. (Closes: #828354)
+    Patch from Adrian Bunk <bunk@stusta.de>, thanks.
+
+ -- Christian Hofstaedtler <zeha@debian.org>  Sat, 12 Nov 2016 20:08:35 +0000
+
 ipsec-tools (1:0.8.2+20140711-6) unstable; urgency=medium
 
   [ Felipe Sateler ]
