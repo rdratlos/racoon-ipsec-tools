@@ -1,6 +1,5 @@
-usr/sbin
-usr/lib
 etc/racoon/certs
-etc/racoon/scripts
 etc/racoon/racoon-tool.conf.d
-
+etc/racoon/scripts
+usr/lib
+usr/sbin

@@ -2,8 +2,19 @@ Source: ipsec-tools
 Section: net
 Priority: extra
 Maintainer: pkg-ipsec-tools team <pkg-ipsec-tools-devel@lists.alioth.debian.org>
-Uploaders: Noah Meyerhans <noahm@debian.org>, Matt Grant <matt@mattgrant.net.nz>, Christian Hofstaedtler <zeha@debian.org>
-Build-Depends: debhelper (>=7.0.50~), flex, bison, libkrb5-dev, libssl1.0-dev | libssl-dev (<< 1.1.0~), libpam0g-dev, po-debconf, libldap2-dev, dh-autoreconf, dh-systemd
+Uploaders: Noah Meyerhans <noahm@debian.org>,
+           Matt Grant <matt@mattgrant.net.nz>,
+           Christian Hofstaedtler <zeha@debian.org>
+Build-Depends: bison,
+               debhelper (>=7.0.50~),
+               dh-autoreconf,
+               dh-systemd,
+               flex,
+               libkrb5-dev,
+               libldap2-dev,
+               libpam0g-dev,
+               libssl1.0-dev | libssl-dev (<< 1.1.0~),
+               po-debconf
 Standards-Version: 3.9.8
 Vcs-Git: git://anonscm.debian.org/pkg-ipsec-tools/pkg-ipsec-tools.git
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-ipsec-tools/pkg-ipsec-tools.git
@@ -11,7 +22,9 @@ Homepage: http://ipsec-tools.sourceforge.net/
 
 Package: ipsec-tools
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, lsb-base (>= 3.0-6)
+Depends: lsb-base (>= 3.0-6),
+         ${misc:Depends},
+         ${shlibs:Depends}
 Description: IPsec utilities
  IPsec (Internet Protocol security) offers end-to-end security for
  network traffic at the IP layer.
@@ -23,7 +36,13 @@ Package: racoon
 Architecture: any
 Provides: ike-server
 Conflicts: ike-server
-Depends: ${misc:Depends}, ${shlibs:Depends}, ipsec-tools (= ${binary:Version}), debconf (>= 0.2.26) | debconf-2.0, adduser, lsb-base (>= 3.0-6), ${perl:Depends}
+Depends: adduser,
+         debconf (>= 0.2.26) | debconf-2.0,
+         ipsec-tools (= ${binary:Version}),
+         lsb-base (>= 3.0-6),
+         ${misc:Depends},
+         ${perl:Depends},
+         ${shlibs:Depends}
 Description: IPsec Internet Key Exchange daemon
  IPsec (Internet Protocol security) offers end-to-end security for
  network traffic at the IP layer.

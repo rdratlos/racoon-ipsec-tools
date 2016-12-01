@@ -1,5 +1,3 @@
-usr/lib/ipsec-tools/libracoon.so.0
-usr/lib/ipsec-tools/libracoon.so.0.0.0
 usr/include/libipsec/libpfkey.h
 usr/include/racoon/admin.h
 usr/include/racoon/evt.h
@@ -16,6 +14,8 @@ usr/include/racoon/schedule.h
 usr/include/racoon/sockmisc.h
 usr/include/racoon/var.h
 usr/include/racoon/vmbuf.h
+usr/lib/ipsec-tools/libracoon.so.0
+usr/lib/ipsec-tools/libracoon.so.0.0.0
 usr/sbin/plainrsa-gen
 usr/sbin/racoon
 usr/sbin/racoonctl
