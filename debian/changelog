@@ -1,3 +1,9 @@
+ipsec-tools (1:0.8.2+20140711-8) unstable; urgency=medium
+
+  * Depend on libfl-dev to follow flex changes (Closes: #846430)
+
+ -- Christian Hofstaedtler <zeha@debian.org>  Thu, 01 Dec 2016 09:49:16 +0000
+
 ipsec-tools (1:0.8.2+20140711-7) unstable; urgency=medium
 
   * Build against libssl1.0-dev for stretch. (Closes: #828354)
