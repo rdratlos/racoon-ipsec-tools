@@ -15,3 +15,4 @@ checkpoint-xauth.patch
 bug785778-null-pointer-deref.patch
 bug777918-implicit-int.patch
 bug790244-glibc-bsd-source-obsolete.patch
+CVE-2016-10396.patch
