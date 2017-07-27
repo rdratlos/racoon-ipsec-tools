@@ -23,7 +23,7 @@ LDFLAGS:=$(shell dpkg-buildflags --get LDFLAGS)
 #endif
 
 %:
-	dh $@ --with autoreconf
+	dh $@
 
 patch:
 	quilt push -a
