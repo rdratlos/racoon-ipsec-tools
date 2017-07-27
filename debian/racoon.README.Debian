@@ -58,7 +58,7 @@ and keys:
 # chmod 600 *key.pem
 # chown root:root *key.pem
 
-This is important if you want to use privilege seperation.
+This is important if you want to use privilege separation.
 
 After this is done, configure the key and cert with the certificate_type x509
 racoon.conf or certificate_type: racoon-tool.conf statements.  
