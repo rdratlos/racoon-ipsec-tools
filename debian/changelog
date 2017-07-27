@@ -1,8 +1,10 @@
-ipsec-tools (1:0.8.2+20140711-9) UNRELEASED; urgency=medium
+ipsec-tools (1:0.8.2+20140711-9) unstable; urgency=medium
 
   * Import NetBSD's patch to address CVE-2016-10396 (Closes: #867986)
+  * Update to debhelper compat level 10
+  * Update to policy 4.0 compliance.
 
- -- Noah Meyerhans <noahm@debian.org>  Tue, 18 Jul 2017 17:22:32 +0000
+ -- Noah Meyerhans <noahm@debian.org>  Wed, 26 Jul 2017 22:56:33 -0700
 
 ipsec-tools (1:0.8.2+20140711-8) unstable; urgency=medium
 
