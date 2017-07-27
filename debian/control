@@ -16,7 +16,7 @@ Build-Depends: bison,
                libpam0g-dev,
                libssl1.0-dev | libssl-dev (<< 1.1.0~),
                po-debconf
-Standards-Version: 3.9.8
+Standards-Version: 4.0.0
 Vcs-Git: git://anonscm.debian.org/pkg-ipsec-tools/pkg-ipsec-tools.git
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-ipsec-tools/pkg-ipsec-tools.git
 Homepage: http://ipsec-tools.sourceforge.net/
