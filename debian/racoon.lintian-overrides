@@ -1,2 +1,3 @@
 racoon: possible-gpl-code-linked-with-openssl
 racoon binary: init.d-script-missing-dependency-on-remote_fs etc/init.d/racoon: required-stop
+racoon: init.d-script-missing-dependency-on-local_fs etc/init.d/racoon: required-stop
