@@ -1,0 +1,66 @@
+Subject: Ensure that buffers contain enough space for the stored data types
+Author: Noah Meyerhans <noahm@debian.org>
+Bug-Debian: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=853457
+
+Index: pkg-ipsec-tools/src/racoon/cfparse.y
+===================================================================
+--- pkg-ipsec-tools.orig/src/racoon/cfparse.y
++++ pkg-ipsec-tools/src/racoon/cfparse.y
+@@ -2564,7 +2564,7 @@ set_isakmp_proposal(rmconf)
+ 		plog(LLV_DEBUG2, LOCATION, NULL,
+ 			"encklen=%d\n", s->encklen);
+ 
+-		memset(types, 0, ARRAYLEN(types));
++		memset(types, 0, ARRAYLEN(types) * sizeof(types[0]));
+ 		types[algclass_isakmp_enc] = s->algclass[algclass_isakmp_enc];
+ 		types[algclass_isakmp_hash] = s->algclass[algclass_isakmp_hash];
+ 		types[algclass_isakmp_dh] = s->algclass[algclass_isakmp_dh];
+Index: pkg-ipsec-tools/src/racoon/isakmp_cfg.c
+===================================================================
+--- pkg-ipsec-tools.orig/src/racoon/isakmp_cfg.c
++++ pkg-ipsec-tools/src/racoon/isakmp_cfg.c
+@@ -1701,7 +1701,7 @@ isakmp_cfg_accounting_system(port, raddr
+ 
+ 	memset(&ut, 0, sizeof ut);
+ 	gettimeofday((struct timeval *)&ut.ut_tv, NULL);
+-	snprintf(ut.ut_id, sizeof ut.ut_id, TERMSPEC, port);
++	snprintf(ut.ut_line, sizeof ut.ut_line, TERMSPEC, port);
+ 
+ 	switch (inout) {
+ 	case ISAKMP_CFG_LOGIN:
+@@ -1713,7 +1713,7 @@ isakmp_cfg_accounting_system(port, raddr
+ 
+ 		plog(LLV_INFO, LOCATION, NULL,
+ 			"Accounting : '%s' logging on '%s' from %s.\n",
+-			ut.ut_user, ut.ut_id, addr);
++			ut.ut_user, ut.ut_line, addr);
+ 
+ 		pututxline(&ut);
+ 
+@@ -1723,7 +1723,7 @@ isakmp_cfg_accounting_system(port, raddr
+ 
+ 		plog(LLV_INFO, LOCATION, NULL,
+ 			"Accounting : '%s' unlogging from '%s'.\n",
+-			usr, ut.ut_id);
++			usr, ut.ut_line);
+ 
+ 		pututxline(&ut);
+ 
+@@ -1920,7 +1920,7 @@ isakmp_cfg_setenv(iph1, envp, envc)
+ 	char *splitlist_cidr;
+ 	char defdom[MAXPATHLEN + 1];
+ 	int cidr, tmp;
+-	char cidrstr[4];
++	char cidrstr[12];
+ 	int i, p;
+ 	int test;
+ 
+@@ -1983,7 +1983,7 @@ isakmp_cfg_setenv(iph1, envp, envc)
+ 	tmp = ntohl(iph1->mode_cfg->mask4.s_addr);
+ 	for (cidr = 0; tmp != 0; cidr++)
+ 		tmp <<= 1;
+-	snprintf(cidrstr, 3, "%d", cidr);
++	snprintf(cidrstr, 12, "%d", cidr);
+ 
+ 	if (script_env_append(envp, envc, "INTERNAL_CIDR4", cidrstr) != 0) {
+ 		plog(LLV_ERROR, LOCATION, NULL, "Cannot set INTERNAL_CIDR4\n");

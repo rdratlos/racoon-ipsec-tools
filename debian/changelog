@@ -1,3 +1,10 @@
+ipsec-tools (1:0.8.2+20140711-10) UNRELEASED; urgency=medium
+
+  * Correct some memory management errors leading to compilation failure due to
+    failed format-truncation gcc checks. (Closes: 853457)
+
+ -- Noah Meyerhans <noahm@debian.org>  Sun, 06 Aug 2017 14:45:55 -0700
+
 ipsec-tools (1:0.8.2+20140711-9) unstable; urgency=medium
 
   * Import NetBSD's patch to address CVE-2016-10396 (Closes: #867986)
