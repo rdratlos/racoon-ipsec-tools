@@ -7,7 +7,6 @@ Uploaders: Noah Meyerhans <noahm@debian.org>,
            Christian Hofstaedtler <zeha@debian.org>
 Build-Depends: bison,
                debhelper (>=10),
-               dh-systemd,
                flex,
                libfl-dev,
                libkrb5-dev,
