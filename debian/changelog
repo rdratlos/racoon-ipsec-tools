@@ -1,10 +1,10 @@
-ipsec-tools (1:0.8.2+20140711-12) UNRELEASED; urgency=medium
+ipsec-tools (1:0.8.2+20140711-11) unstable; urgency=medium
 
   * Add support for OpenSSL 1.1. (Closes: 858930)
   * Add support for Flex 2.6.4-6 (Closes: 892831)
   * Set Priority: optional per policy 4.0.1
 
- -- Noah Meyerhans <noahm@debian.org>  Fri, 29 Jun 2018 17:02:35 -0700
+ -- Noah Meyerhans <noahm@debian.org>  Fri, 29 Jun 2018 17:08:05 -0700
 
 ipsec-tools (1:0.8.2+20140711-10) unstable; urgency=medium
 
