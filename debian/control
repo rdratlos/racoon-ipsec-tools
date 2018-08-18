@@ -1,7 +1,7 @@
 Source: ipsec-tools
 Section: net
 Priority: optional
-Maintainer: pkg-ipsec-tools team <pkg-ipsec-tools-devel@lists.alioth.debian.org>
+Maintainer: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
 Uploaders: Noah Meyerhans <noahm@debian.org>,
            Matt Grant <matt@mattgrant.net.nz>,
            Christian Hofstaedtler <zeha@debian.org>
