@@ -14,7 +14,7 @@ Build-Depends: bison,
                libpam0g-dev,
                libssl-dev,
                po-debconf
-Standards-Version: 4.0.0
+Standards-Version: 4.2.0
 Vcs-Git: https://salsa.debian.org/debian/ipsec-tools.git
 Vcs-Browser: https://salsa.debian.org/debian/ipsec-tools
 Homepage: http://ipsec-tools.sourceforge.net/
