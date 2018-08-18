@@ -20,3 +20,4 @@ gcc7-support.patch
 shared-libfl.patch
 openssl1.1
 fix-uninitialized-vars.patch
+sprintf-sizes
