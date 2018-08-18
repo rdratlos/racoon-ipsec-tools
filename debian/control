@@ -34,7 +34,6 @@ Description: IPsec utilities
 Package: racoon
 Architecture: any
 Provides: ike-server
-Conflicts: ike-server
 Depends: adduser,
          debconf (>= 0.2.26) | debconf-2.0,
          ipsec-tools (= ${binary:Version}),
