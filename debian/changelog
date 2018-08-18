@@ -1,3 +1,11 @@
+ipsec-tools (1:0.8.2+20140711-12) unstable; urgency=medium
+
+  * Increase stack-based sprintf buffer sizes (Closes: #906473)
+  * Update Maintainer email address
+  * Bump Standards-Version to 4.2.0
+
+ -- Chris Hofstaedtler <zeha@debian.org>  Sat, 18 Aug 2018 17:18:30 +0000
+
 ipsec-tools (1:0.8.2+20140711-11) unstable; urgency=medium
 
   * Add support for OpenSSL 1.1. (Closes: 858930)

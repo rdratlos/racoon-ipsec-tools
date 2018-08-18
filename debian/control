@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
 Uploaders: Noah Meyerhans <noahm@debian.org>,
            Matt Grant <matt@mattgrant.net.nz>,
-           Christian Hofstaedtler <zeha@debian.org>
+           Chris Hofstaedtler <zeha@debian.org>
 Build-Depends: bison,
                debhelper (>=10),
                flex,
