@@ -1,6 +1,7 @@
 ipsec-tools (1:0.8.2+20140711-13) UNRELEASED; urgency=medium
 
   * d/changelog: Remove trailing whitespaces
+  * d/watch: Use https protocol
 
  -- Ondřej Nový <onovy@debian.org>  Mon, 01 Oct 2018 09:57:23 +0200
 
