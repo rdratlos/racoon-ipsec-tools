@@ -1,3 +1,9 @@
+ipsec-tools (1:0.8.2+20140711-13) UNRELEASED; urgency=medium
+
+  * d/changelog: Remove trailing whitespaces
+
+ -- Ondřej Nový <onovy@debian.org>  Mon, 01 Oct 2018 09:57:23 +0200
+
 ipsec-tools (1:0.8.2+20140711-12) unstable; urgency=medium
 
   * Increase stack-based sprintf buffer sizes (Closes: #906473)
@@ -155,7 +161,7 @@ ipsec-tools (1:0.8.0-14.1) unstable; urgency=low
 ipsec-tools (1:0.8.0-14) unstable; urgency=low
 
   * Debconf templates and debian/control reviewed by the debian-l10n-
-    english team as part of the Smith review project.  Kudos to Christian 
+    english team as part of the Smith review project.  Kudos to Christian
     Perrier <bubulle@debian.org> for organising this.  Closes: #677713
   * [Debconf translation updates]
   * Russian (Yuri Kozlov).  Closes: #679732
@@ -168,7 +174,7 @@ ipsec-tools (1:0.8.0-14) unstable; urgency=low
   * Czech (Miroslav Kure).  Closes: #680471
   * Polish (Michał Kułach).  Closes: #680526
   * Swedish (Martin Bagge / brother).  Closes: #680560
-  * Spanish (Javier Fernández-Sanguino). Last in the gate. Added by 
+  * Spanish (Javier Fernández-Sanguino). Last in the gate. Added by
     Maintainer.  Closes: #681400
 
  -- Matthew Grant <matthewgrant5@gmail.com>  Sun, 15 Jul 2012 21:13:32 +1200
@@ -200,7 +206,7 @@ ipsec-tools (1:0.8.0-11) unstable; urgency=low
 ipsec-tools (1:0.8.0-10) unstable; urgency=low
 
   * Correctly close bugs related to Debian GNU/kfreebsd build failures.
-    Bugs #617859 and #639970 reopened. (Closes: #619687, #643570) 
+    Bugs #617859 and #639970 reopened. (Closes: #619687, #643570)
 
  -- Matthew Grant <matthewgrant5@gmail.com>  Sun, 16 Oct 2011 11:43:09 +1300
 
@@ -222,34 +228,34 @@ ipsec-tools (1:0.8.0-9) unstable; urgency=low
 
 ipsec-tools (1:0.8.0-8) unstable; urgency=low
 
-  * Revert racoon-tool default SPD level to unique for comaptibilty and 
+  * Revert racoon-tool default SPD level to unique for comaptibilty and
     individual VPN reload speed.
 
  -- Matthew Grant <matthewgrant5@gmail.com>  Wed, 28 Sep 2011 12:12:12 +1300
 
 ipsec-tools (1:0.8.0-7) unstable; urgency=low
 
-  * Temporarily fix gcc-4.6 build on most architectures. Need to contact 
+  * Temporarily fix gcc-4.6 build on most architectures. Need to contact
     upstream about proper use of autoconf and configure.ac for gcc-4.6 support
-    as autoconf  for this package appears to be brittle. 
+    as autoconf  for this package appears to be brittle.
 
  -- Matthew Grant <matthewgrant5@gmail.com>  Wed, 28 Sep 2011 10:09:20 +1300
 
 ipsec-tools (1:0.8.0-6) unstable; urgency=low
 
-  * Remove Requires-Stop $remotefs from init script. (Closes: #643006) 
+  * Remove Requires-Stop $remotefs from init script. (Closes: #643006)
 
  -- Matthew Grant <matthewgrant5@gmail.com>  Tue, 27 Sep 2011 07:51:09 +1300
 
 ipsec-tools (1:0.8.0-5.1) unstable; urgency=low
 
-  * Minor version to kick over reprepro 
+  * Minor version to kick over reprepro
 
  -- Matthew Grant <matthewgrant5@gmail.com>  Mon, 26 Sep 2011 10:58:05 +1300
 
 ipsec-tools (1:0.8.0-5) unstable; urgency=low
 
-  * Fix required-stop $remotefs with lintian override as otherwise causes 
+  * Fix required-stop $remotefs with lintian override as otherwise causes
     dependency boot order loops sith sendsigs.
   * Add racoon-tool match code for udp port 500 traffic.
 
@@ -281,7 +287,7 @@ ipsec-tools (1:0.8.0-3) unstable; urgency=low
 ipsec-tools (1:0.8.0-2) unstable; urgency=low
 
   * Skip dependency on libssl-dev and move back to libssl-dev (>= 0.9.6) to
-    provide an update to unstable. This will temporary remove the support for 
+    provide an update to unstable. This will temporary remove the support for
     camellia encryption algorithm until libssl-dev 1.x enters unstable
 
   * Adjust racoon-init-script (Closes: #619151)
@@ -292,7 +298,7 @@ ipsec-tools (1:0.8.0-2) unstable; urgency=low
 
 ipsec-tools (1:0.8.0-1) experimental; urgency=low
 
-  * New upstream release 
+  * New upstream release
         o Fix authentication method ambiguity with kerberos and xauth
         o RFC2253 compliant escaping of asn1dn identifiers (Cyrus Rahman)
         o Local address code rewrite to speed things up
@@ -308,7 +314,7 @@ ipsec-tools (1:0.8.0-1) experimental; urgency=low
         o support for multiple anonymous remoteconfs
         o Remove various obsolete configuration options
         o A lot of other bug fixes, performance improvements and clean ups
- 
+
    * Remove patches as they are now part of upstream release
 
  -- Stefan Bauer <stefan.bauer@cubewerk.de>  Mon, 21 Mar 2011 10:52:37 +0100
@@ -318,16 +324,16 @@ ipsec-tools (1:0.7.3-18) experimental; urgency=low
   * Lower the log level for racoon to notify to keep syslog clear
   * Reupload because build dir was tainted
   * Skip --enable-xauth on build, as this is covered by --enable-hybrid
- 
+
  -- Stefan Bauer <stefan.bauer@cubewerk.de>  Fri, 11 Mar 2011 09:16:43 +0100
 
 ipsec-tools (1:0.7.3-16) experimental; urgency=low
 
   * Adjust racoon init-script to handle the start with kFreeBSD kernel
-    as well. Thanks to Mats Erik Andersson (Closes: #613726) 
+    as well. Thanks to Mats Erik Andersson (Closes: #613726)
 
   * Enable --with-libldap at build time
- 
+
  -- Stefan Bauer <stefan.bauer@cubewerk.de>  Mon, 28 Feb 2011 13:21:18 +0100
 
 ipsec-tools (1:0.7.3-15) experimental; urgency=low
@@ -353,14 +359,14 @@ ipsec-tools (1:0.7.3-13) experimental; urgency=low
   * Include /usr/share/common-licenses/BSD in packages copyright file
     as base-files might drop the licenses in future versions
   * Added support for camellia encryption algorithm
-  * Ship /etc/ipsec-tools.d/ with the package (Closes: #598426) 
+  * Ship /etc/ipsec-tools.d/ with the package (Closes: #598426)
 
  -- Stefan Bauer <stefan.bauer@cubewerk.de>  Wed, 26 Jan 2011 15:26:30 +0100
 
 ipsec-tools (1:0.7.3-12) unstable; urgency=low
 
   * Extend racoon init-script to start after setkey (Closes: #599529)
-    This fix is to allow dependency based boot sequence as it is the 
+    This fix is to allow dependency based boot sequence as it is the
     default in squeeze. Thanks to Sebastian Bernhart for assistance.
 
  -- Stefan Bauer <stefan.bauer@cubewerk.de>  Sun, 10 Oct 2010 21:16:49 +0200
@@ -372,13 +378,13 @@ ipsec-tools (1:0.7.3-9) unstable; urgency=low
 
   * Include upstream patch to support iPhone OS with L2TP over IPsec
     and main mode with pre-shared keys as this is the only supported method
-    by the iPhone OS. Patch supplied by John Keith Hohm 
+    by the iPhone OS. Patch supplied by John Keith Hohm
 
  -- Stefan Bauer <stefan.bauer@cubewerk.de>  Thu, 12 Aug 2010 12:45:24 +0200
 
 ipsec-tools (1:0.7.3-8) unstable; urgency=low
 
-  * Moved the private libs to /usr/lib/ipsec-tools to follow 10.2 of 
+  * Moved the private libs to /usr/lib/ipsec-tools to follow 10.2 of
     Debian Policy (Closes: #507072)
 
  -- Stefan Bauer <stefan.bauer@cubewerk.de>  Tue, 01 Jun 2010 22:12:18 +0200
@@ -412,7 +418,7 @@ ipsec-tools (1:0.7.3-5) unstable; urgency=low
 ipsec-tools (1:0.7.3-4) unstable; urgency=low
 
   * Restart at the end of upgrade process to keep the connection in case
-    of maintenance over ipsec (Closes: #307721) 
+    of maintenance over ipsec (Closes: #307721)
 
  -- Stefan Bauer <stefan.bauer@cubewerk.de>  Wed, 17 Mar 2010 12:14:27 +0100
 
@@ -427,7 +433,7 @@ ipsec-tools (1:0.7.3-3) unstable; urgency=low
 ipsec-tools (1:0.7.3-2) unstable; urgency=low
 
   * Modify racoon startscript to not restart on reload (Closes: #529001)
-  * Applied patch to support cast128-cbc algorithm - patch supplied by 
+  * Applied patch to support cast128-cbc algorithm - patch supplied by
     Hiroyuki YAMAMORI <h-yamamo@db3.so-net.ne.jp> (Closes: #242723)
   * Build with hardening options enabled (Closes: #542731)
     Patch supplied by Kees Cook <kees@debian.org>
@@ -440,7 +446,7 @@ ipsec-tools (1:0.7.3-1) unstable; urgency=low
 
   * New Maintainer (Closes: #565362)
   * Acknowledge NMU changes
-  * New upstream release 
+  * New upstream release
   * Fixed a NAT-T flag check
   * Some code cleanups/compilation fixes with recent gcc
   * Fix a remote crash and a memory leak
@@ -549,10 +555,10 @@ ipsec-tools (1:0.7-1) unstable; urgency=low
 
   * New upstream release (closes: #448056).
   * Thanks Peter Eisentraut and Jérémy Bobbio for NMUs.
-  * Apply patch from Ubuntu to racoon.init to create /var/run/racoon if it 
+  * Apply patch from Ubuntu to racoon.init to create /var/run/racoon if it
     doesn't already exist (closes: #453029).
-  * Apply patch from Ubuntu to racoon.init for bash completion 
-    (closes: #453031). 
+  * Apply patch from Ubuntu to racoon.init for bash completion
+    (closes: #453031).
   * Fix bad config location in README.Debian (closes: #412674).
   * Remove unneeded Build-Depends on libreadline5-dev.
   * Add Build-Depends on chrpath and remove rpath lintian warnings.
@@ -585,20 +591,20 @@ ipsec-tools (1:0.6.7-1.1) unstable; urgency=low
 ipsec-tools (1:0.6.7-1) unstable; urgency=low
 
   * New upstream release (closes: #429711)
-  * Thanks Dann Frazier <dannf@debian.org> and Christian Perrier 
-    <bubulle@debian.org> for NMUs. 
-  * Fixed bug in parsing for DNSSEC. Patch from Marc Dequènes 
+  * Thanks Dann Frazier <dannf@debian.org> and Christian Perrier
+    <bubulle@debian.org> for NMUs.
+  * Fixed bug in parsing for DNSSEC. Patch from Marc Dequènes
     <Duck@DuckCorp.org> (closes: #321159).
-  * Included Galician translation provided by Jacobo Tarrio 
+  * Included Galician translation provided by Jacobo Tarrio
     <jtarrio@trasno.net> for debconf templates (closes: #412867).
   * Included Dutch translation proivded by cobaco (aka Bart Cornelis)
     <cobaco@skolelinux.no> (closes: #413885).
-  * Fix racoon-tool bug setting lifetime when the setting pfs_group=none. 
+  * Fix racoon-tool bug setting lifetime when the setting pfs_group=none.
     Patch by Pallai Roland <dap@mail.index.hu> (closes: #406684).
-  * Re-ran automake/autoconf because of a bug in libtool versions older than 
-    1.5.20 which insists on checking for a C++ compiler though racoon doesn't 
-    require it. 
-  
+  * Re-ran automake/autoconf because of a bug in libtool versions older than
+    1.5.20 which insists on checking for a C++ compiler though racoon doesn't
+    require it.
+
  -- Ganesan Rajagopal <rganesan@debian.org>  Sat, 30 Jun 2007 19:31:39 +0530
 
 ipsec-tools (1:0.6.6-3.2) unstable; urgency=low
@@ -647,7 +653,7 @@ ipsec-tools (1:0.6.6-1) unstable; urgency=low
   * Added debconf-updatepo in clean target (closes: #372910).
   * Compiled with PAM support (closes: #299806, #371053).
   * Fixed typo in racoon.templates and corresponding po files.
-  * Updated Brazilian Portugese, Vietnamese, Swedish, French and Czech 
+  * Updated Brazilian Portugese, Vietnamese, Swedish, French and Czech
     translations for debconf templates (closes: #370148, #369409).
 
  -- Ganesan Rajagopal <rganesan@debian.org>  Thu, 15 Jun 2006 17:47:58 +0530
@@ -655,20 +661,20 @@ ipsec-tools (1:0.6.6-1) unstable; urgency=low
 ipsec-tools (1:0.6.5-6) unstable; urgency=low
 
   * Fix regex in racoon-tool.conf man page (closes: #352157).
-  * Switch to "/sbin/modprobe" instead of "/sbin/insmod" for module loading 
+  * Switch to "/sbin/modprobe" instead of "/sbin/insmod" for module loading
     in racoon-tool (closes: #298286).
-  * Apply patch by Teddy Hogeborn <teddy@fukt.bth.se> to fix as1dn handling 
+  * Apply patch by Teddy Hogeborn <teddy@fukt.bth.se> to fix as1dn handling
     by racoon-tool (closes: #296259).
-  * Apply patch by Kristjan RÃ¤ts <kristjan.rats@liewenthal.ee> to make sure 
+  * Apply patch by Kristjan RÃ¤ts <kristjan.rats@liewenthal.ee> to make sure
     racoon is configured before it's started (closes: #304573).
-  * Officially deprecate racoon-tool and cleanup debconf template 
+  * Officially deprecate racoon-tool and cleanup debconf template
     (closes: #338216).
   * Update Standards-Version to 3.7.2 (no packaging changes required).
 
  -- Ganesan Rajagopal <rganesan@debian.org>  Mon, 29 May 2006 15:43:05 +0530
 
 ipsec-tools (1:0.6.5-5) unstable; urgency=low
-  
+
   * Fix "dereferencing type-punned...." gcc-4.1 FTBFS bug (closes: #361334).
   * Include updated French translation (closes: #338642).
   * Include swedish debconf translation (closes: #330569).
@@ -705,11 +711,11 @@ ipsec-tools (1:0.6.5-1) unstable; urgency=low
 ipsec-tools (1:0.6.4-1) unstable; urgency=low
 
   * New upstream release.
-  * Apply racoon-tool patch to use modprobe instead of insmod 
+  * Apply racoon-tool patch to use modprobe instead of insmod
     (closes: #320087).
-  * Rerun bootstrap because upstream libtool appears to be broken (configure 
+  * Rerun bootstrap because upstream libtool appears to be broken (configure
     breaks if g++ is not installed).
-  
+
  -- Ganesan Rajagopal <rganesan@debian.org>  Tue, 24 Jan 2006 10:20:11 +0530
 
 ipsec-tools (1:0.6.3-1) unstable; urgency=low
@@ -757,17 +763,17 @@ ipsec-tools (1:0.6-1) unstable; urgency=low
 
 ipsec-tools (1:0.5.2-1) unstable; urgency=high
 
-  * New upstream release. This release fixes ph2handle unlink bug 
-    (closes: #307233). 
+  * New upstream release. This release fixes ph2handle unlink bug
+    (closes: #307233).
   * Urgency high because of fix for security problem with single DES.
-  * Applied patch from Richard Lucassen to pass options to racoon via 
+  * Applied patch from Richard Lucassen to pass options to racoon via
     /etc/default/racoon file.
-  
+
  -- Ganesan Rajagopal <rganesan@debian.org>  Wed,  4 May 2005 13:46:45 +0530
 
 ipsec-tools (1:0.5.1-2) unstable; urgency=low
 
-  * Disabled readline support because it introduces a bug in setkey and 
+  * Disabled readline support because it introduces a bug in setkey and
     confuses a lot of people (closes: #303573).
   * Added Build-Conflicts for bison++ (closes: #305974).
 
@@ -777,14 +783,14 @@ ipsec-tools (1:0.5.1-1) unstable; urgency=low
 
   * New upstream release (closes: #305310).
   * Removed --enabled-stats while building (closes: #300718).
-  * Removed --enable-ipv6 while build; this enables IPv6 automatically. 
+  * Removed --enable-ipv6 while build; this enables IPv6 automatically.
     (closes: #304000).
 
  -- Ganesan Rajagopal <rganesan@debian.org>  Tue, 19 Apr 2005 15:47:29 +0530
 
 ipsec-tools (1:0.5-5) unstable; urgency=high
 
-  * Fix ISAKMP Header Parsing DoS bug (closes: #299716). 
+  * Fix ISAKMP Header Parsing DoS bug (closes: #299716).
   * Quote URL in README.Debian to avoid confusion (closes: #297179).
 
  -- Ganesan Rajagopal <rganesan@debian.org>  Wed, 16 Mar 2005 09:31:30 +0530
@@ -797,7 +803,7 @@ ipsec-tools (1:0.5-4) unstable; urgency=low
 
 ipsec-tools (1:0.5-3) unstable; urgency=low
 
-  * Renamed ipsec.conf to ipsec-tools.conf to avoid conflict with openswan 
+  * Renamed ipsec.conf to ipsec-tools.conf to avoid conflict with openswan
     (closes: #296079).
   * Fix bug in quotes handling for peers_certfile (closes: #296105).
 
@@ -855,7 +861,7 @@ ipsec-tools (0.4999pre0.5rc2-1) unstable; urgency=low
   * Fixed paths in man pages (closes: #276854).
 
  -- Ganesan Rajagopal <rganesan@debian.org>  Tue,  1 Feb 2005 13:55:37 +0530
-  
+
 ipsec-tools (0.3.3-7) unstable; urgency=low
 
   * Fixed fix memory leak in crypto_openssl.c (closes: #292732).
@@ -889,7 +895,7 @@ ipsec-tools (0.3.3-4) unstable; urgency=medium
 
 ipsec-tools (0.3.3-3) unstable; urgency=low
 
-  * Fix use of 'find' in  debian/rules. Thanks to Christian Ospelkaus 
+  * Fix use of 'find' in  debian/rules. Thanks to Christian Ospelkaus
     <christian@core-coutainville.org> for patch. (closes: #285788)
   * Fix use of $? after another command execution in if statement at line 2161
     of racoon-tool. Thanks to shonorio@alpargatas.com.br
@@ -922,7 +928,7 @@ ipsec-tools (0.3.3-2) unstable; urgency=medium
   * Fixed racoon-tool port parsing bug with port numbers more than 3 chars.
     Patch from Jeremy Jackson <jerj@coplanar.net> (closes: #260875)
   * Fixed parsing of file paths delimited by optional double quotes.
-    (closes: #257350) 
+    (closes: #257350)
 
  -- Matthew Grant <grantma@anathoth.gen.nz>  Fri, 26 Nov 2004 08:34:17 +1300
 
@@ -941,14 +947,14 @@ ipsec-tools (0.3.3-1) unstable; urgency=high
 ipsec-tools (0.3.1-4) unstable; urgency=low
 
   * Fixed autoconf more so that it only gets called by maintainer.  This is to
-    fix the woody backport support. 
+    fix the woody backport support.
 
  -- Matthew Grant <grantma@anathoth.gen.nz>  Thu, 22 Apr 2004 15:55:45 +1200
 
 ipsec-tools (0.3.1-3) unstable; urgency=high
 
-  * Security upload. Correct urgency so that it will be accepted into 
-    testing in 2 days because version in testing suffers from CAN-2004-0403 
+  * Security upload. Correct urgency so that it will be accepted into
+    testing in 2 days because version in testing suffers from CAN-2004-0403
     and CAN-2004-0155.
   * New upstrem release.  Fixes remote DoS in racoon (CAN-2004-0403)
     (closes: #244182).  Repeated for sake of BTS.
@@ -957,8 +963,8 @@ ipsec-tools (0.3.1-3) unstable; urgency=high
 
 ipsec-tools (0.3.1-2) unstable; urgency=high
 
-  * Security upload. Correct urgency so that it will be accepted into 
-    testing in 2 days because version in testing suffers from CAN-2004-0403 
+  * Security upload. Correct urgency so that it will be accepted into
+    testing in 2 days because version in testing suffers from CAN-2004-0403
     and CAN-2004-0155.
   * New upstrem release.  Fixes remote DoS in racoon (CAN-2004-0403)
     (closes: #244182).  Repeated for sake of BTS.
@@ -1014,7 +1020,7 @@ ipsec-tools (0.2.4-3) unstable; urgency=low
     trouble when building with set CC, CPP and CFLAGS in environment.
     Closes: #229614
   * Set racoon and ipsec-tools priorities to optional, shouldn't be extra.
-    Closes: #212985 
+    Closes: #212985
 
  -- Matthew Grant <grantma@anathoth.gen.nz>  Sun, 28 Mar 2004 23:19:16 +1200
 
@@ -1031,12 +1037,12 @@ ipsec-tools (0.2.4-2) unstable; urgency=low
 ipsec-tools (0.2.4-1) unstable; urgency=low
 
   * Upload takes over maintainership of ipsec-tools.  I have already emailed
-    Wichert Akkerman <wichert@wiggy.net>, and he has said this is good and OK.    
+    Wichert Akkerman <wichert@wiggy.net>, and he has said this is good and OK.
   * Converted templates to po-debconf.
   * Built support into debian/rules, templates and control files to allow
-    easy building on woody as well as unstable. 
+    easy building on woody as well as unstable.
   * Rebuilt autoconf and libtool using latest versions in sid.  This should
-    fix ARM compilation problems. 
+    fix ARM compilation problems.
   * Ported to sid.
   * Included patches and portablilty in debian/rules to make building
     on either tons easier.
@@ -1047,7 +1053,7 @@ ipsec-tools (0.2.4-0.mag.4) unstable; urgency=low
 
   * Set up a quick and dirty patching scheme so that all changes are in
     debian directory.  Make source tree easier to maintain.
-  * Make a test build. 
+  * Make a test build.
 
  -- Matthew Grant <grantma@anathoth.gen.nz>  Mon, 22 Mar 2004 02:40:53 +0000
 
@@ -1129,9 +1135,9 @@ ipsec-tools (0.2.2-3) unstable; urgency=low
   * Update config.{guess,sub} to version from autotools-dev 20030110.1.
     Closes: Bug#186587
   * Don't abort if make distclean fails. Closes: Bug#186751
- 
+
  -- Wichert Akkerman <wakkerma@debian.org>  Sat, 29 Mar 2003 18:16:01 +0100
-   
+
 ipsec-tools (0.2.2-2) unstable; urgency=low
 
   * Add a real description and copyright
@@ -1145,5 +1151,5 @@ ipsec-tools (0.2.2-2) unstable; urgency=low
 ipsec-tools (0.2.2-1) unstable; urgency=low
 
   * First trivial packaging
- 
+
  -- Wichert Akkerman <wakkerma@debian.org>  Sat, 15 Mar 2003 11:53:05 +0100
