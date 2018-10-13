@@ -1,5 +1,9 @@
 Version history:
 ----------------
+0.8.x NetBSD CVS (no official release yet)
+	o A lot of code cleanup
+	o XXX TODO
+
 0.8.2	- 27 February 2014
 	o Fix admin port establish-sa for tunnel mode SAs (Alexander Sbitnev)
 	o Fix source port selection regression from version 0.8.1
