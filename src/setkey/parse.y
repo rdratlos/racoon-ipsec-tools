@@ -1,5 +1,4 @@
-/*	$NetBSD: parse.y,v 1.14 2010/12/03 14:32:52 tteras Exp $	*/
-
+/*	$NetBSD: parse.y,v 1.22 2018/10/14 08:27:39 maxv Exp $	*/
 /*	$KAME: parse.y,v 1.81 2003/07/01 04:01:48 itojun Exp $	*/
 
 /*
@@ -90,21 +89,21 @@ static struct addrinfo * p_natt_oa = NULL;
 
 static int p_aiflags = 0, p_aifamily = PF_UNSPEC;
 
-static struct addrinfo *parse_addr __P((char *, char *));
-static int fix_portstr __P((int, vchar_t *, vchar_t *, vchar_t *));
-static int setvarbuf __P((char *, int *, struct sadb_ext *, int, 
-    const void *, int));
-void parse_init __P((void));
-void free_buffer __P((void));
+static struct addrinfo *parse_addr(char *, char *);
+static int fix_portstr(int, vchar_t *, vchar_t *, vchar_t *);
+static int setvarbuf(char *, int *, struct sadb_ext *, int,
+    const void *, int);
+void parse_init(void);
+void free_buffer(void);
 
-int setkeymsg0 __P((struct sadb_msg *, unsigned int, unsigned int, size_t));
-static int setkeymsg_spdaddr __P((unsigned int, unsigned int, vchar_t *,
-	struct addrinfo *, int, struct addrinfo *, int));
-static int setkeymsg_spdaddr_tag __P((unsigned int, char *, vchar_t *));
-static int setkeymsg_addr __P((unsigned int, unsigned int,
-	struct addrinfo *, struct addrinfo *, int));
-static int setkeymsg_add __P((unsigned int, unsigned int,
-	struct addrinfo *, struct addrinfo *));
+int setkeymsg0(struct sadb_msg *, unsigned int, unsigned int, size_t);
+static int setkeymsg_spdaddr(unsigned int, unsigned int, vchar_t *,
+	struct addrinfo *, int, struct addrinfo *, int);
+static int setkeymsg_spdaddr_tag(unsigned int, char *, vchar_t *);
+static int setkeymsg_addr(unsigned int, unsigned int,
+	struct addrinfo *, struct addrinfo *, int);
+static int setkeymsg_add(unsigned int, unsigned int,
+	struct addrinfo *, struct addrinfo *);
 %}
 
 %union {
@@ -474,14 +473,14 @@ auth_alg
 			p_key_auth = $2.buf;
 #ifdef SADB_X_AALG_TCP_MD5
 			if (p_alg_auth == SADB_X_AALG_TCP_MD5) {
-				if ((p_key_auth_len < 1) || 
+				if ((p_key_auth_len < 1) ||
 				    (p_key_auth_len > 80))
 					return -1;
-			} else 
+			} else
 #endif
 			{
 				if (ipsec_check_keylen(SADB_EXT_SUPPORTED_AUTH,
-				    p_alg_auth, 
+				    p_alg_auth,
 				    PFKEY_UNUNIT64(p_key_auth_len)) < 0) {
 					yyerror(ipsec_strerror());
 					return -1;
@@ -817,8 +816,8 @@ portstr
 upper_spec
 	:	DECSTRING { $$ = $1; }
 	|	ANY { $$ = IPSEC_ULPROTO_ANY; }
-	|	PR_TCP { 
-				$$ = IPPROTO_TCP; 
+	|	PR_TCP {
+				$$ = IPPROTO_TCP;
 			}
 	|	STRING
 		{
@@ -1026,13 +1025,13 @@ setkeymsg_spdaddr(type, upper, policy, srcs, splen, dsts, dplen)
 				m_sec_ctx.sadb_x_sec_len =
 				PFKEY_UNIT64(slen + PFKEY_ALIGN8(sec_ctx.len));
 
-				m_sec_ctx.sadb_x_sec_exttype = 
+				m_sec_ctx.sadb_x_sec_exttype =
 					SADB_X_EXT_SEC_CTX;
 				m_sec_ctx.sadb_x_ctx_len = sec_ctx.len;/*bytes*/
 				m_sec_ctx.sadb_x_ctx_doi = sec_ctx.doi;
 				m_sec_ctx.sadb_x_ctx_alg = sec_ctx.alg;
-				setvarbuf(buf, &l, 
-					  (struct sadb_ext *)&m_sec_ctx, slen, 
+				setvarbuf(buf, &l,
+					  (struct sadb_ext *)&m_sec_ctx, slen,
 					  (caddr_t)sec_ctx.buf, sec_ctx.len);
 			}
 #endif
@@ -1379,7 +1378,7 @@ setkeymsg_add(type, satype, srcs, dsts)
 		m_sec_ctx.sadb_x_ctx_doi = sec_ctx.doi;
 		m_sec_ctx.sadb_x_ctx_alg = sec_ctx.alg;
 		setvarbuf(buf, &l, (struct sadb_ext *)&m_sec_ctx, slen,
-			  (caddr_t)sec_ctx.buf, sec_ctx.len); 
+			  (caddr_t)sec_ctx.buf, sec_ctx.len);
 	}
 #endif
 

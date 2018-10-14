@@ -1,6 +1,31 @@
-/*	$NetBSD: setkey.c,v 1.14 2009/08/06 04:44:43 tteras Exp $	*/
-
+/*	$NetBSD: setkey.c,v 1.19 2018/10/14 08:27:39 maxv Exp $	*/
 /*	$KAME: setkey.c,v 1.36 2003/09/24 23:52:51 itojun Exp $	*/
+
+/*
+ * Copyright (c) 2018 The NetBSD Foundation, Inc.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE NETBSD FOUNDATION, INC. AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 /*
  * Copyright (C) 1995, 1996, 1997, 1998, and 1999 WIDE Project.
@@ -66,25 +91,24 @@
 #include "config.h"
 #include "libpfkey.h"
 #include "package_version.h"
-#define extern /* so that variables in extern.h are not extern... */
 #include "extern.h"
 
 #define strlcpy(d,s,l) (strncpy(d,s,l), (d)[(l)-1] = '\0')
 
-void usage __P((int));
-int main __P((int, char **));
-int get_supported __P((void));
-void sendkeyshort __P((u_int));
-void promisc __P((void));
-int postproc __P((struct sadb_msg *, int));
-int verifypriority __P((struct sadb_msg *m));
-int fileproc __P((const char *));
-const char *numstr __P((int));
-void shortdump_hdr __P((void));
-void shortdump __P((struct sadb_msg *));
-static void printdate __P((void));
-static int32_t gmt2local __P((time_t));
-void stdin_loop __P((void));
+static int get_supported(void);
+static void sendkeyshort(u_int);
+static void promisc(void);
+static int postproc(struct sadb_msg *, int);
+#ifdef HAVE_PFKEY_POLICY_PRIORITY
+static int verifypriority(struct sadb_msg *);
+#endif
+static int fileproc(const char *);
+static const char *numstr(int);
+static void shortdump_hdr(void);
+static void shortdump(struct sadb_msg *);
+static void printdate(void);
+static int32_t gmt2local(time_t);
+static void stdin_loop(void);
 
 #define MODE_SCRIPT	1
 #define MODE_CMDDUMP	2
@@ -104,13 +128,16 @@ int f_hexdump = 0;
 int f_tflag = 0;
 int f_notreally = 0;
 int f_withports = 0;
+#ifdef HAVE_PFKEY_POLICY_PRIORITY
+int last_msg_type;
+uint32_t last_priority;
+#endif
 #ifdef HAVE_POLICY_FWD
 int f_rfcmode = 1;
 #define RK_OPTS "rk"
 #else
-int f_rkwarn = 0;
+static int f_rkwarn = 0;
 #define RK_OPTS ""
-static void rkwarn(void);
 static void
 rkwarn(void)
 {
@@ -119,15 +146,17 @@ rkwarn(void)
 		printf("warning: -r and -k options are not supported in this environment\n");
 	}
 }
-
 #endif
+
+int lineno;
+int exit_now;
 static time_t thiszone;
 
-void
+static void
 usage(int only_version)
 {
-	printf("setkey @(#) %s (%s)\n", TOP_PACKAGE_STRING, TOP_PACKAGE_URL); 
-	if (! only_version) {
+	printf("setkey @(#) %s (%s)\n", TOP_PACKAGE_STRING, TOP_PACKAGE_URL);
+	if (!only_version) {
 		printf("usage: setkey [-v" RK_OPTS "] file ...\n");
 		printf("       setkey [-nv" RK_OPTS "] -c\n");
 		printf("       setkey [-nv" RK_OPTS "] -f filename\n");
@@ -149,7 +178,6 @@ main(argc, argv)
 
 	if (argc == 1) {
 		usage(0);
-		/* NOTREACHED */
 	}
 
 	thiszone = gmt2local(0);
@@ -165,9 +193,10 @@ main(argc, argv)
 			break;
 		case 'f':
 			f_mode = MODE_SCRIPT;
-			if ((fp = fopen(optarg, "r")) == NULL) {
-				err(1, "fopen");
-				/*NOTREACHED*/
+			if (strcmp(optarg, "-") == 0) {
+				fp = stdin;
+			} else if ((fp = fopen(optarg, "r")) == NULL) {
+				err(1, "Can't open `%s'", optarg);
 			}
 			break;
 		case 'D':
@@ -221,14 +250,12 @@ main(argc, argv)
 		case 'V':
 			usage(1);
 			break;
-			/*NOTREACHED*/
 #ifndef __NetBSD__
 		case 'h':
 #endif
 		case '?':
 		default:
 			usage(0);
-			/*NOTREACHED*/
 		}
 	}
 
@@ -236,11 +263,11 @@ main(argc, argv)
 	argv += optind;
 
 	if (argc > 0) {
-		while (argc--)
+		while (argc--) {
 			if (fileproc(*argv++) < 0) {
 				err(1, "%s", argv[-1]);
-				/*NOTREACHED*/
 			}
+		}
 		exit(0);
 	}
 
@@ -260,31 +287,28 @@ main(argc, argv)
 	case MODE_SCRIPT:
 		if (get_supported() < 0) {
 			errx(1, "%s", ipsec_strerror());
-			/*NOTREACHED*/
 		}
 		if (parse(&fp))
-			exit (1);
+			exit(1);
 		break;
 	case MODE_STDIN:
 		if (get_supported() < 0) {
 			errx(1, "%s", ipsec_strerror());
-			/*NOTREACHED*/
 		}
 		stdin_loop();
 		break;
 	case MODE_PROMISC:
 		promisc();
-		/*NOTREACHED*/
+		/* NOTREACHED */
 	default:
 		usage(0);
-		/*NOTREACHED*/
 	}
 
 	exit(0);
 }
 
-int
-get_supported()
+static int
+get_supported(void)
 {
 
 	if (pfkey_send_register(so, SADB_SATYPE_UNSPEC) < 0)
@@ -293,23 +317,23 @@ get_supported()
 	if (pfkey_recv_register(so) < 0)
 		return -1;
 
-	return (0);
+	return 0;
 }
 
-void
+static void
 stdin_loop()
 {
 	char line[1024], *semicolon, *comment;
 	size_t linelen = 0;
-	
-	memset (line, 0, sizeof(line));
+
+	memset(line, 0, sizeof(line));
 
 	parse_init();
 	while (1) {
 #ifdef HAVE_READLINE
 		char *rbuf;
-		rbuf = readline ("");
-		if (! rbuf)
+		rbuf = readline("");
+		if (!rbuf)
 			break;
 #else
 		char rbuf[1024];
@@ -326,31 +350,30 @@ stdin_loop()
 		if (!rbuf[0])
 			continue;
 
-		linelen += snprintf (&line[linelen], sizeof(line) - linelen,
-				     "%s%s", linelen > 0 ? " " : "", rbuf);
+		linelen += snprintf(&line[linelen], sizeof(line) - linelen,
+		    "%s%s", linelen > 0 ? " " : "", rbuf);
 
 		semicolon = strchr(line, ';');
 		while (semicolon) {
 			char saved_char = *++semicolon;
 			*semicolon = '\0';
 #ifdef HAVE_READLINE
-			add_history (line);
+			add_history(line);
 #endif
 
 #ifdef HAVE_PFKEY_POLICY_PRIORITY
 			last_msg_type = -1;  /* invalid message type */
 #endif
 
-			parse_string (line);
+			parse_string(line);
 			if (exit_now)
 				return;
 			if (saved_char) {
 				*semicolon = saved_char;
-				linelen = strlen (semicolon);
-				memmove (line, semicolon, linelen + 1);
+				linelen = strlen(semicolon);
+				memmove(line, semicolon, linelen + 1);
 				semicolon = strchr(line, ';');
-			}
-			else {
+			} else {
 				semicolon = NULL;
 				linelen = 0;
 			}
@@ -358,9 +381,8 @@ stdin_loop()
 	}
 }
 
-void
-sendkeyshort(type)
-        u_int type;
+static void
+sendkeyshort(u_int type)
 {
 	struct sadb_msg msg;
 
@@ -374,12 +396,10 @@ sendkeyshort(type)
 	msg.sadb_msg_pid = getpid();
 
 	sendkeymsg((char *)&msg, sizeof(msg));
-
-	return;
 }
 
-void
-promisc()
+static void
+promisc(void)
 {
 	struct sadb_msg msg;
 	u_char rbuf[1024 * 32];	/* XXX: Enough ? Should I do MSG_PEEK ? */
@@ -396,7 +416,6 @@ promisc()
 
 	if ((l = send(so, &msg, sizeof(msg), 0)) < 0) {
 		err(1, "send");
-		/*NOTREACHED*/
 	}
 
 	while (1) {
@@ -404,7 +423,6 @@ promisc()
 
 		if ((l = recv(so, rbuf, sizeof(*base), MSG_PEEK)) < 0) {
 			err(1, "recv");
-			/*NOTREACHED*/
 		}
 
 		if (l != sizeof(*base))
@@ -414,7 +432,6 @@ promisc()
 		if ((l = recv(so, rbuf, PFKEY_UNUNIT64(base->sadb_msg_len),
 				0)) < 0) {
 			err(1, "recv");
-			/*NOTREACHED*/
 		}
 		printdate();
 		if (f_hexdump) {
@@ -444,17 +461,15 @@ promisc()
 	}
 }
 
-/* Generate 'spi' array with SPIs matching 'satype', 'srcs', and 'dsts'
+/*
+ * Generate 'spi' array with SPIs matching 'satype', 'srcs', and 'dsts'.
  * Return value is dynamically generated array of SPIs, also number of
  * SPIs through num_spi pointer.
  * On any error, set *num_spi to 0 and return NULL.
  */
-u_int32_t *
-sendkeymsg_spigrep(satype, srcs, dsts, num_spi)
-	unsigned int satype;
-	struct addrinfo *srcs;
-	struct addrinfo *dsts;
-	int *num_spi;
+uint32_t *
+sendkeymsg_spigrep(unsigned int satype, struct addrinfo *srcs,
+    struct addrinfo *dsts, int *num_spi)
 {
 	struct sadb_msg msg, *m;
 	char *buf;
@@ -466,7 +481,7 @@ sendkeymsg_spigrep(satype, srcs, dsts, num_spi)
 	struct sockaddr *s;
 	struct addrinfo *a;
 	struct sadb_sa *sa;
-	u_int32_t *spi = NULL;
+	uint32_t *spi = NULL;
 	int max_spi = 0, fail = 0;
 
 	*num_spi = 0;
@@ -580,12 +595,12 @@ sendkeymsg_spigrep(satype, srcs, dsts, num_spi)
 
 		if (*num_spi >= max_spi) {
 			max_spi += 512;
-			spi = realloc(spi, max_spi * sizeof(u_int32_t));
+			spi = realloc(spi, max_spi * sizeof(uint32_t));
 		}
 
 		sa = (struct sadb_sa *)mhp[SADB_EXT_SA];
 		if (sa != NULL)
-			spi[(*num_spi)++] = (u_int32_t)ntohl(sa->sadb_sa_spi);
+			spi[(*num_spi)++] = (uint32_t)ntohl(sa->sadb_sa_spi);
 
 		m = (struct sadb_msg *)((caddr_t)m + PFKEY_UNUNIT64(m->sadb_msg_len));
 
@@ -680,13 +695,11 @@ again:
 	}
 
 end:
-	return (0);
+	return 0;
 }
 
-int
-postproc(msg, len)
-	struct sadb_msg *msg;
-	int len;
+static int
+postproc(struct sadb_msg *msg, int len)
 {
 #ifdef HAVE_PFKEY_POLICY_PRIORITY
 	static int priority_support_check = 0;
@@ -697,7 +710,8 @@ postproc(msg, len)
 		const char *errmsg = NULL;
 
 		if (f_mode == MODE_SCRIPT)
-			snprintf(inf, sizeof(inf), "The result of line %d: ", lineno);
+			snprintf(inf, sizeof(inf), "The result of line %d: ",
+			    lineno);
 		else
 			inf[0] = '\0';
 
@@ -721,7 +735,7 @@ postproc(msg, len)
 			errmsg = strerror(msg->sadb_msg_errno);
 		}
 		printf("%s%s.\n", inf, errmsg);
-		return (-1);
+		return -1;
 	}
 
 	switch (msg->sadb_msg_type) {
@@ -762,44 +776,36 @@ postproc(msg, len)
 		break;
 
 	case SADB_X_SPDGET:
-		if (f_withports) 
+		if (f_withports)
 			pfkey_spdump_withports(msg);
 		else
 			pfkey_spdump(msg);
 		break;
 
 	case SADB_X_SPDDUMP:
-		if (f_withports) 
+		if (f_withports)
 			pfkey_spdump_withports(msg);
 		else
 			pfkey_spdump(msg);
-		if (msg->sadb_msg_seq == 0) break;
-		msg = (struct sadb_msg *)((caddr_t)msg +
-				     PFKEY_UNUNIT64(msg->sadb_msg_len));
-		if (f_verbose) {
-			kdebug_sadb((struct sadb_msg *)msg);
-			printf("\n");
-		}
 		break;
 #ifdef HAVE_PFKEY_POLICY_PRIORITY
 	case SADB_X_SPDADD:
-		if (last_msg_type == SADB_X_SPDADD && last_priority != 0 && 
+		if (last_msg_type == SADB_X_SPDADD && last_priority != 0 &&
 		    msg->sadb_msg_pid == getpid() && !priority_support_check) {
-			priority_support_check = 1;	
+			priority_support_check = 1;
 			if (!verifypriority(msg))
-				printf ("WARNING: Kernel does not support policy priorities\n");
+				printf("WARNING: Kernel does not support policy priorities\n");
 		}
 		break;
 #endif
 	}
 
-	return (0);
+	return 0;
 }
 
 #ifdef HAVE_PFKEY_POLICY_PRIORITY
-int
-verifypriority(m)
-	struct sadb_msg *m;
+static int
+verifypriority(struct sadb_msg *m)
 {
 	caddr_t mhp[SADB_EXT_MAX + 1];
 	struct sadb_x_policy *xpl;
@@ -825,13 +831,12 @@ verifypriority(m)
 	if (last_priority != xpl->sadb_x_policy_priority)
 		return 0;
 
-	return 1; 
+	return 1;
 }
 #endif
 
-int
-fileproc(filename)
-	const char *filename;
+static int
+fileproc(const char *filename)
 {
 	int fd;
 	ssize_t len, l;
@@ -871,11 +876,11 @@ fileproc(filename)
 		p += len;
 	}
 
-	return (0);
+	return 0;
 }
 
+/* -------------------------------------------------------------------------- */
 
-/*------------------------------------------------------------*/
 static const char *satype[] = {
 	NULL, NULL, "ah", "esp"
 };
@@ -901,25 +906,23 @@ static const char *ipproto[] = {
 #define STR_OR_ID(x, tab) \
 	(((x) < sizeof(tab)/sizeof(tab[0]) && tab[(x)])	? tab[(x)] : numstr(x))
 
-const char *
-numstr(x)
-	int x;
+static const char *
+numstr(int x)
 {
 	static char buf[20];
 	snprintf(buf, sizeof(buf), "#%d", x);
 	return buf;
 }
 
-void
-shortdump_hdr()
+static void
+shortdump_hdr(void)
 {
 	printf("%-4s %-3s %-1s %-8s %-7s %s -> %s\n",
-		"time", "p", "s", "spi", "ltime", "src", "dst");
+	    "time", "p", "s", "spi", "ltime", "src", "dst");
 }
 
-void
-shortdump(msg)
-	struct sadb_msg *msg;
+static void
+shortdump(struct sadb_msg *msg)
 {
 	caddr_t mhp[SADB_EXT_MAX + 1];
 	char buf[NI_MAXHOST], pbuf[NI_MAXSERV];
@@ -939,7 +942,7 @@ shortdump(msg)
 
 	if ((sa = (struct sadb_sa *)mhp[SADB_EXT_SA]) != NULL) {
 		printf(" %-1s", STR_OR_ID(sa->sadb_sa_state, sastate));
-		printf(" %08x", (u_int32_t)ntohl(sa->sadb_sa_spi));
+		printf(" %08x", (uint32_t)ntohl(sa->sadb_sa_spi));
 	} else
 		printf("%-1s %-8s", "?", "?");
 
@@ -1017,13 +1020,12 @@ printdate()
 
 	if (f_tflag == 1) {
 		/* Default */
-		s = (tp.tv_sec + thiszone ) % 86400;
-		(void)printf("%02d:%02d:%02d.%06u ",
-		    s / 3600, (s % 3600) / 60, s % 60, (u_int32_t)tp.tv_usec);
+		s = (tp.tv_sec + thiszone) % 86400;
+		printf("%02d:%02d:%02d.%06u ",
+		    s / 3600, (s % 3600) / 60, s % 60, (uint32_t)tp.tv_usec);
 	} else if (f_tflag > 1) {
 		/* Unix timeval style */
-		(void)printf("%u.%06u ",
-		    (u_int32_t)tp.tv_sec, (u_int32_t)tp.tv_usec);
+		printf("%u.%06u ", (uint32_t)tp.tv_sec, (uint32_t)tp.tv_usec);
 	}
 
 	printf("\n");
@@ -1058,5 +1060,5 @@ gmt2local(time_t t)
 		dir = loc->tm_yday - gmt->tm_yday;
 	dt += dir * 24 * 60 * 60;
 
-	return (dt);
+	return dt;
 }
