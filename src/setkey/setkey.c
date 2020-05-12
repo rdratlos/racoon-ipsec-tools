@@ -1,4 +1,4 @@
-/*	$NetBSD: setkey.c,v 1.19 2018/10/14 08:27:39 maxv Exp $	*/
+/*	$NetBSD: setkey.c,v 1.21 2020/05/12 14:29:06 christos Exp $	*/
 /*	$KAME: setkey.c,v 1.36 2003/09/24 23:52:51 itojun Exp $	*/
 
 /*
@@ -149,6 +149,7 @@ rkwarn(void)
 #endif
 
 int lineno;
+const char *filename;
 int exit_now;
 static time_t thiszone;
 
@@ -174,6 +175,7 @@ main(argc, argv)
 	char **argv;
 {
 	FILE *fp = stdin;
+	const char *fname = "<stdin>";
 	int c;
 
 	if (argc == 1) {
@@ -195,9 +197,11 @@ main(argc, argv)
 			f_mode = MODE_SCRIPT;
 			if (strcmp(optarg, "-") == 0) {
 				fp = stdin;
+				fname = "<stdin>";
 			} else if ((fp = fopen(optarg, "r")) == NULL) {
 				err(1, "Can't open `%s'", optarg);
 			}
+			fname = optarg;
 			break;
 		case 'D':
 			f_mode = MODE_CMDDUMP;
@@ -288,7 +292,7 @@ main(argc, argv)
 		if (get_supported() < 0) {
 			errx(1, "%s", ipsec_strerror());
 		}
-		if (parse(&fp))
+		if (parse(fname, fp))
 			exit(1);
 		break;
 	case MODE_STDIN:
@@ -836,7 +840,7 @@ verifypriority(struct sadb_msg *m)
 #endif
 
 static int
-fileproc(const char *filename)
+fileproc(const char *fname)
 {
 	int fd;
 	ssize_t len, l;
@@ -844,7 +848,7 @@ fileproc(const char *filename)
 	struct sadb_msg *msg;
 	u_char rbuf[1024 * 32];	/* XXX: Enough ? Should I do MSG_PEEK ? */
 
-	fd = open(filename, O_RDONLY);
+	fd = open(fname, O_RDONLY);
 	if (fd < 0)
 		return -1;
 
