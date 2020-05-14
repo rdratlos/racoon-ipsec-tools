@@ -1,4 +1,4 @@
-/*	$NetBSD: ipsec_doi.c,v 1.46.4.1 2013/06/18 05:40:36 tteras Exp $	*/
+/*	$NetBSD: ipsec_doi.c,v 1.52 2020/05/14 08:34:19 msaitoh Exp $	*/
 
 /* Id: ipsec_doi.c,v 1.55 2006/08/17 09:20:41 vanhu Exp */
 
@@ -988,7 +988,7 @@ get_ph2approval(iph2, pair)
 			continue;
 		plog(LLV_DEBUG, LOCATION, NULL,
 			"pair[%d]: %p\n", i, pair[i]);
-		print_proppair(LLV_DEBUG, pair[i]);;
+		print_proppair(LLV_DEBUG, pair[i]);
 
 		/* compare proposal and select one */
 		ret = get_ph2approvalx(iph2, pair[i]);
