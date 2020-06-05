@@ -1,4 +1,14 @@
-ipsec-tools (1:0.8.2+20140711-13) UNRELEASED; urgency=medium
+ipsec-tools (1:0.8.2+20140711-13ppa1) bionic; urgency=medium
+
+  * Avoid regression caused by NetBSD's CVE-2016-10396 patch when
+    connecting VPN from Apple IPhones (Closes: #1793028)
+  * Correct some memory management and include errors leading to compilation
+    failures due to stronger gcc checks
+  * Include latest NetBSD upstream patches
+
+ -- Thomas Reim <reimth@gmail.com>  Mon, 08 Jun 2020 00:01:59 +0200
+
+ipsec-tools (1:0.8.2+20140711-13) unstable; urgency=medium
 
   * d/changelog: Remove trailing whitespaces
   * d/watch: Use https protocol
