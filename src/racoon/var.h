@@ -76,21 +76,24 @@
 
 #define GETNAMEINFO(x, y, z) \
 do { \
+	const char* INVALID_ADDR = "(invalid)"; \
+	const char* INVALID_PORT = "(inv)"; \
 	if (getnameinfo((x), sysdep_sa_len(x), (y), sizeof(y), (z), sizeof(z), \
 			NIFLAGS) != 0) { \
 		if (y != NULL) \
-			strncpy((y), "(invalid)", sizeof(y)); \
+			memcpy((y), INVALID_ADDR, strlen(INVALID_ADDR)+1); \
 		if (z != NULL) \
-			strncpy((z), "(invalid)", sizeof(z)); \
+			memcpy((z), INVALID_PORT, strlen(INVALID_PORT)+1); \
 	} \
 } while (0);
 
 #define GETNAMEINFO_NULL(x, y) \
 do { \
+	const char* INVALID_ADDR = "(invalid)"; \
 	if (getnameinfo((x), sysdep_sa_len(x), (y), sizeof(y), NULL, 0, \
 			NIFLAGS) != 0) { \
 		if (y != NULL) \
-			strncpy((y), "(invalid)", sizeof(y)); \
+			memcpy((y), INVALID_ADDR, strlen(INVALID_ADDR)+1); \
 	} \
 } while (0);
 

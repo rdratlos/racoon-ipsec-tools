@@ -754,7 +754,7 @@ f_logoutusr(ac, av)
 	if (buf == NULL)
 		return NULL;
 
-	strncpy(buf->v + sizeof(struct admin_com), user, userlen);
+	strncpy(buf->v + sizeof(struct admin_com), user, userlen+1);
 
 	return buf;
 }

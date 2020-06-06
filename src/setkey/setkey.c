@@ -65,7 +65,11 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/stat.h>
+
+#ifndef __linux__
 #include <sys/sysctl.h>
+#endif
+
 #include <err.h>
 #include <netinet/in.h>
 #include <net/pfkeyv2.h>
