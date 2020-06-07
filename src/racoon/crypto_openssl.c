@@ -2343,6 +2343,11 @@ eay_dh_compute(prime, g, pub, priv, pub2, key)
 	unsigned char *v = NULL;
 	int error = -1;
 
+	BIGNUM *p = BN_new();
+	BIGNUM *BNg = BN_new();
+	BIGNUM *pub_key = BN_new();
+	BIGNUM *priv_key = BN_new();
+
 	/* make public number to compute */
 	if (eay_v2bn(&dh_pub, pub2) < 0)
 		goto end;
@@ -2350,10 +2355,6 @@ eay_dh_compute(prime, g, pub, priv, pub2, key)
 	/* make DH structure */
 	if ((dh = DH_new()) == NULL)
 		goto end;
-	BIGNUM *p = BN_new();
-	BIGNUM *BNg = BN_new();
-	BIGNUM *pub_key = BN_new();
-	BIGNUM *priv_key = BN_new();
 
 	if (p == NULL || BNg == NULL || pub_key == NULL || priv_key == NULL)
 		goto end;
