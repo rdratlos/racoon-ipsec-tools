@@ -6,7 +6,8 @@ AC_INIT(ipsec-tools, 0.8.2)
 AC_CONFIG_SRCDIR([configure.ac])
 AC_CONFIG_HEADERS(config.h)
 
-AM_INIT_AUTOMAKE(dist-bzip2)
+AC_CONFIG_MACRO_DIR([.])
+AM_INIT_AUTOMAKE([dist-bzip2 foreign serial-tests])
 
 AC_ENABLE_SHARED(no)
 
