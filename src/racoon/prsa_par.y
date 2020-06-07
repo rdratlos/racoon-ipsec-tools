@@ -68,6 +68,7 @@
 #include "isakmp_var.h"
 #include "handler.h"
 #include "crypto_openssl.h"
+#include "openssl_compat.h"
 #include "sockmisc.h"
 #include "rsalist.h"
 
@@ -85,7 +86,18 @@ char *prsa_cur_fname = NULL;
 struct genlist *prsa_cur_list = NULL;
 enum rsa_key_type prsa_cur_type = RSA_TYPE_ANY;
 
-static RSA *rsa_cur;
+struct my_rsa_st {
+	BIGNUM *n;
+	BIGNUM *e;
+	BIGNUM *d;
+	BIGNUM *p;
+	BIGNUM *q;
+	BIGNUM *dmp1;
+	BIGNUM *dmq1;
+	BIGNUM *iqmp;
+};
+
+static struct my_rsa_st *rsa_cur;
 
 void
 prsaerror(const char *s, ...)
@@ -201,8 +213,12 @@ rsa_statement:
 				rsa_cur->iqmp = NULL;
 			}
 		}
-		$$ = rsa_cur;
-		rsa_cur = RSA_new();
+		RSA * rsa_tmp = RSA_new();
+		RSA_set0_key(rsa_tmp, rsa_cur->n, rsa_cur->e, rsa_cur->d);
+		RSA_set0_factors(rsa_tmp, rsa_cur->p, rsa_cur->q);
+		RSA_set0_crt_params(rsa_tmp, rsa_cur->dmp1, rsa_cur->dmq1, rsa_cur->iqmp);
+		$$ = rsa_tmp;
+		memset(rsa_cur, 0, sizeof(struct my_rsa_st));
 	}
 	| TAG_PUB BASE64
 	{
@@ -351,10 +367,12 @@ prsa_parse_file(struct genlist *list, char *fname, enum rsa_key_type type)
 	prsa_cur_fname = fname;
 	prsa_cur_list = list;
 	prsa_cur_type = type;
-	rsa_cur = RSA_new();
+	rsa_cur = malloc(sizeof(struct my_rsa_st));
+	memset(rsa_cur, 0, sizeof(struct my_rsa_st));
 	ret = prsaparse();
 	if (rsa_cur) {
-		RSA_free(rsa_cur);
+		memset(rsa_cur, 0, sizeof(struct my_rsa_st));
+		free(rsa_cur);
 		rsa_cur = NULL;
 	}
 	fclose (fp);

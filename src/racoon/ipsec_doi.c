@@ -715,7 +715,7 @@ out:
 	/* key length must not be specified on some algorithms */
 	if (keylen) {
 		if (sa->enctype == OAKLEY_ATTR_ENC_ALG_DES
-#ifdef HAVE_OPENSSL_IDEA_H
+#if defined(HAVE_OPENSSL_IDEA_H) && ! defined(OPENSSL_NO_IDEA)
 		 || sa->enctype == OAKLEY_ATTR_ENC_ALG_IDEA
 #endif
 		 || sa->enctype == OAKLEY_ATTR_ENC_ALG_3DES) {

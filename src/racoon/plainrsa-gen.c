@@ -60,6 +60,7 @@
 #include "vmbuf.h"
 #include "plog.h"
 #include "crypto_openssl.h"
+#include "openssl_compat.h"
 
 #include "package_version.h"
 
@@ -90,12 +91,14 @@ mix_b64_pubkey(const RSA *key)
 	char *binbuf;
 	long binlen, ret;
 	vchar_t *res;
-	
-	binlen = 1 + BN_num_bytes(key->e) + BN_num_bytes(key->n);
+	const BIGNUM *e, *n;
+
+	RSA_get0_key(key, &n, &e, NULL);
+	binlen = 1 + BN_num_bytes(e) + BN_num_bytes(n);
 	binbuf = malloc(binlen);
 	memset(binbuf, 0, binlen);
-	binbuf[0] = BN_bn2bin(key->e, (unsigned char *) &binbuf[1]);
-	ret = BN_bn2bin(key->n, (unsigned char *) (&binbuf[binbuf[0] + 1]));
+	binbuf[0] = BN_bn2bin(e, (unsigned char *) &binbuf[1]);
+	ret = BN_bn2bin(n, (unsigned char *) (&binbuf[binbuf[0] + 1]));
 	if (1 + binbuf[0] + ret != binlen) {
 		plog(LLV_ERROR, LOCATION, NULL,
 		     "Pubkey generation failed. This is really strange...\n");
@@ -131,16 +134,20 @@ print_rsa_key(FILE *fp, const RSA *key)
 	
 	fprintf(fp, "# : PUB 0s%s\n", pubkey64->v);
 	fprintf(fp, ": RSA\t{\n");
-	fprintf(fp, "\t# RSA %d bits\n", BN_num_bits(key->n));
+	const BIGNUM *n, *e, *d, *p, *q, *dmp1, *dmq1, *iqmp;
+	RSA_get0_key(key, &n, &e, &d);
+	RSA_get0_factors(key, &p, &q);
+	RSA_get0_crt_params(key, &dmp1, &dmq1, &iqmp);
+	fprintf(fp, "\t# RSA %d bits\n", BN_num_bits(n));
 	fprintf(fp, "\t# pubkey=0s%s\n", pubkey64->v);
-	fprintf(fp, "\tModulus: 0x%s\n", lowercase(BN_bn2hex(key->n)));
-	fprintf(fp, "\tPublicExponent: 0x%s\n", lowercase(BN_bn2hex(key->e)));
-	fprintf(fp, "\tPrivateExponent: 0x%s\n", lowercase(BN_bn2hex(key->d)));
-	fprintf(fp, "\tPrime1: 0x%s\n", lowercase(BN_bn2hex(key->p)));
-	fprintf(fp, "\tPrime2: 0x%s\n", lowercase(BN_bn2hex(key->q)));
-	fprintf(fp, "\tExponent1: 0x%s\n", lowercase(BN_bn2hex(key->dmp1)));
-	fprintf(fp, "\tExponent2: 0x%s\n", lowercase(BN_bn2hex(key->dmq1)));
-	fprintf(fp, "\tCoefficient: 0x%s\n", lowercase(BN_bn2hex(key->iqmp)));
+	fprintf(fp, "\tModulus: 0x%s\n", lowercase(BN_bn2hex(n)));
+	fprintf(fp, "\tPublicExponent: 0x%s\n", lowercase(BN_bn2hex(e)));
+	fprintf(fp, "\tPrivateExponent: 0x%s\n", lowercase(BN_bn2hex(d)));
+	fprintf(fp, "\tPrime1: 0x%s\n", lowercase(BN_bn2hex(p)));
+	fprintf(fp, "\tPrime2: 0x%s\n", lowercase(BN_bn2hex(q)));
+	fprintf(fp, "\tExponent1: 0x%s\n", lowercase(BN_bn2hex(dmp1)));
+	fprintf(fp, "\tExponent2: 0x%s\n", lowercase(BN_bn2hex(dmq1)));
+	fprintf(fp, "\tCoefficient: 0x%s\n", lowercase(BN_bn2hex(iqmp)));
 	fprintf(fp, "  }\n");
 
 	vfree(pubkey64);
@@ -203,11 +210,13 @@ int
 gen_rsa_key(FILE *fp, size_t bits, unsigned long exp)
 {
 	int ret;
-	RSA *key;
+	RSA *key = RSA_new();
+	BIGNUM *e = BN_new();
 
-	key = RSA_generate_key(bits, exp, NULL, NULL);
-	if (!key) {
+	BN_set_word(e, exp);
+	if (! RSA_generate_key_ex(key, bits, e, NULL)) {
 		fprintf(stderr, "RSA_generate_key(): %s\n", eay_strerror());
+		RSA_free(key);
 		return -1;
 	}
 	

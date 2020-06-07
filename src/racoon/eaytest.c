@@ -62,6 +62,7 @@
 #include "dhgroup.h"
 #include "crypto_openssl.h"
 #include "gnuc.h"
+#include "openssl_compat.h"
 
 #include "package_version.h"
 
@@ -103,7 +104,7 @@ rsa_verify_with_pubkey(src, sig, pubkey_txt)
 		printf ("PEM_read_PUBKEY(): %s\n", eay_strerror());
 		return -1;
 	}
-	error = eay_check_rsasign(src, sig, evp->pkey.rsa);
+	error = eay_check_rsasign(src, sig, EVP_PKEY_get0_RSA(evp));
 
 	return error;
 }
@@ -698,7 +699,7 @@ ciphertest(ac, av)
 			  eay_cast_encrypt, eay_cast_decrypt) < 0)
 	  return -1;
 	
-#ifdef HAVE_OPENSSL_IDEA_H
+#if defined(HAVE_OPENSSL_IDEA_H) && ! defined(OPENSSL_NO_IDEA)
 	if (ciphertest_1 ("IDEA",
 			  &data, 8,
 			  &key, key.l,
@@ -715,7 +716,7 @@ ciphertest(ac, av)
 			  eay_rc5_encrypt, eay_rc5_decrypt) < 0)
 	  return -1;
 #endif
-#if defined(HAVE_OPENSSL_CAMELLIA_H)
+#if defined(HAVE_OPENSSL_CAMELLIA_H) && ! defined(OPENSSL_NO_CAMELLIA)
 	if (ciphertest_1 ("CAMELLIA",
 			  &data, 16,
 			  &key, key.l,

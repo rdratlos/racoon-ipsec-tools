@@ -128,7 +128,7 @@ static struct enc_algorithm oakley_encdef[] = {
 { "aes",	algtype_aes,	OAKLEY_ATTR_ENC_ALG_AES,	16,
 		eay_aes_encrypt,	eay_aes_decrypt,
 		eay_aes_weakkey,	eay_aes_keylen, },
-#ifdef HAVE_OPENSSL_CAMELLIA_H
+#if defined(HAVE_OPENSSL_CAMELLIA_H) && ! defined(OPENSSL_NO_CAMELLIA)
 { "camellia",	algtype_camellia,	OAKLEY_ATTR_ENC_ALG_CAMELLIA,	16,
 		eay_camellia_encrypt,	eay_camellia_decrypt,
 		eay_camellia_weakkey,	eay_camellia_keylen, },
@@ -168,7 +168,7 @@ static struct enc_algorithm ipsec_encdef[] = {
 { "twofish",	algtype_twofish,	IPSECDOI_ESP_TWOFISH,		16,
 		NULL,			NULL,
 		NULL,			eay_twofish_keylen, },
-#ifdef HAVE_OPENSSL_IDEA_H
+#if defined(HAVE_OPENSSL_IDEA_H) && ! defined(OPENSSL_NO_IDEA)
 { "3idea",	algtype_3idea,		IPSECDOI_ESP_3IDEA,		8,
 		NULL,			NULL,
 		NULL,			NULL, },
@@ -179,7 +179,7 @@ static struct enc_algorithm ipsec_encdef[] = {
 { "rc4",	algtype_rc4,		IPSECDOI_ESP_RC4,		8,
 		NULL,			NULL,
 		NULL,			NULL, },
-#ifdef HAVE_OPENSSL_CAMELLIA_H
+#if defined(HAVE_OPENSSL_CAMELLIA_H) && ! defined(OPENSSL_NO_CAMELLIA)
 { "camellia",	algtype_camellia,	IPSECDOI_ESP_CAMELLIA,		16,
 		NULL,			NULL,
 		NULL,			eay_camellia_keylen, },

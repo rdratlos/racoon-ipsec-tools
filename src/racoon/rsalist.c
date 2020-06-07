@@ -52,6 +52,7 @@
 #include "genlist.h"
 #include "remoteconf.h"
 #include "crypto_openssl.h"
+#include "openssl_compat.h"
 
 #ifndef LIST_FIRST
 #define LIST_FIRST(head)        ((head)->lh_first)
@@ -98,7 +99,9 @@ rsa_key_dup(struct rsa_key *key)
 		return NULL;
 
 	if (key->rsa) {
-		new->rsa = key->rsa->d != NULL ? RSAPrivateKey_dup(key->rsa) : RSAPublicKey_dup(key->rsa);
+		const BIGNUM *d;
+		RSA_get0_key(key->rsa, NULL, NULL, &d);
+		new->rsa = (d != NULL ? RSAPrivateKey_dup(key->rsa) : RSAPublicKey_dup(key->rsa));
 		if (new->rsa == NULL)
 			goto dup_error;
 	}

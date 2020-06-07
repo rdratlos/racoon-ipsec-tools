@@ -90,6 +90,7 @@
 #endif
 #endif
 #include "plog.h"
+#include "openssl_compat.h"
 
 #define USE_NEW_DES_API
 
@@ -318,9 +319,12 @@ eay_cmp_asn1dn(n1, n2)
 			i = idx+1;
 			goto end;
 		}
-		if ((ea->value->length == 1 && ea->value->data[0] == '*') ||
-		    (eb->value->length == 1 && eb->value->data[0] == '*')) {
-	    		if (OBJ_cmp(ea->object,eb->object)) {
+		ASN1_STRING *sa = X509_NAME_ENTRY_get_data(ea);
+		ASN1_STRING *sb = X509_NAME_ENTRY_get_data(eb);
+		if ((ASN1_STRING_length(sa) == 1 && ASN1_STRING_get0_data(sa)[0] == '*') ||
+		    (ASN1_STRING_length(sb) == 1 && ASN1_STRING_get0_data(sb)[0] == '*')) {
+	    		if (OBJ_cmp(X509_NAME_ENTRY_get_object(ea),
+				    X509_NAME_ENTRY_get_object(eb))) {
 				i = idx+1;
 				goto end;
 	    		}
@@ -432,7 +436,7 @@ cb_check_cert_local(ok, ctx)
 
 	if (!ok) {
 		X509_NAME_oneline(
-				X509_get_subject_name(ctx->current_cert),
+				X509_get_subject_name(X509_STORE_CTX_get_current_cert(ctx)),
 				buf,
 				256);
 		/*
@@ -440,7 +444,8 @@ cb_check_cert_local(ok, ctx)
 		 * ok if they are self signed. But we should still warn
 		 * the user.
  		 */
-		switch (ctx->error) {
+		int ctx_error = X509_STORE_CTX_get_error(ctx);
+		switch (ctx_error) {
 		case X509_V_ERR_CERT_HAS_EXPIRED:
 		case X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT:
 		case X509_V_ERR_INVALID_CA:
@@ -455,9 +460,9 @@ cb_check_cert_local(ok, ctx)
 		}
 		plog(log_tag, LOCATION, NULL,
 			"%s(%d) at depth:%d SubjectName:%s\n",
-			X509_verify_cert_error_string(ctx->error),
-			ctx->error,
-			ctx->error_depth,
+			X509_verify_cert_error_string(ctx_error),
+			ctx_error,
+			X509_STORE_CTX_get_error_depth(ctx),
 			buf);
 	}
 	ERR_clear_error();
@@ -479,10 +484,11 @@ cb_check_cert_remote(ok, ctx)
 
 	if (!ok) {
 		X509_NAME_oneline(
-				X509_get_subject_name(ctx->current_cert),
+				X509_get_subject_name(X509_STORE_CTX_get_current_cert(ctx)),
 				buf,
 				256);
-		switch (ctx->error) {
+		int ctx_error=X509_STORE_CTX_get_error(ctx);
+		switch (ctx_error) {
 		case X509_V_ERR_UNABLE_TO_GET_CRL:
 			ok = 1;
 			log_tag = LLV_WARNING;
@@ -492,9 +498,9 @@ cb_check_cert_remote(ok, ctx)
 		}
 		plog(log_tag, LOCATION, NULL,
 			"%s(%d) at depth:%d SubjectName:%s\n",
-			X509_verify_cert_error_string(ctx->error),
-			ctx->error,
-			ctx->error_depth,
+			X509_verify_cert_error_string(ctx_error),
+			ctx_error,
+			X509_STORE_CTX_get_error_depth(ctx),
 			buf);
 	}
 	ERR_clear_error();
@@ -518,14 +524,15 @@ eay_get_x509asn1subjectname(cert)
 	if (x509 == NULL)
 		goto error;
 
+	X509_NAME *subject_name = X509_get_subject_name(x509);
 	/* get the length of the name */
-	len = i2d_X509_NAME(x509->cert_info->subject, NULL);
+	len = i2d_X509_NAME(subject_name, NULL);
 	name = vmalloc(len);
 	if (!name)
 		goto error;
 	/* get the name */
 	bp = (unsigned char *) name->v;
-	len = i2d_X509_NAME(x509->cert_info->subject, &bp);
+	len = i2d_X509_NAME(subject_name, &bp);
 
 	X509_free(x509);
 
@@ -684,15 +691,16 @@ eay_get_x509asn1issuername(cert)
 	if (x509 == NULL)
 		goto error;
 
+	X509_NAME *issuer_name = X509_get_issuer_name(x509);
 	/* get the length of the name */
-	len = i2d_X509_NAME(x509->cert_info->issuer, NULL);
+	len = i2d_X509_NAME(issuer_name, NULL);
 	name = vmalloc(len);
 	if (name == NULL)
 		goto error;
 
 	/* get the name */
 	bp = (unsigned char *) name->v;
-	len = i2d_X509_NAME(x509->cert_info->issuer, &bp);
+	len = i2d_X509_NAME(issuer_name, &bp);
 
 	X509_free(x509);
 
@@ -873,7 +881,7 @@ eay_check_x509sign(source, sig, cert)
 		return -1;
 	}
 
-	res = eay_rsa_verify(source, sig, evp->pkey.rsa);
+	res = eay_rsa_verify(source, sig, EVP_PKEY_get0_RSA(evp));
 
 	EVP_PKEY_free(evp);
 	X509_free(x509);
@@ -1015,7 +1023,7 @@ eay_get_x509sign(src, privkey)
 	if (evp == NULL)
 		return NULL;
 
-	sig = eay_rsa_sign(src, evp->pkey.rsa);
+	sig = eay_rsa_sign(src, EVP_PKEY_get0_RSA(evp));
 
 	EVP_PKEY_free(evp);
 
@@ -1102,7 +1110,11 @@ eay_strerror()
 	int line, flags;
 	unsigned long es;
 
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	es = 0; /* even when allowed by OPENSSL_API_COMPAT, it is defined as 0 */
+#else
 	es = CRYPTO_thread_id();
+#endif
 
 	while ((l = ERR_get_error_line_data(&file, &line, &data, &flags)) != 0){
 		n = snprintf(ebuf + len, sizeof(ebuf) - len,
@@ -1123,7 +1135,7 @@ vchar_t *
 evp_crypt(vchar_t *data, vchar_t *key, vchar_t *iv, const EVP_CIPHER *e, int enc)
 {
 	vchar_t *res;
-	EVP_CIPHER_CTX ctx;
+	EVP_CIPHER_CTX *ctx;
 
 	if (!e)
 		return NULL;
@@ -1134,7 +1146,7 @@ evp_crypt(vchar_t *data, vchar_t *key, vchar_t *iv, const EVP_CIPHER *e, int enc
 	if ((res = vmalloc(data->l)) == NULL)
 		return NULL;
 
-	EVP_CIPHER_CTX_init(&ctx);
+	ctx = EVP_CIPHER_CTX_new();
 
 	switch(EVP_CIPHER_nid(e)){
 	case NID_bf_cbc:
@@ -1148,54 +1160,41 @@ evp_crypt(vchar_t *data, vchar_t *key, vchar_t *iv, const EVP_CIPHER *e, int enc
 		/* XXX: can we do that also for algos with a fixed key size ?
 		 */
 		/* init context without key/iv
-         */
-        if (!EVP_CipherInit(&ctx, e, NULL, NULL, enc))
-        {
-            OpenSSL_BUG();
-            vfree(res);
-            return NULL;
-        }
+                 */
+		if (!EVP_CipherInit(ctx, e, NULL, NULL, enc))
+			goto out;
 		
-        /* update key size
-         */
-        if (!EVP_CIPHER_CTX_set_key_length(&ctx, key->l))
-        {
-            OpenSSL_BUG();
-            vfree(res);
-            return NULL;
-        }
+		/* update key size
+		 */
+		if (!EVP_CIPHER_CTX_set_key_length(ctx, key->l))
+			goto out;
 
-        /* finalize context init with desired key size
-         */
-        if (!EVP_CipherInit(&ctx, NULL, (u_char *) key->v,
+		/* finalize context init with desired key size
+		 */
+		if (!EVP_CipherInit(ctx, NULL, (u_char *) key->v,
 							(u_char *) iv->v, enc))
-        {
-            OpenSSL_BUG();
-            vfree(res);
-            return NULL;
-		}
+			goto out;
 		break;
 	default:
-		if (!EVP_CipherInit(&ctx, e, (u_char *) key->v, 
-							(u_char *) iv->v, enc)) {
-			OpenSSL_BUG();
-			vfree(res);
-			return NULL;
-		}
+		if (!EVP_CipherInit(ctx, e, (u_char *) key->v,
+							(u_char *) iv->v, enc))
+            		goto out;
 	}
 
 	/* disable openssl padding */
-	EVP_CIPHER_CTX_set_padding(&ctx, 0); 
+	EVP_CIPHER_CTX_set_padding(ctx, 0);
 	
-	if (!EVP_Cipher(&ctx, (u_char *) res->v, (u_char *) data->v, data->l)) {
-		OpenSSL_BUG();
-		vfree(res);
-		return NULL;
-	}
+	if (!EVP_Cipher(ctx, (u_char *) res->v, (u_char *) data->v, data->l))
+		goto out;
 
-	EVP_CIPHER_CTX_cleanup(&ctx);
+	EVP_CIPHER_CTX_free(ctx);
 
 	return res;
+out:
+	EVP_CIPHER_CTX_free(ctx);
+	OpenSSL_BUG();
+	vfree(res);
+	return NULL;
 }
 
 int
@@ -1253,7 +1252,7 @@ eay_des_keylen(len)
 	return evp_keylen(len, EVP_des_cbc());
 }
 
-#ifdef HAVE_OPENSSL_IDEA_H
+#if defined(HAVE_OPENSSL_IDEA_H) && ! defined(OPENSSL_NO_IDEA)
 /*
  * IDEA-CBC
  */
@@ -1610,7 +1609,7 @@ eay_aes_keylen(len)
 	return len;
 }
 
-#if defined(HAVE_OPENSSL_CAMELLIA_H)
+#if defined(HAVE_OPENSSL_CAMELLIA_H) && ! defined(OPENSSL_NO_CAMELLIA)
 /*
  * CAMELLIA-CBC
  */
@@ -1703,9 +1702,9 @@ eay_hmac_init(key, md)
 	vchar_t *key;
 	const EVP_MD *md;
 {
-	HMAC_CTX *c = racoon_malloc(sizeof(*c));
+	HMAC_CTX *c = HMAC_CTX_new();
 
-	HMAC_Init(c, key->v, key->l, md);
+	HMAC_Init_ex(c, key->v, key->l, md, NULL);
 
 	return (caddr_t)c;
 }
@@ -1784,8 +1783,7 @@ eay_hmacsha2_512_final(c)
 
 	HMAC_Final((HMAC_CTX *)c, (unsigned char *) res->v, &l);
 	res->l = l;
-	HMAC_cleanup((HMAC_CTX *)c);
-	(void)racoon_free(c);
+	HMAC_CTX_free((HMAC_CTX *)c);
 
 	if (SHA512_DIGEST_LENGTH != res->l) {
 		plog(LLV_ERROR, LOCATION, NULL,
@@ -1834,8 +1832,7 @@ eay_hmacsha2_384_final(c)
 
 	HMAC_Final((HMAC_CTX *)c, (unsigned char *) res->v, &l);
 	res->l = l;
-	HMAC_cleanup((HMAC_CTX *)c);
-	(void)racoon_free(c);
+	HMAC_CTX_free((HMAC_CTX *)c);
 
 	if (SHA384_DIGEST_LENGTH != res->l) {
 		plog(LLV_ERROR, LOCATION, NULL,
@@ -1884,8 +1881,7 @@ eay_hmacsha2_256_final(c)
 
 	HMAC_Final((HMAC_CTX *)c, (unsigned char *) res->v, &l);
 	res->l = l;
-	HMAC_cleanup((HMAC_CTX *)c);
-	(void)racoon_free(c);
+	HMAC_CTX_free((HMAC_CTX *)c);
 
 	if (SHA256_DIGEST_LENGTH != res->l) {
 		plog(LLV_ERROR, LOCATION, NULL,
@@ -1935,8 +1931,7 @@ eay_hmacsha1_final(c)
 
 	HMAC_Final((HMAC_CTX *)c, (unsigned char *) res->v, &l);
 	res->l = l;
-	HMAC_cleanup((HMAC_CTX *)c);
-	(void)racoon_free(c);
+	HMAC_CTX_free((HMAC_CTX *)c);
 
 	if (SHA_DIGEST_LENGTH != res->l) {
 		plog(LLV_ERROR, LOCATION, NULL,
@@ -1985,8 +1980,7 @@ eay_hmacmd5_final(c)
 
 	HMAC_Final((HMAC_CTX *)c, (unsigned char *) res->v, &l);
 	res->l = l;
-	HMAC_cleanup((HMAC_CTX *)c);
-	(void)racoon_free(c);
+	HMAC_CTX_free((HMAC_CTX *)c);
 
 	if (MD5_DIGEST_LENGTH != res->l) {
 		plog(LLV_ERROR, LOCATION, NULL,
@@ -2289,6 +2283,7 @@ eay_dh_generate(prime, g, publen, pub, priv)
 	u_int32_t g;
 {
 	BIGNUM *p = NULL;
+	BIGNUM *BNg = NULL;
 	DH *dh = NULL;
 	int error = -1;
 
@@ -2299,25 +2294,28 @@ eay_dh_generate(prime, g, publen, pub, priv)
 
 	if ((dh = DH_new()) == NULL)
 		goto end;
-	dh->p = p;
+	if ((BNg = BN_new()) == NULL)
+		goto end;
+	if (!BN_set_word(BNg, g))
+		goto end;
+	if (! DH_set0_pqg(dh, p, NULL, BNg))
+		goto end;
+	BNg = NULL;
 	p = NULL;	/* p is now part of dh structure */
-	dh->g = NULL;
-	if ((dh->g = BN_new()) == NULL)
-		goto end;
-	if (!BN_set_word(dh->g, g))
-		goto end;
 
 	if (publen != 0)
-		dh->length = publen;
+		DH_set_length(dh, publen);
 
 	/* generate public and private number */
 	if (!DH_generate_key(dh))
 		goto end;
 
 	/* copy results to buffers */
-	if (eay_bn2v(pub, dh->pub_key) < 0)
+	BIGNUM *pub_key, *priv_key;
+	DH_get0_key(dh, (const BIGNUM**) &pub_key, (const BIGNUM**) &priv_key);
+	if (eay_bn2v(pub, pub_key) < 0)
 		goto end;
-	if (eay_bn2v(priv, dh->priv_key) < 0) {
+	if (eay_bn2v(priv, priv_key) < 0) {
 		vfree(*pub);
 		goto end;
 	}
@@ -2329,6 +2327,8 @@ end:
 		DH_free(dh);
 	if (p != 0)
 		BN_free(p);
+	if (BNg != 0)
+		BN_free(BNg);
 	return(error);
 }
 
@@ -2350,19 +2350,26 @@ eay_dh_compute(prime, g, pub, priv, pub2, key)
 	/* make DH structure */
 	if ((dh = DH_new()) == NULL)
 		goto end;
-	if (eay_v2bn(&dh->p, prime) < 0)
-		goto end;
-	if (eay_v2bn(&dh->pub_key, pub) < 0)
-		goto end;
-	if (eay_v2bn(&dh->priv_key, priv) < 0)
-		goto end;
-	dh->length = pub2->l * 8;
+	BIGNUM *p = BN_new();
+	BIGNUM *BNg = BN_new();
+	BIGNUM *pub_key = BN_new();
+	BIGNUM *priv_key = BN_new();
 
-	dh->g = NULL;
-	if ((dh->g = BN_new()) == NULL)
+	if (p == NULL || BNg == NULL || pub_key == NULL || priv_key == NULL)
 		goto end;
-	if (!BN_set_word(dh->g, g))
+
+	if (eay_v2bn(&p, prime) < 0)
 		goto end;
+	if (eay_v2bn(&pub_key, pub) < 0)
+		goto end;
+	if (eay_v2bn(&priv_key, priv) < 0)
+		goto end;
+	if (!BN_set_word(BNg, g))
+		goto end;
+	DH_set0_key(dh, pub_key, priv_key);
+	DH_set_length(dh, pub2->l * 8);
+	DH_set0_pqg(dh, p, NULL, BNg);
+	pub_key = priv_key = p = BNg = NULL;
 
 	if ((v = racoon_calloc(prime->l, sizeof(u_char))) == NULL)
 		goto end;
@@ -2373,6 +2380,14 @@ eay_dh_compute(prime, g, pub, priv, pub2, key)
 	error = 0;
 
 end:
+	if (p != NULL)
+		BN_free(p);
+	if (BNg != NULL)
+		BN_free(BNg);
+	if (pub_key != NULL)
+		BN_free(pub_key);
+	if (priv_key != NULL)
+		BN_free(priv_key);
 	if (dh_pub != NULL)
 		BN_free(dh_pub);
 	if (dh != NULL)
@@ -2423,11 +2438,13 @@ eay_bn2v(var, bn)
 void
 eay_init()
 {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	OpenSSL_add_all_algorithms();
 	ERR_load_crypto_strings();
 #ifdef HAVE_OPENSSL_ENGINE_H
 	ENGINE_load_builtin_engines();
 	ENGINE_register_all_complete();
+#endif
 #endif
 }
 
@@ -2527,8 +2544,7 @@ binbuf_pubkey2rsa(vchar_t *binbuf)
 		goto out;
 	}
 	
-	rsa_pub->n = mod;
-	rsa_pub->e = exp;
+	RSA_set0_key(rsa_pub, mod, exp, NULL);
 
 out:
 	return rsa_pub;
@@ -2605,5 +2621,5 @@ eay_random()
 const char *
 eay_version()
 {
-	return SSLeay_version(SSLEAY_VERSION);
+	return OpenSSL_version(OPENSSL_VERSION);
 }
