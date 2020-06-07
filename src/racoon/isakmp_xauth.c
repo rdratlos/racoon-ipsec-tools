@@ -1472,6 +1472,7 @@ isakmp_xauth_req(iph1, attr)
 	/* Sanity checks */
 	switch(type) {
 	case XAUTH_TYPE:
+	case XAUTH_CPSC_TYPE:
 		if ((ntohs(attr->type) & ISAKMP_GEN_TV) == 0) {
 			plog(LLV_ERROR, LOCATION, NULL, 
 			    "Unexpected long XAUTH_TYPE attribute\n");
@@ -1489,6 +1490,7 @@ isakmp_xauth_req(iph1, attr)
 		break;
 
 	case XAUTH_USER_NAME:
+	case XAUTH_CPSC_USER_NAME:
 		if (!iph1->rmconf->xauth || !iph1->rmconf->xauth->login) {
 			plog(LLV_ERROR, LOCATION, NULL, "Xauth performed "
 			    "with no login supplied\n");
@@ -1499,6 +1501,7 @@ isakmp_xauth_req(iph1, attr)
 		iph1->rmconf->xauth->state |= XAUTH_SENT_USERNAME;
 		break;
 
+	case XAUTH_CPSC_USER_PASSWORD:
 	case XAUTH_USER_PASSWORD:
 		if (!iph1->rmconf->xauth || !iph1->rmconf->xauth->login)
 			return NULL;
@@ -1536,6 +1539,7 @@ isakmp_xauth_req(iph1, attr)
 
 		break;
 	case XAUTH_MESSAGE:
+	case XAUTH_CPSC_MESSAGE:
 		if ((ntohs(attr->type) & ISAKMP_GEN_TV) == 0) {
 			dlen = ntohs(attr->lorv);
 			if (dlen > 0) {
@@ -1579,6 +1583,7 @@ isakmp_xauth_req(iph1, attr)
 
 	switch(type) {
 	case XAUTH_USER_NAME:
+	case XAUTH_CPSC_USER_NAME:
 		/* 
 		 * iph1->rmconf->xauth->login->v is valid, 
 		 * we just checked it in the previous switch case 
@@ -1586,6 +1591,7 @@ isakmp_xauth_req(iph1, attr)
 		memcpy(data, iph1->rmconf->xauth->login->v, dlen);
 		break;
 	case XAUTH_USER_PASSWORD:
+	case XAUTH_CPSC_USER_PASSWORD:
 		memcpy(data, pwd->v, dlen);
 		break;
 	default:
@@ -1622,6 +1628,7 @@ isakmp_xauth_set(iph1, attr)
 
 	switch(type) {
 	case XAUTH_STATUS:
+	case XAUTH_CPSC_STATUS:
 		/* 
 		 * We should only receive ISAKMP mode_cfg SET XAUTH_STATUS
 		 * when running as a client (initiator).
@@ -1660,6 +1667,7 @@ isakmp_xauth_set(iph1, attr)
 		/* We acknowledge it */
 		break;
 	case XAUTH_MESSAGE:
+	case XAUTH_CPSC_MESSAGE:
 		if ((ntohs(attr->type) & ISAKMP_GEN_TV) == 0) {
 			dlen = ntohs(attr->lorv);
 			if (dlen > 0) {
@@ -1676,7 +1684,7 @@ isakmp_xauth_set(iph1, attr)
 				racoon_free(mdata);
 			}
 		}
-
+		return NULL;
 	default:
 		plog(LLV_WARNING, LOCATION, NULL,
 		    "Ignored attribute %s\n", s_isakmp_cfg_type(type));

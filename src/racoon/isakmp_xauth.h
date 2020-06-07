@@ -58,6 +58,16 @@
 #define	XAUTH_STATUS_FAIL       0
 #define	XAUTH_STATUS_OK         1
 
+/* ISAKMP mode config attribute types specific to CPSC */
+#define XAUTH_CPSC_TYPE			13
+#define XAUTH_CPSC_USER_NAME		14
+#define XAUTH_CPSC_USER_PASSWORD	15
+#define XAUTH_CPSC_PASSCODE		16
+#define XAUTH_CPSC_MESSAGE		17
+#define XAUTH_CPSC_CHALLENGE		18
+#define XAUTH_CPSC_DOMAIN		19
+#define XAUTH_CPSC_STATUS		20
+
 /* For phase 1 Xauth status */
 struct xauth_state {
 	int status; /* authentication status, used only on server side */

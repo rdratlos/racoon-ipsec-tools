@@ -498,6 +498,8 @@ isakmp_cfg_request(iph1, attrpl)
 	vchar_t *reply_attr;
 	int type;
 	int error = -1;
+	int cpsc_request = 0;
+	int cpsc_handled = 0;
 
 	if ((payload = vmalloc(sizeof(*reply))) == NULL) {
 		plog(LLV_ERROR, LOCATION, NULL, "Cannot allocate memory\n");
@@ -523,6 +525,11 @@ isakmp_cfg_request(iph1, attrpl)
 
 			switch (type) {
 			case XAUTH_TYPE:
+				reply_attr = isakmp_xauth_req(iph1, attr);
+				break;
+                        case XAUTH_CPSC_TYPE:
+                                cpsc_request = 1;
+				iph1->mode_cfg->flags |= ISAKMP_CFG_VENDORID_XAUTH;
 				reply_attr = isakmp_xauth_req(iph1, attr);
 				break;
 			default:
@@ -558,53 +565,70 @@ isakmp_cfg_request(iph1, attrpl)
 		     "Attribute %s, len %zu\n",
 		     s_isakmp_cfg_type(type), alen);
 
-		switch(type) {
-		case INTERNAL_IP4_ADDRESS:
-		case INTERNAL_IP4_NETMASK:
-		case INTERNAL_IP4_DNS:
-		case INTERNAL_IP4_NBNS:
-		case INTERNAL_IP4_SUBNET:
-			reply_attr = isakmp_cfg_net(iph1, attr);
-			break;
+		cpsc_handled = 0;
+		if (cpsc_request) {
+		        switch(type) {
+	                case XAUTH_CPSC_TYPE:
+	                case XAUTH_CPSC_USER_NAME:
+	                case XAUTH_CPSC_USER_PASSWORD:
+	                case XAUTH_CPSC_MESSAGE:
+	                case XAUTH_CPSC_CHALLENGE:
+	                case XAUTH_CPSC_STATUS:
+				reply_attr = isakmp_xauth_req(iph1, attr);
+				cpsc_handled = 1;
+				break;
+                        }
+                }
 
-		case XAUTH_TYPE:
-		case XAUTH_USER_NAME:
-		case XAUTH_USER_PASSWORD:
-		case XAUTH_PASSCODE:
-		case XAUTH_MESSAGE:
-		case XAUTH_CHALLENGE:
-		case XAUTH_DOMAIN:
-		case XAUTH_STATUS:
-		case XAUTH_NEXT_PIN:
-		case XAUTH_ANSWER:
-			reply_attr = isakmp_xauth_req(iph1, attr);
-			break;
+		if (!cpsc_handled) {
+			switch(type) {
+			case INTERNAL_IP4_ADDRESS:
+			case INTERNAL_IP4_NETMASK:
+			case INTERNAL_IP4_DNS:
+			case INTERNAL_IP4_NBNS:
+			case INTERNAL_IP4_SUBNET:
+				reply_attr = isakmp_cfg_net(iph1, attr);
+				break;
 
-		case APPLICATION_VERSION:
-			reply_attr = isakmp_cfg_string(iph1, 
-			    attr, ISAKMP_CFG_RACOON_VERSION);
-			break;
+			case XAUTH_TYPE:
+			case XAUTH_USER_NAME:
+			case XAUTH_USER_PASSWORD:
+			case XAUTH_PASSCODE:
+			case XAUTH_MESSAGE:
+			case XAUTH_CHALLENGE:
+			case XAUTH_DOMAIN:
+			case XAUTH_STATUS:
+			case XAUTH_NEXT_PIN:
+			case XAUTH_ANSWER:
+				reply_attr = isakmp_xauth_req(iph1, attr);
+				break;
 
-		case UNITY_BANNER:
-		case UNITY_PFS:
-		case UNITY_SAVE_PASSWD:
-		case UNITY_DEF_DOMAIN:
-		case UNITY_DDNS_HOSTNAME:
-		case UNITY_FW_TYPE:
-		case UNITY_SPLITDNS_NAME:
-		case UNITY_SPLIT_INCLUDE:
-		case UNITY_LOCAL_LAN:
-		case UNITY_NATT_PORT:
-		case UNITY_BACKUP_SERVERS:
-			reply_attr = isakmp_unity_req(iph1, attr);
-			break;
+			case APPLICATION_VERSION:
+				reply_attr = isakmp_cfg_string(iph1, 
+				attr, ISAKMP_CFG_RACOON_VERSION);
+				break;
 
-		case INTERNAL_ADDRESS_EXPIRY:
-		default:
-			plog(LLV_WARNING, LOCATION, NULL,
-			     "Ignored attribute %s\n",
-			     s_isakmp_cfg_type(type));
-			break;
+			case UNITY_BANNER:
+			case UNITY_PFS:
+			case UNITY_SAVE_PASSWD:
+			case UNITY_DEF_DOMAIN:
+			case UNITY_DDNS_HOSTNAME:
+			case UNITY_FW_TYPE:
+			case UNITY_SPLITDNS_NAME:
+			case UNITY_SPLIT_INCLUDE:
+			case UNITY_LOCAL_LAN:
+			case UNITY_NATT_PORT:
+			case UNITY_BACKUP_SERVERS:
+				reply_attr = isakmp_unity_req(iph1, attr);
+				break;
+
+			case INTERNAL_ADDRESS_EXPIRY:
+			default:
+				plog(LLV_WARNING, LOCATION, NULL,
+				"Ignored attribute %s\n",
+				s_isakmp_cfg_type(type));
+				break;
+			}
 		}
 
 		npp = (char *)attr;
@@ -690,6 +714,8 @@ isakmp_cfg_set(iph1, attrpl)
 		
 		switch (type & ~ISAKMP_GEN_MASK) {
 		case XAUTH_STATUS:
+		case XAUTH_CPSC_STATUS:
+		case XAUTH_CPSC_MESSAGE:		
 			reply_attr = isakmp_xauth_set(iph1, attr);
 			break;
 		default:
@@ -1733,9 +1759,25 @@ isakmp_cfg_getconfig(iph1)
 		UNITY_LOCAL_LAN,
 		APPLICATION_VERSION,
 	};
+	int attrlen[] = {
+	        4,
+	        4,
+	        4,
+	        4,
+	        0,
+	        0,
+	        0,
+	        0,
+	        0,
+	        0,
+        };
 
 	attrcount = sizeof(attrlist) / sizeof(*attrlist);
 	len = sizeof(*attrpl) + sizeof(*attr) * attrcount;
+	
+	for (i = 0; i < attrcount; i++) {
+	        len += attrlen[i];
+        }
 	    
 	if ((buffer = vmalloc(len)) == NULL) {
 		plog(LLV_ERROR, LOCATION, NULL, "Cannot allocate memory\n");
@@ -1751,8 +1793,9 @@ isakmp_cfg_getconfig(iph1)
 
 	for (i = 0; i < attrcount; i++) {
 		attr->type = htons(attrlist[i]);
-		attr->lorv = htons(0);
+		attr->lorv = htons(attrlen[i]);
 		attr++;
+		attr = (struct isakmp_data *) ((char*) attr + attrlen[i]);
 	}
 
 	plog(LLV_DEBUG, LOCATION, NULL, 
