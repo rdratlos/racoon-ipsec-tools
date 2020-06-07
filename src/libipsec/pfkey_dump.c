@@ -695,7 +695,7 @@ static char *
 str_prefport(family, pref, port, ulp)
 	u_int family, pref, port, ulp;
 {
-	static char buf[128];
+	static char buf[256];
 	char prefbuf[128];
 	char portbuf[128];
 	int plen;

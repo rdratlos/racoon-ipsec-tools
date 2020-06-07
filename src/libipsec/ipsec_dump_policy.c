@@ -101,7 +101,7 @@ ipsec_dump_policy1(policy, delimiter, withports)
 	struct sadb_x_ipsecrequest *xisr;
 	size_t off, buflen;
 	char *buf;
-	char isrbuf[1024];
+	char isrbuf[4096];
 	char *newbuf;
 
 #ifdef HAVE_PFKEY_POLICY_PRIORITY
@@ -284,7 +284,7 @@ ipsec_dump_ipsecrequest(buf, len, xisr, bound, withports)
 	int withports;
 {
 	const char *proto, *mode, *level;
-	char abuf[NI_MAXHOST * 2 + 2];
+	char abuf[(NI_MAXHOST + NI_MAXSERV + 2) * 2 + 2];
 
 	if (xisr->sadb_x_ipsecrequest_len > bound) {
 		__ipsec_errcode = EIPSEC_INVAL_PROTO;
@@ -383,7 +383,7 @@ set_addresses(buf, len, sa1, sa2, withports)
 	struct sockaddr *sa2;
 	int withports;
 {
-	char tmp1[NI_MAXHOST], tmp2[NI_MAXHOST];
+	char tmp1[NI_MAXHOST + NI_MAXSERV + 2], tmp2[NI_MAXHOST + NI_MAXSERV + 2];
 
 	if (set_address(tmp1, sizeof(tmp1), sa1, withports) == NULL ||
 	    set_address(tmp2, sizeof(tmp2), sa2, withports) == NULL)
