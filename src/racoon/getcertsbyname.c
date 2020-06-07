@@ -213,6 +213,8 @@ getcertsbyname(name, res)
 	char hostbuf[1024];	/* XXX */
 	int qtype, qclass, keytag, algorithm;
 	struct certinfo head, *cur;
+	struct __res_state *_resp = &_res;
+	u_long _res_options = 0;
 	int error = -1;
 
 	/* initialize res */
@@ -222,6 +224,12 @@ getcertsbyname(name, res)
 	cur = &head;
 
 	/* get CERT RR */
+	/* Bit bang _res libc resolver global, we are single threaded */
+	if ((_resp->options & RES_INIT) == 0 && res_init() == -1) {
+		goto end;
+	}
+	_res_options = _resp->options;
+	_resp->options |= (RES_USE_EDNS0|RES_USE_DNSSEC);
 	buflen = 512;
 	do {
 
@@ -241,6 +249,8 @@ getcertsbyname(name, res)
 			goto end;
 
 	} while (buflen < anslen);
+	/* Undo resolver options */
+	_resp->options = _res_options;
 
 #ifdef DNSSEC_DEBUG
 	printf("get a DNS packet len=%d\n", anslen);
@@ -252,6 +262,15 @@ getcertsbyname(name, res)
 	hp = (HEADER *)answer;
 	qdcount = ntohs(hp->qdcount);
 	ancount = ntohs(hp->ancount);
+
+	/* Check if DNS server has validated answer or not */
+	if (hp->ad == 0 && hp->aa==0) {
+#ifdef DNSSEC_DEBUG
+		printf("answer is not authenticated.\n");
+#endif
+		h_errno = NO_RECOVERY;
+		goto end;
+	}
 
 	/* question section */
 	if (qdcount != 1) {
