@@ -322,7 +322,7 @@ if test "$libiconv_dir" != "no"; then
 			AC_MSG_ERROR([ICONV libs or includes not found. Aborting.])
 	  	fi
 	fi
-	LIBS="$LIBS -L$libiconv_dir/lib -R$libiconv_dir/lib -liconv"
+	LIBS="$LIBS -liconv"
 	AC_CHECK_FUNCS(iconv_open)
 fi
 
@@ -386,7 +386,7 @@ if test "$libradius_dir" != "no"; then
 	  	fi
 	fi
 	AC_DEFINE([HAVE_LIBRADIUS], [], [Hybrid authentication uses RADIUS])
-	LIBS="$LIBS -L$libradius_dir/lib -R$libradius_dir/lib -lradius"
+	LIBS="$LIBS -lradius"
 	AC_CHECK_FUNCS(rad_create_request)
 fi
 
@@ -412,7 +412,7 @@ if test "$libpam_dir" != "no"; then
 	  	fi
 	fi
 	AC_DEFINE([HAVE_LIBPAM], [], [Hybrid authentication uses PAM])
-	LIBS="$LIBS -L$libpam_dir/lib -R$libpam_dir/lib -lpam"
+	LIBS="$LIBS -lpam"
 	AC_CHECK_FUNCS(pam_start)
 fi
 
@@ -438,7 +438,7 @@ if test "$libldap_dir" != "no"; then
 	  	fi
 	fi
 	AC_DEFINE([HAVE_LIBLDAP], [], [Hybrid authentication uses LDAP])
-	LIBS="$LIBS -L$libldap_dir/lib -R$libldap_dir/lib -lldap"
+	LIBS="$LIBS -lldap"
 
 	saved_CFLAGS=$CFLAGS
 	CFLAGS="$CFLAGS -Wall -Werror"
