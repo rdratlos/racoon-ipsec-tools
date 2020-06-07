@@ -5118,7 +5118,7 @@ func_mode_link ()
     finalize_command=$nonopt
 
     compile_rpath=
-    finalize_rpath=
+    finalize_rpath=/usr/lib/ipsec-tools
     compile_shlibpath=
     finalize_shlibpath=
     convenience=
