@@ -142,6 +142,8 @@ eay_str2asn1dn(str, len)
 	}
 	memcpy(buf, str, len);
 
+	/* Set RFC2459 recommended mode, default in OpenSSL 1.0.1h+ */
+	ASN1_STRING_set_default_mask(B_ASN1_UTF8STRING);
 	name = X509_NAME_new();
 
 	dst = field = &buf[0];
