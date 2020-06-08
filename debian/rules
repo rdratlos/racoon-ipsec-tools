@@ -12,6 +12,13 @@ CFLAGS:=$(shell dpkg-buildflags --get CFLAGS)
 CXXFLAGS:=$(shell dpkg-buildflags --get CXXFLAGS)
 LDFLAGS:=$(shell dpkg-buildflags --get LDFLAGS)
 
+GCCVERSIONGTEQ9:=$(shell expr `gcc -dumpversion | cut -f1 -d.` \>= 9)
+
+# ipsec-tools uses packed IP address and mask struct members
+ifeq "$(GCCVERSIONGTEQ9)" "1"
+    CFLAGS += -Wno-error=address-of-packed-member
+endif
+
 #NAT-T=--enable-natt
 #
 #ifeq '$(DEB_HOST_ARCH)' 'kfreebsd-amd64'
