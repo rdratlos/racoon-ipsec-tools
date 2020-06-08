@@ -11,9 +11,8 @@ this patch addresses build problems on kfreebsd
  src/racoon/isakmp.c         | 7 +++++--
  src/racoon/nattraversal.c   | 2 +-
  src/racoon/pfkey.c          | 2 +-
- src/setkey/token.c          | 2 +-
  src/setkey/token.l          | 2 +-
- 9 files changed, 20 insertions(+), 10 deletions(-)
+ 8 files changed, 19 insertions(+), 9 deletions(-)
 
 diff --git a/configure.ac b/configure.ac
 index c55aa00..b9d6c0b 100644
@@ -136,19 +135,6 @@ index d00b166..0442cd9 100644
  #  include <netinet/udp.h>
  # endif
  #endif
-diff --git a/src/setkey/token.c b/src/setkey/token.c
-index f533cfc..cb36b3d 100644
---- a/src/setkey/token.c
-+++ b/src/setkey/token.c
-@@ -1043,7 +1043,7 @@ char *yytext;
- 
- #include "vchar.h"
- #if defined(__NetBSD__) || defined(__FreeBSD__) || defined(__linux__) || \
--(defined(__APPLE__) && defined(__MACH__))
-+(defined(__APPLE__) && defined(__MACH__)) || defined(__FreeBSD_kernel__)
- #include "parse.h"
- #else
- #include "y.tab.h"
 diff --git a/src/setkey/token.l b/src/setkey/token.l
 index ad3d843..768d80e 100644
 --- a/src/setkey/token.l
