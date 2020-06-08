@@ -1,0 +1,102 @@
+From: ozaki-r <ozaki-r@NetBSD.org>
+Date: Tue, 23 Jul 2019 04:30:32 +0000
+Subject: NetBSD-setkey: enable to use the getspi API
+
+NetBSD patch adapted to Debian source
+
+If a specified SPI is not zero, tell the kernel to use the SPI by using
+SADB_EXT_SPIRANGE.  Otherwise, the kernel picks a random SPI.
+
+It enables to mimic racoon.
+
+Signed-off-by: Thomas Reim <reimth@gmail.com>
+---
+ src/setkey/parse.y | 31 +++++++++++++++++++++++++++++--
+ src/setkey/token.l |  3 ++-
+ 2 files changed, 31 insertions(+), 3 deletions(-)
+
+diff --git a/src/setkey/parse.y b/src/setkey/parse.y
+index 4a1785f..ecbda28 100644
+--- a/src/setkey/parse.y
++++ b/src/setkey/parse.y
+@@ -1,4 +1,4 @@
+-/*	$NetBSD: parse.y,v 1.22 2018/10/14 08:27:39 maxv Exp $	*/
++/*	$NetBSD: parse.y,v 1.23 2019/07/23 04:30:32 ozaki-r Exp $	*/
+ /*	$KAME: parse.y,v 1.81 2003/07/01 04:01:48 itojun Exp $	*/
+ 
+ /*
+@@ -114,7 +114,7 @@ static int setkeymsg_add(unsigned int, unsigned int,
+ }
+ 
+ %token EOT SLASH BLCL ELCL
+-%token ADD GET DELETE DELETEALL FLUSH DUMP EXIT
++%token ADD UPDATE GET GETSPI DELETE DELETEALL FLUSH DUMP EXIT
+ %token PR_ESP PR_AH PR_IPCOMP PR_ESPUDP PR_TCP
+ %token F_PROTOCOL F_AUTH F_ENC F_REPLAY F_COMP F_RAWCPI
+ %token F_MODE MODE F_REQID
+@@ -159,6 +159,7 @@ commands
+ command
+ 	:	add_command
+ 	|	get_command
++	|	getspi_command
+ 	|	delete_command
+ 	|	deleteall_command
+ 	|	flush_command
+@@ -246,6 +247,17 @@ get_command
+ 		}
+ 	;
+ 
++	/* getspi command */
++getspi_command
++	:	GETSPI ipaddropts ipandport ipandport protocol_spec spi extension_spec EOT
++		{
++			int status;
++
++			status = setkeymsg_add(SADB_GETSPI, $5, $3, $4);
++			if (status < 0)
++				return -1;
++		}
++
+ 	/* flush */
+ flush_command
+ 	:	FLUSH protocol_spec EOT
+@@ -1382,6 +1394,21 @@ setkeymsg_add(type, satype, srcs, dsts)
+ 	}
+ #endif
+ 
++	/* SPI == 0 allows the kernel to pick a random SPI */
++	if (type == SADB_GETSPI && p_spi != 0) {
++		struct sadb_spirange spirange;
++		u_int slen = sizeof(struct sadb_spirange);
++
++		memset(&spirange, 0, sizeof(spirange));
++		spirange.sadb_spirange_len = PFKEY_UNIT64(slen);
++		spirange.sadb_spirange_exttype = SADB_EXT_SPIRANGE;
++		spirange.sadb_spirange_min = p_spi;
++		spirange.sadb_spirange_max = p_spi;
++
++		memcpy(buf + l, &spirange, slen);
++		l += slen;
++	}
++
+ 	len = sizeof(struct sadb_sa);
+ 	m_sa.sadb_sa_len = PFKEY_UNIT64(len);
+ 	m_sa.sadb_sa_exttype = SADB_EXT_SA;
+diff --git a/src/setkey/token.l b/src/setkey/token.l
+index ffb740d..ac6224b 100644
+--- a/src/setkey/token.l
++++ b/src/setkey/token.l
+@@ -1,4 +1,4 @@
+-/*	$NetBSD: token.l,v 1.22 2018/10/14 08:27:39 maxv Exp $ */
++/*	$NetBSD: token.l,v 1.23 2019/07/23 04:30:32 ozaki-r Exp $	*/
+ /*	$KAME: token.l,v 1.44 2003/10/21 07:20:58 itojun Exp $	*/
+ 
+ /*
+@@ -118,6 +118,7 @@ add		{ return(ADD); }
+ delete		{ return(DELETE); }
+ deleteall	{ return(DELETEALL); }
+ get		{ return(GET); }
++getspi		{ return(GETSPI); }
+ flush		{ return(FLUSH); }
+ dump		{ return(DUMP); }
+ exit		{ return(EXIT); }

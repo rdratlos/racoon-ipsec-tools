@@ -1,46 +1,105 @@
-Index: pkg-ipsec-tools/src/racoon/eaytest.c
+From: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Date: Sun, 7 Jun 2020 15:41:19 +0200
+Subject: openssl1.1
+
 ===================================================================
---- pkg-ipsec-tools.orig/src/racoon/eaytest.c
-+++ pkg-ipsec-tools/src/racoon/eaytest.c
-@@ -62,6 +62,7 @@
- #include "dhgroup.h"
- #include "crypto_openssl.h"
- #include "gnuc.h"
-+#include "openssl_compat.h"
+---
+ src/racoon/Makefile.am      |  10 +--
+ src/racoon/algorithm.c      |   6 +-
+ src/racoon/crypto_openssl.c | 198 +++++++++++++++++++++-------------------
+ src/racoon/crypto_openssl.h |   2 +-
+ src/racoon/eaytest.c        |   7 +-
+ src/racoon/ipsec_doi.c      |   2 +-
+ src/racoon/openssl_compat.c | 213 ++++++++++++++++++++++++++++++++++++++++++++
+ src/racoon/openssl_compat.h |  45 ++++++++++
+ src/racoon/plainrsa-gen.c   |  41 +++++----
+ src/racoon/prsa_par.y       |  28 ++++--
+ src/racoon/rsalist.c        |   5 +-
+ 11 files changed, 431 insertions(+), 126 deletions(-)
+ create mode 100644 src/racoon/openssl_compat.c
+ create mode 100644 src/racoon/openssl_compat.h
+
+diff --git a/src/racoon/Makefile.am b/src/racoon/Makefile.am
+index dbaded9..4c585f3 100644
+--- a/src/racoon/Makefile.am
++++ b/src/racoon/Makefile.am
+@@ -4,7 +4,7 @@ sbin_PROGRAMS = racoon racoonctl plainrsa-gen
+ noinst_PROGRAMS = eaytest
+ include_racoon_HEADERS = racoonctl.h var.h vmbuf.h misc.h gcmalloc.h admin.h \
+ 	schedule.h sockmisc.h isakmp_var.h isakmp.h isakmp_xauth.h \
+-	isakmp_cfg.h isakmp_unity.h ipsec_doi.h evt.h
++	isakmp_cfg.h isakmp_unity.h ipsec_doi.h evt.h openssl_compat.h
+ lib_LTLIBRARIES = libracoon.la
  
- #include "package_version.h"
+ adminsockdir=${localstatedir}/racoon
+@@ -32,7 +32,7 @@ racoon_SOURCES = \
+ 	gssapi.c dnssec.c getcertsbyname.c privsep.c \
+ 	pfkey.c admin.c evt.c ipsec_doi.c oakley.c grabmyaddr.c vendorid.c \
+ 	policy.c localconf.c remoteconf.c crypto_openssl.c algorithm.c \
+-	proposal.c sainfo.c strnames.c \
++	openssl_compat.c proposal.c sainfo.c strnames.c \
+ 	plog.c logger.c schedule.c str2val.c \
+ 	safefile.c backupsa.c genlist.c rsalist.c \
+ 	cftoken.l cfparse.y prsa_tok.l prsa_par.y 
+@@ -51,12 +51,12 @@ libracoon_la_SOURCES = kmpstat.c vmbuf.c sockmisc.c misc.c
+ libracoon_la_CFLAGS = -DNOUSE_PRIVSEP $(AM_CFLAGS)
  
-@@ -103,7 +104,7 @@ rsa_verify_with_pubkey(src, sig, pubkey_
- 		printf ("PEM_read_PUBKEY(): %s\n", eay_strerror());
- 		return -1;
- 	}
--	error = eay_check_rsasign(src, sig, evp->pkey.rsa);
-+	error = eay_check_rsasign(src, sig, EVP_PKEY_get0_RSA(evp));
+ plainrsa_gen_SOURCES = plainrsa-gen.c plog.c \
+-	crypto_openssl.c logger.c 
++	crypto_openssl.c logger.c openssl_compat.c
+ EXTRA_plainrsa_gen_SOURCES = $(MISSING_ALGOS)
+ plainrsa_gen_LDADD = $(CRYPTOBJS) vmbuf.o misc.o
+ plainrsa_gen_DEPENDENCIES = $(CRYPTOBJS) vmbuf.o misc.o
  
- 	return error;
- }
-@@ -698,7 +699,7 @@ ciphertest(ac, av)
- 			  eay_cast_encrypt, eay_cast_decrypt) < 0)
- 	  return -1;
- 	
+-eaytest_SOURCES = eaytest.c plog.c logger.c
++eaytest_SOURCES = eaytest.c plog.c logger.c openssl_compat.c
+ EXTRA_eaytest_SOURCES = missing/crypto/sha2/sha2.c
+ eaytest_LDADD =	crypto_openssl_test.o vmbuf.o str2val.o misc_noplog.o \
+ 	$(CRYPTOBJS)
+@@ -75,7 +75,7 @@ noinst_HEADERS = \
+ 	debugrm.h         isakmp.h      misc.h          sainfo.h \
+ 	dhgroup.h         isakmp_agg.h  netdb_dnssec.h  schedule.h \
+ 	isakmp_cfg.h      isakmp_xauth.h isakmp_unity.h isakmp_frag.h \
+-	throttle.h	  privsep.h \
++	throttle.h	  privsep.h     openssl_compat.h \
+ 	cfparse_proto.h	  cftoken_proto.h genlist.h     rsalist.h \
+ 	missing/crypto/sha2/sha2.h missing/crypto/rijndael/rijndael_local.h \
+ 	missing/crypto/rijndael/rijndael-api-fst.h \
+diff --git a/src/racoon/algorithm.c b/src/racoon/algorithm.c
+index 3fd50f6..66c874b 100644
+--- a/src/racoon/algorithm.c
++++ b/src/racoon/algorithm.c
+@@ -128,7 +128,7 @@ static struct enc_algorithm oakley_encdef[] = {
+ { "aes",	algtype_aes,	OAKLEY_ATTR_ENC_ALG_AES,	16,
+ 		eay_aes_encrypt,	eay_aes_decrypt,
+ 		eay_aes_weakkey,	eay_aes_keylen, },
+-#ifdef HAVE_OPENSSL_CAMELLIA_H
++#if defined(HAVE_OPENSSL_CAMELLIA_H) && ! defined(OPENSSL_NO_CAMELLIA)
+ { "camellia",	algtype_camellia,	OAKLEY_ATTR_ENC_ALG_CAMELLIA,	16,
+ 		eay_camellia_encrypt,	eay_camellia_decrypt,
+ 		eay_camellia_weakkey,	eay_camellia_keylen, },
+@@ -168,7 +168,7 @@ static struct enc_algorithm ipsec_encdef[] = {
+ { "twofish",	algtype_twofish,	IPSECDOI_ESP_TWOFISH,		16,
+ 		NULL,			NULL,
+ 		NULL,			eay_twofish_keylen, },
 -#ifdef HAVE_OPENSSL_IDEA_H
 +#if defined(HAVE_OPENSSL_IDEA_H) && ! defined(OPENSSL_NO_IDEA)
- 	if (ciphertest_1 ("IDEA",
- 			  &data, 8,
- 			  &key, key.l,
-@@ -715,7 +716,7 @@ ciphertest(ac, av)
- 			  eay_rc5_encrypt, eay_rc5_decrypt) < 0)
- 	  return -1;
- #endif
--#if defined(HAVE_OPENSSL_CAMELLIA_H)
+ { "3idea",	algtype_3idea,		IPSECDOI_ESP_3IDEA,		8,
+ 		NULL,			NULL,
+ 		NULL,			NULL, },
+@@ -179,7 +179,7 @@ static struct enc_algorithm ipsec_encdef[] = {
+ { "rc4",	algtype_rc4,		IPSECDOI_ESP_RC4,		8,
+ 		NULL,			NULL,
+ 		NULL,			NULL, },
+-#ifdef HAVE_OPENSSL_CAMELLIA_H
 +#if defined(HAVE_OPENSSL_CAMELLIA_H) && ! defined(OPENSSL_NO_CAMELLIA)
- 	if (ciphertest_1 ("CAMELLIA",
- 			  &data, 16,
- 			  &key, key.l,
-Index: pkg-ipsec-tools/src/racoon/crypto_openssl.c
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/crypto_openssl.c
-+++ pkg-ipsec-tools/src/racoon/crypto_openssl.c
+ { "camellia",	algtype_camellia,	IPSECDOI_ESP_CAMELLIA,		16,
+ 		NULL,			NULL,
+ 		NULL,			eay_camellia_keylen, },
+diff --git a/src/racoon/crypto_openssl.c b/src/racoon/crypto_openssl.c
+index 02b0376..2fa71bc 100644
+--- a/src/racoon/crypto_openssl.c
++++ b/src/racoon/crypto_openssl.c
 @@ -90,6 +90,7 @@
  #endif
  #endif
@@ -200,7 +259,7 @@ Index: pkg-ipsec-tools/src/racoon/crypto_openssl.c
  
  	if (!e)
  		return NULL;
-@@ -1134,7 +1146,7 @@ evp_crypt(vchar_t *data, vchar_t *key, v
+@@ -1134,7 +1146,7 @@ evp_crypt(vchar_t *data, vchar_t *key, vchar_t *iv, const EVP_CIPHER *e, int enc
  	if ((res = vmalloc(data->l)) == NULL)
  		return NULL;
  
@@ -209,7 +268,7 @@ Index: pkg-ipsec-tools/src/racoon/crypto_openssl.c
  
  	switch(EVP_CIPHER_nid(e)){
  	case NID_bf_cbc:
-@@ -1148,54 +1160,41 @@ evp_crypt(vchar_t *data, vchar_t *key, v
+@@ -1148,54 +1160,41 @@ evp_crypt(vchar_t *data, vchar_t *key, vchar_t *iv, const EVP_CIPHER *e, int enc
  		/* XXX: can we do that also for algos with a fixed key size ?
  		 */
  		/* init context without key/iv
@@ -368,7 +427,7 @@ Index: pkg-ipsec-tools/src/racoon/crypto_openssl.c
  
  	if (MD5_DIGEST_LENGTH != res->l) {
  		plog(LLV_ERROR, LOCATION, NULL,
-@@ -2289,6 +2283,7 @@ eay_dh_generate(prime, g, publen, pub, p
+@@ -2289,6 +2283,7 @@ eay_dh_generate(prime, g, publen, pub, priv)
  	u_int32_t g;
  {
  	BIGNUM *p = NULL;
@@ -376,7 +435,7 @@ Index: pkg-ipsec-tools/src/racoon/crypto_openssl.c
  	DH *dh = NULL;
  	int error = -1;
  
-@@ -2299,25 +2294,28 @@ eay_dh_generate(prime, g, publen, pub, p
+@@ -2299,25 +2294,28 @@ eay_dh_generate(prime, g, publen, pub, priv)
  
  	if ((dh = DH_new()) == NULL)
  		goto end;
@@ -422,7 +481,7 @@ Index: pkg-ipsec-tools/src/racoon/crypto_openssl.c
  	return(error);
  }
  
-@@ -2350,19 +2350,26 @@ eay_dh_compute(prime, g, pub, priv, pub2
+@@ -2350,19 +2350,26 @@ eay_dh_compute(prime, g, pub, priv, pub2, key)
  	/* make DH structure */
  	if ((dh = DH_new()) == NULL)
  		goto end;
@@ -457,7 +516,7 @@ Index: pkg-ipsec-tools/src/racoon/crypto_openssl.c
  
  	if ((v = racoon_calloc(prime->l, sizeof(u_char))) == NULL)
  		goto end;
-@@ -2373,6 +2380,14 @@ eay_dh_compute(prime, g, pub, priv, pub2
+@@ -2373,6 +2380,14 @@ eay_dh_compute(prime, g, pub, priv, pub2, key)
  	error = 0;
  
  end:
@@ -504,42 +563,11 @@ Index: pkg-ipsec-tools/src/racoon/crypto_openssl.c
 -	return SSLeay_version(SSLEAY_VERSION);
 +	return OpenSSL_version(OPENSSL_VERSION);
  }
-Index: pkg-ipsec-tools/src/racoon/algorithm.c
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/algorithm.c
-+++ pkg-ipsec-tools/src/racoon/algorithm.c
-@@ -128,7 +128,7 @@ static struct enc_algorithm oakley_encde
- { "aes",	algtype_aes,	OAKLEY_ATTR_ENC_ALG_AES,	16,
- 		eay_aes_encrypt,	eay_aes_decrypt,
- 		eay_aes_weakkey,	eay_aes_keylen, },
--#ifdef HAVE_OPENSSL_CAMELLIA_H
-+#if defined(HAVE_OPENSSL_CAMELLIA_H) && ! defined(OPENSSL_NO_CAMELLIA)
- { "camellia",	algtype_camellia,	OAKLEY_ATTR_ENC_ALG_CAMELLIA,	16,
- 		eay_camellia_encrypt,	eay_camellia_decrypt,
- 		eay_camellia_weakkey,	eay_camellia_keylen, },
-@@ -168,7 +168,7 @@ static struct enc_algorithm ipsec_encdef
- { "twofish",	algtype_twofish,	IPSECDOI_ESP_TWOFISH,		16,
- 		NULL,			NULL,
- 		NULL,			eay_twofish_keylen, },
--#ifdef HAVE_OPENSSL_IDEA_H
-+#if defined(HAVE_OPENSSL_IDEA_H) && ! defined(OPENSSL_NO_IDEA)
- { "3idea",	algtype_3idea,		IPSECDOI_ESP_3IDEA,		8,
- 		NULL,			NULL,
- 		NULL,			NULL, },
-@@ -179,7 +179,7 @@ static struct enc_algorithm ipsec_encdef
- { "rc4",	algtype_rc4,		IPSECDOI_ESP_RC4,		8,
- 		NULL,			NULL,
- 		NULL,			NULL, },
--#ifdef HAVE_OPENSSL_CAMELLIA_H
-+#if defined(HAVE_OPENSSL_CAMELLIA_H) && ! defined(OPENSSL_NO_CAMELLIA)
- { "camellia",	algtype_camellia,	IPSECDOI_ESP_CAMELLIA,		16,
- 		NULL,			NULL,
- 		NULL,			eay_camellia_keylen, },
-Index: pkg-ipsec-tools/src/racoon/crypto_openssl.h
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/crypto_openssl.h
-+++ pkg-ipsec-tools/src/racoon/crypto_openssl.h
-@@ -124,7 +124,7 @@ extern vchar_t *eay_aes_decrypt __P((vch
+diff --git a/src/racoon/crypto_openssl.h b/src/racoon/crypto_openssl.h
+index 66fac73..ee5b765 100644
+--- a/src/racoon/crypto_openssl.h
++++ b/src/racoon/crypto_openssl.h
+@@ -124,7 +124,7 @@ extern vchar_t *eay_aes_decrypt __P((vchar_t *, vchar_t *, vchar_t *));
  extern int eay_aes_weakkey __P((vchar_t *));
  extern int eay_aes_keylen __P((int));
  
@@ -548,10 +576,49 @@ Index: pkg-ipsec-tools/src/racoon/crypto_openssl.h
  /* Camellia */
  extern vchar_t *eay_camellia_encrypt __P((vchar_t *, vchar_t *, vchar_t *));
  extern vchar_t *eay_camellia_decrypt __P((vchar_t *, vchar_t *, vchar_t *));
-Index: pkg-ipsec-tools/src/racoon/ipsec_doi.c
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/ipsec_doi.c
-+++ pkg-ipsec-tools/src/racoon/ipsec_doi.c
+diff --git a/src/racoon/eaytest.c b/src/racoon/eaytest.c
+index b1a3bbf..21fee15 100644
+--- a/src/racoon/eaytest.c
++++ b/src/racoon/eaytest.c
+@@ -62,6 +62,7 @@
+ #include "dhgroup.h"
+ #include "crypto_openssl.h"
+ #include "gnuc.h"
++#include "openssl_compat.h"
+ 
+ #include "package_version.h"
+ 
+@@ -103,7 +104,7 @@ rsa_verify_with_pubkey(src, sig, pubkey_txt)
+ 		printf ("PEM_read_PUBKEY(): %s\n", eay_strerror());
+ 		return -1;
+ 	}
+-	error = eay_check_rsasign(src, sig, evp->pkey.rsa);
++	error = eay_check_rsasign(src, sig, EVP_PKEY_get0_RSA(evp));
+ 
+ 	return error;
+ }
+@@ -698,7 +699,7 @@ ciphertest(ac, av)
+ 			  eay_cast_encrypt, eay_cast_decrypt) < 0)
+ 	  return -1;
+ 	
+-#ifdef HAVE_OPENSSL_IDEA_H
++#if defined(HAVE_OPENSSL_IDEA_H) && ! defined(OPENSSL_NO_IDEA)
+ 	if (ciphertest_1 ("IDEA",
+ 			  &data, 8,
+ 			  &key, key.l,
+@@ -715,7 +716,7 @@ ciphertest(ac, av)
+ 			  eay_rc5_encrypt, eay_rc5_decrypt) < 0)
+ 	  return -1;
+ #endif
+-#if defined(HAVE_OPENSSL_CAMELLIA_H)
++#if defined(HAVE_OPENSSL_CAMELLIA_H) && ! defined(OPENSSL_NO_CAMELLIA)
+ 	if (ciphertest_1 ("CAMELLIA",
+ 			  &data, 16,
+ 			  &key, key.l,
+diff --git a/src/racoon/ipsec_doi.c b/src/racoon/ipsec_doi.c
+index 84a4c71..b52469f 100644
+--- a/src/racoon/ipsec_doi.c
++++ b/src/racoon/ipsec_doi.c
 @@ -715,7 +715,7 @@ out:
  	/* key length must not be specified on some algorithms */
  	if (keylen) {
@@ -561,219 +628,11 @@ Index: pkg-ipsec-tools/src/racoon/ipsec_doi.c
  		 || sa->enctype == OAKLEY_ATTR_ENC_ALG_IDEA
  #endif
  		 || sa->enctype == OAKLEY_ATTR_ENC_ALG_3DES) {
-Index: pkg-ipsec-tools/src/racoon/plainrsa-gen.c
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/plainrsa-gen.c
-+++ pkg-ipsec-tools/src/racoon/plainrsa-gen.c
-@@ -60,6 +60,7 @@
- #include "vmbuf.h"
- #include "plog.h"
- #include "crypto_openssl.h"
-+#include "openssl_compat.h"
- 
- #include "package_version.h"
- 
-@@ -90,12 +91,14 @@ mix_b64_pubkey(const RSA *key)
- 	char *binbuf;
- 	long binlen, ret;
- 	vchar_t *res;
--	
--	binlen = 1 + BN_num_bytes(key->e) + BN_num_bytes(key->n);
-+	const BIGNUM *e, *n;
-+
-+	RSA_get0_key(key, &n, &e, NULL);
-+	binlen = 1 + BN_num_bytes(e) + BN_num_bytes(n);
- 	binbuf = malloc(binlen);
- 	memset(binbuf, 0, binlen);
--	binbuf[0] = BN_bn2bin(key->e, (unsigned char *) &binbuf[1]);
--	ret = BN_bn2bin(key->n, (unsigned char *) (&binbuf[binbuf[0] + 1]));
-+	binbuf[0] = BN_bn2bin(e, (unsigned char *) &binbuf[1]);
-+	ret = BN_bn2bin(n, (unsigned char *) (&binbuf[binbuf[0] + 1]));
- 	if (1 + binbuf[0] + ret != binlen) {
- 		plog(LLV_ERROR, LOCATION, NULL,
- 		     "Pubkey generation failed. This is really strange...\n");
-@@ -131,16 +134,20 @@ print_rsa_key(FILE *fp, const RSA *key)
- 	
- 	fprintf(fp, "# : PUB 0s%s\n", pubkey64->v);
- 	fprintf(fp, ": RSA\t{\n");
--	fprintf(fp, "\t# RSA %d bits\n", BN_num_bits(key->n));
-+	const BIGNUM *n, *e, *d, *p, *q, *dmp1, *dmq1, *iqmp;
-+	RSA_get0_key(key, &n, &e, &d);
-+	RSA_get0_factors(key, &p, &q);
-+	RSA_get0_crt_params(key, &dmp1, &dmq1, &iqmp);
-+	fprintf(fp, "\t# RSA %d bits\n", BN_num_bits(n));
- 	fprintf(fp, "\t# pubkey=0s%s\n", pubkey64->v);
--	fprintf(fp, "\tModulus: 0x%s\n", lowercase(BN_bn2hex(key->n)));
--	fprintf(fp, "\tPublicExponent: 0x%s\n", lowercase(BN_bn2hex(key->e)));
--	fprintf(fp, "\tPrivateExponent: 0x%s\n", lowercase(BN_bn2hex(key->d)));
--	fprintf(fp, "\tPrime1: 0x%s\n", lowercase(BN_bn2hex(key->p)));
--	fprintf(fp, "\tPrime2: 0x%s\n", lowercase(BN_bn2hex(key->q)));
--	fprintf(fp, "\tExponent1: 0x%s\n", lowercase(BN_bn2hex(key->dmp1)));
--	fprintf(fp, "\tExponent2: 0x%s\n", lowercase(BN_bn2hex(key->dmq1)));
--	fprintf(fp, "\tCoefficient: 0x%s\n", lowercase(BN_bn2hex(key->iqmp)));
-+	fprintf(fp, "\tModulus: 0x%s\n", lowercase(BN_bn2hex(n)));
-+	fprintf(fp, "\tPublicExponent: 0x%s\n", lowercase(BN_bn2hex(e)));
-+	fprintf(fp, "\tPrivateExponent: 0x%s\n", lowercase(BN_bn2hex(d)));
-+	fprintf(fp, "\tPrime1: 0x%s\n", lowercase(BN_bn2hex(p)));
-+	fprintf(fp, "\tPrime2: 0x%s\n", lowercase(BN_bn2hex(q)));
-+	fprintf(fp, "\tExponent1: 0x%s\n", lowercase(BN_bn2hex(dmp1)));
-+	fprintf(fp, "\tExponent2: 0x%s\n", lowercase(BN_bn2hex(dmq1)));
-+	fprintf(fp, "\tCoefficient: 0x%s\n", lowercase(BN_bn2hex(iqmp)));
- 	fprintf(fp, "  }\n");
- 
- 	vfree(pubkey64);
-@@ -203,11 +210,13 @@ int
- gen_rsa_key(FILE *fp, size_t bits, unsigned long exp)
- {
- 	int ret;
--	RSA *key;
-+	RSA *key = RSA_new();
-+	BIGNUM *e = BN_new();
- 
--	key = RSA_generate_key(bits, exp, NULL, NULL);
--	if (!key) {
-+	BN_set_word(e, exp);
-+	if (! RSA_generate_key_ex(key, bits, e, NULL)) {
- 		fprintf(stderr, "RSA_generate_key(): %s\n", eay_strerror());
-+		RSA_free(key);
- 		return -1;
- 	}
- 	
-Index: pkg-ipsec-tools/src/racoon/prsa_par.y
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/prsa_par.y
-+++ pkg-ipsec-tools/src/racoon/prsa_par.y
-@@ -68,6 +68,7 @@
- #include "isakmp_var.h"
- #include "handler.h"
- #include "crypto_openssl.h"
-+#include "openssl_compat.h"
- #include "sockmisc.h"
- #include "rsalist.h"
- 
-@@ -85,7 +86,18 @@ char *prsa_cur_fname = NULL;
- struct genlist *prsa_cur_list = NULL;
- enum rsa_key_type prsa_cur_type = RSA_TYPE_ANY;
- 
--static RSA *rsa_cur;
-+struct my_rsa_st {
-+	BIGNUM *n;
-+	BIGNUM *e;
-+	BIGNUM *d;
-+	BIGNUM *p;
-+	BIGNUM *q;
-+	BIGNUM *dmp1;
-+	BIGNUM *dmq1;
-+	BIGNUM *iqmp;
-+};
-+
-+static struct my_rsa_st *rsa_cur;
- 
- void
- prsaerror(const char *s, ...)
-@@ -201,8 +213,12 @@ rsa_statement:
- 				rsa_cur->iqmp = NULL;
- 			}
- 		}
--		$$ = rsa_cur;
--		rsa_cur = RSA_new();
-+		RSA * rsa_tmp = RSA_new();
-+		RSA_set0_key(rsa_tmp, rsa_cur->n, rsa_cur->e, rsa_cur->d);
-+		RSA_set0_factors(rsa_tmp, rsa_cur->p, rsa_cur->q);
-+		RSA_set0_crt_params(rsa_tmp, rsa_cur->dmp1, rsa_cur->dmq1, rsa_cur->iqmp);
-+		$$ = rsa_tmp;
-+		memset(rsa_cur, 0, sizeof(struct my_rsa_st));
- 	}
- 	| TAG_PUB BASE64
- 	{
-@@ -351,10 +367,12 @@ prsa_parse_file(struct genlist *list, ch
- 	prsa_cur_fname = fname;
- 	prsa_cur_list = list;
- 	prsa_cur_type = type;
--	rsa_cur = RSA_new();
-+	rsa_cur = malloc(sizeof(struct my_rsa_st));
-+	memset(rsa_cur, 0, sizeof(struct my_rsa_st));
- 	ret = prsaparse();
- 	if (rsa_cur) {
--		RSA_free(rsa_cur);
-+		memset(rsa_cur, 0, sizeof(struct my_rsa_st));
-+		free(rsa_cur);
- 		rsa_cur = NULL;
- 	}
- 	fclose (fp);
-Index: pkg-ipsec-tools/src/racoon/rsalist.c
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/rsalist.c
-+++ pkg-ipsec-tools/src/racoon/rsalist.c
-@@ -52,6 +52,7 @@
- #include "genlist.h"
- #include "remoteconf.h"
- #include "crypto_openssl.h"
-+#include "openssl_compat.h"
- 
- #ifndef LIST_FIRST
- #define LIST_FIRST(head)        ((head)->lh_first)
-@@ -98,7 +99,9 @@ rsa_key_dup(struct rsa_key *key)
- 		return NULL;
- 
- 	if (key->rsa) {
--		new->rsa = key->rsa->d != NULL ? RSAPrivateKey_dup(key->rsa) : RSAPublicKey_dup(key->rsa);
-+		const BIGNUM *d;
-+		RSA_get0_key(key->rsa, NULL, NULL, &d);
-+		new->rsa = (d != NULL ? RSAPrivateKey_dup(key->rsa) : RSAPublicKey_dup(key->rsa));
- 		if (new->rsa == NULL)
- 			goto dup_error;
- 	}
-Index: pkg-ipsec-tools/src/racoon/Makefile.am
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/Makefile.am
-+++ pkg-ipsec-tools/src/racoon/Makefile.am
-@@ -4,7 +4,7 @@ sbin_PROGRAMS = racoon racoonctl plainrs
- noinst_PROGRAMS = eaytest
- include_racoon_HEADERS = racoonctl.h var.h vmbuf.h misc.h gcmalloc.h admin.h \
- 	schedule.h sockmisc.h isakmp_var.h isakmp.h isakmp_xauth.h \
--	isakmp_cfg.h isakmp_unity.h ipsec_doi.h evt.h
-+	isakmp_cfg.h isakmp_unity.h ipsec_doi.h evt.h openssl_compat.h
- lib_LTLIBRARIES = libracoon.la
- 
- adminsockdir=${localstatedir}/racoon
-@@ -32,7 +32,7 @@ racoon_SOURCES = \
- 	gssapi.c dnssec.c getcertsbyname.c privsep.c \
- 	pfkey.c admin.c evt.c ipsec_doi.c oakley.c grabmyaddr.c vendorid.c \
- 	policy.c localconf.c remoteconf.c crypto_openssl.c algorithm.c \
--	proposal.c sainfo.c strnames.c \
-+	openssl_compat.c proposal.c sainfo.c strnames.c \
- 	plog.c logger.c schedule.c str2val.c \
- 	safefile.c backupsa.c genlist.c rsalist.c \
- 	cftoken.l cfparse.y prsa_tok.l prsa_par.y 
-@@ -51,12 +51,12 @@ libracoon_la_SOURCES = kmpstat.c vmbuf.c
- libracoon_la_CFLAGS = -DNOUSE_PRIVSEP $(AM_CFLAGS)
- 
- plainrsa_gen_SOURCES = plainrsa-gen.c plog.c \
--	crypto_openssl.c logger.c 
-+	crypto_openssl.c logger.c openssl_compat.c
- EXTRA_plainrsa_gen_SOURCES = $(MISSING_ALGOS)
- plainrsa_gen_LDADD = $(CRYPTOBJS) vmbuf.o misc.o
- plainrsa_gen_DEPENDENCIES = $(CRYPTOBJS) vmbuf.o misc.o
- 
--eaytest_SOURCES = eaytest.c plog.c logger.c
-+eaytest_SOURCES = eaytest.c plog.c logger.c openssl_compat.c
- EXTRA_eaytest_SOURCES = missing/crypto/sha2/sha2.c
- eaytest_LDADD =	crypto_openssl_test.o vmbuf.o str2val.o misc_noplog.o \
- 	$(CRYPTOBJS)
-@@ -75,7 +75,7 @@ noinst_HEADERS = \
- 	debugrm.h         isakmp.h      misc.h          sainfo.h \
- 	dhgroup.h         isakmp_agg.h  netdb_dnssec.h  schedule.h \
- 	isakmp_cfg.h      isakmp_xauth.h isakmp_unity.h isakmp_frag.h \
--	throttle.h	  privsep.h \
-+	throttle.h	  privsep.h     openssl_compat.h \
- 	cfparse_proto.h	  cftoken_proto.h genlist.h     rsalist.h \
- 	missing/crypto/sha2/sha2.h missing/crypto/rijndael/rijndael_local.h \
- 	missing/crypto/rijndael/rijndael-api-fst.h \
-Index: pkg-ipsec-tools/src/racoon/openssl_compat.c
-===================================================================
+diff --git a/src/racoon/openssl_compat.c b/src/racoon/openssl_compat.c
+new file mode 100644
+index 0000000..864b5fb
 --- /dev/null
-+++ pkg-ipsec-tools/src/racoon/openssl_compat.c
++++ b/src/racoon/openssl_compat.c
 @@ -0,0 +1,213 @@
 +/*
 + * Copyright 2016 The OpenSSL Project Authors. All Rights Reserved.
@@ -988,10 +847,11 @@ Index: pkg-ipsec-tools/src/racoon/openssl_compat.c
 +
 +
 +#endif /* OPENSSL_VERSION_NUMBER */
-Index: pkg-ipsec-tools/src/racoon/openssl_compat.h
-===================================================================
+diff --git a/src/racoon/openssl_compat.h b/src/racoon/openssl_compat.h
+new file mode 100644
+index 0000000..9e152c2
 --- /dev/null
-+++ pkg-ipsec-tools/src/racoon/openssl_compat.h
++++ b/src/racoon/openssl_compat.h
 @@ -0,0 +1,45 @@
 +#ifndef OPENSSL_COMPAT_H
 +#define OPENSSL_COMPAT_H
@@ -1038,3 +898,166 @@ Index: pkg-ipsec-tools/src/racoon/openssl_compat.h
 +#endif /* OPENSSL_VERSION_NUMBER */
 +
 +#endif /* OPENSSL_COMPAT_H */
+diff --git a/src/racoon/plainrsa-gen.c b/src/racoon/plainrsa-gen.c
+index cad1861..b949b08 100644
+--- a/src/racoon/plainrsa-gen.c
++++ b/src/racoon/plainrsa-gen.c
+@@ -60,6 +60,7 @@
+ #include "vmbuf.h"
+ #include "plog.h"
+ #include "crypto_openssl.h"
++#include "openssl_compat.h"
+ 
+ #include "package_version.h"
+ 
+@@ -90,12 +91,14 @@ mix_b64_pubkey(const RSA *key)
+ 	char *binbuf;
+ 	long binlen, ret;
+ 	vchar_t *res;
+-	
+-	binlen = 1 + BN_num_bytes(key->e) + BN_num_bytes(key->n);
++	const BIGNUM *e, *n;
++
++	RSA_get0_key(key, &n, &e, NULL);
++	binlen = 1 + BN_num_bytes(e) + BN_num_bytes(n);
+ 	binbuf = malloc(binlen);
+ 	memset(binbuf, 0, binlen);
+-	binbuf[0] = BN_bn2bin(key->e, (unsigned char *) &binbuf[1]);
+-	ret = BN_bn2bin(key->n, (unsigned char *) (&binbuf[binbuf[0] + 1]));
++	binbuf[0] = BN_bn2bin(e, (unsigned char *) &binbuf[1]);
++	ret = BN_bn2bin(n, (unsigned char *) (&binbuf[binbuf[0] + 1]));
+ 	if (1 + binbuf[0] + ret != binlen) {
+ 		plog(LLV_ERROR, LOCATION, NULL,
+ 		     "Pubkey generation failed. This is really strange...\n");
+@@ -131,16 +134,20 @@ print_rsa_key(FILE *fp, const RSA *key)
+ 	
+ 	fprintf(fp, "# : PUB 0s%s\n", pubkey64->v);
+ 	fprintf(fp, ": RSA\t{\n");
+-	fprintf(fp, "\t# RSA %d bits\n", BN_num_bits(key->n));
++	const BIGNUM *n, *e, *d, *p, *q, *dmp1, *dmq1, *iqmp;
++	RSA_get0_key(key, &n, &e, &d);
++	RSA_get0_factors(key, &p, &q);
++	RSA_get0_crt_params(key, &dmp1, &dmq1, &iqmp);
++	fprintf(fp, "\t# RSA %d bits\n", BN_num_bits(n));
+ 	fprintf(fp, "\t# pubkey=0s%s\n", pubkey64->v);
+-	fprintf(fp, "\tModulus: 0x%s\n", lowercase(BN_bn2hex(key->n)));
+-	fprintf(fp, "\tPublicExponent: 0x%s\n", lowercase(BN_bn2hex(key->e)));
+-	fprintf(fp, "\tPrivateExponent: 0x%s\n", lowercase(BN_bn2hex(key->d)));
+-	fprintf(fp, "\tPrime1: 0x%s\n", lowercase(BN_bn2hex(key->p)));
+-	fprintf(fp, "\tPrime2: 0x%s\n", lowercase(BN_bn2hex(key->q)));
+-	fprintf(fp, "\tExponent1: 0x%s\n", lowercase(BN_bn2hex(key->dmp1)));
+-	fprintf(fp, "\tExponent2: 0x%s\n", lowercase(BN_bn2hex(key->dmq1)));
+-	fprintf(fp, "\tCoefficient: 0x%s\n", lowercase(BN_bn2hex(key->iqmp)));
++	fprintf(fp, "\tModulus: 0x%s\n", lowercase(BN_bn2hex(n)));
++	fprintf(fp, "\tPublicExponent: 0x%s\n", lowercase(BN_bn2hex(e)));
++	fprintf(fp, "\tPrivateExponent: 0x%s\n", lowercase(BN_bn2hex(d)));
++	fprintf(fp, "\tPrime1: 0x%s\n", lowercase(BN_bn2hex(p)));
++	fprintf(fp, "\tPrime2: 0x%s\n", lowercase(BN_bn2hex(q)));
++	fprintf(fp, "\tExponent1: 0x%s\n", lowercase(BN_bn2hex(dmp1)));
++	fprintf(fp, "\tExponent2: 0x%s\n", lowercase(BN_bn2hex(dmq1)));
++	fprintf(fp, "\tCoefficient: 0x%s\n", lowercase(BN_bn2hex(iqmp)));
+ 	fprintf(fp, "  }\n");
+ 
+ 	vfree(pubkey64);
+@@ -203,11 +210,13 @@ int
+ gen_rsa_key(FILE *fp, size_t bits, unsigned long exp)
+ {
+ 	int ret;
+-	RSA *key;
++	RSA *key = RSA_new();
++	BIGNUM *e = BN_new();
+ 
+-	key = RSA_generate_key(bits, exp, NULL, NULL);
+-	if (!key) {
++	BN_set_word(e, exp);
++	if (! RSA_generate_key_ex(key, bits, e, NULL)) {
+ 		fprintf(stderr, "RSA_generate_key(): %s\n", eay_strerror());
++		RSA_free(key);
+ 		return -1;
+ 	}
+ 	
+diff --git a/src/racoon/prsa_par.y b/src/racoon/prsa_par.y
+index 1987e4d..27ce4c6 100644
+--- a/src/racoon/prsa_par.y
++++ b/src/racoon/prsa_par.y
+@@ -68,6 +68,7 @@
+ #include "isakmp_var.h"
+ #include "handler.h"
+ #include "crypto_openssl.h"
++#include "openssl_compat.h"
+ #include "sockmisc.h"
+ #include "rsalist.h"
+ 
+@@ -85,7 +86,18 @@ char *prsa_cur_fname = NULL;
+ struct genlist *prsa_cur_list = NULL;
+ enum rsa_key_type prsa_cur_type = RSA_TYPE_ANY;
+ 
+-static RSA *rsa_cur;
++struct my_rsa_st {
++	BIGNUM *n;
++	BIGNUM *e;
++	BIGNUM *d;
++	BIGNUM *p;
++	BIGNUM *q;
++	BIGNUM *dmp1;
++	BIGNUM *dmq1;
++	BIGNUM *iqmp;
++};
++
++static struct my_rsa_st *rsa_cur;
+ 
+ void
+ prsaerror(const char *s, ...)
+@@ -201,8 +213,12 @@ rsa_statement:
+ 				rsa_cur->iqmp = NULL;
+ 			}
+ 		}
+-		$$ = rsa_cur;
+-		rsa_cur = RSA_new();
++		RSA * rsa_tmp = RSA_new();
++		RSA_set0_key(rsa_tmp, rsa_cur->n, rsa_cur->e, rsa_cur->d);
++		RSA_set0_factors(rsa_tmp, rsa_cur->p, rsa_cur->q);
++		RSA_set0_crt_params(rsa_tmp, rsa_cur->dmp1, rsa_cur->dmq1, rsa_cur->iqmp);
++		$$ = rsa_tmp;
++		memset(rsa_cur, 0, sizeof(struct my_rsa_st));
+ 	}
+ 	| TAG_PUB BASE64
+ 	{
+@@ -351,10 +367,12 @@ prsa_parse_file(struct genlist *list, char *fname, enum rsa_key_type type)
+ 	prsa_cur_fname = fname;
+ 	prsa_cur_list = list;
+ 	prsa_cur_type = type;
+-	rsa_cur = RSA_new();
++	rsa_cur = malloc(sizeof(struct my_rsa_st));
++	memset(rsa_cur, 0, sizeof(struct my_rsa_st));
+ 	ret = prsaparse();
+ 	if (rsa_cur) {
+-		RSA_free(rsa_cur);
++		memset(rsa_cur, 0, sizeof(struct my_rsa_st));
++		free(rsa_cur);
+ 		rsa_cur = NULL;
+ 	}
+ 	fclose (fp);
+diff --git a/src/racoon/rsalist.c b/src/racoon/rsalist.c
+index f152c82..96e8363 100644
+--- a/src/racoon/rsalist.c
++++ b/src/racoon/rsalist.c
+@@ -52,6 +52,7 @@
+ #include "genlist.h"
+ #include "remoteconf.h"
+ #include "crypto_openssl.h"
++#include "openssl_compat.h"
+ 
+ #ifndef LIST_FIRST
+ #define LIST_FIRST(head)        ((head)->lh_first)
+@@ -98,7 +99,9 @@ rsa_key_dup(struct rsa_key *key)
+ 		return NULL;
+ 
+ 	if (key->rsa) {
+-		new->rsa = key->rsa->d != NULL ? RSAPrivateKey_dup(key->rsa) : RSAPublicKey_dup(key->rsa);
++		const BIGNUM *d;
++		RSA_get0_key(key->rsa, NULL, NULL, &d);
++		new->rsa = (d != NULL ? RSAPrivateKey_dup(key->rsa) : RSAPublicKey_dup(key->rsa));
+ 		if (new->rsa == NULL)
+ 			goto dup_error;
+ 	}

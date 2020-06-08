@@ -1,15 +1,20 @@
-Description: Always pass -Wl,-Rxyz rather than just -Rxyz
- gcc used to return 0 on unknown flags, but now returns an error.  So
- test compilations fail because we are passing -R/lib.
-Author: Serge Hallyn <serge.hallyn@ubuntu.com>
+From: Serge Hallyn <serge.hallyn@ubuntu.com>
+Date: Sun, 7 Jun 2020 15:41:18 +0200
+Subject: Always pass -Wl,-Rxyz rather than just -Rxyz
+
+gcc used to return 0 on unknown flags, but now returns an error.  So
+test compilations fail because we are passing -R/lib.
 Origin: serge.hallyn@ubuntu.com
 Forwarded: no
 Last-Update: 2014-06-28
+---
+ configure.ac | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
 
-Index: pkg-ipsec-tools/configure.ac
-===================================================================
---- pkg-ipsec-tools.orig/configure.ac	2014-06-29 15:01:30.312814492 +0200
-+++ pkg-ipsec-tools/configure.ac	2014-06-29 15:01:30.308814497 +0200
+diff --git a/configure.ac b/configure.ac
+index b9d6c0b..854bd87 100644
+--- a/configure.ac
++++ b/configure.ac
 @@ -322,7 +322,7 @@ if test "$libiconv_dir" != "no"; then
  			AC_MSG_ERROR([ICONV libs or includes not found. Aborting.])
  	  	fi

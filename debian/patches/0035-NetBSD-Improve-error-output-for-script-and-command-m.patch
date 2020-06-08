@@ -1,0 +1,220 @@
+From: christos <christos@NetBSD.org>
+Date: Tue, 12 May 2020 16:17:58 +0000
+Subject: NetBSD-Improve error output for script and command mode
+
+ - In script mode always output errors to stderr prefixed by the program name.
+ - In command mode always output errors to stdout not prefixed " " "
+ - perror(3) -> warn(3)
+
+ NetBSD patch adapted to Debian source
+
+Signed-off-by: Thomas Reim <reimth@gmail.com>
+---
+ src/setkey/extern.h |  9 ++++++++-
+ src/setkey/setkey.c | 52 +++++++++++++++++++++++++---------------------------
+ src/setkey/token.l  |  7 +++++--
+ 3 files changed, 38 insertions(+), 30 deletions(-)
+
+diff --git a/src/setkey/extern.h b/src/setkey/extern.h
+index f5ddbc1..488a5c4 100644
+--- a/src/setkey/extern.h
++++ b/src/setkey/extern.h
+@@ -1,4 +1,4 @@
+-/*	$NetBSD: extern.h,v 1.8 2020/05/12 14:29:06 christos Exp $	*/
++/*	$NetBSD: extern.h,v 1.9 2020/05/12 16:17:58 christos Exp $	*/
+  
+ /*
+  * Copyright (c) 2018 The NetBSD Foundation, Inc.
+@@ -46,6 +46,7 @@ void yyerror(const char *);
+ #ifdef HAVE_POLICY_FWD
+ extern int f_rfcmode;
+ #endif
++extern int f_mode;
+ extern const char *filename;
+ extern int lineno;
+ extern int exit_now;
+@@ -53,3 +54,9 @@ extern int exit_now;
+ extern int last_msg_type;
+ extern uint32_t last_priority;
+ #endif
++
++#define MODE_SCRIPT	1
++#define MODE_CMDDUMP	2
++#define MODE_CMDFLUSH	3
++#define MODE_PROMISC	4
++#define MODE_STDIN	5
+diff --git a/src/setkey/setkey.c b/src/setkey/setkey.c
+index df0b37f..ca15817 100644
+--- a/src/setkey/setkey.c
++++ b/src/setkey/setkey.c
+@@ -1,4 +1,4 @@
+-/*	$NetBSD: setkey.c,v 1.21 2020/05/12 14:29:06 christos Exp $	*/
++/*	$NetBSD: setkey.c,v 1.22 2020/05/12 16:17:58 christos Exp $	*/
+ /*	$KAME: setkey.c,v 1.36 2003/09/24 23:52:51 itojun Exp $	*/
+ 
+ /*
+@@ -110,12 +110,6 @@ static void printdate(void);
+ static int32_t gmt2local(time_t);
+ static void stdin_loop(void);
+ 
+-#define MODE_SCRIPT	1
+-#define MODE_CMDDUMP	2
+-#define MODE_CMDFLUSH	3
+-#define MODE_PROMISC	4
+-#define MODE_STDIN	5
+-
+ int so;
+ 
+ int f_forever = 0;
+@@ -277,8 +271,7 @@ main(argc, argv)
+ 
+ 	so = pfkey_open();
+ 	if (so < 0) {
+-		perror("pfkey_open");
+-		exit(1);
++		err(1, "pfkey_open");
+ 	}
+ 
+ 	switch (f_mode) {
+@@ -499,7 +492,7 @@ sendkeymsg_spigrep(unsigned int satype, struct addrinfo *srcs,
+ 	tv.tv_sec = 1;
+ 	tv.tv_usec = 0;
+ 	if (setsockopt(so, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+-		perror("setsockopt");
++		warn("setsockopt");
+ 		return NULL;
+ 	}
+     }
+@@ -533,14 +526,14 @@ sendkeymsg_spigrep(unsigned int satype, struct addrinfo *srcs,
+ 	}
+ 
+ 	if ((l = send(so, buf, len, 0)) < 0) {
+-		perror("send");
++		warn("send");
+ 		return NULL;
+ 	}
+ 
+ 	m = (struct sadb_msg *)rbuf;
+ 	do {
+ 		if ((l = recv(so, rbuf, sizeof(rbuf), 0)) < 0) {
+-			perror("recv");
++			warn("recv");
+ 			fail = 1;
+ 			break;
+ 		}
+@@ -642,7 +635,7 @@ sendkeymsg(buf, len)
+ 	tv.tv_sec = 1;
+ 	tv.tv_usec = 0;
+ 	if (setsockopt(so, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+-		perror("setsockopt");
++		warn("setsockopt");
+ 		goto end;
+ 	}
+     }
+@@ -668,14 +661,14 @@ again:
+ 	}
+ 
+ 	if ((l = send(so, buf, len, 0)) < 0) {
+-		perror("send");
++		warn("send");
+ 		goto end;
+ 	}
+ 
+ 	msg = (struct sadb_msg *)rbuf;
+ 	do {
+ 		if ((l = recv(so, rbuf, sizeof(rbuf), 0)) < 0) {
+-			perror("recv");
++			warn("recv");
+ 			goto end;
+ 		}
+ 
+@@ -710,15 +703,8 @@ postproc(struct sadb_msg *msg, int len)
+ #endif
+ 
+ 	if (msg->sadb_msg_errno != 0) {
+-		char inf[80];
+ 		const char *errmsg = NULL;
+ 
+-		if (f_mode == MODE_SCRIPT)
+-			snprintf(inf, sizeof(inf), "The result of line %d: ",
+-			    lineno);
+-		else
+-			inf[0] = '\0';
+-
+ 		switch (msg->sadb_msg_errno) {
+ 		case ENOENT:
+ 			switch (msg->sadb_msg_type) {
+@@ -738,7 +724,10 @@ postproc(struct sadb_msg *msg, int len)
+ 		default:
+ 			errmsg = strerror(msg->sadb_msg_errno);
+ 		}
+-		printf("%s%s.\n", inf, errmsg);
++		if (f_mode == MODE_SCRIPT)
++			warnx("%s,%d: %s", filename, lineno, errmsg);
++		else
++			printf("%s.\n", errmsg);
+ 		return -1;
+ 	}
+ 
+@@ -816,18 +805,27 @@ verifypriority(struct sadb_msg *m)
+ 
+ 	/* check pfkey message. */
+ 	if (pfkey_align(m, mhp)) {
+-		printf("(%s\n", ipsec_strerror());
++		if (f_mode == MODE_SCRIPT)
++			warnx("%s", ipsec_strerror());
++		else
++			printf("%s\n", ipsec_strerror());
+ 		return 0;
+ 	}
+ 	if (pfkey_check(mhp)) {
+-		printf("%s\n", ipsec_strerror());
++		if (f_mode == MODE_SCRIPT)
++			warnx("%s", ipsec_strerror());
++		else
++			printf("%s\n", ipsec_strerror());
+ 		return 0;
+ 	}
+ 
+ 	xpl = (struct sadb_x_policy *) mhp[SADB_X_EXT_POLICY];
+ 
+ 	if (xpl == NULL) {
+-		printf("no X_POLICY extension.\n");
++		if (f_mode == MODE_SCRIPT)
++			warnx("no X_POLICY extension.");
++		else
++			printf("no X_POLICY extension.\n");
+ 		return 0;
+ 	}
+ 
+@@ -1018,7 +1016,7 @@ printdate()
+ 	int s;
+ 
+ 	if (gettimeofday(&tp, NULL) == -1) {
+-		perror("gettimeofday");
++		warn("gettimeofday");
+ 		return;
+ 	}
+ 
+diff --git a/src/setkey/token.l b/src/setkey/token.l
+index 1a32de0..670ca64 100644
+--- a/src/setkey/token.l
++++ b/src/setkey/token.l
+@@ -1,4 +1,4 @@
+-/*	$NetBSD: token.l,v 1.25 2020/05/12 14:29:06 christos Exp $	*/
++/*	$NetBSD: token.l,v 1.26 2020/05/12 16:17:58 christos Exp $	*/
+ /*	$KAME: token.l,v 1.44 2003/10/21 07:20:58 itojun Exp $	*/
+ 
+ /*
+@@ -325,7 +325,10 @@ yyfatal(s)
+ void
+ yyerror(const char *s)
+ {
+-	warnx("%s,%d: %s at `%s'", filename, lineno, s, yytext);
++	if (f_mode == MODE_SCRIPT)
++		warnx("%s,%d: %s at `%s'", filename, lineno, s, yytext);
++	else
++		printf("%s at `%s'", s, yytext);
+ }
+ 
+ int

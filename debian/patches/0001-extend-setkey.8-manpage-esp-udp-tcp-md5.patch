@@ -1,11 +1,18 @@
+From: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Date: Sun, 7 Jun 2020 15:41:18 +0200
+Subject: extend-setkey.8-manpage-esp-udp-tcp-md5
+
 Patch to document esp-udp algo for setkey as well as lack of tcp-md5 support for
 linux systems
+---
+ src/setkey/setkey.8 | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
 
-Index: pkg-ipsec-tools/src/setkey/setkey.8
-===================================================================
---- pkg-ipsec-tools.orig/src/setkey/setkey.8	2014-04-25 23:35:23.067731107 -0700
-+++ pkg-ipsec-tools/src/setkey/setkey.8	2014-04-25 23:35:30.947770182 -0700
-@@ -255,6 +255,8 @@
+diff --git a/src/setkey/setkey.8 b/src/setkey/setkey.8
+index 7635679..8011f1c 100644
+--- a/src/setkey/setkey.8
++++ b/src/setkey/setkey.8
+@@ -255,6 +255,8 @@ is one of following:
  ESP based on rfc2406
  .It Li esp-old
  ESP based on rfc1827
@@ -14,7 +21,7 @@ Index: pkg-ipsec-tools/src/setkey/setkey.8
  .It Li ah
  AH based on rfc2402
  .It Li ah-old
-@@ -700,7 +702,7 @@
+@@ -700,7 +702,7 @@ hmac-ripemd160	160		ah: 96bit ICV (RFC2857)
  				ah-old: 128bit ICV (no document)
  aes-xcbc-mac	128		ah: 96bit ICV (RFC3566)
  		128		ah-old: 128bit ICV (no document)
