@@ -1,0 +1,148 @@
+From: christos <christos@NetBSD.org>
+Date: Tue, 12 May 2020 14:29:06 +0000
+Subject: NetBSD-Keep track of the filename to print in error messages
+
+Change quoting of error string from [] to `'
+
+NetBSD patch adapted to Debian source
+
+Signed-off-by: Thomas Reim <reimth@gmail.com>
+---
+ src/setkey/extern.h |  5 +++--
+ src/setkey/setkey.c | 12 ++++++++----
+ src/setkey/token.l  | 16 ++++++++--------
+ 3 files changed, 19 insertions(+), 14 deletions(-)
+
+diff --git a/src/setkey/extern.h b/src/setkey/extern.h
+index 11e54e5..f5ddbc1 100644
+--- a/src/setkey/extern.h
++++ b/src/setkey/extern.h
+@@ -1,4 +1,4 @@
+-/*	$NetBSD: extern.h,v 1.7 2018/10/14 08:27:39 maxv Exp $	*/
++/*	$NetBSD: extern.h,v 1.8 2020/05/12 14:29:06 christos Exp $	*/
+  
+ /*
+  * Copyright (c) 2018 The NetBSD Foundation, Inc.
+@@ -30,7 +30,7 @@
+ void parse_init(void);
+ 
+ /* token.l */
+-int parse(FILE **);
++int parse(const char *, FILE *);
+ int parse_string(char *);
+ 
+ /* setkey.c */
+@@ -46,6 +46,7 @@ void yyerror(const char *);
+ #ifdef HAVE_POLICY_FWD
+ extern int f_rfcmode;
+ #endif
++extern const char *filename;
+ extern int lineno;
+ extern int exit_now;
+ #ifdef HAVE_PFKEY_POLICY_PRIORITY
+diff --git a/src/setkey/setkey.c b/src/setkey/setkey.c
+index fda2776..df0b37f 100644
+--- a/src/setkey/setkey.c
++++ b/src/setkey/setkey.c
+@@ -1,4 +1,4 @@
+-/*	$NetBSD: setkey.c,v 1.19 2018/10/14 08:27:39 maxv Exp $	*/
++/*	$NetBSD: setkey.c,v 1.21 2020/05/12 14:29:06 christos Exp $	*/
+ /*	$KAME: setkey.c,v 1.36 2003/09/24 23:52:51 itojun Exp $	*/
+ 
+ /*
+@@ -149,6 +149,7 @@ rkwarn(void)
+ #endif
+ 
+ int lineno;
++const char *filename;
+ int exit_now;
+ static time_t thiszone;
+ 
+@@ -174,6 +175,7 @@ main(argc, argv)
+ 	char **argv;
+ {
+ 	FILE *fp = stdin;
++	const char *fname = "<stdin>";
+ 	int c;
+ 
+ 	if (argc == 1) {
+@@ -195,9 +197,11 @@ main(argc, argv)
+ 			f_mode = MODE_SCRIPT;
+ 			if (strcmp(optarg, "-") == 0) {
+ 				fp = stdin;
++				fname = "<stdin>";
+ 			} else if ((fp = fopen(optarg, "r")) == NULL) {
+ 				err(1, "Can't open `%s'", optarg);
+ 			}
++			fname = optarg;
+ 			break;
+ 		case 'D':
+ 			f_mode = MODE_CMDDUMP;
+@@ -288,7 +292,7 @@ main(argc, argv)
+ 		if (get_supported() < 0) {
+ 			errx(1, "%s", ipsec_strerror());
+ 		}
+-		if (parse(&fp))
++		if (parse(fname, fp))
+ 			exit(1);
+ 		break;
+ 	case MODE_STDIN:
+@@ -836,7 +840,7 @@ verifypriority(struct sadb_msg *m)
+ #endif
+ 
+ static int
+-fileproc(const char *filename)
++fileproc(const char *fname)
+ {
+ 	int fd;
+ 	ssize_t len, l;
+@@ -844,7 +848,7 @@ fileproc(const char *filename)
+ 	struct sadb_msg *msg;
+ 	u_char rbuf[1024 * 32];	/* XXX: Enough ? Should I do MSG_PEEK ? */
+ 
+-	fd = open(filename, O_RDONLY);
++	fd = open(fname, O_RDONLY);
+ 	if (fd < 0)
+ 		return -1;
+ 
+diff --git a/src/setkey/token.l b/src/setkey/token.l
+index 7bc32bd..1a32de0 100644
+--- a/src/setkey/token.l
++++ b/src/setkey/token.l
+@@ -1,4 +1,4 @@
+-/*	$NetBSD: token.l,v 1.24 2020/05/10 19:54:49 christos Exp $	*/
++/*	$NetBSD: token.l,v 1.25 2020/05/12 14:29:06 christos Exp $	*/
+ /*	$KAME: token.l,v 1.44 2003/10/21 07:20:58 itojun Exp $	*/
+ 
+ /*
+@@ -325,23 +325,23 @@ yyfatal(s)
+ void
+ yyerror(const char *s)
+ {
+-	warnx("line %d: %s at [%s]", lineno, s, yytext);
++	warnx("%s,%d: %s at `%s'", filename, lineno, s, yytext);
+ }
+ 
+ int
+-parse(FILE **fp)
++parse(const char *fname, FILE *fp)
+ {
+-	yyin = *fp;
+-
++	yyin = fp;
++	filename = fname;
+ 	lineno = 1;
+ 	parse_init();
+ 
+ 	if (yyparse()) {
+-		warnx("line %d: parse failed", lineno);
+-		return(-1);
++		warnx("%s,%d: parse failed", filename, lineno);
++		return -1;
+ 	}
+ 
+-	return(0);
++	return 0;
+ }
+ 
+ int

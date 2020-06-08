@@ -1,0 +1,97 @@
+From: maxv <maxv@NetBSD.org>
+Date: Sat, 13 Oct 2018 15:08:51 +0000
+Subject: NetBSD: Update release summary and README
+
+ipsec-tools are mainly maintained now by NetBSD. The original
+development project has been discontinued. Adapt README and NEWS files
+to outline this to users and be in line with NetBSD ones.
+
+Signed-off-by: Thomas Reim <reimth@gmail.com>
+---
+ NEWS   |  4 ++++
+ README | 45 ++++++++++++++++++++++++++++++++++-----------
+ 2 files changed, 38 insertions(+), 11 deletions(-)
+
+diff --git a/NEWS b/NEWS
+index 1efdfd5..40ec5e9 100644
+--- a/NEWS
++++ b/NEWS
+@@ -1,5 +1,9 @@
+ Version history:
+ ----------------
++0.8.x NetBSD CVS (no official release yet)
++	o A lot of code cleanup
++	o XXX TODO
++
+ 0.8.2	- 27 February 2014
+ 	o Fix admin port establish-sa for tunnel mode SAs (Alexander Sbitnev)
+ 	o Fix source port selection regression from version 0.8.1
+diff --git a/README b/README
+index 9623997..2df6bbc 100644
+--- a/README
++++ b/README
+@@ -9,30 +9,53 @@ in the Linux 2.6+ kernel. It works as well on NetBSD and FreeBSD.
+ 	- racoon, an IKEv1 keying daemon
+ 
+ IPsec-tools were ported to Linux from the KAME project 
+-(http://www.kame.net) by Derek Atkins  <derek@ihtfp.com>.
++(http://www.kame.net) by Derek Atkins <derek@ihtfp.com>.
++
++Authors
++=======
++
++The ipsec-tools code has been maintained and developed by: 
+ 
+-Currently the package is actively maintained and developed by: 
+ 	Emmanuel Dreyfus <manu@netbsd.org>
+ 	VANHULLEBUS Yvan <vanhu@free.fr>
+ 	Matthew Grooms <mgrooms@shrew.net>
+ 	Timo Teräs <timo.teras@iki.fi>
++	IHTFP Consulting <http://www.ihtfp.com/>
++	SUSE Linux AG <http://www.suse.com/>
++
++Under the NetBSD CVS repository, several other people maintain it.
++
++History
++=======
++
++Ipsec-tools was originally developed by the KAME project. It was then moved
++on SourfeForge, at the following address:
+ 
+-Sources can be found at the IPsec-Tools home page at:
+ 	http://ipsec-tools.sourceforge.net/
+ 
+-And CVS repository is hosted at NetBSD tree:
+-	cvs -danoncvs@anoncvs.netbsd.org:/cvsroot co ipsec-tools
++Due to too restricted commit accesses, the development stalled, and the
++source code was moved into NetBSD's CVS repository, in:
++
++	src/crypto/dist/ipsec-tools
++
++However, many distributions still take their tarballs from SourceForge, and
++each distribution maintains local patches.
++
++FreeBSD maintains its own libipsec and setkey tools, in:
++
++	head/lib/libipsec/
++	head/sbin/setkey/
++
++A Trac used to exist, at the following address:
+ 
+-Bug reports and project wiki is located at:
+ 	https://trac.ipsec-tools.net/
+ 
+-Please report any problems to the mailing list:
++but the domain expired and was not renewed.
++
++The mailing lists from SourceForge still exist:
++
+ 	ipsec-tools-devel@lists.sourceforge.net
+ 	ipsec-tools-users@lists.sourceforge.net
+ 
+ You can also browse the list archive:
+ 	http://sf.net/mailarchive/forum.php?forum_name=ipsec-tools-devel
+-
+-Credits:
+-	IHTFP Consulting, see http://www.ihtfp.com/
+-	SUSE Linux AG, see http://www.suse.com/

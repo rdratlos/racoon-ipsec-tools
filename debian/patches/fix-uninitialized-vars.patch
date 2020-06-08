@@ -1,8 +1,17 @@
-Index: pkg-ipsec-tools/src/racoon/crypto_openssl.c
+From: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Date: Sun, 7 Jun 2020 15:41:19 +0200
+Subject: fix-uninitialized-vars
+
 ===================================================================
---- pkg-ipsec-tools.orig/src/racoon/crypto_openssl.c
-+++ pkg-ipsec-tools/src/racoon/crypto_openssl.c
-@@ -2343,6 +2343,11 @@ eay_dh_compute(prime, g, pub, priv, pub2
+---
+ src/racoon/crypto_openssl.c | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/src/racoon/crypto_openssl.c b/src/racoon/crypto_openssl.c
+index 2fa71bc..6d4df34 100644
+--- a/src/racoon/crypto_openssl.c
++++ b/src/racoon/crypto_openssl.c
+@@ -2343,6 +2343,11 @@ eay_dh_compute(prime, g, pub, priv, pub2, key)
  	unsigned char *v = NULL;
  	int error = -1;
  
@@ -14,7 +23,7 @@ Index: pkg-ipsec-tools/src/racoon/crypto_openssl.c
  	/* make public number to compute */
  	if (eay_v2bn(&dh_pub, pub2) < 0)
  		goto end;
-@@ -2350,10 +2355,6 @@ eay_dh_compute(prime, g, pub, priv, pub2
+@@ -2350,10 +2355,6 @@ eay_dh_compute(prime, g, pub, priv, pub2, key)
  	/* make DH structure */
  	if ((dh = DH_new()) == NULL)
  		goto end;

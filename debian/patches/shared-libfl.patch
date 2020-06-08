@@ -1,12 +1,17 @@
-Description: Remove unused libipsec linking with libfl
- Due to the yylex requirement this caused FTBFS
- when a shared libfl is provided.
-Author: Adrian Bunk <bunk@debian.org>
+From: Adrian Bunk <bunk@debian.org>
+Date: Sun, 7 Jun 2020 15:41:19 +0200
+Subject: Remove unused libipsec linking with libfl
 
-Index: pkg-ipsec-tools/src/libipsec/Makefile.am
-===================================================================
---- pkg-ipsec-tools.orig/src/libipsec/Makefile.am
-+++ pkg-ipsec-tools/src/libipsec/Makefile.am
+Due to the yylex requirement this caused FTBFS
+when a shared libfl is provided.
+---
+ src/libipsec/Makefile.am | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/src/libipsec/Makefile.am b/src/libipsec/Makefile.am
+index 6a4e3b3..df1e106 100644
+--- a/src/libipsec/Makefile.am
++++ b/src/libipsec/Makefile.am
 @@ -26,7 +26,6 @@ libipsec_la_SOURCES = \
  # version is current:revision:age.
  # See: http://www.gnu.org/manual/libtool-1.4.2/html_chapter/libtool_6.html#SEC32

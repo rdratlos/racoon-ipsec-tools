@@ -1,8 +1,17 @@
-Index: ipsec-tools/src/racoon/getcertsbyname.c
+From: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Date: Sun, 7 Jun 2020 15:41:18 +0200
+Subject: make-peer_certfile-dnssec-validate-dnssec
+
 ===================================================================
---- ipsec-tools.orig/src/racoon/getcertsbyname.c	2012-06-29 22:19:52.569078120 +1200
-+++ ipsec-tools/src/racoon/getcertsbyname.c	2012-06-29 22:20:44.599749858 +1200
-@@ -213,6 +213,8 @@
+---
+ src/racoon/getcertsbyname.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/src/racoon/getcertsbyname.c b/src/racoon/getcertsbyname.c
+index 1ce7c62..2516ca3 100644
+--- a/src/racoon/getcertsbyname.c
++++ b/src/racoon/getcertsbyname.c
+@@ -213,6 +213,8 @@ getcertsbyname(name, res)
  	char hostbuf[1024];	/* XXX */
  	int qtype, qclass, keytag, algorithm;
  	struct certinfo head, *cur;
@@ -11,7 +20,7 @@ Index: ipsec-tools/src/racoon/getcertsbyname.c
  	int error = -1;
  
  	/* initialize res */
-@@ -222,6 +224,12 @@
+@@ -222,6 +224,12 @@ getcertsbyname(name, res)
  	cur = &head;
  
  	/* get CERT RR */
@@ -24,7 +33,7 @@ Index: ipsec-tools/src/racoon/getcertsbyname.c
  	buflen = 512;
  	do {
  
-@@ -241,6 +249,8 @@
+@@ -241,6 +249,8 @@ getcertsbyname(name, res)
  			goto end;
  
  	} while (buflen < anslen);
@@ -33,7 +42,7 @@ Index: ipsec-tools/src/racoon/getcertsbyname.c
  
  #ifdef DNSSEC_DEBUG
  	printf("get a DNS packet len=%d\n", anslen);
-@@ -253,6 +263,15 @@
+@@ -253,6 +263,15 @@ getcertsbyname(name, res)
  	qdcount = ntohs(hp->qdcount);
  	ancount = ntohs(hp->ancount);
  
