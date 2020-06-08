@@ -1,9 +1,25 @@
+From: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Date: Sun, 7 Jun 2020 15:41:18 +0200
+Subject: FTBFS2_kfreebsd
+
 this patch addresses build problems on kfreebsd
-Index: pkg-ipsec-tools/configure.ac
-===================================================================
---- pkg-ipsec-tools.orig/configure.ac	2014-07-10 23:49:48.960506765 -0700
-+++ pkg-ipsec-tools/configure.ac	2014-07-10 23:50:04.704584836 -0700
-@@ -34,6 +34,9 @@
+---
+ configure.ac                | 9 ++++++++-
+ src/libipsec/key_debug.c    | 2 +-
+ src/libipsec/policy_token.c | 2 +-
+ src/libipsec/policy_token.l | 2 +-
+ src/racoon/isakmp.c         | 7 +++++--
+ src/racoon/nattraversal.c   | 2 +-
+ src/racoon/pfkey.c          | 2 +-
+ src/setkey/token.c          | 2 +-
+ src/setkey/token.l          | 2 +-
+ 9 files changed, 20 insertions(+), 10 deletions(-)
+
+diff --git a/configure.ac b/configure.ac
+index c55aa00..b9d6c0b 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -34,6 +34,9 @@ case $host in
  	AC_SUBST(INCLUDE_GLIBC)
  	AC_SUBST(RPM)
  	;;
@@ -13,7 +29,7 @@ Index: pkg-ipsec-tools/configure.ac
  *darwin*)
  	LIBS="$LIBS -lresolv"
  	;;
-@@ -95,6 +98,10 @@
+@@ -95,6 +98,10 @@ case "$host_os" in
      CPPFLAGS="-D_GNU_SOURCE $CPPFLAGS"
      AC_SUBST(GLIBC_BUGS)
      ;;
@@ -24,7 +40,7 @@ Index: pkg-ipsec-tools/configure.ac
   *)
      if test "$have_net_pfkey$have_netinet_ipsec" != yesyes; then
        if test "$have_net_pfkey" = yes; then
-@@ -646,7 +653,7 @@
+@@ -646,7 +653,7 @@ yes
  #endif
  ], [kernel_natt="yes"])
  	;;
@@ -33,11 +49,11 @@ Index: pkg-ipsec-tools/configure.ac
  # NetBSD case
  # Same check for FreeBSD
  AC_CHECK_MEMBER(struct sadb_x_nat_t_type.sadb_x_nat_t_type_len,
-Index: pkg-ipsec-tools/src/libipsec/key_debug.c
-===================================================================
---- pkg-ipsec-tools.orig/src/libipsec/key_debug.c	2014-07-10 23:20:44.063854291 -0700
-+++ pkg-ipsec-tools/src/libipsec/key_debug.c	2014-07-10 23:50:04.708584863 -0700
-@@ -790,7 +790,7 @@
+diff --git a/src/libipsec/key_debug.c b/src/libipsec/key_debug.c
+index e381a98..21c267e 100644
+--- a/src/libipsec/key_debug.c
++++ b/src/libipsec/key_debug.c
+@@ -790,7 +790,7 @@ kdebug_mbufhdr(m)
  		    m->m_pkthdr.len, m->m_pkthdr.rcvif);
  	}
  
@@ -46,11 +62,11 @@ Index: pkg-ipsec-tools/src/libipsec/key_debug.c
  	if (m->m_flags & M_EXT) {
  		printf("  m_ext{ ext_buf:%p ext_free:%p "
  		       "ext_size:%u ext_ref:%p }\n",
-Index: pkg-ipsec-tools/src/libipsec/policy_token.c
-===================================================================
---- pkg-ipsec-tools.orig/src/libipsec/policy_token.c	2014-07-10 23:47:47.399903984 -0700
-+++ pkg-ipsec-tools/src/libipsec/policy_token.c	2014-07-10 23:50:04.708584863 -0700
-@@ -617,7 +617,7 @@
+diff --git a/src/libipsec/policy_token.c b/src/libipsec/policy_token.c
+index 1728394..43a6cac 100644
+--- a/src/libipsec/policy_token.c
++++ b/src/libipsec/policy_token.c
+@@ -617,7 +617,7 @@ char *__libipsectext;
  #include "libpfkey.h"
  
  #if !defined(__NetBSD__) && !defined(__FreeBSD__) && !defined(__linux__)  && \
@@ -59,10 +75,10 @@ Index: pkg-ipsec-tools/src/libipsec/policy_token.c
  #include "y.tab.h"
  #else
  #include "policy_parse.h"
-Index: pkg-ipsec-tools/src/libipsec/policy_token.l
-===================================================================
---- pkg-ipsec-tools.orig/src/libipsec/policy_token.l	2014-07-10 23:20:44.063854291 -0700
-+++ pkg-ipsec-tools/src/libipsec/policy_token.l	2014-07-10 23:50:04.712584878 -0700
+diff --git a/src/libipsec/policy_token.l b/src/libipsec/policy_token.l
+index 243b678..f60fa5d 100644
+--- a/src/libipsec/policy_token.l
++++ b/src/libipsec/policy_token.l
 @@ -52,7 +52,7 @@
  #include "libpfkey.h"
  
@@ -72,10 +88,10 @@ Index: pkg-ipsec-tools/src/libipsec/policy_token.l
  #include "y.tab.h"
  #else
  #include "policy_parse.h"
-Index: pkg-ipsec-tools/src/racoon/isakmp.c
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/isakmp.c	2014-07-10 23:47:47.411904047 -0700
-+++ pkg-ipsec-tools/src/racoon/isakmp.c	2014-07-10 23:50:04.716584897 -0700
+diff --git a/src/racoon/isakmp.c b/src/racoon/isakmp.c
+index 2672f7a..0cdd927 100644
+--- a/src/racoon/isakmp.c
++++ b/src/racoon/isakmp.c
 @@ -122,12 +122,15 @@
  #  endif
  # endif /* __linux__ */
@@ -94,10 +110,10 @@ Index: pkg-ipsec-tools/src/racoon/isakmp.c
  # endif /* __NetBSD__ / __FreeBSD__ */
  
  static int nostate1 __P((struct ph1handle *, vchar_t *));
-Index: pkg-ipsec-tools/src/racoon/nattraversal.c
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/nattraversal.c	2014-07-10 23:20:44.063854291 -0700
-+++ pkg-ipsec-tools/src/racoon/nattraversal.c	2014-07-10 23:50:04.720584923 -0700
+diff --git a/src/racoon/nattraversal.c b/src/racoon/nattraversal.c
+index b04cc1b..4cf9aa9 100644
+--- a/src/racoon/nattraversal.c
++++ b/src/racoon/nattraversal.c
 @@ -38,7 +38,7 @@
  #ifdef __linux__
  #include <linux/udp.h>
@@ -107,10 +123,10 @@ Index: pkg-ipsec-tools/src/racoon/nattraversal.c
  #include <netinet/udp.h>
  #endif
  
-Index: pkg-ipsec-tools/src/racoon/pfkey.c
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/pfkey.c	2014-07-10 23:20:44.063854291 -0700
-+++ pkg-ipsec-tools/src/racoon/pfkey.c	2014-07-10 23:50:04.720584923 -0700
+diff --git a/src/racoon/pfkey.c b/src/racoon/pfkey.c
+index d00b166..0442cd9 100644
+--- a/src/racoon/pfkey.c
++++ b/src/racoon/pfkey.c
 @@ -50,7 +50,7 @@
  #  include <linux/udp.h>
  # endif
@@ -120,11 +136,11 @@ Index: pkg-ipsec-tools/src/racoon/pfkey.c
  #  include <netinet/udp.h>
  # endif
  #endif
-Index: pkg-ipsec-tools/src/setkey/token.c
-===================================================================
---- pkg-ipsec-tools.orig/src/setkey/token.c	2014-07-10 23:47:47.423904103 -0700
-+++ pkg-ipsec-tools/src/setkey/token.c	2014-07-10 23:50:04.724584934 -0700
-@@ -1043,7 +1043,7 @@
+diff --git a/src/setkey/token.c b/src/setkey/token.c
+index f533cfc..cb36b3d 100644
+--- a/src/setkey/token.c
++++ b/src/setkey/token.c
+@@ -1043,7 +1043,7 @@ char *yytext;
  
  #include "vchar.h"
  #if defined(__NetBSD__) || defined(__FreeBSD__) || defined(__linux__) || \
@@ -133,10 +149,10 @@ Index: pkg-ipsec-tools/src/setkey/token.c
  #include "parse.h"
  #else
  #include "y.tab.h"
-Index: pkg-ipsec-tools/src/setkey/token.l
-===================================================================
---- pkg-ipsec-tools.orig/src/setkey/token.l	2014-07-10 23:20:44.063854291 -0700
-+++ pkg-ipsec-tools/src/setkey/token.l	2014-07-10 23:50:04.728584955 -0700
+diff --git a/src/setkey/token.l b/src/setkey/token.l
+index ad3d843..768d80e 100644
+--- a/src/setkey/token.l
++++ b/src/setkey/token.l
 @@ -53,7 +53,7 @@
  
  #include "vchar.h"

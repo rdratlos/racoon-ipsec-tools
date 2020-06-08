@@ -1,7 +1,16 @@
-Index: pkg-ipsec-tools/src/racoon/isakmp_xauth.c
+From: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Date: Sun, 7 Jun 2020 15:41:19 +0200
+Subject: bug777918-implicit-int
+
 ===================================================================
---- pkg-ipsec-tools.orig/src/racoon/isakmp_xauth.c
-+++ pkg-ipsec-tools/src/racoon/isakmp_xauth.c
+---
+ src/racoon/isakmp_xauth.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/racoon/isakmp_xauth.c b/src/racoon/isakmp_xauth.c
+index a78bab5..85ad0fd 100644
+--- a/src/racoon/isakmp_xauth.c
++++ b/src/racoon/isakmp_xauth.c
 @@ -376,6 +376,7 @@ xauth_reply(iph1, port, id, res)
  	struct ph1handle *iph1;
  	int port;

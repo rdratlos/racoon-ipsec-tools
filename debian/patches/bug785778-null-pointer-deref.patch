@@ -1,7 +1,16 @@
-Index: pkg-ipsec-tools/src/racoon/gssapi.c
+From: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Date: Sun, 7 Jun 2020 15:41:18 +0200
+Subject: bug785778-null-pointer-deref
+
 ===================================================================
---- pkg-ipsec-tools.orig/src/racoon/gssapi.c
-+++ pkg-ipsec-tools/src/racoon/gssapi.c
+---
+ src/racoon/gssapi.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/racoon/gssapi.c b/src/racoon/gssapi.c
+index e64b201..7edcf4f 100644
+--- a/src/racoon/gssapi.c
++++ b/src/racoon/gssapi.c
 @@ -192,6 +192,11 @@ gssapi_init(struct ph1handle *iph1)
  	gss_name_t princ, canon_princ;
  	OM_uint32 maj_stat, min_stat;

@@ -1,7 +1,16 @@
-Index: pkg-ipsec-tools/configure.ac
+From: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Date: Sun, 7 Jun 2020 15:41:18 +0200
+Subject: automake-options
+
 ===================================================================
---- pkg-ipsec-tools.orig/configure.ac	2014-06-28 17:25:22.000000000 +0200
-+++ pkg-ipsec-tools/configure.ac	2014-06-28 17:28:13.818373322 +0200
+---
+ configure.ac | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/configure.ac b/configure.ac
+index 8506245..c55aa00 100644
+--- a/configure.ac
++++ b/configure.ac
 @@ -6,7 +6,8 @@ AC_INIT(ipsec-tools, 0.8.2)
  AC_CONFIG_SRCDIR([configure.ac])
  AC_CONFIG_HEADERS(config.h)

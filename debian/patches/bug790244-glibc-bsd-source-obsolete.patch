@@ -1,7 +1,16 @@
-Index: pkg-ipsec-tools/src/include-glibc/glibc-bugs.h
+From: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Date: Sun, 7 Jun 2020 15:41:19 +0200
+Subject: bug790244-glibc-bsd-source-obsolete
+
 ===================================================================
---- pkg-ipsec-tools.orig/src/include-glibc/glibc-bugs.h
-+++ pkg-ipsec-tools/src/include-glibc/glibc-bugs.h
+---
+ src/include-glibc/glibc-bugs.h | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/src/include-glibc/glibc-bugs.h b/src/include-glibc/glibc-bugs.h
+index a992d2f..af17016 100644
+--- a/src/include-glibc/glibc-bugs.h
++++ b/src/include-glibc/glibc-bugs.h
 @@ -4,7 +4,6 @@
  #define __GLIBC_BUGS_H__ 1
  

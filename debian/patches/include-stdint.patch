@@ -1,8 +1,17 @@
-Index: pkg-ipsec-tools/src/libipsec/libpfkey.h
+From: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Date: Sun, 7 Jun 2020 15:41:18 +0200
+Subject: include-stdint
+
 ===================================================================
---- pkg-ipsec-tools.orig/src/libipsec/libpfkey.h	2014-04-22 22:21:21.765043735 -0700
-+++ pkg-ipsec-tools/src/libipsec/libpfkey.h	2014-05-08 23:33:54.344638004 -0700
-@@ -55,6 +55,9 @@
+---
+ src/libipsec/libpfkey.h | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/libipsec/libpfkey.h b/src/libipsec/libpfkey.h
+index a213aac..c614b3a 100644
+--- a/src/libipsec/libpfkey.h
++++ b/src/libipsec/libpfkey.h
+@@ -55,6 +55,9 @@ struct sadb_alg;
  
  /* Accomodate different prototypes in <netinet6/ipsec.h> */
  #include <sys/types.h>

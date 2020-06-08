@@ -1,0 +1,57 @@
+From: christos <christos@NetBSD.org>
+Date: Sun, 10 May 2020 19:54:49 +0000
+Subject: NetBSD-prefix errors with the program name and use stderr
+
+NetBSD patch adapted to Debian source
+
+Signed-off-by: Thomas Reim <reimth@gmail.com>
+---
+ src/setkey/token.l | 13 ++++++-------
+ 1 file changed, 6 insertions(+), 7 deletions(-)
+
+diff --git a/src/setkey/token.l b/src/setkey/token.l
+index ac6224b..7bc32bd 100644
+--- a/src/setkey/token.l
++++ b/src/setkey/token.l
+@@ -1,4 +1,4 @@
+-/*	$NetBSD: token.l,v 1.23 2019/07/23 04:30:32 ozaki-r Exp $	*/
++/*	$NetBSD: token.l,v 1.24 2020/05/10 19:54:49 christos Exp $	*/
+ /*	$KAME: token.l,v 1.44 2003/10/21 07:20:58 itojun Exp $	*/
+ 
+ /*
+@@ -49,6 +49,7 @@
+ #include <unistd.h>
+ #include <errno.h>
+ #include <netdb.h>
++#include <err.h>
+ 
+ #include "vchar.h"
+ #if defined(__NetBSD__) || defined(__FreeBSD__) || defined(__linux__) || \
+@@ -322,15 +323,13 @@ yyfatal(s)
+ }
+ 
+ void
+-yyerror(s)
+-	const char *s;
++yyerror(const char *s)
+ {
+-	printf("line %d: %s at [%s]\n", lineno, s, yytext);
++	warnx("line %d: %s at [%s]", lineno, s, yytext);
+ }
+ 
+ int
+-parse(fp)
+-	FILE **fp;
++parse(FILE **fp)
+ {
+ 	yyin = *fp;
+ 
+@@ -338,7 +337,7 @@ parse(fp)
+ 	parse_init();
+ 
+ 	if (yyparse()) {
+-		printf("parse failed, line %d.\n", lineno);
++		warnx("line %d: parse failed", lineno);
+ 		return(-1);
+ 	}
+ 

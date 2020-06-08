@@ -1,4 +1,8 @@
-The iPhone OS has a strange set of VPN features.  Using L2TP over IPsec 
+From: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Date: Sun, 7 Jun 2020 15:41:18 +0200
+Subject: support-iphone-os-main-mode-with-psk
+
+The iPhone OS has a strange set of VPN features.  Using L2TP over IPsec
 it only supports main mode with pre-shared keys (no certificates). 
 Since L2TP provides the per-user authentication we want to use a single 
 pre-shared key for all VPN users, but this is hard to do with 
@@ -8,12 +12,15 @@ in advance.  The attached patch adds a wildcard match to the psk.txt
 reading code, specifying an id of * will match any client.
 
 (John Keith Hohm <john@hohm.net>)
+---
+ src/racoon/localconf.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
 
-Index: pkg-ipsec-tools/src/racoon/localconf.c
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/localconf.c	2014-04-25 23:35:22.635728960 -0700
-+++ pkg-ipsec-tools/src/racoon/localconf.c	2014-04-25 23:36:02.787928062 -0700
-@@ -207,7 +207,8 @@
+diff --git a/src/racoon/localconf.c b/src/racoon/localconf.c
+index a512953..81c4847 100644
+--- a/src/racoon/localconf.c
++++ b/src/racoon/localconf.c
+@@ -207,7 +207,8 @@ getpsk(str, len)
  		if (*p == '\0')
  			continue;	/* no 2nd parameter */
  		p--;

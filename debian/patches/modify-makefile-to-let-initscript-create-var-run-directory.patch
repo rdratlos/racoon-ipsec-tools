@@ -1,12 +1,19 @@
+From: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Date: Sun, 7 Jun 2020 15:41:18 +0200
+Subject: modify-makefile-to-let-initscript-create-var-run-directory
+
 By default through the upstream script the raccon directory /var/run/racoon gets created.
 As the content in /var/run/* could get lost due to a reboot, this patch gets rid of that
 creation and let the initscript handle this.
+---
+ src/racoon/Makefile.in | 3 ---
+ 1 file changed, 3 deletions(-)
 
-Index: pkg-ipsec-tools/src/racoon/Makefile.in
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/Makefile.in	2014-07-10 23:47:47.399903984 -0700
-+++ pkg-ipsec-tools/src/racoon/Makefile.in	2014-07-10 23:49:56.944546357 -0700
-@@ -1465,9 +1465,6 @@
+diff --git a/src/racoon/Makefile.in b/src/racoon/Makefile.in
+index 2e001f8..3cdf62c 100644
+--- a/src/racoon/Makefile.in
++++ b/src/racoon/Makefile.in
+@@ -1465,9 +1465,6 @@ uninstall-man: uninstall-man5 uninstall-man8
  	uninstall-sbinPROGRAMS
  
  

@@ -1,8 +1,17 @@
-Index: pkg-ipsec-tools/src/racoon/crypto_openssl.c
+From: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Date: Sun, 7 Jun 2020 15:41:18 +0200
+Subject: ipv6literalaltname
+
 ===================================================================
---- pkg-ipsec-tools.orig/src/racoon/crypto_openssl.c	2014-07-11 00:46:22.249333177 -0700
-+++ pkg-ipsec-tools/src/racoon/crypto_openssl.c	2014-07-11 00:47:17.113605231 -0700
-@@ -603,26 +603,47 @@
+---
+ src/racoon/crypto_openssl.c | 57 +++++++++++++++++++++++++++++++--------------
+ 1 file changed, 39 insertions(+), 18 deletions(-)
+
+diff --git a/src/racoon/crypto_openssl.c b/src/racoon/crypto_openssl.c
+index 429ec0e..02b0376 100644
+--- a/src/racoon/crypto_openssl.c
++++ b/src/racoon/crypto_openssl.c
+@@ -603,26 +603,47 @@ eay_get_x509subjectaltname(cert, altname, type, pos)
  	/* read IP address */
  	else if (gen->type == GEN_IPADD)
  	{
@@ -18,17 +27,16 @@ Index: pkg-ipsec-tools/src/racoon/crypto_openssl.c
 -		 */
 -		/*i2d_ASN1_OCTET_STRING(gen->d.ip,&ip);*/
 -		ip = gen->d.ip->data;
--
--		/* XXX Magic, enough for an IPv4 address
--		 */
--		*altname = racoon_malloc(20);
--		if (!*altname)
 +		switch (gen->d.iPAddress->length) {
 +		case 4: /* IPv4 */
 +			*altname = racoon_malloc(4*3 + 3 + 1); /* digits + decimals + null */
 +			if (!*altname)
 +				goto end;
-+
+ 
+-		/* XXX Magic, enough for an IPv4 address
+-		 */
+-		*altname = racoon_malloc(20);
+-		if (!*altname)
 +			snprintf(*altname, 12+3+1, "%u.%u.%u.%u",
 +			         (unsigned)gen->d.iPAddress->data[0],
 +			         (unsigned)gen->d.iPAddress->data[1],

@@ -1,9 +1,20 @@
+From: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Date: Sun, 7 Jun 2020 15:41:18 +0200
+Subject: checkpoint-xauth
+
 See https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=650176
-Index: pkg-ipsec-tools/src/racoon/isakmp_cfg.c
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/isakmp_cfg.c	2014-07-11 01:24:50.640779871 -0700
-+++ pkg-ipsec-tools/src/racoon/isakmp_cfg.c	2014-10-13 22:29:06.856451711 -0700
-@@ -498,6 +498,8 @@
+See https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=650176
+---
+ src/racoon/isakmp_cfg.c   | 131 ++++++++++++++++++++++++++++++----------------
+ src/racoon/isakmp_xauth.c |  10 +++-
+ src/racoon/isakmp_xauth.h |  10 ++++
+ 3 files changed, 106 insertions(+), 45 deletions(-)
+
+diff --git a/src/racoon/isakmp_cfg.c b/src/racoon/isakmp_cfg.c
+index 6746459..595625e 100644
+--- a/src/racoon/isakmp_cfg.c
++++ b/src/racoon/isakmp_cfg.c
+@@ -498,6 +498,8 @@ isakmp_cfg_request(iph1, attrpl)
  	vchar_t *reply_attr;
  	int type;
  	int error = -1;
@@ -12,7 +23,7 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_cfg.c
  
  	if ((payload = vmalloc(sizeof(*reply))) == NULL) {
  		plog(LLV_ERROR, LOCATION, NULL, "Cannot allocate memory\n");
-@@ -525,6 +527,11 @@
+@@ -525,6 +527,11 @@ isakmp_cfg_request(iph1, attrpl)
  			case XAUTH_TYPE:
  				reply_attr = isakmp_xauth_req(iph1, attr);
  				break;
@@ -24,7 +35,7 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_cfg.c
  			default:
  				plog(LLV_WARNING, LOCATION, NULL,
  				     "Ignored short attribute %s\n",
-@@ -558,53 +565,70 @@
+@@ -558,53 +565,70 @@ isakmp_cfg_request(iph1, attrpl)
  		     "Attribute %s, len %zu\n",
  		     s_isakmp_cfg_type(type), alen);
  
@@ -50,6 +61,16 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_cfg.c
 +				break;
 +                        }
 +                }
++
++		if (!cpsc_handled) {
++			switch(type) {
++			case INTERNAL_IP4_ADDRESS:
++			case INTERNAL_IP4_NETMASK:
++			case INTERNAL_IP4_DNS:
++			case INTERNAL_IP4_NBNS:
++			case INTERNAL_IP4_SUBNET:
++				reply_attr = isakmp_cfg_net(iph1, attr);
++				break;
  
 -		case XAUTH_TYPE:
 -		case XAUTH_USER_NAME:
@@ -63,20 +84,6 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_cfg.c
 -		case XAUTH_ANSWER:
 -			reply_attr = isakmp_xauth_req(iph1, attr);
 -			break;
-+		if (!cpsc_handled) {
-+			switch(type) {
-+			case INTERNAL_IP4_ADDRESS:
-+			case INTERNAL_IP4_NETMASK:
-+			case INTERNAL_IP4_DNS:
-+			case INTERNAL_IP4_NBNS:
-+			case INTERNAL_IP4_SUBNET:
-+				reply_attr = isakmp_cfg_net(iph1, attr);
-+				break;
- 
--		case APPLICATION_VERSION:
--			reply_attr = isakmp_cfg_string(iph1, 
--			    attr, ISAKMP_CFG_RACOON_VERSION);
--			break;
 +			case XAUTH_TYPE:
 +			case XAUTH_USER_NAME:
 +			case XAUTH_USER_PASSWORD:
@@ -88,6 +95,15 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_cfg.c
 +			case XAUTH_NEXT_PIN:
 +			case XAUTH_ANSWER:
 +				reply_attr = isakmp_xauth_req(iph1, attr);
++				break;
+ 
+-		case APPLICATION_VERSION:
+-			reply_attr = isakmp_cfg_string(iph1, 
+-			    attr, ISAKMP_CFG_RACOON_VERSION);
+-			break;
++			case APPLICATION_VERSION:
++				reply_attr = isakmp_cfg_string(iph1, 
++				attr, ISAKMP_CFG_RACOON_VERSION);
 +				break;
  
 -		case UNITY_BANNER:
@@ -103,17 +119,6 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_cfg.c
 -		case UNITY_BACKUP_SERVERS:
 -			reply_attr = isakmp_unity_req(iph1, attr);
 -			break;
-+			case APPLICATION_VERSION:
-+				reply_attr = isakmp_cfg_string(iph1, 
-+				attr, ISAKMP_CFG_RACOON_VERSION);
-+				break;
- 
--		case INTERNAL_ADDRESS_EXPIRY:
--		default:
--			plog(LLV_WARNING, LOCATION, NULL,
--			     "Ignored attribute %s\n",
--			     s_isakmp_cfg_type(type));
--			break;
 +			case UNITY_BANNER:
 +			case UNITY_PFS:
 +			case UNITY_SAVE_PASSWD:
@@ -127,7 +132,13 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_cfg.c
 +			case UNITY_BACKUP_SERVERS:
 +				reply_attr = isakmp_unity_req(iph1, attr);
 +				break;
-+
+ 
+-		case INTERNAL_ADDRESS_EXPIRY:
+-		default:
+-			plog(LLV_WARNING, LOCATION, NULL,
+-			     "Ignored attribute %s\n",
+-			     s_isakmp_cfg_type(type));
+-			break;
 +			case INTERNAL_ADDRESS_EXPIRY:
 +			default:
 +				plog(LLV_WARNING, LOCATION, NULL,
@@ -138,7 +149,7 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_cfg.c
  		}
  
  		npp = (char *)attr;
-@@ -690,6 +714,8 @@
+@@ -690,6 +714,8 @@ isakmp_cfg_set(iph1, attrpl)
  		
  		switch (type & ~ISAKMP_GEN_MASK) {
  		case XAUTH_STATUS:
@@ -147,7 +158,7 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_cfg.c
  			reply_attr = isakmp_xauth_set(iph1, attr);
  			break;
  		default:
-@@ -1733,9 +1759,25 @@
+@@ -1733,9 +1759,25 @@ isakmp_cfg_getconfig(iph1)
  		UNITY_LOCAL_LAN,
  		APPLICATION_VERSION,
  	};
@@ -173,7 +184,7 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_cfg.c
  	    
  	if ((buffer = vmalloc(len)) == NULL) {
  		plog(LLV_ERROR, LOCATION, NULL, "Cannot allocate memory\n");
-@@ -1751,8 +1793,9 @@
+@@ -1751,8 +1793,9 @@ isakmp_cfg_getconfig(iph1)
  
  	for (i = 0; i < attrcount; i++) {
  		attr->type = htons(attrlist[i]);
@@ -184,11 +195,11 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_cfg.c
  	}
  
  	plog(LLV_DEBUG, LOCATION, NULL, 
-Index: pkg-ipsec-tools/src/racoon/isakmp_xauth.c
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/isakmp_xauth.c	2014-07-11 01:24:50.640779871 -0700
-+++ pkg-ipsec-tools/src/racoon/isakmp_xauth.c	2014-10-13 22:29:06.856451711 -0700
-@@ -1472,6 +1472,7 @@
+diff --git a/src/racoon/isakmp_xauth.c b/src/racoon/isakmp_xauth.c
+index 94c72d6..a78bab5 100644
+--- a/src/racoon/isakmp_xauth.c
++++ b/src/racoon/isakmp_xauth.c
+@@ -1472,6 +1472,7 @@ isakmp_xauth_req(iph1, attr)
  	/* Sanity checks */
  	switch(type) {
  	case XAUTH_TYPE:
@@ -196,7 +207,7 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_xauth.c
  		if ((ntohs(attr->type) & ISAKMP_GEN_TV) == 0) {
  			plog(LLV_ERROR, LOCATION, NULL, 
  			    "Unexpected long XAUTH_TYPE attribute\n");
-@@ -1489,6 +1490,7 @@
+@@ -1489,6 +1490,7 @@ isakmp_xauth_req(iph1, attr)
  		break;
  
  	case XAUTH_USER_NAME:
@@ -204,7 +215,7 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_xauth.c
  		if (!iph1->rmconf->xauth || !iph1->rmconf->xauth->login) {
  			plog(LLV_ERROR, LOCATION, NULL, "Xauth performed "
  			    "with no login supplied\n");
-@@ -1499,6 +1501,7 @@
+@@ -1499,6 +1501,7 @@ isakmp_xauth_req(iph1, attr)
  		iph1->rmconf->xauth->state |= XAUTH_SENT_USERNAME;
  		break;
  
@@ -212,7 +223,7 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_xauth.c
  	case XAUTH_USER_PASSWORD:
  		if (!iph1->rmconf->xauth || !iph1->rmconf->xauth->login)
  			return NULL;
-@@ -1536,6 +1539,7 @@
+@@ -1536,6 +1539,7 @@ isakmp_xauth_req(iph1, attr)
  
  		break;
  	case XAUTH_MESSAGE:
@@ -220,7 +231,7 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_xauth.c
  		if ((ntohs(attr->type) & ISAKMP_GEN_TV) == 0) {
  			dlen = ntohs(attr->lorv);
  			if (dlen > 0) {
-@@ -1579,6 +1583,7 @@
+@@ -1579,6 +1583,7 @@ isakmp_xauth_req(iph1, attr)
  
  	switch(type) {
  	case XAUTH_USER_NAME:
@@ -228,7 +239,7 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_xauth.c
  		/* 
  		 * iph1->rmconf->xauth->login->v is valid, 
  		 * we just checked it in the previous switch case 
-@@ -1586,6 +1591,7 @@
+@@ -1586,6 +1591,7 @@ isakmp_xauth_req(iph1, attr)
  		memcpy(data, iph1->rmconf->xauth->login->v, dlen);
  		break;
  	case XAUTH_USER_PASSWORD:
@@ -236,7 +247,7 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_xauth.c
  		memcpy(data, pwd->v, dlen);
  		break;
  	default:
-@@ -1622,6 +1628,7 @@
+@@ -1622,6 +1628,7 @@ isakmp_xauth_set(iph1, attr)
  
  	switch(type) {
  	case XAUTH_STATUS:
@@ -244,7 +255,7 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_xauth.c
  		/* 
  		 * We should only receive ISAKMP mode_cfg SET XAUTH_STATUS
  		 * when running as a client (initiator).
-@@ -1660,6 +1667,7 @@
+@@ -1660,6 +1667,7 @@ isakmp_xauth_set(iph1, attr)
  		/* We acknowledge it */
  		break;
  	case XAUTH_MESSAGE:
@@ -252,7 +263,7 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_xauth.c
  		if ((ntohs(attr->type) & ISAKMP_GEN_TV) == 0) {
  			dlen = ntohs(attr->lorv);
  			if (dlen > 0) {
-@@ -1676,7 +1684,7 @@
+@@ -1676,7 +1684,7 @@ isakmp_xauth_set(iph1, attr)
  				racoon_free(mdata);
  			}
  		}
@@ -261,10 +272,10 @@ Index: pkg-ipsec-tools/src/racoon/isakmp_xauth.c
  	default:
  		plog(LLV_WARNING, LOCATION, NULL,
  		    "Ignored attribute %s\n", s_isakmp_cfg_type(type));
-Index: pkg-ipsec-tools/src/racoon/isakmp_xauth.h
-===================================================================
---- pkg-ipsec-tools.orig/src/racoon/isakmp_xauth.h	2014-04-22 22:21:21.789043854 -0700
-+++ pkg-ipsec-tools/src/racoon/isakmp_xauth.h	2014-10-13 22:29:06.856451711 -0700
+diff --git a/src/racoon/isakmp_xauth.h b/src/racoon/isakmp_xauth.h
+index f9e778f..5aaed5d 100644
+--- a/src/racoon/isakmp_xauth.h
++++ b/src/racoon/isakmp_xauth.h
 @@ -58,6 +58,16 @@
  #define	XAUTH_STATUS_FAIL       0
  #define	XAUTH_STATUS_OK         1
