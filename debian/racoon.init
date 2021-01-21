@@ -7,7 +7,6 @@
 # Should-Stop:	     $portmap
 # Default-Start:     S
 # Default-Stop:      0 1 6
-# X-Stop-After:	     sendsigs
 # Short-Description: start the ipsec key exchange server 
 ### END INIT INFO
 #
