@@ -24,3 +24,4 @@ sprintf-sizes
 0024-Fix-isakmp-fragmentation-bug-in-CVE-2016-10396-patch.patch
 0025-NetBSD-pass-the-correct-size-for-tbuf.patch
 0026-NetBSD-fix-incorrect-authentication-algorithms.patch
+0027-NetBSD-Clean-up-setkey.patch

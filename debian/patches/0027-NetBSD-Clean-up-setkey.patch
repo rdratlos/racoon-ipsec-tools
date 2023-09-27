@@ -1,0 +1,1513 @@
+From: maxv <maxv@NetBSD.org>
+Date: Sun, 14 Oct 2018 08:27:39 +0000
+Subject: NetBSD-Clean up setkey
+
+Remove dead wood, KNF, localify, and slightly improve
+
+NetBSD patch adapted to Debian sources
+
+Signed-off-by: Thomas Reim <reimth@gmail.com>
+---
+ src/setkey/Makefile.am   |   3 +-
+ src/setkey/extern.h      |  75 +++---
+ src/setkey/parse.y       |  51 ++--
+ src/setkey/scriptdump.pl |  55 -----
+ src/setkey/setkey.c      | 236 +++++++++----------
+ src/setkey/test-pfkey.c  | 590 -----------------------------------------------
+ src/setkey/token.l       |  29 ++-
+ 7 files changed, 207 insertions(+), 832 deletions(-)
+ delete mode 100644 src/setkey/scriptdump.pl
+ delete mode 100644 src/setkey/test-pfkey.c
+
+diff --git a/src/setkey/Makefile.am b/src/setkey/Makefile.am
+index 746c1f1..b0ceed1 100644
+--- a/src/setkey/Makefile.am
++++ b/src/setkey/Makefile.am
+@@ -18,5 +18,4 @@ setkey_LDADD = $(LEXLIB)
+ noinst_HEADERS = vchar.h extern.h
+ man8_MANS = setkey.8
+ 
+-EXTRA_DIST = ${man8_MANS} sample-policy01.cf sample-policy02.cf sample.cf \
+-	scriptdump.pl test-pfkey.c
++EXTRA_DIST = ${man8_MANS} sample-policy01.cf sample-policy02.cf sample.cf
+diff --git a/src/setkey/extern.h b/src/setkey/extern.h
+index 6f439fa..11e54e5 100644
+--- a/src/setkey/extern.h
++++ b/src/setkey/extern.h
+@@ -1,33 +1,54 @@
+-/*	$NetBSD: extern.h,v 1.5 2009/03/06 11:45:03 tteras Exp $	*/
+-
+-
+-
+-void parse_init __P((void));
+-int parse __P((FILE **));
+-int parse_string __P((char *));
+-
+-int setkeymsg __P((char *, size_t *));
+-int sendkeymsg __P((char *, size_t));
+-
+-int yylex __P((void));
+-int yyparse __P((void));
+-void yyfatal __P((const char *));
+-void yyerror __P((const char *));
+-
+-u_int32_t *sendkeymsg_spigrep __P((unsigned int, struct addrinfo *,
+-				   struct addrinfo *, int *));
+-
++/*	$NetBSD: extern.h,v 1.7 2018/10/14 08:27:39 maxv Exp $	*/
++ 
++/*
++ * Copyright (c) 2018 The NetBSD Foundation, Inc.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *notice, this list of conditions and the following disclaimer in the
++ *documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE NETBSD FOUNDATION, INC. AND CONTRIBUTORS
++ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
++ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ */
++ 
++/* parse.y */
++void parse_init(void);
++
++/* token.l */
++int parse(FILE **);
++int parse_string(char *);
++
++/* setkey.c */
++int sendkeymsg(char *, size_t);
++uint32_t *sendkeymsg_spigrep(unsigned int, struct addrinfo *,
++    struct addrinfo *, int *);
++
++int yylex(void);
++int yyparse(void);
++void yyfatal(const char *);
++void yyerror(const char *);
++
++#ifdef HAVE_POLICY_FWD
+ extern int f_rfcmode;
++#endif
+ extern int lineno;
+-extern int last_msg_type;
+-extern u_int32_t last_priority;
+ extern int exit_now;
+-
+-extern u_char m_buf[BUFSIZ];
+-extern u_int m_len;
+-extern int f_debug;
+-
+ #ifdef HAVE_PFKEY_POLICY_PRIORITY
+ extern int last_msg_type;
+-extern u_int32_t last_priority;
++extern uint32_t last_priority;
+ #endif
+diff --git a/src/setkey/parse.y b/src/setkey/parse.y
+index fa3c45d..4a1785f 100644
+--- a/src/setkey/parse.y
++++ b/src/setkey/parse.y
+@@ -1,5 +1,4 @@
+-/*	$NetBSD: parse.y,v 1.14 2010/12/03 14:32:52 tteras Exp $	*/
+-
++/*	$NetBSD: parse.y,v 1.22 2018/10/14 08:27:39 maxv Exp $	*/
+ /*	$KAME: parse.y,v 1.81 2003/07/01 04:01:48 itojun Exp $	*/
+ 
+ /*
+@@ -90,21 +89,21 @@ static struct addrinfo * p_natt_oa = NULL;
+ 
+ static int p_aiflags = 0, p_aifamily = PF_UNSPEC;
+ 
+-static struct addrinfo *parse_addr __P((char *, char *));
+-static int fix_portstr __P((int, vchar_t *, vchar_t *, vchar_t *));
+-static int setvarbuf __P((char *, int *, struct sadb_ext *, int, 
+-    const void *, int));
+-void parse_init __P((void));
+-void free_buffer __P((void));
+-
+-int setkeymsg0 __P((struct sadb_msg *, unsigned int, unsigned int, size_t));
+-static int setkeymsg_spdaddr __P((unsigned int, unsigned int, vchar_t *,
+-	struct addrinfo *, int, struct addrinfo *, int));
+-static int setkeymsg_spdaddr_tag __P((unsigned int, char *, vchar_t *));
+-static int setkeymsg_addr __P((unsigned int, unsigned int,
+-	struct addrinfo *, struct addrinfo *, int));
+-static int setkeymsg_add __P((unsigned int, unsigned int,
+-	struct addrinfo *, struct addrinfo *));
++static struct addrinfo *parse_addr(char *, char *);
++static int fix_portstr(int, vchar_t *, vchar_t *, vchar_t *);
++static int setvarbuf(char *, int *, struct sadb_ext *, int,
++    const void *, int);
++void parse_init(void);
++void free_buffer(void);
++
++int setkeymsg0(struct sadb_msg *, unsigned int, unsigned int, size_t);
++static int setkeymsg_spdaddr(unsigned int, unsigned int, vchar_t *,
++	struct addrinfo *, int, struct addrinfo *, int);
++static int setkeymsg_spdaddr_tag(unsigned int, char *, vchar_t *);
++static int setkeymsg_addr(unsigned int, unsigned int,
++	struct addrinfo *, struct addrinfo *, int);
++static int setkeymsg_add(unsigned int, unsigned int,
++	struct addrinfo *, struct addrinfo *);
+ %}
+ 
+ %union {
+@@ -474,14 +473,14 @@ auth_alg
+ 			p_key_auth = $2.buf;
+ #ifdef SADB_X_AALG_TCP_MD5
+ 			if (p_alg_auth == SADB_X_AALG_TCP_MD5) {
+-				if ((p_key_auth_len < 1) || 
++				if ((p_key_auth_len < 1) ||
+ 				    (p_key_auth_len > 80))
+ 					return -1;
+-			} else 
++			} else
+ #endif
+ 			{
+ 				if (ipsec_check_keylen(SADB_EXT_SUPPORTED_AUTH,
+-				    p_alg_auth, 
++				    p_alg_auth,
+ 				    PFKEY_UNUNIT64(p_key_auth_len)) < 0) {
+ 					yyerror(ipsec_strerror());
+ 					return -1;
+@@ -817,8 +816,8 @@ portstr
+ upper_spec
+ 	:	DECSTRING { $$ = $1; }
+ 	|	ANY { $$ = IPSEC_ULPROTO_ANY; }
+-	|	PR_TCP { 
+-				$$ = IPPROTO_TCP; 
++	|	PR_TCP {
++				$$ = IPPROTO_TCP;
+ 			}
+ 	|	STRING
+ 		{
+@@ -1026,13 +1025,13 @@ setkeymsg_spdaddr(type, upper, policy, srcs, splen, dsts, dplen)
+ 				m_sec_ctx.sadb_x_sec_len =
+ 				PFKEY_UNIT64(slen + PFKEY_ALIGN8(sec_ctx.len));
+ 
+-				m_sec_ctx.sadb_x_sec_exttype = 
++				m_sec_ctx.sadb_x_sec_exttype =
+ 					SADB_X_EXT_SEC_CTX;
+ 				m_sec_ctx.sadb_x_ctx_len = sec_ctx.len;/*bytes*/
+ 				m_sec_ctx.sadb_x_ctx_doi = sec_ctx.doi;
+ 				m_sec_ctx.sadb_x_ctx_alg = sec_ctx.alg;
+-				setvarbuf(buf, &l, 
+-					  (struct sadb_ext *)&m_sec_ctx, slen, 
++				setvarbuf(buf, &l,
++					  (struct sadb_ext *)&m_sec_ctx, slen,
+ 					  (caddr_t)sec_ctx.buf, sec_ctx.len);
+ 			}
+ #endif
+@@ -1379,7 +1378,7 @@ setkeymsg_add(type, satype, srcs, dsts)
+ 		m_sec_ctx.sadb_x_ctx_doi = sec_ctx.doi;
+ 		m_sec_ctx.sadb_x_ctx_alg = sec_ctx.alg;
+ 		setvarbuf(buf, &l, (struct sadb_ext *)&m_sec_ctx, slen,
+-			  (caddr_t)sec_ctx.buf, sec_ctx.len); 
++			  (caddr_t)sec_ctx.buf, sec_ctx.len);
+ 	}
+ #endif
+ 
+diff --git a/src/setkey/scriptdump.pl b/src/setkey/scriptdump.pl
+deleted file mode 100644
+index f5b9f25..0000000
+--- a/src/setkey/scriptdump.pl
++++ /dev/null
+@@ -1,55 +0,0 @@
+-#! @LOCALPREFIX@/bin/perl
+-
+-if ($< != 0) {
+-	print STDERR "must be root to invoke this\n";
+-	exit 1;
+-}
+-
+-$mode = 'add';
+-while ($i = shift @ARGV) {
+-	if ($i eq '-d') {
+-		$mode = 'delete';
+-	} else {
+-		print STDERR "usage: scriptdump [-d]\n";
+-		exit 1;
+-	}
+-}
+-
+-open(IN, "setkey -D |") || die;
+-foreach $_ (<IN>) {
+-	if (/^[^\t]/) {
+-		($src, $dst) = split(/\s+/, $_);
+-	} elsif (/^\t(esp|ah) mode=(\S+) spi=(\d+).*reqid=(\d+)/) {
+-		($proto, $ipsecmode, $spi, $reqid) = ($1, $2, $3, $4);
+-	} elsif (/^\tE: (\S+) (.*)/) {
+-		$ealgo = $1;
+-		$ekey = $2;
+-		$ekey =~ s/\s//g;
+-		$ekey =~ s/^/0x/g;
+-	} elsif (/^\tA: (\S+) (.*)/) {
+-		$aalgo = $1;
+-		$akey = $2;
+-		$akey =~ s/\s//g;
+-		$akey =~ s/^/0x/g;
+-	} elsif (/^\tseq=(0x\d+) replay=(\d+) flags=(0x\d+) state=/) {
+-		print "$mode $src $dst $proto $spi";
+-		$replay = $2;
+-		print " -u $reqid" if $reqid;
+-		if ($mode eq 'add') {
+-			print " -m $ipsecmode -r $replay" if $replay;
+-			if ($proto eq 'esp') {
+-				print " -E $ealgo $ekey" if $ealgo;
+-				print " -A $aalgo $akey" if $aalgo;
+-			} elsif ($proto eq 'ah') {
+-				print " -A $aalgo $akey" if $aalgo;
+-			}
+-		} 
+-		print ";\n";
+-
+-		$src = $dst = $upper = $proxy = '';
+-		$ealgo = $ekey = $aalgo = $akey = '';
+-	}
+-}
+-close(IN);
+-
+-exit 0;
+diff --git a/src/setkey/setkey.c b/src/setkey/setkey.c
+index c400faa..fda2776 100644
+--- a/src/setkey/setkey.c
++++ b/src/setkey/setkey.c
+@@ -1,7 +1,32 @@
+-/*	$NetBSD: setkey.c,v 1.14 2009/08/06 04:44:43 tteras Exp $	*/
+-
++/*	$NetBSD: setkey.c,v 1.19 2018/10/14 08:27:39 maxv Exp $	*/
+ /*	$KAME: setkey.c,v 1.36 2003/09/24 23:52:51 itojun Exp $	*/
+ 
++/*
++ * Copyright (c) 2018 The NetBSD Foundation, Inc.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE NETBSD FOUNDATION, INC. AND CONTRIBUTORS
++ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
++ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR CONTRIBUTORS
++ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ */
++
+ /*
+  * Copyright (C) 1995, 1996, 1997, 1998, and 1999 WIDE Project.
+  * All rights reserved.
+@@ -66,25 +91,24 @@
+ #include "config.h"
+ #include "libpfkey.h"
+ #include "package_version.h"
+-#define extern /* so that variables in extern.h are not extern... */
+ #include "extern.h"
+ 
+ #define strlcpy(d,s,l) (strncpy(d,s,l), (d)[(l)-1] = '\0')
+ 
+-void usage __P((int));
+-int main __P((int, char **));
+-int get_supported __P((void));
+-void sendkeyshort __P((u_int));
+-void promisc __P((void));
+-int postproc __P((struct sadb_msg *, int));
+-int verifypriority __P((struct sadb_msg *m));
+-int fileproc __P((const char *));
+-const char *numstr __P((int));
+-void shortdump_hdr __P((void));
+-void shortdump __P((struct sadb_msg *));
+-static void printdate __P((void));
+-static int32_t gmt2local __P((time_t));
+-void stdin_loop __P((void));
++static int get_supported(void);
++static void sendkeyshort(u_int);
++static void promisc(void);
++static int postproc(struct sadb_msg *, int);
++#ifdef HAVE_PFKEY_POLICY_PRIORITY
++static int verifypriority(struct sadb_msg *);
++#endif
++static int fileproc(const char *);
++static const char *numstr(int);
++static void shortdump_hdr(void);
++static void shortdump(struct sadb_msg *);
++static void printdate(void);
++static int32_t gmt2local(time_t);
++static void stdin_loop(void);
+ 
+ #define MODE_SCRIPT	1
+ #define MODE_CMDDUMP	2
+@@ -104,13 +128,16 @@ int f_hexdump = 0;
+ int f_tflag = 0;
+ int f_notreally = 0;
+ int f_withports = 0;
++#ifdef HAVE_PFKEY_POLICY_PRIORITY
++int last_msg_type;
++uint32_t last_priority;
++#endif
+ #ifdef HAVE_POLICY_FWD
+ int f_rfcmode = 1;
+ #define RK_OPTS "rk"
+ #else
+-int f_rkwarn = 0;
++static int f_rkwarn = 0;
+ #define RK_OPTS ""
+-static void rkwarn(void);
+ static void
+ rkwarn(void)
+ {
+@@ -119,15 +146,17 @@ rkwarn(void)
+ 		printf("warning: -r and -k options are not supported in this environment\n");
+ 	}
+ }
+-
+ #endif
++
++int lineno;
++int exit_now;
+ static time_t thiszone;
+ 
+-void
++static void
+ usage(int only_version)
+ {
+-	printf("setkey @(#) %s (%s)\n", TOP_PACKAGE_STRING, TOP_PACKAGE_URL); 
+-	if (! only_version) {
++	printf("setkey @(#) %s (%s)\n", TOP_PACKAGE_STRING, TOP_PACKAGE_URL);
++	if (!only_version) {
+ 		printf("usage: setkey [-v" RK_OPTS "] file ...\n");
+ 		printf("       setkey [-nv" RK_OPTS "] -c\n");
+ 		printf("       setkey [-nv" RK_OPTS "] -f filename\n");
+@@ -149,7 +178,6 @@ main(argc, argv)
+ 
+ 	if (argc == 1) {
+ 		usage(0);
+-		/* NOTREACHED */
+ 	}
+ 
+ 	thiszone = gmt2local(0);
+@@ -165,9 +193,10 @@ main(argc, argv)
+ 			break;
+ 		case 'f':
+ 			f_mode = MODE_SCRIPT;
+-			if ((fp = fopen(optarg, "r")) == NULL) {
+-				err(1, "fopen");
+-				/*NOTREACHED*/
++			if (strcmp(optarg, "-") == 0) {
++				fp = stdin;
++			} else if ((fp = fopen(optarg, "r")) == NULL) {
++				err(1, "Can't open `%s'", optarg);
+ 			}
+ 			break;
+ 		case 'D':
+@@ -221,14 +250,12 @@ main(argc, argv)
+ 		case 'V':
+ 			usage(1);
+ 			break;
+-			/*NOTREACHED*/
+ #ifndef __NetBSD__
+ 		case 'h':
+ #endif
+ 		case '?':
+ 		default:
+ 			usage(0);
+-			/*NOTREACHED*/
+ 		}
+ 	}
+ 
+@@ -236,11 +263,11 @@ main(argc, argv)
+ 	argv += optind;
+ 
+ 	if (argc > 0) {
+-		while (argc--)
++		while (argc--) {
+ 			if (fileproc(*argv++) < 0) {
+ 				err(1, "%s", argv[-1]);
+-				/*NOTREACHED*/
+ 			}
++		}
+ 		exit(0);
+ 	}
+ 
+@@ -260,31 +287,28 @@ main(argc, argv)
+ 	case MODE_SCRIPT:
+ 		if (get_supported() < 0) {
+ 			errx(1, "%s", ipsec_strerror());
+-			/*NOTREACHED*/
+ 		}
+ 		if (parse(&fp))
+-			exit (1);
++			exit(1);
+ 		break;
+ 	case MODE_STDIN:
+ 		if (get_supported() < 0) {
+ 			errx(1, "%s", ipsec_strerror());
+-			/*NOTREACHED*/
+ 		}
+ 		stdin_loop();
+ 		break;
+ 	case MODE_PROMISC:
+ 		promisc();
+-		/*NOTREACHED*/
++		/* NOTREACHED */
+ 	default:
+ 		usage(0);
+-		/*NOTREACHED*/
+ 	}
+ 
+ 	exit(0);
+ }
+ 
+-int
+-get_supported()
++static int
++get_supported(void)
+ {
+ 
+ 	if (pfkey_send_register(so, SADB_SATYPE_UNSPEC) < 0)
+@@ -293,23 +317,23 @@ get_supported()
+ 	if (pfkey_recv_register(so) < 0)
+ 		return -1;
+ 
+-	return (0);
++	return 0;
+ }
+ 
+-void
++static void
+ stdin_loop()
+ {
+ 	char line[1024], *semicolon, *comment;
+ 	size_t linelen = 0;
+-	
+-	memset (line, 0, sizeof(line));
++
++	memset(line, 0, sizeof(line));
+ 
+ 	parse_init();
+ 	while (1) {
+ #ifdef HAVE_READLINE
+ 		char *rbuf;
+-		rbuf = readline ("");
+-		if (! rbuf)
++		rbuf = readline("");
++		if (!rbuf)
+ 			break;
+ #else
+ 		char rbuf[1024];
+@@ -326,31 +350,30 @@ stdin_loop()
+ 		if (!rbuf[0])
+ 			continue;
+ 
+-		linelen += snprintf (&line[linelen], sizeof(line) - linelen,
+-				     "%s%s", linelen > 0 ? " " : "", rbuf);
++		linelen += snprintf(&line[linelen], sizeof(line) - linelen,
++		    "%s%s", linelen > 0 ? " " : "", rbuf);
+ 
+ 		semicolon = strchr(line, ';');
+ 		while (semicolon) {
+ 			char saved_char = *++semicolon;
+ 			*semicolon = '\0';
+ #ifdef HAVE_READLINE
+-			add_history (line);
++			add_history(line);
+ #endif
+ 
+ #ifdef HAVE_PFKEY_POLICY_PRIORITY
+ 			last_msg_type = -1;  /* invalid message type */
+ #endif
+ 
+-			parse_string (line);
++			parse_string(line);
+ 			if (exit_now)
+ 				return;
+ 			if (saved_char) {
+ 				*semicolon = saved_char;
+-				linelen = strlen (semicolon);
+-				memmove (line, semicolon, linelen + 1);
++				linelen = strlen(semicolon);
++				memmove(line, semicolon, linelen + 1);
+ 				semicolon = strchr(line, ';');
+-			}
+-			else {
++			} else {
+ 				semicolon = NULL;
+ 				linelen = 0;
+ 			}
+@@ -358,9 +381,8 @@ stdin_loop()
+ 	}
+ }
+ 
+-void
+-sendkeyshort(type)
+-        u_int type;
++static void
++sendkeyshort(u_int type)
+ {
+ 	struct sadb_msg msg;
+ 
+@@ -374,12 +396,10 @@ sendkeyshort(type)
+ 	msg.sadb_msg_pid = getpid();
+ 
+ 	sendkeymsg((char *)&msg, sizeof(msg));
+-
+-	return;
+ }
+ 
+-void
+-promisc()
++static void
++promisc(void)
+ {
+ 	struct sadb_msg msg;
+ 	u_char rbuf[1024 * 32];	/* XXX: Enough ? Should I do MSG_PEEK ? */
+@@ -396,7 +416,6 @@ promisc()
+ 
+ 	if ((l = send(so, &msg, sizeof(msg), 0)) < 0) {
+ 		err(1, "send");
+-		/*NOTREACHED*/
+ 	}
+ 
+ 	while (1) {
+@@ -404,7 +423,6 @@ promisc()
+ 
+ 		if ((l = recv(so, rbuf, sizeof(*base), MSG_PEEK)) < 0) {
+ 			err(1, "recv");
+-			/*NOTREACHED*/
+ 		}
+ 
+ 		if (l != sizeof(*base))
+@@ -414,7 +432,6 @@ promisc()
+ 		if ((l = recv(so, rbuf, PFKEY_UNUNIT64(base->sadb_msg_len),
+ 				0)) < 0) {
+ 			err(1, "recv");
+-			/*NOTREACHED*/
+ 		}
+ 		printdate();
+ 		if (f_hexdump) {
+@@ -444,17 +461,15 @@ promisc()
+ 	}
+ }
+ 
+-/* Generate 'spi' array with SPIs matching 'satype', 'srcs', and 'dsts'
++/*
++ * Generate 'spi' array with SPIs matching 'satype', 'srcs', and 'dsts'.
+  * Return value is dynamically generated array of SPIs, also number of
+  * SPIs through num_spi pointer.
+  * On any error, set *num_spi to 0 and return NULL.
+  */
+-u_int32_t *
+-sendkeymsg_spigrep(satype, srcs, dsts, num_spi)
+-	unsigned int satype;
+-	struct addrinfo *srcs;
+-	struct addrinfo *dsts;
+-	int *num_spi;
++uint32_t *
++sendkeymsg_spigrep(unsigned int satype, struct addrinfo *srcs,
++    struct addrinfo *dsts, int *num_spi)
+ {
+ 	struct sadb_msg msg, *m;
+ 	char *buf;
+@@ -466,7 +481,7 @@ sendkeymsg_spigrep(satype, srcs, dsts, num_spi)
+ 	struct sockaddr *s;
+ 	struct addrinfo *a;
+ 	struct sadb_sa *sa;
+-	u_int32_t *spi = NULL;
++	uint32_t *spi = NULL;
+ 	int max_spi = 0, fail = 0;
+ 
+ 	*num_spi = 0;
+@@ -580,12 +595,12 @@ sendkeymsg_spigrep(satype, srcs, dsts, num_spi)
+ 
+ 		if (*num_spi >= max_spi) {
+ 			max_spi += 512;
+-			spi = realloc(spi, max_spi * sizeof(u_int32_t));
++			spi = realloc(spi, max_spi * sizeof(uint32_t));
+ 		}
+ 
+ 		sa = (struct sadb_sa *)mhp[SADB_EXT_SA];
+ 		if (sa != NULL)
+-			spi[(*num_spi)++] = (u_int32_t)ntohl(sa->sadb_sa_spi);
++			spi[(*num_spi)++] = (uint32_t)ntohl(sa->sadb_sa_spi);
+ 
+ 		m = (struct sadb_msg *)((caddr_t)m + PFKEY_UNUNIT64(m->sadb_msg_len));
+ 
+@@ -680,13 +695,11 @@ again:
+ 	}
+ 
+ end:
+-	return (0);
++	return 0;
+ }
+ 
+-int
+-postproc(msg, len)
+-	struct sadb_msg *msg;
+-	int len;
++static int
++postproc(struct sadb_msg *msg, int len)
+ {
+ #ifdef HAVE_PFKEY_POLICY_PRIORITY
+ 	static int priority_support_check = 0;
+@@ -697,7 +710,8 @@ postproc(msg, len)
+ 		const char *errmsg = NULL;
+ 
+ 		if (f_mode == MODE_SCRIPT)
+-			snprintf(inf, sizeof(inf), "The result of line %d: ", lineno);
++			snprintf(inf, sizeof(inf), "The result of line %d: ",
++			    lineno);
+ 		else
+ 			inf[0] = '\0';
+ 
+@@ -721,7 +735,7 @@ postproc(msg, len)
+ 			errmsg = strerror(msg->sadb_msg_errno);
+ 		}
+ 		printf("%s%s.\n", inf, errmsg);
+-		return (-1);
++		return -1;
+ 	}
+ 
+ 	switch (msg->sadb_msg_type) {
+@@ -762,44 +776,36 @@ postproc(msg, len)
+ 		break;
+ 
+ 	case SADB_X_SPDGET:
+-		if (f_withports) 
++		if (f_withports)
+ 			pfkey_spdump_withports(msg);
+ 		else
+ 			pfkey_spdump(msg);
+ 		break;
+ 
+ 	case SADB_X_SPDDUMP:
+-		if (f_withports) 
++		if (f_withports)
+ 			pfkey_spdump_withports(msg);
+ 		else
+ 			pfkey_spdump(msg);
+-		if (msg->sadb_msg_seq == 0) break;
+-		msg = (struct sadb_msg *)((caddr_t)msg +
+-				     PFKEY_UNUNIT64(msg->sadb_msg_len));
+-		if (f_verbose) {
+-			kdebug_sadb((struct sadb_msg *)msg);
+-			printf("\n");
+-		}
+ 		break;
+ #ifdef HAVE_PFKEY_POLICY_PRIORITY
+ 	case SADB_X_SPDADD:
+-		if (last_msg_type == SADB_X_SPDADD && last_priority != 0 && 
++		if (last_msg_type == SADB_X_SPDADD && last_priority != 0 &&
+ 		    msg->sadb_msg_pid == getpid() && !priority_support_check) {
+-			priority_support_check = 1;	
++			priority_support_check = 1;
+ 			if (!verifypriority(msg))
+-				printf ("WARNING: Kernel does not support policy priorities\n");
++				printf("WARNING: Kernel does not support policy priorities\n");
+ 		}
+ 		break;
+ #endif
+ 	}
+ 
+-	return (0);
++	return 0;
+ }
+ 
+ #ifdef HAVE_PFKEY_POLICY_PRIORITY
+-int
+-verifypriority(m)
+-	struct sadb_msg *m;
++static int
++verifypriority(struct sadb_msg *m)
+ {
+ 	caddr_t mhp[SADB_EXT_MAX + 1];
+ 	struct sadb_x_policy *xpl;
+@@ -825,13 +831,12 @@ verifypriority(m)
+ 	if (last_priority != xpl->sadb_x_policy_priority)
+ 		return 0;
+ 
+-	return 1; 
++	return 1;
+ }
+ #endif
+ 
+-int
+-fileproc(filename)
+-	const char *filename;
++static int
++fileproc(const char *filename)
+ {
+ 	int fd;
+ 	ssize_t len, l;
+@@ -871,11 +876,11 @@ fileproc(filename)
+ 		p += len;
+ 	}
+ 
+-	return (0);
++	return 0;
+ }
+ 
++/* -------------------------------------------------------------------------- */
+ 
+-/*------------------------------------------------------------*/
+ static const char *satype[] = {
+ 	NULL, NULL, "ah", "esp"
+ };
+@@ -901,25 +906,23 @@ static const char *ipproto[] = {
+ #define STR_OR_ID(x, tab) \
+ 	(((x) < sizeof(tab)/sizeof(tab[0]) && tab[(x)])	? tab[(x)] : numstr(x))
+ 
+-const char *
+-numstr(x)
+-	int x;
++static const char *
++numstr(int x)
+ {
+ 	static char buf[20];
+ 	snprintf(buf, sizeof(buf), "#%d", x);
+ 	return buf;
+ }
+ 
+-void
+-shortdump_hdr()
++static void
++shortdump_hdr(void)
+ {
+ 	printf("%-4s %-3s %-1s %-8s %-7s %s -> %s\n",
+-		"time", "p", "s", "spi", "ltime", "src", "dst");
++	    "time", "p", "s", "spi", "ltime", "src", "dst");
+ }
+ 
+-void
+-shortdump(msg)
+-	struct sadb_msg *msg;
++static void
++shortdump(struct sadb_msg *msg)
+ {
+ 	caddr_t mhp[SADB_EXT_MAX + 1];
+ 	char buf[NI_MAXHOST], pbuf[NI_MAXSERV];
+@@ -939,7 +942,7 @@ shortdump(msg)
+ 
+ 	if ((sa = (struct sadb_sa *)mhp[SADB_EXT_SA]) != NULL) {
+ 		printf(" %-1s", STR_OR_ID(sa->sadb_sa_state, sastate));
+-		printf(" %08x", (u_int32_t)ntohl(sa->sadb_sa_spi));
++		printf(" %08x", (uint32_t)ntohl(sa->sadb_sa_spi));
+ 	} else
+ 		printf("%-1s %-8s", "?", "?");
+ 
+@@ -1017,13 +1020,12 @@ printdate()
+ 
+ 	if (f_tflag == 1) {
+ 		/* Default */
+-		s = (tp.tv_sec + thiszone ) % 86400;
+-		(void)printf("%02d:%02d:%02d.%06u ",
+-		    s / 3600, (s % 3600) / 60, s % 60, (u_int32_t)tp.tv_usec);
++		s = (tp.tv_sec + thiszone) % 86400;
++		printf("%02d:%02d:%02d.%06u ",
++		    s / 3600, (s % 3600) / 60, s % 60, (uint32_t)tp.tv_usec);
+ 	} else if (f_tflag > 1) {
+ 		/* Unix timeval style */
+-		(void)printf("%u.%06u ",
+-		    (u_int32_t)tp.tv_sec, (u_int32_t)tp.tv_usec);
++		printf("%u.%06u ", (uint32_t)tp.tv_sec, (uint32_t)tp.tv_usec);
+ 	}
+ 
+ 	printf("\n");
+@@ -1058,5 +1060,5 @@ gmt2local(time_t t)
+ 		dir = loc->tm_yday - gmt->tm_yday;
+ 	dt += dir * 24 * 60 * 60;
+ 
+-	return (dt);
++	return dt;
+ }
+diff --git a/src/setkey/test-pfkey.c b/src/setkey/test-pfkey.c
+deleted file mode 100644
+index bb0ad7b..0000000
+--- a/src/setkey/test-pfkey.c
++++ /dev/null
+@@ -1,590 +0,0 @@
+-/*	$NetBSD: test-pfkey.c,v 1.7 2006/10/06 12:02:27 manu Exp $	*/
+-
+-/*	$KAME: test-pfkey.c,v 1.4 2000/06/07 00:29:14 itojun Exp $	*/
+-
+-/*
+- * Copyright (C) 1995, 1996, 1997, 1998, and 1999 WIDE Project.
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- * 3. Neither the name of the project nor the names of its contributors
+- *    may be used to endorse or promote products derived from this software
+- *    without specific prior written permission.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
+- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+- * ARE DISCLAIMED.  IN NO EVENT SHALL THE PROJECT OR CONTRIBUTORS BE LIABLE
+- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+- * SUCH DAMAGE.
+- */
+-
+-#include <sys/types.h>
+-#include <sys/param.h>
+-#include <sys/socket.h>
+-#include <net/route.h>
+-#include <net/pfkeyv2.h>
+-#include <netinet/in.h>
+-#include <netkey/keydb.h>
+-#include <netkey/key_var.h>
+-#include <netkey/key_debug.h>
+-
+-#include <stdio.h>
+-#include <stdlib.h>
+-#include <limits.h>
+-#include <string.h>
+-#include <ctype.h>
+-#include <unistd.h>
+-#include <errno.h>
+-#include <netdb.h>
+-
+-u_char m_buf[BUFSIZ];
+-u_int m_len;
+-char *pname;
+-
+-void Usage __P((void));
+-int sendkeymsg __P((void));
+-void key_setsadbmsg __P((u_int));
+-void key_setsadbsens __P((void));
+-void key_setsadbprop __P((void));
+-void key_setsadbid __P((u_int, caddr_t));
+-void key_setsadblft __P((u_int, u_int));
+-void key_setspirange __P((void));
+-void key_setsadbkey __P((u_int, caddr_t));
+-void key_setsadbsa __P((void));
+-void key_setsadbaddr __P((u_int, u_int, caddr_t));
+-void key_setsadbextbuf __P((caddr_t, int, caddr_t, int, caddr_t, int));
+-
+-void
+-Usage()
+-{
+-	printf("Usage:\t%s number\n", pname);
+-	exit(0);
+-}
+-
+-int
+-main(ac, av)
+-	int ac;
+-	char **av;
+-{
+-	pname = *av;
+-
+-	if (ac == 1) Usage();
+-
+-	key_setsadbmsg(atoi(*(av+1)));
+-	sendkeymsg();
+-
+-	exit(0);
+-}
+-
+-/* %%% */
+-int
+-sendkeymsg()
+-{
+-	u_char rbuf[1024 * 32];	/* XXX: Enough ? Should I do MSG_PEEK ? */
+-	int so, len;
+-
+-	if ((so = socket(PF_KEY, SOCK_RAW, PF_KEY_V2)) < 0) {
+-		perror("socket(PF_KEY)");
+-		goto end;
+-	}
+-#if 0
+-    {
+-#include <sys/time.h>
+-	struct timeval tv;
+-	tv.tv_sec = 1;
+-	tv.tv_usec = 0;
+-	if (setsockopt(so, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+-		perror("setsockopt");
+-		goto end;
+-	}
+-    }
+-#endif
+-
+-	pfkey_sadump((struct sadb_msg *)m_buf);
+-
+-	if ((len = send(so, m_buf, m_len, 0)) < 0) {
+-		perror("send");
+-		goto end;
+-	}
+-
+-	if ((len = recv(so, rbuf, sizeof(rbuf), 0)) < 0) {
+-		perror("recv");
+-		goto end;
+-	}
+-
+-	pfkey_sadump((struct sadb_msg *)rbuf);
+-
+-end:
+-	(void)close(so);
+-	return(0);
+-}
+-
+-void
+-key_setsadbmsg(type)
+-	u_int type;
+-{
+-	struct sadb_msg m_msg;
+-
+-	memset(&m_msg, 0, sizeof(m_msg));
+-	m_msg.sadb_msg_version = PF_KEY_V2;
+-	m_msg.sadb_msg_type = type;
+-	m_msg.sadb_msg_errno = 0;
+-	m_msg.sadb_msg_satype = SADB_SATYPE_ESP;
+-#if 0
+-	m_msg.sadb_msg_reserved = 0;
+-#endif
+-	m_msg.sadb_msg_seq = 0;
+-	m_msg.sadb_msg_pid = getpid();
+-
+-	m_len = sizeof(struct sadb_msg);
+-	memcpy(m_buf, &m_msg, m_len);
+-
+-	switch (type) {
+-	case SADB_GETSPI:
+-		/*<base, address(SD), SPI range>*/
+-		key_setsadbaddr(SADB_EXT_ADDRESS_SRC, AF_INET, "10.0.3.4");
+-		key_setsadbaddr(SADB_EXT_ADDRESS_DST, AF_INET, "127.0.0.1");
+-		key_setspirange();
+-		/*<base, SA(*), address(SD)>*/
+-		break;
+-
+-	case SADB_ADD:
+-		/* <base, SA, (lifetime(HSC),) address(SD), (address(P),)
+-		   key(AE), (identity(SD),) (sensitivity)> */
+-		key_setsadbaddr(SADB_EXT_ADDRESS_PROXY, AF_INET6, "3ffe::1");
+-	case SADB_UPDATE:
+-		key_setsadbsa();
+-		key_setsadblft(SADB_EXT_LIFETIME_HARD, 10);
+-		key_setsadblft(SADB_EXT_LIFETIME_SOFT, 5);
+-		key_setsadbaddr(SADB_EXT_ADDRESS_SRC, AF_INET, "192.168.1.1");
+-		key_setsadbaddr(SADB_EXT_ADDRESS_DST, AF_INET, "10.0.3.4");
+-		/* XXX key_setsadbkey(SADB_EXT_KEY_AUTH, "abcde"); */
+-		key_setsadbkey(SADB_EXT_KEY_AUTH, "1234567812345678");
+-		key_setsadbkey(SADB_EXT_KEY_ENCRYPT, "12345678");
+-		key_setsadbid(SADB_EXT_IDENTITY_SRC, "hoge1234@hoge.com");
+-		key_setsadbid(SADB_EXT_IDENTITY_DST, "hage5678@hage.net");
+-		key_setsadbsens();
+-		/* <base, SA, (lifetime(HSC),) address(SD), (address(P),)
+-		  (identity(SD),) (sensitivity)> */
+-		break;
+-
+-	case SADB_DELETE:
+-		/* <base, SA(*), address(SDP)> */
+-		key_setsadbsa();
+-		key_setsadbaddr(SADB_EXT_ADDRESS_SRC, AF_INET, "192.168.1.1");
+-		key_setsadbaddr(SADB_EXT_ADDRESS_DST, AF_INET, "10.0.3.4");
+-		key_setsadbaddr(SADB_EXT_ADDRESS_PROXY, AF_INET6, "3ffe::1");
+-		/* <base, SA(*), address(SDP)> */
+-		break;
+-
+-	case SADB_GET:
+-		/* <base, SA(*), address(SDP)> */
+-		key_setsadbsa();
+-		key_setsadbaddr(SADB_EXT_ADDRESS_SRC, AF_INET, "192.168.1.1");
+-		key_setsadbaddr(SADB_EXT_ADDRESS_DST, AF_INET, "10.0.3.4");
+-		key_setsadbaddr(SADB_EXT_ADDRESS_PROXY, AF_INET6, "3ffe::1");
+-		/* <base, SA, (lifetime(HSC),) address(SD), (address(P),)
+-		   key(AE), (identity(SD),) (sensitivity)> */
+-		break;
+-
+-	case SADB_ACQUIRE:
+-		/* <base, address(SD), (address(P),) (identity(SD),)
+-		   (sensitivity,) proposal> */
+-		key_setsadbaddr(SADB_EXT_ADDRESS_SRC, AF_INET, "192.168.1.1");
+-		key_setsadbaddr(SADB_EXT_ADDRESS_DST, AF_INET, "10.0.3.4");
+-		key_setsadbaddr(SADB_EXT_ADDRESS_PROXY, AF_INET6, "3ffe::1");
+-		key_setsadbid(SADB_EXT_IDENTITY_SRC, "hoge1234@hoge.com");
+-		key_setsadbid(SADB_EXT_IDENTITY_DST, "hage5678@hage.net");
+-		key_setsadbsens();
+-		key_setsadbprop();
+-		/* <base, address(SD), (address(P),) (identity(SD),)
+-		   (sensitivity,) proposal> */
+-		break;
+-
+-	case SADB_REGISTER:
+-		/* <base> */
+-		/* <base, supported> */
+-		break;
+-
+-	case SADB_EXPIRE:
+-	case SADB_FLUSH:
+-		break;
+-
+-	case SADB_DUMP:
+-		break;
+-
+-	case SADB_X_PROMISC:
+-		/* <base> */
+-		/* <base, base(, others)> */
+-		break;
+-
+-	case SADB_X_PCHANGE:
+-		break;
+-
+-	/* for SPD management */
+-	case SADB_X_SPDFLUSH:
+-	case SADB_X_SPDDUMP:
+-		break;
+-
+-	case SADB_X_SPDADD:
+-#if 0
+-	    {
+-		struct sadb_x_policy m_policy;
+-
+-		m_policy.sadb_x_policy_len = PFKEY_UNIT64(sizeof(m_policy));
+-		m_policy.sadb_x_policy_exttype = SADB_X_EXT_POLICY;
+-		m_policy.sadb_x_policy_type = SADB_X_PL_IPSEC;
+-		m_policy.sadb_x_policy_esp_trans = 1;
+-		m_policy.sadb_x_policy_ah_trans = 2;
+-		m_policy.sadb_x_policy_esp_network = 3;
+-		m_policy.sadb_x_policy_ah_network = 4;
+-		m_policy.sadb_x_policy_reserved = 0;
+-
+-		memcpy(m_buf + m_len, &m_policy, sizeof(struct sadb_x_policy));
+-		m_len += sizeof(struct sadb_x_policy);
+-	    }
+-#endif
+-
+-	case SADB_X_SPDDELETE:
+-		key_setsadbaddr(SADB_EXT_ADDRESS_SRC, AF_INET, "192.168.1.1");
+-		key_setsadbaddr(SADB_EXT_ADDRESS_DST, AF_INET, "10.0.3.4");
+-		break;
+-	}
+-
+-	((struct sadb_msg *)m_buf)->sadb_msg_len = PFKEY_UNIT64(m_len);
+-
+-	return;
+-}
+-
+-void
+-key_setsadbsens()
+-{
+-	struct sadb_sens m_sens;
+-	u_char buf[64];
+-	u_int s, i, slen, ilen, len;
+-
+-	/* make sens & integ */
+-	s = htonl(0x01234567);
+-	i = htonl(0x89abcdef);
+-	slen = sizeof(s);
+-	ilen = sizeof(i);
+-	memcpy(buf, &s, slen);
+-	memcpy(buf + slen, &i, ilen);
+-
+-	len = sizeof(m_sens) + PFKEY_ALIGN8(slen) + PFKEY_ALIGN8(ilen);
+-	m_sens.sadb_sens_len = PFKEY_UNIT64(len);
+-	m_sens.sadb_sens_exttype = SADB_EXT_SENSITIVITY;
+-	m_sens.sadb_sens_dpd = 1;
+-	m_sens.sadb_sens_sens_level = 2;
+-	m_sens.sadb_sens_sens_len = PFKEY_ALIGN8(slen);
+-	m_sens.sadb_sens_integ_level = 3;
+-	m_sens.sadb_sens_integ_len = PFKEY_ALIGN8(ilen);
+-	m_sens.sadb_sens_reserved = 0;
+-
+-	key_setsadbextbuf(m_buf, m_len,
+-			(caddr_t)&m_sens, sizeof(struct sadb_sens),
+-			buf, slen + ilen);
+-	m_len += len;
+-
+-	return;
+-}
+-
+-void
+-key_setsadbprop()
+-{
+-	struct sadb_prop m_prop;
+-	struct sadb_comb *m_comb;
+-	u_char buf[256];
+-#if (defined(SADB_X_EALG_AESCBC) || defined(SADB_X_EALG_CAMELLIACBC)) && defined(SADB_X_AALG_SHA2_256)
+-	u_int len = sizeof(m_prop) + sizeof(m_comb) * 3;
+-#else
+-	u_int len = sizeof(m_prop) + sizeof(m_comb) * 2;
+-#endif
+-
+-	/* make prop & comb */
+-	m_prop.sadb_prop_len = PFKEY_UNIT64(len);
+-	m_prop.sadb_prop_exttype = SADB_EXT_PROPOSAL;
+-	m_prop.sadb_prop_replay = 0;
+-	m_prop.sadb_prop_reserved[0] = 0;
+-	m_prop.sadb_prop_reserved[1] = 0;
+-	m_prop.sadb_prop_reserved[2] = 0;
+-
+-	/* the 1st is ESP DES-CBC HMAC-MD5 */
+-	m_comb = (struct sadb_comb *)buf;
+-	m_comb->sadb_comb_auth = SADB_AALG_MD5HMAC;
+-	m_comb->sadb_comb_encrypt = SADB_EALG_DESCBC;
+-	m_comb->sadb_comb_flags = 0;
+-	m_comb->sadb_comb_auth_minbits = 8;
+-	m_comb->sadb_comb_auth_maxbits = 96;
+-	m_comb->sadb_comb_encrypt_minbits = 64;
+-	m_comb->sadb_comb_encrypt_maxbits = 64;
+-	m_comb->sadb_comb_reserved = 0;
+-	m_comb->sadb_comb_soft_allocations = 0;
+-	m_comb->sadb_comb_hard_allocations = 0;
+-	m_comb->sadb_comb_soft_bytes = 0;
+-	m_comb->sadb_comb_hard_bytes = 0;
+-	m_comb->sadb_comb_soft_addtime = 0;
+-	m_comb->sadb_comb_hard_addtime = 0;
+-	m_comb->sadb_comb_soft_usetime = 0;
+-	m_comb->sadb_comb_hard_usetime = 0;
+-
+-	/* the 2st is ESP 3DES-CBC and AH HMAC-SHA1 */
+-	m_comb = (struct sadb_comb *)(buf + sizeof(*m_comb));
+-	m_comb->sadb_comb_auth = SADB_AALG_SHA1HMAC;
+-	m_comb->sadb_comb_encrypt = SADB_EALG_3DESCBC;
+-	m_comb->sadb_comb_flags = 0;
+-	m_comb->sadb_comb_auth_minbits = 8;
+-	m_comb->sadb_comb_auth_maxbits = 96;
+-	m_comb->sadb_comb_encrypt_minbits = 64;
+-	m_comb->sadb_comb_encrypt_maxbits = 64;
+-	m_comb->sadb_comb_reserved = 0;
+-	m_comb->sadb_comb_soft_allocations = 0;
+-	m_comb->sadb_comb_hard_allocations = 0;
+-	m_comb->sadb_comb_soft_bytes = 0;
+-	m_comb->sadb_comb_hard_bytes = 0;
+-	m_comb->sadb_comb_soft_addtime = 0;
+-	m_comb->sadb_comb_hard_addtime = 0;
+-	m_comb->sadb_comb_soft_usetime = 0;
+-	m_comb->sadb_comb_hard_usetime = 0;
+-
+-	key_setsadbextbuf(m_buf, m_len,
+-			(caddr_t)&m_prop, sizeof(struct sadb_prop),
+-			buf, sizeof(*m_comb) * 2);
+-	m_len += len;
+-
+- #if defined(SADB_X_EALG_AESCBC) && defined(SADB_X_AALG_SHA2_256)
+- 	/* the 3rd is ESP AES-CBC and AH HMAC-SHA256 */
+- 	m_comb = (struct sadb_comb *)(buf + sizeof(*m_comb));
+- 	m_comb->sadb_comb_auth = SADB_X_AALG_SHA2_256;
+- 	m_comb->sadb_comb_encrypt = SADB_X_EALG_AESCBC;
+- 	m_comb->sadb_comb_flags = 0;
+- 	m_comb->sadb_comb_auth_minbits = 8;
+- 	m_comb->sadb_comb_auth_maxbits = 96;
+- 	m_comb->sadb_comb_encrypt_minbits = 128;
+- 	m_comb->sadb_comb_encrypt_maxbits = 128;
+- 	m_comb->sadb_comb_reserved = 0;
+- 	m_comb->sadb_comb_soft_allocations = 0;
+- 	m_comb->sadb_comb_hard_allocations = 0;
+- 	m_comb->sadb_comb_soft_bytes = 0;
+- 	m_comb->sadb_comb_hard_bytes = 0;
+- 	m_comb->sadb_comb_soft_addtime = 0;
+- 	m_comb->sadb_comb_hard_addtime = 0;
+- 	m_comb->sadb_comb_soft_usetime = 0;
+- 	m_comb->sadb_comb_hard_usetime = 0;
+- 
+- 	key_setsadbextbuf(m_buf, m_len,
+- 			(caddr_t)&m_prop, sizeof(struct sadb_prop),
+- 			buf, sizeof(*m_comb) * 3);
+- 	m_len += len;
+- #elif defined(SADB_X_EALG_CAMELLIACBC) && defined(SADB_X_AALG_SHA2_256)
+- 	/* the 3rd is ESP CAMELLIA-CBC and AH HMAC-SHA256 */
+- 	m_comb = (struct sadb_comb *)(buf + sizeof(*m_comb));
+- 	m_comb->sadb_comb_auth = SADB_X_AALG_SHA2_256;
+- 	m_comb->sadb_comb_encrypt = SADB_X_EALG_CAMELLIACBC;
+- 	m_comb->sadb_comb_flags = 0;
+- 	m_comb->sadb_comb_auth_minbits = 8;
+- 	m_comb->sadb_comb_auth_maxbits = 96;
+- 	m_comb->sadb_comb_encrypt_minbits = 128;
+- 	m_comb->sadb_comb_encrypt_maxbits = 128;
+- 	m_comb->sadb_comb_reserved = 0;
+- 	m_comb->sadb_comb_soft_allocations = 0;
+- 	m_comb->sadb_comb_hard_allocations = 0;
+- 	m_comb->sadb_comb_soft_bytes = 0;
+- 	m_comb->sadb_comb_hard_bytes = 0;
+- 	m_comb->sadb_comb_soft_addtime = 0;
+- 	m_comb->sadb_comb_hard_addtime = 0;
+- 	m_comb->sadb_comb_soft_usetime = 0;
+- 	m_comb->sadb_comb_hard_usetime = 0;
+- 
+- 	key_setsadbextbuf(m_buf, m_len,
+- 			(caddr_t)&m_prop, sizeof(struct sadb_prop),
+- 			buf, sizeof(*m_comb) * 3);
+- 	m_len += len;
+-#else
+-	key_setsadbextbuf(m_buf, m_len,
+-			(caddr_t)&m_prop, sizeof(struct sadb_prop),
+-			buf, sizeof(*m_comb) * 2);
+- 	m_len += len;
+-#endif
+-	return;
+-}
+-
+-void
+-key_setsadbid(ext, str)
+-	u_int ext;
+-	caddr_t str;
+-{
+-	struct sadb_ident m_id;
+-	u_int idlen = strlen(str), len;
+-
+-	len = sizeof(m_id) + PFKEY_ALIGN8(idlen);
+-	m_id.sadb_ident_len = PFKEY_UNIT64(len);
+-	m_id.sadb_ident_exttype = ext;
+-	m_id.sadb_ident_type = SADB_IDENTTYPE_USERFQDN;
+-	m_id.sadb_ident_reserved = 0;
+-	m_id.sadb_ident_id = getpid();
+-
+-	key_setsadbextbuf(m_buf, m_len,
+-			(caddr_t)&m_id, sizeof(struct sadb_ident),
+-			str, idlen);
+-	m_len += len;
+-
+-	return;
+-}
+-
+-void
+-key_setsadblft(ext, time)
+-	u_int ext, time;
+-{
+-	struct sadb_lifetime m_lft;
+-
+-	m_lft.sadb_lifetime_len = PFKEY_UNIT64(sizeof(m_lft));
+-	m_lft.sadb_lifetime_exttype = ext;
+-	m_lft.sadb_lifetime_allocations = 0x2;
+-	m_lft.sadb_lifetime_bytes = 0x1000;
+-	m_lft.sadb_lifetime_addtime = time;
+-	m_lft.sadb_lifetime_usetime = 0x0020;
+-
+-	memcpy(m_buf + m_len, &m_lft, sizeof(struct sadb_lifetime));
+-	m_len += sizeof(struct sadb_lifetime);
+-
+-	return;
+-}
+-
+-void
+-key_setspirange()
+-{
+-	struct sadb_spirange m_spi;
+-
+-	m_spi.sadb_spirange_len = PFKEY_UNIT64(sizeof(m_spi));
+-	m_spi.sadb_spirange_exttype = SADB_EXT_SPIRANGE;
+-	m_spi.sadb_spirange_min = 0x00001000;
+-	m_spi.sadb_spirange_max = 0x00002000;
+-	m_spi.sadb_spirange_reserved = 0;
+-
+-	memcpy(m_buf + m_len, &m_spi, sizeof(struct sadb_spirange));
+-	m_len += sizeof(struct sadb_spirange);
+-
+-	return;
+-}
+-
+-void
+-key_setsadbkey(ext, str)
+-	u_int ext;
+-	caddr_t str;
+-{
+-	struct sadb_key m_key;
+-	u_int keylen = strlen(str);
+-	u_int len;
+-
+-	len = sizeof(struct sadb_key) + PFKEY_ALIGN8(keylen);
+-	m_key.sadb_key_len = PFKEY_UNIT64(len);
+-	m_key.sadb_key_exttype = ext;
+-	m_key.sadb_key_bits = keylen * 8;
+-	m_key.sadb_key_reserved = 0;
+-
+-	key_setsadbextbuf(m_buf, m_len,
+-			(caddr_t)&m_key, sizeof(struct sadb_key),
+-			str, keylen);
+-	m_len += len;
+-
+-	return;
+-}
+-
+-void
+-key_setsadbsa()
+-{
+-	struct sadb_sa m_sa;
+-
+-	m_sa.sadb_sa_len = PFKEY_UNIT64(sizeof(struct sadb_sa));
+-	m_sa.sadb_sa_exttype = SADB_EXT_SA;
+-	m_sa.sadb_sa_spi = htonl(0x12345678);
+-	m_sa.sadb_sa_replay = 4;
+-	m_sa.sadb_sa_state = 0;
+-	m_sa.sadb_sa_auth = SADB_AALG_MD5HMAC;
+-	m_sa.sadb_sa_encrypt = SADB_EALG_DESCBC;
+-	m_sa.sadb_sa_flags = 0;
+-
+-	memcpy(m_buf + m_len, &m_sa, sizeof(struct sadb_sa));
+-	m_len += sizeof(struct sadb_sa);
+-
+-	return;
+-}
+-
+-void
+-key_setsadbaddr(ext, af, str)
+-	u_int ext, af;
+-	caddr_t str;
+-{
+-	struct sadb_address m_addr;
+-	u_int len;
+-	struct addrinfo hints, *res;
+-	const char *serv;
+-	int plen;
+-
+-	switch (af) {
+-	case AF_INET:
+-		plen = sizeof(struct in_addr) << 3;
+-		break;
+-	case AF_INET6:
+-		plen = sizeof(struct in6_addr) << 3;
+-		break;
+-	default:
+-		/* XXX bark */
+-		exit(1);
+-	}
+-
+-	/* make sockaddr buffer */
+-	memset(&hints, 0, sizeof(hints));
+-	hints.ai_family = af;
+-	hints.ai_socktype = SOCK_DGRAM;	/*dummy*/
+-	hints.ai_flags = AI_NUMERICHOST;
+-	serv = (ext == SADB_EXT_ADDRESS_PROXY ? "0" : "4660");	/*0x1234*/
+-	if (getaddrinfo(str, serv, &hints, &res) != 0 || res->ai_next) {
+-		/* XXX bark */
+-		exit(1);
+-	}
+-	
+-	len = sizeof(struct sadb_address) + PFKEY_ALIGN8(res->ai_addrlen);
+-	m_addr.sadb_address_len = PFKEY_UNIT64(len);
+-	m_addr.sadb_address_exttype = ext;
+-	m_addr.sadb_address_proto =
+-		(ext == SADB_EXT_ADDRESS_PROXY ? 0 : IPPROTO_TCP);
+-	m_addr.sadb_address_prefixlen = plen;
+-	m_addr.sadb_address_reserved = 0;
+-
+-	key_setsadbextbuf(m_buf, m_len,
+-			(caddr_t)&m_addr, sizeof(struct sadb_address),
+-			(caddr_t)res->ai_addr, res->ai_addrlen);
+-	m_len += len;
+-
+-	freeaddrinfo(res);
+-
+-	return;
+-}
+-
+-void
+-key_setsadbextbuf(dst, off, ebuf, elen, vbuf, vlen)
+-	caddr_t dst, ebuf, vbuf;
+-	int off, elen, vlen;
+-{
+-	memset(dst + off, 0, elen + vlen);
+-	memcpy(dst + off, (caddr_t)ebuf, elen);
+-	memcpy(dst + off + elen, vbuf, vlen);
+-
+-	return;
+-}
+-
+diff --git a/src/setkey/token.l b/src/setkey/token.l
+index 768d80e..ffb740d 100644
+--- a/src/setkey/token.l
++++ b/src/setkey/token.l
+@@ -1,5 +1,4 @@
+-/*	$NetBSD: token.l,v 1.15 2010/06/04 13:06:03 vanhu Exp $	*/
+-
++/*	$NetBSD: token.l,v 1.22 2018/10/14 08:27:39 maxv Exp $ */
+ /*	$KAME: token.l,v 1.44 2003/10/21 07:20:58 itojun Exp $	*/
+ 
+ /*
+@@ -169,8 +168,8 @@ ah-old		{ yylval.num = 1; return(PR_AH); }
+ esp-old		{ yylval.num = 1; return(PR_ESP); }
+ esp-udp		{ yylval.num = 0; return(PR_ESPUDP); }
+ ipcomp		{ yylval.num = 0; return(PR_IPCOMP); }
+-tcp		{ 
+-			yylval.num = 0; return(PR_TCP); 
++tcp		{
++			yylval.num = 0; return(PR_TCP);
+ 		}
+ 
+ 	/* authentication alogorithm */
+@@ -187,11 +186,11 @@ tcp		{
+ <S_AUTHALG>hmac-sha512 { yylval.num = SADB_X_AALG_SHA2_512; BEGIN INITIAL; return(ALG_AUTH); }
+ <S_AUTHALG>hmac-ripemd160 { yylval.num = SADB_X_AALG_RIPEMD160HMAC; BEGIN INITIAL; return(ALG_AUTH); }
+ <S_AUTHALG>aes-xcbc-mac { yylval.num = SADB_X_AALG_AES_XCBC_MAC; BEGIN INITIAL; return(ALG_AUTH); }
+-<S_AUTHALG>tcp-md5	{ 
++<S_AUTHALG>tcp-md5	{
+ #ifdef SADB_X_AALG_TCP_MD5
+-				yylval.num = SADB_X_AALG_TCP_MD5; 
+-				BEGIN INITIAL; 
+-				return(ALG_AUTH); 
++				yylval.num = SADB_X_AALG_TCP_MD5;
++				BEGIN INITIAL;
++				return(ALG_AUTH);
+ #endif
+ 			}
+ <S_AUTHALG>null { yylval.num = SADB_X_AALG_NULL; BEGIN INITIAL; return(ALG_AUTH_NOKEY); }
+@@ -207,20 +206,20 @@ tcp		{
+ <S_ENCALG>des-deriv	{ yylval.num = SADB_EALG_DESCBC; BEGIN INITIAL; return(ALG_ENC_DESDERIV); }
+ <S_ENCALG>des-32iv	{ yylval.num = SADB_EALG_DESCBC; BEGIN INITIAL; return(ALG_ENC_DES32IV); }
+ <S_ENCALG>twofish-cbc	{ yylval.num = SADB_X_EALG_TWOFISHCBC; BEGIN INITIAL; return(ALG_ENC); }
+-<S_ENCALG>aes-cbc	{ 
++<S_ENCALG>aes-cbc	{
+ #ifdef SADB_X_EALG_AESCBC
+-	yylval.num = SADB_X_EALG_AESCBC; BEGIN INITIAL; return(ALG_ENC); 
++	yylval.num = SADB_X_EALG_AESCBC; BEGIN INITIAL; return(ALG_ENC);
+ #endif
+ }
+-<S_ENCALG>rijndael-cbc	{ 
++<S_ENCALG>rijndael-cbc	{
+ #ifdef SADB_X_EALG_AESCBC
+-	yylval.num = SADB_X_EALG_AESCBC; BEGIN INITIAL; return(ALG_ENC); 
++	yylval.num = SADB_X_EALG_AESCBC; BEGIN INITIAL; return(ALG_ENC);
+ #endif
+ }
+ <S_ENCALG>aes-ctr	{ yylval.num = SADB_X_EALG_AESCTR; BEGIN INITIAL; return(ALG_ENC); }
+-<S_ENCALG>camellia-cbc	{ 
++<S_ENCALG>camellia-cbc	{
+ #ifdef SADB_X_EALG_CAMELLIACBC
+-	yylval.num = SADB_X_EALG_CAMELLIACBC; BEGIN INITIAL; return(ALG_ENC); 
++	yylval.num = SADB_X_EALG_CAMELLIACBC; BEGIN INITIAL; return(ALG_ENC);
+ #endif
+ }
+ 
+@@ -346,7 +345,7 @@ parse(fp)
+ }
+ 
+ int
+-parse_string (char *src)
++parse_string(char *src)
+ {
+ 	int             result;
+ 	YY_BUFFER_STATE buf_state;
