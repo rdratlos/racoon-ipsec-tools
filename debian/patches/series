@@ -32,3 +32,4 @@ sprintf-sizes
 0032-NetBSD-Remove-superfluous-Li.patch
 0033-NetBSD-prefix-errors-with-the-program-name-and-use-s.patch
 0034-NetBSD-Keep-track-of-the-filename-to-print-in-error-.patch
+0035-NetBSD-Improve-error-output-for-script-and-command-m.patch
