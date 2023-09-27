@@ -38,7 +38,7 @@
 #ifdef __linux__
 #include <linux/udp.h>
 #endif
-#if defined(__NetBSD__) || defined (__FreeBSD__)
+#if defined(__NetBSD__) || defined (__FreeBSD__) || defined(__FreeBSD_kernel__)
 #include <netinet/udp.h>
 #endif
 

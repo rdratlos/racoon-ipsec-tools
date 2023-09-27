@@ -790,7 +790,7 @@ kdebug_mbufhdr(m)
 		    m->m_pkthdr.len, m->m_pkthdr.rcvif);
 	}
 
-#ifdef __FreeBSD__
+#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
 	if (m->m_flags & M_EXT) {
 		printf("  m_ext{ ext_buf:%p ext_free:%p "
 		       "ext_size:%u ext_ref:%p }\n",

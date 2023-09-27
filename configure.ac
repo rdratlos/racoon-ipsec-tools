@@ -34,6 +34,9 @@ case $host in
 	AC_SUBST(INCLUDE_GLIBC)
 	AC_SUBST(RPM)
 	;;
+*kfreebsd*)
+	LIBS="$LIBS -lresolv"
+	;;
 *darwin*)
 	LIBS="$LIBS -lresolv"
 	;;
@@ -94,6 +97,10 @@ case "$host_os" in
     CPPFLAGS="$GLIBC_BUGS_LOCAL $CPPFLAGS"
     CPPFLAGS="-D_GNU_SOURCE $CPPFLAGS"
     AC_SUBST(GLIBC_BUGS)
+    ;;
+ *kfreebsd*)
+    # Define _GNU_SOURCE as this is a glibc platform (and in6_pktinfo is hidden behind that define)
+    CPPFLAGS="-D_GNU_SOURCE $CPPFLAGS"
     ;;
  *)
     if test "$have_net_pfkey$have_netinet_ipsec" != yesyes; then
@@ -646,7 +653,7 @@ yes
 #endif
 ], [kernel_natt="yes"])
 	;;
-freebsd*|netbsd*)
+freebsd*|kfreebsd*|netbsd*)
 # NetBSD case
 # Same check for FreeBSD
 AC_CHECK_MEMBER(struct sadb_x_nat_t_type.sadb_x_nat_t_type_len,

@@ -122,12 +122,15 @@
 #  endif
 # endif /* __linux__ */
 # if defined(__NetBSD__) || defined(__FreeBSD__) ||	\
-  (defined(__APPLE__) && defined(__MACH__))
+  (defined(__APPLE__) && defined(__MACH__)) || defined(__FreeBSD_kernel__)
+#  define __FAVOR_BSD	/* GNU/kFreeBSD */
 #  include <netinet/in.h>
 #  include <netinet/udp.h>
 #  include <netinet/in_systm.h>
 #  include <netinet/ip.h>
-#  define SOL_UDP IPPROTO_UDP
+#  ifndef SOL_UDP
+#   define SOL_UDP IPPROTO_UDP
+#  endif
 # endif /* __NetBSD__ / __FreeBSD__ */
 
 static int nostate1 __P((struct ph1handle *, vchar_t *));
