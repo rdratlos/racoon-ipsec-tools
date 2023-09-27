@@ -35,3 +35,4 @@ sprintf-sizes
 0035-NetBSD-Improve-error-output-for-script-and-command-m.patch
 0036-NetBSD-Remove-extra-semicolon.patch
 0037-Correct-memory-management-and-malicious-includes.patch
+0038-Use-automake-YACC-LEX-wrapper.patch
