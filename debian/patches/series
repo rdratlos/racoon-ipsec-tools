@@ -27,3 +27,4 @@ sprintf-sizes
 0027-NetBSD-Clean-up-setkey.patch
 0028-NetBSD-Remove-dead-files-that-have-never-been-built.patch
 0029-NetBSD-Use-Cm-instead-of-Li-or-Ar-for-fixed-command-.patch
+0030-NetBSD-setkey-enable-to-use-the-getspi-API.patch
