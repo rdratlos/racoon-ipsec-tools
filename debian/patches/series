@@ -30,3 +30,4 @@ sprintf-sizes
 0030-NetBSD-setkey-enable-to-use-the-getspi-API.patch
 0031-NetBSD-setkey-document-getspi-and-update.patch
 0032-NetBSD-Remove-superfluous-Li.patch
+0033-NetBSD-prefix-errors-with-the-program-name-and-use-s.patch
