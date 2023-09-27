@@ -21,3 +21,4 @@ shared-libfl.patch
 openssl1.1
 fix-uninitialized-vars.patch
 sprintf-sizes
+0024-Fix-isakmp-fragmentation-bug-in-CVE-2016-10396-patch.patch
