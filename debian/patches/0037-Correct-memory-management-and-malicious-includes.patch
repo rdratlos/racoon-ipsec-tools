@@ -1,0 +1,90 @@
+From: Thomas Reim <reimth@gmail.com>
+Date: Sat, 6 Jun 2020 10:19:17 +0200
+Subject: Correct memory management and malicious includes
+
+GCC8 and later perform more strict checks that lead to failed compilation.
+
+Signed-off-by: Thomas Reim <reimth@gmail.com>
+---
+ src/racoon/pfkey.c     | 3 +++
+ src/racoon/racoonctl.c | 2 +-
+ src/racoon/var.h       | 9 ++++++---
+ src/setkey/setkey.c    | 4 ++++
+ 4 files changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/src/racoon/pfkey.c b/src/racoon/pfkey.c
+index 0442cd9..306f310 100644
+--- a/src/racoon/pfkey.c
++++ b/src/racoon/pfkey.c
+@@ -59,7 +59,10 @@
+ #include <sys/param.h>
+ #include <sys/socket.h>
+ #include <sys/queue.h>
++
++#ifndef __linux__
+ #include <sys/sysctl.h>
++#endif
+ 
+ #include <net/route.h>
+ #include <net/pfkeyv2.h>
+diff --git a/src/racoon/racoonctl.c b/src/racoon/racoonctl.c
+index da28ecd..f6a3b4b 100644
+--- a/src/racoon/racoonctl.c
++++ b/src/racoon/racoonctl.c
+@@ -754,7 +754,7 @@ f_logoutusr(ac, av)
+ 	if (buf == NULL)
+ 		return NULL;
+ 
+-	strncpy(buf->v + sizeof(struct admin_com), user, userlen);
++	strncpy(buf->v + sizeof(struct admin_com), user, userlen+1);
+ 
+ 	return buf;
+ }
+diff --git a/src/racoon/var.h b/src/racoon/var.h
+index 2946a9f..01e5bea 100644
+--- a/src/racoon/var.h
++++ b/src/racoon/var.h
+@@ -76,21 +76,24 @@
+ 
+ #define GETNAMEINFO(x, y, z) \
+ do { \
++	const char* INVALID_ADDR = "(invalid)"; \
++	const char* INVALID_PORT = "(inv)"; \
+ 	if (getnameinfo((x), sysdep_sa_len(x), (y), sizeof(y), (z), sizeof(z), \
+ 			NIFLAGS) != 0) { \
+ 		if (y != NULL) \
+-			strncpy((y), "(invalid)", sizeof(y)); \
++			memcpy((y), INVALID_ADDR, strlen(INVALID_ADDR)+1); \
+ 		if (z != NULL) \
+-			strncpy((z), "(invalid)", sizeof(z)); \
++			memcpy((z), INVALID_PORT, strlen(INVALID_PORT)+1); \
+ 	} \
+ } while (0);
+ 
+ #define GETNAMEINFO_NULL(x, y) \
+ do { \
++	const char* INVALID_ADDR = "(invalid)"; \
+ 	if (getnameinfo((x), sysdep_sa_len(x), (y), sizeof(y), NULL, 0, \
+ 			NIFLAGS) != 0) { \
+ 		if (y != NULL) \
+-			strncpy((y), "(invalid)", sizeof(y)); \
++			memcpy((y), INVALID_ADDR, strlen(INVALID_ADDR)+1); \
+ 	} \
+ } while (0);
+ 
+diff --git a/src/setkey/setkey.c b/src/setkey/setkey.c
+index ca15817..0ebbe8a 100644
+--- a/src/setkey/setkey.c
++++ b/src/setkey/setkey.c
+@@ -65,7 +65,11 @@
+ #include <sys/socket.h>
+ #include <sys/time.h>
+ #include <sys/stat.h>
++
++#ifndef __linux__
+ #include <sys/sysctl.h>
++#endif
++
+ #include <err.h>
+ #include <netinet/in.h>
+ #include <net/pfkeyv2.h>
