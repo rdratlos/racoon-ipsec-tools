@@ -1,9 +1,28 @@
-ipsec-tools (1:0.8.2+20140711-13) UNRELEASED; urgency=medium
+ipsec-tools (1:0.8.2+20140711-13) unstable; urgency=medium
 
+  * Import upstream NetBSD patches:
+    + NetBSD: Remove extra semicolon.
+    + NetBSD-Improve error output for script and command mode
+    + NetBSD-Keep track of the filename to print in error messages
+    + NetBSD-prefix errors with the program name and use stderr
+    + NetBSD-Remove superfluous Li
+    + NetBSD-setkey: document getspi and update
+    + NetBSD-setkey: enable to use the getspi API
+    + NetBSD-Use Cm instead of Li or Ar for fixed command strings
+    + NetBSD-Remove dead files that have never been built
+    + NetBSD-Clean up setkey
+    + NetBSD-fix incorrect authentication algorithms
+    + NetBSD-pass the correct size for tbuf
+  * d/p/Fix isakmp fragmentation bug in CVE-2016-10396 patch
+  * d/p/Update release summary and README
+  * d/p/Correct memory management and malicious includes
+  * d/p/Prepare for support of new gcc9 warnings
+  * d/p/Use automake YACC/LEX wrapper
   * d/changelog: Remove trailing whitespaces
   * d/watch: Use https protocol
+  * d/racoon.init: Fix racoon system init script
 
- -- Ondřej Nový <onovy@debian.org>  Mon, 01 Oct 2018 09:57:23 +0200
+ -- Thomas Reim <reimth@gmail.com>  Thu, 21 Jan 2021 09:00:42 +0200
 
 ipsec-tools (1:0.8.2+20140711-12) unstable; urgency=medium
 
