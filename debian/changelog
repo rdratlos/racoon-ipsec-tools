@@ -1,3 +1,12 @@
+ipsec-tools (1:0.8.2+20140711-13ppa3~bionic) bionic; urgency=medium
+
+  * PPA build on Wed, 27 Sep 2023
+  * d/p/Fix pointers to packed struct members warnings
+  * Revert Debian patch 'Prepare for support of new gcc9 warnings'
+  * Rebuild on latest Ubuntu 20.04
+
+ -- Thomas Reim <reimth@gmail.com>  Wed, 27 Sep 2023 14:13:42 +0200
+
 ipsec-tools (1:0.8.2+20140711-13) unstable; urgency=medium
 
   * Import upstream NetBSD patches:
@@ -16,7 +25,6 @@ ipsec-tools (1:0.8.2+20140711-13) unstable; urgency=medium
   * d/p/Fix isakmp fragmentation bug in CVE-2016-10396 patch
   * d/p/Update release summary and README
   * d/p/Correct memory management and malicious includes
-  * d/p/Prepare for support of new gcc9 warnings
   * d/p/Use automake YACC/LEX wrapper
   * d/changelog: Remove trailing whitespaces
   * d/watch: Use https protocol
