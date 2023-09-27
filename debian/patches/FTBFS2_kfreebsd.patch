@@ -120,19 +120,6 @@ Index: pkg-ipsec-tools/src/racoon/pfkey.c
  #  include <netinet/udp.h>
  # endif
  #endif
-Index: pkg-ipsec-tools/src/setkey/token.c
-===================================================================
---- pkg-ipsec-tools.orig/src/setkey/token.c	2014-07-10 23:47:47.423904103 -0700
-+++ pkg-ipsec-tools/src/setkey/token.c	2014-07-10 23:50:04.724584934 -0700
-@@ -1043,7 +1043,7 @@
- 
- #include "vchar.h"
- #if defined(__NetBSD__) || defined(__FreeBSD__) || defined(__linux__) || \
--(defined(__APPLE__) && defined(__MACH__))
-+(defined(__APPLE__) && defined(__MACH__)) || defined(__FreeBSD_kernel__)
- #include "parse.h"
- #else
- #include "y.tab.h"
 Index: pkg-ipsec-tools/src/setkey/token.l
 ===================================================================
 --- pkg-ipsec-tools.orig/src/setkey/token.l	2014-07-10 23:20:44.063854291 -0700
