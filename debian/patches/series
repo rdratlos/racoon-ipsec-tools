@@ -31,3 +31,4 @@ sprintf-sizes
 0031-NetBSD-setkey-document-getspi-and-update.patch
 0032-NetBSD-Remove-superfluous-Li.patch
 0033-NetBSD-prefix-errors-with-the-program-name-and-use-s.patch
+0034-NetBSD-Keep-track-of-the-filename-to-print-in-error-.patch
