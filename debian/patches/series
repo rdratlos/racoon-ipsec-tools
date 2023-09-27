@@ -25,3 +25,4 @@ sprintf-sizes
 0025-NetBSD-pass-the-correct-size-for-tbuf.patch
 0026-NetBSD-fix-incorrect-authentication-algorithms.patch
 0027-NetBSD-Clean-up-setkey.patch
+0028-NetBSD-Remove-dead-files-that-have-never-been-built.patch
