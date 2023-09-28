@@ -804,9 +804,11 @@ isakmp_cfg_net(iph1, attr)
 	struct ph1handle *iph1;
 	struct isakmp_data *attr;
 {
+	struct unity_network *net;
+	struct in_addr addr4;
+	struct in_addr mask4;
 	int type;
 	int confsource;
-	in_addr_t addr4;
 
 	type = ntohs(attr->type);
 
@@ -930,9 +932,11 @@ retry_source:
 
 	case INTERNAL_IP4_SUBNET:
 		if(isakmp_cfg_config.splitnet_count > 0){
-			return isakmp_cfg_addrnet4(iph1, attr,
-						    &isakmp_cfg_config.splitnet_list->network.addr4.s_addr,
-						    &isakmp_cfg_config.splitnet_list->network.mask4.s_addr);
+			net = &isakmp_cfg_config.splitnet_list->network;
+			addr4 = net->addr4;
+			mask4 = net->mask4;
+			return isakmp_cfg_addrnet4(iph1,
+			    attr, &addr4.s_addr, &mask4.s_addr);
 		}else{
 			plog(LLV_INFO, LOCATION, NULL,
 			     "%s requested but no splitnet in configuration\n",
