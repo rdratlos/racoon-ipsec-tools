@@ -37,3 +37,4 @@ sprintf-sizes
 0037-Correct-memory-management-and-malicious-includes.patch
 0038-Use-automake-YACC-LEX-wrapper.patch
 0039-NetBSD-Update-release-summary-and-README.patch
+0040-Fix-pointers-to-packed-struct-members.patch
