@@ -1,0 +1,52 @@
+From b1513b4b7d55b8106b76567e15d9352e2ce62897 Mon Sep 17 00:00:00 2001
+From: Thomas Reim <reimth@gmail.com>
+Date: Thu, 28 Sep 2023 18:43:22 +0200
+Subject: [PATCH] Pointing to packed struct member may result in an unaligned
+ pointer value
+
+Starting with version 9 gcc provides a new warning: address-of-packed-member.
+It warns when a pointer points to a member of a packed struct that led
+to a build failure in ipsec-tools. Adding compiler option
+-Wno-error=address-of-packed-member avoided build abort i Debian builds
+but the code itself has never been corrected.
+
+Signed-off-by: Thomas Reim <reimth@gmail.com>
+---
+ src/racoon/isakmp_cfg.c | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/src/racoon/isakmp_cfg.c b/src/racoon/isakmp_cfg.c
+index 1503997..be2157e 100644
+--- a/src/racoon/isakmp_cfg.c
++++ b/src/racoon/isakmp_cfg.c
+@@ -804,9 +804,11 @@ isakmp_cfg_net(iph1, attr)
+ 	struct ph1handle *iph1;
+ 	struct isakmp_data *attr;
+ {
++	struct unity_network *net;
++	struct in_addr addr4;
++	struct in_addr mask4;
+ 	int type;
+ 	int confsource;
+-	in_addr_t addr4;
+ 
+ 	type = ntohs(attr->type);
+ 
+@@ -930,9 +932,11 @@ retry_source:
+ 
+ 	case INTERNAL_IP4_SUBNET:
+ 		if(isakmp_cfg_config.splitnet_count > 0){
+-			return isakmp_cfg_addrnet4(iph1, attr,
+-						    &isakmp_cfg_config.splitnet_list->network.addr4.s_addr,
+-						    &isakmp_cfg_config.splitnet_list->network.mask4.s_addr);
++			net = &isakmp_cfg_config.splitnet_list->network;
++			addr4 = net->addr4;
++			mask4 = net->mask4;
++			return isakmp_cfg_addrnet4(iph1,
++			    attr, &addr4.s_addr, &mask4.s_addr);
+ 		}else{
+ 			plog(LLV_INFO, LOCATION, NULL,
+ 			     "%s requested but no splitnet in configuration\n",
+-- 
+2.25.1
+
