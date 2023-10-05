@@ -48,6 +48,9 @@
 #error OpenSSL version 0.9.8s or later required.
 #endif
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#include <openssl/provider.h>
+#endif
 #include <openssl/pem.h>
 #include <openssl/evp.h>
 #include <openssl/x509.h>
@@ -867,8 +870,17 @@ eay_check_x509sign(source, sig, cert)
 	vchar_t *cert;
 {
 	X509 *x509;
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	ENGINE *impl = NULL;
+	EVP_PKEY_CTX *ctx = NULL;
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+	OSSL_LIB_CTX *libctx = NULL;
+	OSSL_PROVIDER *prov = NULL;
+	const char *propq = NULL;
+#endif
+#endif
 	EVP_PKEY *evp;
-	int res;
+	int ret = -1, res = -1;
 
 	x509 = mem2x509(cert);
 	if (x509 == NULL)
@@ -877,16 +889,74 @@ eay_check_x509sign(source, sig, cert)
 	evp = X509_get_pubkey(x509);
 	if (! evp) {
 		plog(LLV_ERROR, LOCATION, NULL, "X509_get_pubkey(): %s\n", eay_strerror());
-		X509_free(x509);
-		return -1;
+		goto out;
 	}
 
-	res = eay_rsa_verify(source, sig, EVP_PKEY_get0_RSA(evp));
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+	/*
+	 * Load the NULL provider into the default library context and create a
+	 * library context which will then be used for EVP PKEY context creation.
+	 */
+	prov = OSSL_PROVIDER_load(NULL, "null");
+	if (prov == NULL) {
+		plog(LLV_ERROR, LOCATION, NULL, "Failed to create null OSSL provider\n");
+		goto out;
+	}
+	libctx = OSSL_LIB_CTX_new();
+	if (libctx == NULL) {
+		plog(LLV_ERROR, LOCATION, NULL, "Failed to create OSSL library context\n");
+		goto out;
+	}
+	ctx = EVP_PKEY_CTX_new_from_pkey(libctx, evp, propq);
+#else
+	ctx = EVP_PKEY_CTX_new(evp, impl);
+#endif
+	if (! ctx) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_CTX_new_from_pkey(): %s\n",
+		     eay_strerror());
+		goto out;
+	}
+	if (EVP_PKEY_verify_init(ctx) <= 0) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_verify_init(): %s\n",
+		     eay_strerror());
+		goto out;
+	}
+	res = EVP_PKEY_verify(ctx, (const unsigned char*)sig->v, sig->l,
+	                      (const unsigned char*)source->v, source->l);
+	if (res < 0) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_verify(): %s\n",
+		     eay_strerror());
+	} else if (loglevel >= LLV_DEBUG) {
+		unsigned char *out;
+		size_t poutlen;
+		if (EVP_PKEY_verify_recover_init(ctx) > 0) {
+			if (EVP_PKEY_verify_recover(ctx, NULL, &poutlen,
+			                            (const unsigned char*)sig->v, sig->l) > 0) {
+				out = OPENSSL_malloc(poutlen);
+				if (out) {
+					if (EVP_PKEY_verify_recover(ctx, out, &poutlen,
+					                            (const unsigned char*)sig->v, sig->l) > 0) {
+						plog(LLV_INFO, LOCATION, NULL, "Recovered signature payload:\n");
+						plogdump(LLV_DEBUG, out, poutlen);
+					}
+					OPENSSL_free(out);
+				}
+			}
+		}
+	}
+	ret = (res == 1) ? 0 : -1;
+#else
+	ret = eay_rsa_verify(source, sig, EVP_PKEY_get0_RSA(evp));
+#endif
 
+out:
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	EVP_PKEY_CTX_free(ctx);
+#endif
 	EVP_PKEY_free(evp);
 	X509_free(x509);
-
-	return res;
+	return ret;
 }
 
 /*
@@ -1110,6 +1180,12 @@ eay_strerror()
 	int line, flags;
 	unsigned long es;
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+	while ((l = ERR_get_error_all(&file, &line, NULL, &data, &flags)) != 0){
+		n = snprintf(ebuf + len, sizeof(ebuf) - len,
+		             "%s:%s:%d ",
+		             ERR_error_string(l, buf), file, line);
+#else
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L
 	es = 0; /* even when allowed by OPENSSL_API_COMPAT, it is defined as 0 */
 #else
@@ -1118,9 +1194,10 @@ eay_strerror()
 
 	while ((l = ERR_get_error_line_data(&file, &line, &data, &flags)) != 0){
 		n = snprintf(ebuf + len, sizeof(ebuf) - len,
-				"%lu:%s:%s:%d:%s ",
-				es, ERR_error_string(l, buf), file, line,
-				(flags & ERR_TXT_STRING) ? data : "");
+		             "%lu:%s:%s:%d:%s ",
+		             es, ERR_error_string(l, buf), file, line,
+		             (flags & ERR_TXT_STRING) ? data : "");
+#endif
 		if (n < 0 || n >= sizeof(ebuf) - len)
 			break;
 		len += n;
