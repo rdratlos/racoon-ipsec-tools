@@ -50,7 +50,11 @@
 #include <openssl/err.h>
 #include <openssl/objects.h>
 #include <openssl/pem.h>
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
 #include <openssl/rsa.h>
+#else
+#include <openssl/decoder.h>
+#endif
 #include <openssl/evp.h>
 #ifdef HAVE_OPENSSL_ENGINE_H
 #include <openssl/engine.h>
@@ -86,22 +90,34 @@ usage (char *argv0)
  * See RFC 2065, section 3.5 for details about the output format.
  */
 vchar_t *
-mix_b64_pubkey(const RSA *key)
+mix_b64_pubkey(const EVP_PKEY *key)
 {
 	char *binbuf;
 	long binlen, ret;
 	vchar_t *res;
-	const BIGNUM *e, *n;
+	BIGNUM *e, *n;
 
-	RSA_get0_key(key, &n, &e, NULL);
+	if (!EVP_PKEY_get_bn_param(key, "e", &e)) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_get_bn_param(): %s\n",
+		     eay_strerror());
+		return NULL;
+	}
+	if (!EVP_PKEY_get_bn_param(key, "n", &n)) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_get_bn_param(): %s\n",
+		     eay_strerror());
+		return NULL;
+	}
 	binlen = 1 + BN_num_bytes(e) + BN_num_bytes(n);
 	binbuf = malloc(binlen);
 	memset(binbuf, 0, binlen);
 	binbuf[0] = BN_bn2bin(e, (unsigned char *) &binbuf[1]);
 	ret = BN_bn2bin(n, (unsigned char *) (&binbuf[binbuf[0] + 1]));
+	BN_clear_free(e);
+	BN_clear_free(n);
 	if (1 + binbuf[0] + ret != binlen) {
 		plog(LLV_ERROR, LOCATION, NULL,
 		     "Pubkey generation failed. This is really strange...\n");
+		free(binbuf);
 		return NULL;
 	}
 
@@ -122,7 +138,7 @@ lowercase(char *input)
 }
 
 int
-print_rsa_key(FILE *fp, const RSA *key)
+print_rsa_key(FILE *fp, const EVP_PKEY *key)
 {
 	vchar_t *pubkey64 = NULL;
 
@@ -134,20 +150,41 @@ print_rsa_key(FILE *fp, const RSA *key)
 	
 	fprintf(fp, "# : PUB 0s%s\n", pubkey64->v);
 	fprintf(fp, ": RSA\t{\n");
-	const BIGNUM *n, *e, *d, *p, *q, *dmp1, *dmq1, *iqmp;
-	RSA_get0_key(key, &n, &e, &d);
-	RSA_get0_factors(key, &p, &q);
-	RSA_get0_crt_params(key, &dmp1, &dmq1, &iqmp);
+	BIGNUM *n, *e, *d, *p, *q, *dmp1, *dmq1, *iqmp;
 	fprintf(fp, "\t# RSA %d bits\n", BN_num_bits(n));
 	fprintf(fp, "\t# pubkey=0s%s\n", pubkey64->v);
-	fprintf(fp, "\tModulus: 0x%s\n", lowercase(BN_bn2hex(n)));
-	fprintf(fp, "\tPublicExponent: 0x%s\n", lowercase(BN_bn2hex(e)));
-	fprintf(fp, "\tPrivateExponent: 0x%s\n", lowercase(BN_bn2hex(d)));
-	fprintf(fp, "\tPrime1: 0x%s\n", lowercase(BN_bn2hex(p)));
-	fprintf(fp, "\tPrime2: 0x%s\n", lowercase(BN_bn2hex(q)));
-	fprintf(fp, "\tExponent1: 0x%s\n", lowercase(BN_bn2hex(dmp1)));
-	fprintf(fp, "\tExponent2: 0x%s\n", lowercase(BN_bn2hex(dmq1)));
-	fprintf(fp, "\tCoefficient: 0x%s\n", lowercase(BN_bn2hex(iqmp)));
+	if (EVP_PKEY_get_bn_param(key, "n", &n)) {
+		fprintf(fp, "\tModulus: 0x%s\n", lowercase(BN_bn2hex(n)));
+		BN_clear_free(n);
+	}
+	if (EVP_PKEY_get_bn_param(key, "e", &e)) {
+		fprintf(fp, "\tPublicExponent: 0x%s\n", lowercase(BN_bn2hex(e)));
+		BN_clear_free(e);
+	}
+	if (EVP_PKEY_get_bn_param(key, "d", &d)) {
+		fprintf(fp, "\tPrivateExponent: 0x%s\n", lowercase(BN_bn2hex(d)));
+		BN_clear_free(d);
+	}
+	if (EVP_PKEY_get_bn_param(key, "p", &p)) {
+		fprintf(fp, "\tPrime1: 0x%s\n", lowercase(BN_bn2hex(p)));
+		BN_clear_free(p);
+	}
+	if (EVP_PKEY_get_bn_param(key, "q", &q)) {
+		fprintf(fp, "\tPrime2: 0x%s\n", lowercase(BN_bn2hex(q)));
+		BN_clear_free(q);
+	}
+	if (EVP_PKEY_get_bn_param(key, "dmp1", &dmp1)) {
+		fprintf(fp, "\tExponent1: 0x%s\n", lowercase(BN_bn2hex(dmp1)));
+		BN_clear_free(dmp1);
+	}
+	if (EVP_PKEY_get_bn_param(key, "dmq1", &dmq1)) {
+		fprintf(fp, "\tExponent2: 0x%s\n", lowercase(BN_bn2hex(dmq1)));
+		BN_clear_free(dmq1);
+	}
+	if (EVP_PKEY_get_bn_param(key, "iqmp", &iqmp)) {
+		fprintf(fp, "\tCoefficient: 0x%s\n", lowercase(BN_bn2hex(iqmp)));
+		BN_clear_free(iqmp);
+	}
 	fprintf(fp, "  }\n");
 
 	vfree(pubkey64);
@@ -155,7 +192,7 @@ print_rsa_key(FILE *fp, const RSA *key)
 }
 
 int
-print_public_rsa_key(FILE *fp, const RSA *key)
+print_public_rsa_key(FILE *fp, const EVP_PKEY *key)
 {
 	vchar_t *pubkey64 = NULL;
 
@@ -175,24 +212,43 @@ int
 convert_rsa_key(FILE *fpout, FILE *fpin)
 {
 	int ret;
-	RSA *key = NULL;
-
-	key = PEM_read_RSAPrivateKey(fpin, NULL, NULL, NULL);
-	if (key) {
-		ret = print_rsa_key(fpout, key);
-		RSA_free(key);
-
-		return ret;
+	OSSL_DECODER_CTX *dctx = NULL;
+	EVP_PKEY *key = NULL;
+	const char *format = "PEM";
+	const char *structure = NULL; /* any structure */
+	const char *keytype = "RSA";
+	const char *propq = NULL;
+	OSSL_LIB_CTX *libctx = eay_lib_ctx_new();
+	if (libctx == NULL) {
+		return -1;
 	}
-	
+	dctx = OSSL_DECODER_CTX_new_for_pkey(&key, format, structure,
+	                                     keytype,
+										 OSSL_KEYMGMT_SELECT_PRIVATE_KEY,
+	                                     libctx, propq);
+	if (dctx) {
+		if (OSSL_DECODER_from_fp(dctx, fpin)) {
+			ret = print_rsa_key(fpout, key);
+			EVP_PKEY_free(key);
+			OSSL_DECODER_CTX_free(dctx);
+			return ret;
+		}
+		OSSL_DECODER_CTX_free(dctx);
+	}
 	rewind(fpin);
 
-	key = PEM_read_RSA_PUBKEY(fpin, NULL, NULL, NULL);
-	if (key) {
-		ret = print_public_rsa_key(fpout, key);
-		RSA_free(key);
-
-		return ret;
+	dctx = OSSL_DECODER_CTX_new_for_pkey(&key, format, structure,
+	                                     keytype,
+										 OSSL_KEYMGMT_SELECT_PUBLIC_KEY,
+	                                     NULL, NULL);
+	if (dctx) {
+		if (OSSL_DECODER_from_fp(dctx, fpin)) {
+			ret = print_public_rsa_key(fpout, key);
+			EVP_PKEY_free(key);
+			OSSL_DECODER_CTX_free(dctx);
+			return ret;
+		}
+		OSSL_DECODER_CTX_free(dctx);
 	}
 
 	/* Implement parsing of input stream containing
@@ -209,19 +265,45 @@ convert_rsa_key(FILE *fpout, FILE *fpin)
 int
 gen_rsa_key(FILE *fp, size_t bits, unsigned long exp)
 {
-	int ret;
-	RSA *key = RSA_new();
+	int ret = -1;
+	const char *propq = NULL;
+	OSSL_PARAM *params = NULL;
+	EVP_PKEY *key = NULL;
 	BIGNUM *e = BN_new();
-
-	BN_set_word(e, exp);
-	if (! RSA_generate_key_ex(key, bits, e, NULL)) {
-		fprintf(stderr, "RSA_generate_key(): %s\n", eay_strerror());
-		RSA_free(key);
-		return -1;
+	EVP_PKEY_CTX *ctx = NULL;
+	OSSL_LIB_CTX *libctx = eay_lib_ctx_new();
+	if (libctx == NULL) {
+		fprintf(stderr, "Failed to create OSSL library context\n");
+		return ret;
 	}
-	
+	ctx = EVP_PKEY_CTX_new_from_name(libctx, "RSA", propq);
+	if (! ctx) {
+		fprintf(stderr, "Failed to create EVP_PKEY context\n");
+		return ret;
+	}
+	if (EVP_PKEY_fromdata_init(ctx) <= 0) {
+		fprintf(stderr, "Failed to initialise EVP_PKEY context\n");
+		goto out;
+	}
+	params = evp_rsa_key_params(e, bits);
+	if (! params) {
+		fprintf(stderr, "Failed to set RSA key parameters\n");
+		goto out;
+	}
+	ret = EVP_PKEY_fromdata(ctx, &key, EVP_PKEY_KEYPAIR, params);
+	if (ret <= 0){
+		fprintf(stderr, "EVP_PKEY_fromdata(): %s\n", eay_strerror());
+		goto out;
+	}
 	ret = print_rsa_key(fp, key);
-	RSA_free(key);
+	
+	EVP_PKEY_free(key);
+
+out:
+	if (! params) {
+		OSSL_PARAM_free(params);
+	}
+	EVP_PKEY_CTX_free(ctx);
 
 	return ret;
 }

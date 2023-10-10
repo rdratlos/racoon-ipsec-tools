@@ -35,7 +35,9 @@
 #define _CRYPTO_OPENSSL_H
 
 #include <openssl/x509v3.h>
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
 #include <openssl/rsa.h>
+#endif
 
 #define GENT_OTHERNAME	GEN_OTHERNAME
 #define GENT_EMAIL	GEN_EMAIL
@@ -59,12 +61,22 @@ extern vchar_t *eay_get_x509cert __P((char *));
 extern vchar_t *eay_get_x509sign __P((vchar_t *, vchar_t *));
 extern int eay_check_x509sign __P((vchar_t *, vchar_t *, vchar_t *));
 
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+extern int eay_check_rsasign __P((vchar_t *, vchar_t *, EVP_PKEY *));
+extern vchar_t *eay_get_rsasign __P((vchar_t *, EVP_PKEY *));
+#else
 extern int eay_check_rsasign __P((vchar_t *, vchar_t *, RSA *));
 extern vchar_t *eay_get_rsasign __P((vchar_t *, RSA *));
+#endif
 
 /* RSA */
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+extern vchar_t *eay_rsa_sign __P((vchar_t *, EVP_PKEY *));
+extern int eay_rsa_verify __P((vchar_t *, vchar_t *, EVP_PKEY *));
+#else
 extern vchar_t *eay_rsa_sign __P((vchar_t *, RSA *));
 extern int eay_rsa_verify __P((vchar_t *, vchar_t *, RSA *));
+#endif
 
 /* ASN.1 */
 extern vchar_t *eay_get_pkcs1privkey __P((char *));
@@ -75,12 +87,20 @@ extern char *eay_strerror __P((void));
 
 /* OpenSSL initialization */
 extern void eay_init __P((void));
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+extern OSSL_LIB_CTX * eay_lib_ctx_new __P((void));
+#endif
 
 /* Generic EVP */
 extern vchar_t *evp_crypt __P((vchar_t *data, vchar_t *key, vchar_t *iv,
 			       const EVP_CIPHER *e, int enc));
 extern int evp_weakkey __P((vchar_t *key, const EVP_CIPHER *e));
 extern int evp_keylen __P((int len, const EVP_CIPHER *e));
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+extern OSSL_PARAM *evp_rsa_key_params __P((BIGNUM *exp, size_t bits));
+extern OSSL_PARAM *evp_rsa_pub_key_params __P((BIGNUM *exp, BIGNUM *mod));
+extern OSSL_PARAM *evp_rsa_private_key_params __P((BIGNUM *exp, BIGNUM *mod, BIGNUM *priv, BIGNUM *fact1,BIGNUM *fact2, BIGNUM *exp1, BIGNUM *exp2, BIGNUM *coeff));
+#endif
 
 /* DES */
 extern vchar_t *eay_des_encrypt __P((vchar_t *, vchar_t *, vchar_t *));
@@ -216,8 +236,8 @@ extern int eay_dh_compute __P((vchar_t *, u_int32_t, vchar_t *, vchar_t *, vchar
 vchar_t *base64_encode(char *in, long inlen);
 vchar_t *base64_decode(char *in, long inlen);
 
-RSA *base64_pubkey2rsa(char *in);
-RSA *bignum_pubkey2rsa(BIGNUM *in);
+EVP_PKEY *base64_pubkey2rsa(char *in);
+EVP_PKEY *bignum_pubkey2rsa(BIGNUM *in);
 
 /* misc */
 extern int eay_revbnl __P((vchar_t *));

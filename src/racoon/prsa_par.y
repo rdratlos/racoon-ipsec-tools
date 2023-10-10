@@ -59,7 +59,9 @@
 #include <unistd.h>
 
 #include <openssl/bn.h>
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
 #include <openssl/rsa.h>
+#endif
 
 #include "misc.h"
 #include "vmbuf.h"
@@ -141,7 +143,7 @@ prsawrap()
 %}
 %union {
 	BIGNUM *bn;
-	RSA *rsa;
+	EVP_PKEY *rsa;
 	char *chr;
 	long num;
 	struct netaddr *naddr;
@@ -213,11 +215,40 @@ rsa_statement:
 				rsa_cur->iqmp = NULL;
 			}
 		}
-		RSA * rsa_tmp = RSA_new();
-		RSA_set0_key(rsa_tmp, rsa_cur->n, rsa_cur->e, rsa_cur->d);
-		RSA_set0_factors(rsa_tmp, rsa_cur->p, rsa_cur->q);
-		RSA_set0_crt_params(rsa_tmp, rsa_cur->dmp1, rsa_cur->dmq1, rsa_cur->iqmp);
-		$$ = rsa_tmp;
+		EVP_PKEY *evp_tmp = NULL;
+		EVP_PKEY_CTX *ctx = NULL;
+		const char *propq = NULL;
+		OSSL_PARAM *params = NULL;
+		OSSL_LIB_CTX *libctx = eay_lib_ctx_new();
+		if (libctx == NULL) {
+			prsaerror("Failed to create OSSL library context\n");
+			YYABORT;
+		}
+		ctx = EVP_PKEY_CTX_new_from_name(libctx, "RSA", propq);
+		if (! ctx) {
+			prsaerror("Failed to create EVP_PKEY context\n");
+			YYABORT;
+		}
+		if (EVP_PKEY_fromdata_init(ctx) <= 0) {
+			prsaerror("Failed to initialise EVP_PKEY context\n");
+			YYABORT;
+		}
+		params = evp_rsa_private_key_params(rsa_cur->e, rsa_cur->n,
+		                                    rsa_cur->d, rsa_cur->p, rsa_cur->q,
+		                                    rsa_cur->dmp1, rsa_cur->dmq1, rsa_cur->iqmp);
+		if (! params) {
+			prsaerror("Failed to set private RSA key parameters\n");
+			YYABORT;
+		}
+		if (EVP_PKEY_fromdata(ctx, &evp_tmp, EVP_PKEY_KEYPAIR, params) <= 0) {
+			prsaerror("Failed to create RSA key pair from parameters\n");
+			OSSL_PARAM_free(params);
+			EVP_PKEY_CTX_free(ctx);
+			YYABORT;
+		}
+		OSSL_PARAM_free(params);
+		EVP_PKEY_CTX_free(ctx);
+		$$ = evp_tmp;
 		memset(rsa_cur, 0, sizeof(struct my_rsa_st));
 	}
 	| TAG_PUB BASE64

@@ -35,7 +35,11 @@
 #define _HANDLER_H
 
 #include <sys/queue.h>
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+#include <openssl/evp.h>
+#else
 #include <openssl/rsa.h>
+#endif
 
 #include <sys/time.h>
 
@@ -169,8 +173,13 @@ struct ph1handle {
 	vchar_t *cert_p;		/* peer's CERT minus general header */
 	vchar_t *crl_p;			/* peer's CRL minus general header */
 	vchar_t *cr_p;			/* peer's CR not including general */
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	EVP_PKEY *rsa;			/* my RSA key */
+	EVP_PKEY *rsa_p;			/* peer's RSA key */
+#else
 	RSA *rsa;			/* my RSA key */
 	RSA *rsa_p;			/* peer's RSA key */
+#endif
 	struct genlist *rsa_candidates;	/* possible candidates for peer's RSA key */
 	vchar_t *id;			/* ID minus gen header */
 	vchar_t *id_p;			/* partner's ID minus general header */

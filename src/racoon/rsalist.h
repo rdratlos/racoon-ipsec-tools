@@ -35,7 +35,11 @@
 #define _RSALIST_H
 
 #include <netinet/in.h>
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
 #include <openssl/rsa.h>
+#else
+#include <openssl/evp.h>
+#endif
 
 #include "handler.h"
 #include "genlist.h"
@@ -49,16 +53,16 @@ enum rsa_key_type {
 struct rsa_key {
 	struct netaddr *src;
 	struct netaddr *dst;
-	RSA *rsa;
+	EVP_PKEY *rsa;
 };
 
-int rsa_key_insert(struct genlist *list, struct netaddr *src, struct netaddr *dst, RSA *rsa);
+int rsa_key_insert(struct genlist *list, struct netaddr *src, struct netaddr *dst, EVP_PKEY *rsa);
 struct rsa_key *rsa_key_dup(struct rsa_key *key);
 void rsa_key_free(void *data);
 void rsa_key_dump(struct genlist *list);
 
 struct genlist *rsa_lookup_keys(struct ph1handle *iph1, int my);
-RSA *rsa_try_check_rsasign(vchar_t *source, vchar_t *sig, struct genlist *list);
+EVP_PKEY *rsa_try_check_rsasign(vchar_t *source, vchar_t *sig, struct genlist *list);
 
 unsigned long rsa_list_count(struct genlist *list);
 

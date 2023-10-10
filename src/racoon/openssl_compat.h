@@ -4,7 +4,6 @@
 #include <openssl/opensslv.h>
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
 
-#include <openssl/rsa.h>
 #include <openssl/dh.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>

@@ -50,6 +50,7 @@
 
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 #include <openssl/provider.h>
+#include <openssl/param_build.h>
 #endif
 #include <openssl/pem.h>
 #include <openssl/evp.h>
@@ -870,15 +871,6 @@ eay_check_x509sign(source, sig, cert)
 	vchar_t *cert;
 {
 	X509 *x509;
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L
-	ENGINE *impl = NULL;
-	EVP_PKEY_CTX *ctx = NULL;
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L
-	OSSL_LIB_CTX *libctx = NULL;
-	OSSL_PROVIDER *prov = NULL;
-	const char *propq = NULL;
-#endif
-#endif
 	EVP_PKEY *evp;
 	int ret = -1, res = -1;
 
@@ -893,67 +885,12 @@ eay_check_x509sign(source, sig, cert)
 	}
 
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L
-	/*
-	 * Load the NULL provider into the default library context and create a
-	 * library context which will then be used for EVP PKEY context creation.
-	 */
-	prov = OSSL_PROVIDER_load(NULL, "null");
-	if (prov == NULL) {
-		plog(LLV_ERROR, LOCATION, NULL, "Failed to create null OSSL provider\n");
-		goto out;
-	}
-	libctx = OSSL_LIB_CTX_new();
-	if (libctx == NULL) {
-		plog(LLV_ERROR, LOCATION, NULL, "Failed to create OSSL library context\n");
-		goto out;
-	}
-	ctx = EVP_PKEY_CTX_new_from_pkey(libctx, evp, propq);
-#else
-	ctx = EVP_PKEY_CTX_new(evp, impl);
-#endif
-	if (! ctx) {
-		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_CTX_new_from_pkey(): %s\n",
-		     eay_strerror());
-		goto out;
-	}
-	if (EVP_PKEY_verify_init(ctx) <= 0) {
-		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_verify_init(): %s\n",
-		     eay_strerror());
-		goto out;
-	}
-	res = EVP_PKEY_verify(ctx, (const unsigned char*)sig->v, sig->l,
-	                      (const unsigned char*)source->v, source->l);
-	if (res < 0) {
-		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_verify(): %s\n",
-		     eay_strerror());
-	} else if (loglevel >= LLV_DEBUG) {
-		unsigned char *out;
-		size_t poutlen;
-		if (EVP_PKEY_verify_recover_init(ctx) > 0) {
-			if (EVP_PKEY_verify_recover(ctx, NULL, &poutlen,
-			                            (const unsigned char*)sig->v, sig->l) > 0) {
-				out = OPENSSL_malloc(poutlen);
-				if (out) {
-					if (EVP_PKEY_verify_recover(ctx, out, &poutlen,
-					                            (const unsigned char*)sig->v, sig->l) > 0) {
-						plog(LLV_INFO, LOCATION, NULL, "Recovered signature payload:\n");
-						plogdump(LLV_DEBUG, out, poutlen);
-					}
-					OPENSSL_free(out);
-				}
-			}
-		}
-	}
-	ret = (res == 1) ? 0 : -1;
+	ret = eay_rsa_verify(source, sig, evp);
 #else
 	ret = eay_rsa_verify(source, sig, EVP_PKEY_get0_RSA(evp));
 #endif
 
 out:
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L
-	EVP_PKEY_CTX_free(ctx);
-#endif
 	EVP_PKEY_free(evp);
 	X509_free(x509);
 	return ret;
@@ -964,6 +901,16 @@ out:
  * OUT: return -1 when error.
  *	0 on success
  */
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+int
+eay_check_rsasign(source, sig, evp)
+	vchar_t *source;
+	vchar_t *sig;
+	EVP_PKEY *evp;
+{
+	return eay_rsa_verify(source, sig, evp);
+}
+#else
 int
 eay_check_rsasign(source, sig, rsa)
 	vchar_t *source;
@@ -972,6 +919,7 @@ eay_check_rsasign(source, sig, rsa)
 {
 	return eay_rsa_verify(source, sig, rsa);
 }
+#endif
 
 /*
  * get PKCS#1 Private Key of PEM format from local file.
@@ -1093,13 +1041,106 @@ eay_get_x509sign(src, privkey)
 	if (evp == NULL)
 		return NULL;
 
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	sig = eay_rsa_sign(src, evp);
+#else
 	sig = eay_rsa_sign(src, EVP_PKEY_get0_RSA(evp));
+#endif
 
 	EVP_PKEY_free(evp);
 
 	return sig;
 }
 
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+vchar_t *
+eay_get_rsasign(src, evp)
+	vchar_t *src;
+	EVP_PKEY *evp;
+{
+	return eay_rsa_sign(src, evp);
+}
+
+vchar_t *
+eay_rsa_sign(vchar_t *src, EVP_PKEY *evp)
+{
+	int res = -1;
+	vchar_t *sig = NULL;
+	size_t len;
+	ENGINE *impl = NULL;
+	EVP_PKEY_CTX *ctx = NULL;
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+	OSSL_LIB_CTX *libctx = NULL;
+	OSSL_PROVIDER *prov = NULL;
+	const char *propq = NULL;
+
+	/*
+	 * Load the NULL provider into the default library context and create a
+	 * library context which will then be used for EVP PKEY context creation.
+	 */
+	prov = OSSL_PROVIDER_load(NULL, "null");
+	if (prov == NULL) {
+		plog(LLV_ERROR, LOCATION, NULL, "Failed to create null OSSL provider\n");
+		goto out;
+	}
+	libctx = OSSL_LIB_CTX_new();
+	if (libctx == NULL) {
+		plog(LLV_ERROR, LOCATION, NULL, "Failed to create OSSL library context\n");
+		goto out;
+	}
+	ctx = EVP_PKEY_CTX_new_from_pkey(libctx, evp, propq);
+	if (! ctx) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_CTX_new_from_pkey(): %s\n",
+		     eay_strerror());
+		goto out;
+	}
+#else
+
+	ctx = EVP_PKEY_CTX_new(evp, impl);
+	if (! ctx) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_CTX_new(): %s\n",
+		     eay_strerror());
+		goto out;
+	}
+#endif
+	if (EVP_PKEY_sign_init(ctx) <= 0) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_sign_init(): %s\n",
+		     eay_strerror());
+		goto out;
+	}
+	res = EVP_PKEY_sign(ctx, NULL, &len,
+	                    (const unsigned char*)src->v, src->l);
+	if (res <= 0) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_sign() buffer size: %s\n",
+		     eay_strerror());
+		goto out;
+	}
+
+	sig = vmalloc(len);
+	if (sig != NULL)
+		goto out;
+
+	res = EVP_PKEY_sign(ctx, (unsigned char*)sig->v, &len,
+	                    (const unsigned char*)src->v, src->l);
+	if (res <= 0) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_sign(): %s\n",
+		     eay_strerror());
+		vfree(sig);
+		sig = NULL;
+		goto out;
+	}
+
+	if (len == 0 || len != sig->l) {
+		vfree(sig);
+		sig = NULL;
+	}
+
+out:
+	EVP_PKEY_CTX_free(ctx);
+	return sig;
+}
+
+#else
 vchar_t *
 eay_get_rsasign(src, rsa)
 	vchar_t *src;
@@ -1131,7 +1172,69 @@ eay_rsa_sign(vchar_t *src, RSA *rsa)
 
 	return sig;
 }
+#endif
 
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+int
+eay_rsa_verify(src, sig, evp)
+	vchar_t *src, *sig;
+	EVP_PKEY *evp;
+{
+	int ret = -1, res = -1;
+	ENGINE *impl = NULL;
+	EVP_PKEY_CTX *ctx = NULL;
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+	const char *propq = NULL;
+	OSSL_LIB_CTX *libctx = eay_lib_ctx_new();
+	if (libctx == NULL) {
+		plog(LLV_ERROR, LOCATION, NULL, "Failed to create OSSL library context\n");
+		goto out;
+	}
+	ctx = EVP_PKEY_CTX_new_from_pkey(libctx, evp, propq);
+#else
+
+	ctx = EVP_PKEY_CTX_new(evp, impl);
+#endif
+	if (! ctx) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_CTX_new_from_pkey(): %s\n",
+		     eay_strerror());
+		goto out;
+	}
+	if (EVP_PKEY_verify_init(ctx) <= 0) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_verify_init(): %s\n",
+		     eay_strerror());
+		goto out;
+	}
+	res = EVP_PKEY_verify(ctx, (const unsigned char*)sig->v, sig->l,
+	                      (const unsigned char*)src->v, src->l);
+	if (res < 0) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_verify(): %s\n",
+		     eay_strerror());
+	} else if (loglevel >= LLV_DEBUG) {
+		unsigned char *out;
+		size_t poutlen;
+		if (EVP_PKEY_verify_recover_init(ctx) > 0) {
+			if (EVP_PKEY_verify_recover(ctx, NULL, &poutlen,
+			                            (const unsigned char*)sig->v, sig->l) > 0) {
+				out = OPENSSL_malloc(poutlen);
+				if (out) {
+					if (EVP_PKEY_verify_recover(ctx, out, &poutlen,
+					                            (const unsigned char*)sig->v, sig->l) > 0) {
+						plog(LLV_INFO, LOCATION, NULL, "Recovered signature payload:\n");
+						plogdump(LLV_DEBUG, out, poutlen);
+					}
+					OPENSSL_free(out);
+				}
+			}
+		}
+	}
+	ret = (res == 1) ? 0 : -1;
+
+out:
+	EVP_PKEY_CTX_free(ctx);
+	return ret;
+}
+#else
 int
 eay_rsa_verify(src, sig, rsa)
 	vchar_t *src, *sig;
@@ -1164,6 +1267,7 @@ eay_rsa_verify(src, sig, rsa)
 
 	return 0;
 }
+#endif
 
 /*
  * get error string
@@ -1207,6 +1311,103 @@ eay_strerror()
 
 	return ebuf;
 }
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+OSSL_PARAM *
+evp_rsa_key_params(BIGNUM *exp, size_t bits)
+{
+	OSSL_PARAM * params = NULL;
+	OSSL_PARAM_BLD *params_build = OSSL_PARAM_BLD_new();
+	if ( params_build == NULL ) {
+		return params;
+	}
+	if ( !OSSL_PARAM_BLD_push_BN(params_build, "e", exp) ) {
+		goto out;
+	}
+	if ( !OSSL_PARAM_BLD_push_size_t(params_build, "bits", bits) ) {
+		goto out;
+	}
+	params = OSSL_PARAM_BLD_to_param(params_build);
+	if ( params == NULL ) {
+		goto out;
+	}
+
+out:
+	OSSL_PARAM_BLD_free(params_build);
+	return params;
+}
+
+OSSL_PARAM *
+evp_rsa_pub_key_params(BIGNUM *exp, BIGNUM *mod)
+{
+	OSSL_PARAM * params = NULL;
+	OSSL_PARAM_BLD *params_build = OSSL_PARAM_BLD_new();
+	if ( params_build == NULL ) {
+		return params;
+	}
+	if ( !OSSL_PARAM_BLD_push_BN(params_build, "n", mod) ) {
+		goto out;
+	}
+	if ( !OSSL_PARAM_BLD_push_BN(params_build, "e", exp) ) {
+		goto out;
+	}
+	if ( !OSSL_PARAM_BLD_push_BN(params_build, "d", NULL) ) {
+		goto out;
+	}
+	params = OSSL_PARAM_BLD_to_param(params_build);
+	if ( params == NULL ) {
+		goto out;
+	}
+
+out:
+	OSSL_PARAM_BLD_free(params_build);
+	return params;
+}
+
+OSSL_PARAM *
+evp_rsa_private_key_params(BIGNUM *exp, BIGNUM *mod,
+                           BIGNUM *priv, BIGNUM *fact1,BIGNUM *fact2,
+						   BIGNUM *exp1, BIGNUM *exp2, BIGNUM *coeff)
+{
+	OSSL_PARAM * params = NULL;
+	OSSL_PARAM_BLD *params_build = OSSL_PARAM_BLD_new();
+	if ( params_build == NULL ) {
+		return params;
+	}
+	if ( !OSSL_PARAM_BLD_push_BN(params_build, "n", mod) ) {
+		goto out;
+	}
+	if ( !OSSL_PARAM_BLD_push_BN(params_build, "e", exp) ) {
+		goto out;
+	}
+	if ( !OSSL_PARAM_BLD_push_BN(params_build, "d", priv) ) {
+		goto out;
+	}
+	if ( !OSSL_PARAM_BLD_push_BN(params_build, "p", fact1) ) {
+		goto out;
+	}
+	if ( !OSSL_PARAM_BLD_push_BN(params_build, "q", fact2) ) {
+		goto out;
+	}
+	if ( !OSSL_PARAM_BLD_push_BN(params_build, "dmp1", exp1) ) {
+		goto out;
+	}
+	if ( !OSSL_PARAM_BLD_push_BN(params_build, "dmq1", exp2) ) {
+		goto out;
+	}
+	if ( !OSSL_PARAM_BLD_push_BN(params_build, "iqmp", coeff) ) {
+		goto out;
+	}
+	params = OSSL_PARAM_BLD_to_param(params_build);
+	if ( params == NULL ) {
+		goto out;
+	}
+
+out:
+	OSSL_PARAM_BLD_free(params_build);
+	return params;
+}
+#endif
 
 vchar_t *
 evp_crypt(vchar_t *data, vchar_t *key, vchar_t *iv, const EVP_CIPHER *e, int enc)
@@ -2594,11 +2795,12 @@ out:
 	return res;
 }
 
-static RSA *
+static EVP_PKEY *
 binbuf_pubkey2rsa(vchar_t *binbuf)
 {
 	BIGNUM *exp, *mod;
-	RSA *rsa_pub = NULL;
+	EVP_PKEY *rsa_pub = NULL;
+	EVP_PKEY_CTX *ctx = NULL;
 
 	if (binbuf->v[0] > binbuf->l - 1) {
 		plog(LLV_ERROR, LOCATION, NULL, "Plain RSA pubkey format error: decoded string doesn't make sense.\n");
@@ -2608,6 +2810,38 @@ binbuf_pubkey2rsa(vchar_t *binbuf)
 	exp = BN_bin2bn((unsigned char *) (binbuf->v + 1), binbuf->v[0], NULL);
 	mod = BN_bin2bn((unsigned char *) (binbuf->v + binbuf->v[0] + 1), 
 			binbuf->l - binbuf->v[0] - 1, NULL);
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+	const char *propq = NULL;
+	OSSL_PARAM *params = NULL;
+	OSSL_LIB_CTX *libctx = eay_lib_ctx_new();
+	if (libctx == NULL) {
+		plog(LLV_ERROR, LOCATION, NULL, "Failed to create OSSL library context\n");
+		goto out;
+	}
+	ctx = EVP_PKEY_CTX_new_from_name(libctx, "RSA", propq);
+	if (! ctx) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_CTX_new_from_name(): %s\n",
+		     eay_strerror());
+		goto out;
+	}
+	if (EVP_PKEY_fromdata_init(ctx) <= 0) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_fromdata_init(): %s\n",
+		     eay_strerror());
+		goto out;
+	}
+	params = evp_rsa_pub_key_params(exp, mod);
+	if (! params) {
+		goto out;
+	}
+	if (EVP_PKEY_fromdata(ctx, &rsa_pub, EVP_PKEY_PUBLIC_KEY, params) < 0) {
+		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_fromdata(): %s\n",
+		     eay_strerror());
+	}
+	OSSL_PARAM_free(params);
+
+#else
+
 	rsa_pub = RSA_new();
 
 	if (!exp || !mod || !rsa_pub) {
@@ -2623,16 +2857,20 @@ binbuf_pubkey2rsa(vchar_t *binbuf)
 	}
 	
 	RSA_set0_key(rsa_pub, mod, exp, NULL);
+#endif
 
 out:
+	if (ctx) {
+		EVP_PKEY_CTX_free(ctx);
+	}
 	return rsa_pub;
 }
 
-RSA *
+EVP_PKEY *
 base64_pubkey2rsa(char *in)
 {
 	BIGNUM *exp, *mod;
-	RSA *rsa_pub = NULL;
+	EVP_PKEY *rsa_pub = NULL;
 	vchar_t *binbuf;
 
 	if (strncmp(in, "0s", 2) != 0) {
@@ -2660,10 +2898,10 @@ out:
 	return rsa_pub;
 }
 
-RSA *
+EVP_PKEY *
 bignum_pubkey2rsa(BIGNUM *in)
 {
-	RSA *rsa_pub = NULL;
+	EVP_PKEY *rsa_pub = NULL;
 	vchar_t *binbuf;
 
 	binbuf = vmalloc(BN_num_bytes(in));
@@ -2695,6 +2933,34 @@ eay_random()
 
 	return result;
 }
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+OSSL_LIB_CTX *
+eay_lib_ctx_new()
+{
+	OSSL_LIB_CTX *libctx = NULL;
+	OSSL_PROVIDER *prov = NULL;
+
+	/*
+	 * Load the NULL provider into the default library context and create a
+	 * library context which can then be used for EVP PKEY context creation.
+	 */
+	prov = OSSL_PROVIDER_load(NULL, "null");
+	if (prov == NULL) {
+		plog(LLV_DEBUG, LOCATION, NULL, "OSSL_PROVIDER_load() failed: %s\n", eay_strerror());
+		goto out;
+	}
+	libctx = OSSL_LIB_CTX_new();
+	if (libctx == NULL) {
+		plog(LLV_DEBUG, LOCATION, NULL, "OSSL_LIB_CTX_new() failed: %s\n", eay_strerror());
+		goto out;
+	}
+
+out:
+	return libctx;
+}
+#endif
+
 
 const char *
 eay_version()

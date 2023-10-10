@@ -104,7 +104,11 @@ rsa_verify_with_pubkey(src, sig, pubkey_txt)
 		printf ("PEM_read_PUBKEY(): %s\n", eay_strerror());
 		return -1;
 	}
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	error = eay_check_rsasign(src, sig, evp);
+#else
 	error = eay_check_rsasign(src, sig, EVP_PKEY_get0_RSA(evp));
+#endif
 
 	return error;
 }
@@ -260,9 +264,9 @@ certtest(ac, av)
 		0x65,0x2e,0x6e,0x65,0x74,
 	};
 #else /* not ORIG_DN */
-	char dnstr[] = "C=JP, ST=Kanagawa, L=Fujisawa, O=WIDE Project, OU=KAME Project, CN=Shoichi Sakane";
-	char dnstr_w1[] = "C=JP, ST=Kanagawa, L=Fujisawa, O=WIDE Project, OU=*, CN=Shoichi Sakane";
-	char dnstr_w2[] = "C=JP, ST=Kanagawa, L=Fujisawa, O=WIDE Project, OU=KAME Project, CN=*";
+	char *dnstr = "C=JP, ST=Kanagawa, L=Fujisawa, O=WIDE Project, OU=KAME Project, CN=Shoichi Sakane";
+	char *dnstr_w1 = "C=JP, ST=Kanagawa, L=Fujisawa, O=WIDE Project, OU=*, CN=Shoichi Sakane";
+	char *dnstr_w2 = "C=JP, ST=Kanagawa, L=Fujisawa, O=WIDE Project, OU=KAME Project, CN=*";
 	char dn0[] = {
 		0x30,0x7a,0x31,0x0b,0x30,0x09,0x06,0x03,
 		0x55,0x04,0x06,0x13,0x02,0x4a,0x50,0x31,

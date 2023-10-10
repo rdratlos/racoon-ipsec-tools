@@ -43,7 +43,10 @@
 #include <netdb.h>
 
 #include <openssl/bn.h>
+#include <openssl/evp.h>
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
 #include <openssl/rsa.h>
+#endif
 
 #include "misc.h"
 #include "plog.h"
@@ -67,24 +70,26 @@ int prsa_parse_file(struct genlist *list, const char *fname, enum rsa_key_type t
 
 int
 rsa_key_insert(struct genlist *list, struct netaddr *src,
-	       struct netaddr *dst, RSA *rsa)
+	       struct netaddr *dst, EVP_PKEY *rsa)
 {
 	struct rsa_key *rsa_key;
 
-	rsa_key = calloc(sizeof(struct rsa_key), 1);
-	rsa_key->rsa = rsa;
+	if (rsa != NULL) {
+		rsa_key = calloc(sizeof(struct rsa_key), 1);
+		rsa_key->rsa = rsa;
 
-	if (src)
-		rsa_key->src = src;
-	else
-		rsa_key->src = calloc(sizeof(*rsa_key->src), 1);
+		if (src)
+			rsa_key->src = src;
+		else
+			rsa_key->src = calloc(sizeof(*rsa_key->src), 1);
 
-	if (dst)
-		rsa_key->dst = dst;
-	else
-		rsa_key->dst = calloc(sizeof(*rsa_key->dst), 1);
+		if (dst)
+			rsa_key->dst = dst;
+		else
+			rsa_key->dst = calloc(sizeof(*rsa_key->dst), 1);
 
-	genlist_append(list, rsa_key);
+		genlist_append(list, rsa_key);
+	}
 
 	return 0;
 }
@@ -99,9 +104,7 @@ rsa_key_dup(struct rsa_key *key)
 		return NULL;
 
 	if (key->rsa) {
-		const BIGNUM *d;
-		RSA_get0_key(key->rsa, NULL, NULL, &d);
-		new->rsa = (d != NULL ? RSAPrivateKey_dup(key->rsa) : RSAPublicKey_dup(key->rsa));
+		new->rsa = EVP_PKEY_dup(key->rsa);
 		if (new->rsa == NULL)
 			goto dup_error;
 	}
@@ -123,7 +126,7 @@ rsa_key_dup(struct rsa_key *key)
 
 dup_error:
 	if (new->rsa != NULL)
-		RSA_free(new->rsa);
+		EVP_PKEY_free(new->rsa);
 	if (new->dst != NULL)
 		free(new->dst);
 	if (new->src != NULL)
@@ -145,7 +148,7 @@ rsa_key_free(void *data)
 	if (rsa_key->dst)
 		free(rsa_key->dst);
 	if (rsa_key->rsa)
-		RSA_free(rsa_key->rsa);
+		EVP_PKEY_free(rsa_key->rsa);
 
 	free(rsa_key);
 }
@@ -159,7 +162,7 @@ rsa_key_dump_one(void *entry, void *arg)
 	     naddrwop2str_fromto("%s -> %s", key->src,
 				 key->dst));
 	if (loglevel > LLV_DEBUG)
-		RSA_print_fp(stdout, key->rsa, 4);
+		EVP_PKEY_print_params_fp(stdout, key->rsa, 4, NULL);
 
 	return NULL;
 }
@@ -259,7 +262,7 @@ rsa_parse_file(struct genlist *list, const char *fname, enum rsa_key_type type)
 	return ret;
 }
 
-RSA *
+EVP_PKEY *
 rsa_try_check_rsasign(vchar_t *source, vchar_t *sig, struct genlist *list)
 {
 	struct rsa_key *key;
