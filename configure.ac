@@ -1,18 +1,19 @@
 dnl -*- mode: m4 -*-
 dnl Id: configure.ac,v 1.77 2006/07/20 19:19:27 manubsd Exp
 
-AC_PREREQ(2.52)
-AC_INIT(ipsec-tools, 0.8.2)
+AC_PREREQ([2.69])
+AC_INIT([ipsec-tools],[0.8.2])
+AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([configure.ac])
 AC_CONFIG_HEADERS(config.h)
 
-AC_CONFIG_MACRO_DIR([.])
-AM_INIT_AUTOMAKE([dist-bzip2 foreign serial-tests])
+AM_INIT_AUTOMAKE([dist-bzip2 foreign serial-tests subdir-objects])
 
 AC_ENABLE_SHARED(no)
 
+AC_PROG_AWK
 AC_PROG_CC
-AC_HEADER_STDC
+AC_PROG_LN_S
 AC_PROG_LIBTOOL
 AC_PROG_YACC
 AM_PROG_LEX
@@ -70,8 +71,7 @@ fi
 case "$host_os" in
  *linux*)
     AC_ARG_WITH(kernel-headers,
-	AC_HELP_STRING([--with-kernel-headers=/lib/modules/<uname>/build/include],
-		       [where your Linux Kernel headers are installed]),
+	AS_HELP_STRING([--with-kernel-headers=/lib/modules/<uname>/build/include],[where your Linux Kernel headers are installed]),
 	    [ KERNEL_INCLUDE="$with_kernel_headers" 
 	      CONFIGURE_AMFLAGS="--with-kernel-headers=$with_kernel_headers"
 	      AC_SUBST(CONFIGURE_AMFLAGS) ],
@@ -116,37 +116,51 @@ esac
 ### Some basic toolchain checks
 
 # Checks for header files.
-AC_HEADER_STDC
+AC_FUNC_ALLOCA
+AC_HEADER_RESOLV
 AC_HEADER_SYS_WAIT
+AC_CHECK_HEADERS([arpa/inet.h fcntl.h inttypes.h libintl.h malloc.h netdb.h netinet/in.h paths.h shadow.h stdint.h strings.h sys/ioctl.h sys/param.h sys/socket.h sys/time.h syslog.h unistd.h utmpx.h])
 AC_CHECK_HEADERS(limits.h sys/time.h unistd.h stdarg.h varargs.h)
 AC_CHECK_HEADERS(shadow.h)
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
+AC_TYPE_UID_T
+AC_C_INLINE
+AC_TYPE_INT16_T
+AC_TYPE_INT32_T
+AC_TYPE_INT8_T
+AC_TYPE_MODE_T
 AC_TYPE_PID_T
 AC_TYPE_SIZE_T
-AC_HEADER_TIME
+AC_TYPE_SSIZE_T
+AC_TYPE_UINT16_T
+AC_TYPE_UINT32_T
+AC_TYPE_UINT64_T
+AC_TYPE_UINT8_T
+AC_CHECK_HEADERS_ONCE([sys/time.h])
 AC_STRUCT_TM
 
 # Checks for library functions.
+AC_FUNC_CHOWN
+AC_FUNC_FORK
+AC_FUNC_MALLOC
+AC_FUNC_MKTIME
+AC_FUNC_REALLOC
+AC_CHECK_FUNCS([bzero clock_gettime gethostbyname gethostname getpass getspnam gettimeofday inet_ntoa memmove memset realpath select setenv socket strchr strdup strerror strncasecmp strpbrk strrchr strstr strtol strtoul strlcpy strlcat uname])
 AC_FUNC_MEMCMP
-AC_TYPE_SIGNAL
 AC_FUNC_VPRINTF
-AC_CHECK_FUNCS(gettimeofday select socket strerror strtol strtoul strlcpy strlcat)
-AC_REPLACE_FUNCS(strdup)
 RACOON_CHECK_VA_COPY
 
 # Check if printf accepts "%z" type modifier for size_t argument
 AC_MSG_CHECKING(if printf accepts %z)
 saved_CFLAGS=$CFLAGS
 CFLAGS="$CFLAGS -Wall -Werror"
-AC_TRY_COMPILE([
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 #include <stdio.h>
-], [
+]], [[
 printf("%zu\n", (size_t)-1);
-],
-	[AC_MSG_RESULT(yes)],
-	[AC_MSG_RESULT(no);
+]])],[AC_MSG_RESULT(yes)],[AC_MSG_RESULT(no);
 	 CFLAGS_ADD="$CFLAGS_ADD -Wno-format";
 	 AC_DEFINE(BROKEN_PRINTF, [], [If printf doesn't support %zu.])
 	])
@@ -154,12 +168,9 @@ CFLAGS=$saved_CFLAGS
 
 # Can we use __func__ macro?
 AC_MSG_CHECKING(if __func__ is available)
-AC_TRY_COMPILE(
-[#include <stdio.h>
-], [char *x = __func__;],
-	[AC_DEFINE([HAVE_FUNC_MACRO], [], [Have __func__ macro])
-	AC_MSG_RESULT(yes)],
-	[AC_MSG_RESULT(no)])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <stdio.h>
+]], [[char *x = __func__;]])],[AC_DEFINE([HAVE_FUNC_MACRO], [], [Have __func__ macro])
+	AC_MSG_RESULT(yes)],[AC_MSG_RESULT(no)])
 
 # Check if readline support is requested
 AC_MSG_CHECKING(if readline support is requested)
@@ -181,7 +192,7 @@ fi
 
 AC_MSG_CHECKING(if --with-flex option is specified)
 AC_ARG_WITH(flexdir,
-	[AC_HELP_STRING([--with-flex], [use directiory (default: no)])],
+	[AS_HELP_STRING([--with-flex],[use directiory (default: no)])],
 	[flexdir="$withval"])
 AC_MSG_RESULT(${flexdir-dirdefault})
 
@@ -211,16 +222,16 @@ if test "x$crypto_dir" != "x"; then
 fi
 AC_MSG_CHECKING(openssl version)
 
-AC_TRY_COMPILE(
-[#include <openssl/opensslv.h>
-],
-[#if OPENSSL_VERSION_NUMBER < 0x0090813fL
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <openssl/opensslv.h>
+]], [[#if OPENSSL_VERSION_NUMBER < 0x0090813fL
 #error OpenSSL version is too old ...
-#endif],
-[AC_MSG_RESULT([ok])],
-[AC_MSG_RESULT(too old)
+#endif]])],[AC_MSG_RESULT([ok])],[AC_MSG_RESULT(too old)
 AC_MSG_ERROR([OpenSSL version must be 0.9.8s or higher. Aborting.])
 ])
+
+if test "x$crypto_dir" == "x"; then
+	AC_CHECK_LIB(crypto, CRYPTO_new_ex_data, [], [AC_MSG_ERROR([library 'crypto' is required for OpenSSL])])
+fi
 
 AC_CHECK_HEADERS(openssl/engine.h)
 
@@ -234,17 +245,17 @@ AC_DEFINE([WITH_SHA2], [], [SHA2 support])
 AC_MSG_RESULT(yes)
 AC_CHECK_HEADER(openssl/sha2.h, [], [
 	AC_MSG_CHECKING(if sha2 is defined in openssl/sha.h)
-	AC_TRY_COMPILE([
+	AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 		#ifdef HAVE_SYS_TYPES_H
 		#include <sys/types.h>
 		#endif
 		#include <openssl/sha.h>
-	], [
+	]], [[
 		SHA256_CTX ctx;
-	], [
+	]])],[
 	    AC_MSG_RESULT(yes)
 	    AC_DEFINE([HAVE_SHA2_IN_SHA_H], [], [sha2 is defined in sha.h])
-	], [AC_MSG_RESULT(no)
+	],[AC_MSG_RESULT(no)
 	    AC_LIBOBJ([sha2])
 	    CRYPTOBJS="$CRYPTOBJS sha2.o"
 	])
@@ -444,15 +455,11 @@ if test "$libldap_dir" != "no"; then
 	CFLAGS="$CFLAGS -Wall -Werror"
 	saved_CPPFLAGS=$CPPFLAGS
         CPPFLAGS="$CPPFLAGS $CPPFLAGS_ADD"
-	AC_TRY_COMPILE(
-		[#include <ldap.h>],
-		[
+	AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <ldap.h>]], [[
 			#if LDAP_API_VERSION < 2004
 			#error OpenLDAP version is too old ...
 			#endif
-		],
-		[AC_MSG_RESULT([ok])],
-		[
+		]])],[AC_MSG_RESULT([ok])],[
 			AC_MSG_RESULT(too old)
 			AC_MSG_ERROR([OpenLDAP version must be 2.0 or higher. Aborting.])
 		])
@@ -497,10 +504,10 @@ if test "x$enable_gssapi" = "xyes"; then
         CPPFLAGS="$CPPFLAGS $CPPFLAGS_ADD"
 	AC_CHECK_HEADER([iconv.h], [], [AC_MSG_ERROR([iconv.h not found, but needed for GSSAPI support. Aborting.])])
 	AC_MSG_CHECKING([if iconv second argument needs const])
-	AC_TRY_COMPILE([
+	AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 		#include <iconv.h>
 		#include <stdio.h>
-	], [
+	]], [[
 		iconv_t cd = NULL;
 		const char **src = NULL;
 		size_t *srcleft = NULL;
@@ -508,9 +515,9 @@ if test "x$enable_gssapi" = "xyes"; then
 		size_t *dstleft = NULL;
 
 		(void)iconv(cd, src, srcleft, dst, dstleft);
-	], [AC_MSG_RESULT(yes)
+	]])],[AC_MSG_RESULT(yes)
 	    AC_DEFINE([HAVE_ICONV_2ND_CONST], [], [Have iconv using const])
-	], [AC_MSG_RESULT(no)])
+	],[AC_MSG_RESULT(no)])
 	CFLAGS=$saved_CFLAGS
 	CPPFLAGS=$saved_CPPFLAGS
 
@@ -521,13 +528,11 @@ if test "x$enable_gssapi" = "xyes"; then
 	saved_CPPFLAGS=$CPPFLAGS
 	saved_LIBS=$LIBS
 	CPPFLAGS="$CPPFLAGS $CPPFLAGS_ADD"
-	AC_TRY_LINK([
+	AC_LINK_IFELSE([AC_LANG_PROGRAM([[
 		#include <iconv.h>
-	], [
+	]], [[
 		(void)iconv_open("ascii", "ascii");
-	],
-		[AC_MSG_RESULT(no)],
-		[
+	]])],[AC_MSG_RESULT(no)],[
 			LIBS="$LIBS -liconv"
 			AC_TRY_LINK([
 				#include <iconv.h>
@@ -599,7 +604,7 @@ AC_ARG_ENABLE(ipv6,
        ;;
   esac ],
 
-  AC_TRY_RUN([ /* AF_INET6 avalable check */
+  AC_RUN_IFELSE([AC_LANG_SOURCE([[ /* AF_INET6 avalable check */
 #include <sys/types.h>
 #include <sys/socket.h>
 main()
@@ -610,28 +615,22 @@ main()
  else
    exit(0);
 }
-],
-  AC_MSG_RESULT(yes)
-  AC_DEFINE([INET6], [], [Support IPv6])
-  ipv6=yes,
-  AC_MSG_RESULT(no)
-  ipv6=no,
-  AC_MSG_RESULT(no)
+]])],[AC_MSG_RESULT(yes)
+  AC_DEFINE(INET6, , Support IPv6)
+  ipv6=yes],[AC_MSG_RESULT(no)
+  ipv6=no],[AC_MSG_RESULT(no)
   ipv6=no
-))
+]))
 
 if test "$ipv6" = "yes"; then
 	AC_DEFINE([INET6], [], [Support IPv6])
 	AC_MSG_CHECKING(for advanced API support)
-	AC_TRY_COMPILE([#ifndef INET6
+	AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#ifndef INET6
 #define INET6
 #endif
 #include <sys/types.h>
-#include <netinet/in.h>],
-		[struct in6_pktinfo a;],
-		[AC_MSG_RESULT(yes)
-		 AC_DEFINE([INET6_ADVAPI], [], [Use advanced IPv6 API])],
-		[AC_MSG_RESULT(no)])
+#include <netinet/in.h>]], [[struct in6_pktinfo a;]])],[AC_MSG_RESULT(yes)
+		 AC_DEFINE([INET6_ADVAPI], [], [Use advanced IPv6 API])],[AC_MSG_RESULT(no)])
 fi
 
 RACOON_CHECK_BUGGY_GETADDRINFO
@@ -724,15 +723,13 @@ AC_MSG_RESULT($enable_broken_natt)
 AC_MSG_CHECKING(whether we support FWD policy)
 case $host in
 	*linux*)
-		AC_TRY_COMPILE([
+		AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 		#include <inttypes.h>
 		#include <linux/ipsec.h>
-			], [
+			]], [[
 			int fwd = IPSEC_DIR_FWD;
-			],
-			[AC_MSG_RESULT(yes)
-			 AC_DEFINE([HAVE_POLICY_FWD], [], [Have forward policy])],
-			[AC_MSG_RESULT(no)])
+			]])],[AC_MSG_RESULT(yes)
+			 AC_DEFINE([HAVE_POLICY_FWD], [], [Have forward policy])],[AC_MSG_RESULT(no)])
 		;;
 	*)
 		AC_MSG_RESULT(no)
@@ -794,12 +791,8 @@ fi
 RACOON_PATH_LIBS([clock_gettime], [rt])
 
 AC_MSG_CHECKING(for monotonic system clock)
-AC_TRY_COMPILE(
-	[#include <time.h>],
-	[clock_gettime(CLOCK_MONOTONIC, NULL);],
-	[AC_DEFINE([HAVE_CLOCK_MONOTONIC], [], [Have a monotonic clock])
-	 AC_MSG_RESULT(yes)],
-	[AC_MSG_RESULT(no)])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <time.h>]], [[clock_gettime(CLOCK_MONOTONIC, NULL);]])],[AC_DEFINE([HAVE_CLOCK_MONOTONIC], [], [Have a monotonic clock])
+	 AC_MSG_RESULT(yes)],[AC_MSG_RESULT(no)])
 
 CFLAGS="$CFLAGS $CFLAGS_ADD"
 CPPFLAGS="$CPPFLAGS $CPPFLAGS_ADD"

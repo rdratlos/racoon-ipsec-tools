@@ -16,7 +16,7 @@ ifelse("x$3", "x", , [ test "$ac_cv_search_$1" = "no" && for i in $3; do
   AC_TRY_LINK_FUNC([$1],
   [ac_cv_search_$1="-L$i -l$2"
   break])
-  done 
+  done
 LIBS="$ac_func_search_save_LIBS" ]) ])
 if test "$ac_cv_search_$1" != "no"; then
   test "$ac_cv_search_$1" = "none required" || LIBS="$ac_cv_search_$1 $LIBS"
@@ -25,7 +25,7 @@ else :
   $5
 fi])
 
-dnl  Check if either va_copy() or __va_copy() is available. On linux systems 
+dnl  Check if either va_copy() or __va_copy() is available. On linux systems
 dnl  at least one of these should be present.
 AC_DEFUN([RACOON_CHECK_VA_COPY], [
 	saved_CFLAGS=$CFLAGS
@@ -103,13 +103,13 @@ AC_DEFUN([RACOON_CHECK_BUGGY_GETADDRINFO], [
 	#include <stdlib.h>
 	#include <string.h>
 	#include <netinet/in.h>
-	
+
 	int main()
 	{
 	  int passive, gaierr, inet4 = 0, inet6 = 0;
 	  struct addrinfo hints, *ai, *aitop;
 	  char straddr[INET6_ADDRSTRLEN], strport[16];
-	
+
 	  for (passive = 0; passive <= 1; passive++) {
 	    memset(&hints, 0, sizeof(hints));
 	    hints.ai_family = AF_UNSPEC;
@@ -168,16 +168,16 @@ AC_DEFUN([RACOON_CHECK_BUGGY_GETADDRINFO], [
 	      }
 	    }
 	  }
-	
+
 	  if (!(inet4 == 0 || inet4 == 2))
 	    goto bad;
 	  if (!(inet6 == 0 || inet6 == 2))
 	    goto bad;
-	
+
 	  if (aitop)
 	    freeaddrinfo(aitop);
 	  exit(0);
-	
+
 	 bad:
 	  if (aitop)
 	    freeaddrinfo(aitop);

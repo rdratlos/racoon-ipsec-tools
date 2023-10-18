@@ -10,7 +10,7 @@ lib_LTLIBRARIES = libracoon.la
 adminsockdir=${localstatedir}/racoon
 
 BUILT_SOURCES = cfparse.h prsa_par.h
-INCLUDES = -I${srcdir}/../libipsec 
+AM_CPPFLAGS = -I${srcdir}/../libipsec 
 AM_CFLAGS = -D_GNU_SOURCE @GLIBC_BUGS@ -DSYSCONFDIR=\"${sysconfdir}\" \
 	-DADMINPORTDIR=\"${adminsockdir}\"
 AM_LDFLAGS = @EXTRA_CRYPTO@ -lcrypto

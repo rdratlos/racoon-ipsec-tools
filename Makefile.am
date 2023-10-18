@@ -1,3 +1,5 @@
+ACLOCAL_AMFLAGS = -I m4
+
 SUBDIRS = src @RPM@
 
 DIST_SUBDIRS = src rpm
