@@ -1,9 +1,12 @@
 # Bison and Flex generated code
+/src/libipsec/policy_parse.h
+/src/libipsec/policy_parse.c
 /src/racoon/cfparse.c
 /src/racoon/cfparse.h
 /src/racoon/prsa_par.c
 /src/racoon/prsa_par.h
 /src/setkey/parse.c
+/src/setkey/parse.h
 /src/setkey/token.c
 
 # http://www.gnu.org/software/automake
@@ -40,6 +43,7 @@ autom4te.cache
 # https://www.gnu.org/software/libtool/
 
 /ltmain.sh
+/libtool
 
 # http://www.gnu.org/software/texinfo
 
@@ -58,6 +62,9 @@ m4/lt~obsolete.m4
 # can automatically generate from config.status script
 # (which is called by configure script))
 Makefile
+
+/config.h
+/package_version.h
 
 # Prerequisites
 *.d
