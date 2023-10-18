@@ -35,7 +35,7 @@
 #define _SESSION_H
 
 extern int session __P((void));
-extern RETSIGTYPE signal_handler __P((int));
+extern void signal_handler __P((int));
 
 extern void monitor_fd __P((int fd, int (*callback)(void *, int), void *ctx, int priority));
 extern void unmonitor_fd __P((int fd));

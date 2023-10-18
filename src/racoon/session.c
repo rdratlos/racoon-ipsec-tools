@@ -113,7 +113,7 @@ struct fd_monitor {
 static void close_session __P((void));
 static void initfds __P((void));
 static void init_signal __P((void));
-static int set_signal __P((int sig, RETSIGTYPE (*func) __P((int))));
+static int set_signal __P((int sig, void (*func) __P((int))));
 static void check_sigreq __P((void));
 static void check_flushsa __P((void));
 static int close_sockets __P((void));
@@ -367,7 +367,7 @@ static int signals[] = {
  * asynchronous requests will actually dispatched in the
  * main loop in session().
  */
-RETSIGTYPE
+void
 signal_handler(sig)
 	int sig;
 {
@@ -510,7 +510,7 @@ init_signal()
 static int
 set_signal(sig, func)
 	int sig;
-	RETSIGTYPE (*func) __P((int));
+	void (*func) __P((int));
 {
 	struct sigaction sa;
 
