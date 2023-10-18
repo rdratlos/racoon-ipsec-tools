@@ -37,9 +37,9 @@
 #include "schedule.h"
 
 struct throttle_entry {
-	struct timeval penalty_ends;
+	struct timeval *penalty_ends;
 	TAILQ_ENTRY(throttle_entry) next;
-	struct sockaddr_storage host;
+	struct sockaddr_storage *host;
 };
 
 TAILQ_HEAD(throttle_list, throttle_entry);

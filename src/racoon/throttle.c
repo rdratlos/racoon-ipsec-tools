@@ -59,22 +59,23 @@ throttle_add(addr)
 	struct sockaddr *addr;
 {
 	struct throttle_entry *te;
-	struct timeval now, penalty;
+	struct timeval now, penalty, penalty_ends;
 	size_t len;
 
-	len = sizeof(*te) 
-	    - sizeof(struct sockaddr_storage) 
-	    + sysdep_sa_len(addr);
+	/* len = sizeof(te)
+	    - sizeof(struct sockaddr_storage)
+	    + sysdep_sa_len(addr); */
 
-	if ((te = racoon_malloc(len)) == NULL)
+	if ((te = racoon_malloc(sizeof(struct throttle_entry))) == NULL)
 		return NULL;
+	te->penalty_ends = &penalty_ends;
 
 	sched_get_monotonic_time(&now);
 	penalty.tv_sec = isakmp_cfg_config.auth_throttle;
 	penalty.tv_usec = 0;
-	timeradd(&now, &penalty, &te->penalty_ends);
+	timeradd(&now, &penalty, te->penalty_ends);
 
-	memcpy(&te->host, addr, sysdep_sa_len(addr));
+	te->host = (struct sockaddr_storage *)addr;
 	TAILQ_INSERT_HEAD(&throttle_list, te, next);
 
 	return te;
@@ -98,13 +99,13 @@ restart:
 		/*
 		 * Remove outdated entries
 		 */
-		if (timercmp(&te->penalty_ends, &now, <)) {
+		if (timercmp(te->penalty_ends, &now, <)) {
 			TAILQ_REMOVE(&throttle_list, te, next);
 			racoon_free(te);
 			goto restart;
 		}
 
-		if (cmpsaddr(addr, (struct sockaddr *) &te->host) <= CMPSADDR_WOP_MATCH) {
+		if (cmpsaddr(addr, (struct sockaddr *) te->host) <= CMPSADDR_WOP_MATCH) {
 			found = 1;
 			break;
 		}
@@ -131,7 +132,7 @@ restart:
 		if (authfail) {
 			struct timeval remaining, penalty;
 
-			timersub(&te->penalty_ends, &now, &remaining);
+			timersub(te->penalty_ends, &now, &remaining);
 			penalty.tv_sec = isakmp_cfg_config.auth_throttle;
 			penalty.tv_usec = 0;
 			timeradd(&penalty, &remaining, &res);
@@ -139,11 +140,11 @@ restart:
 				res.tv_sec = THROTTLE_PENALTY_MAX;
 				res.tv_usec = 0;
 			}
-			timeradd(&now, &res, &te->penalty_ends);
+			timeradd(&now, &res, te->penalty_ends);
 		}
 	}
 
-	timersub(&te->penalty_ends, &now, &res);
+	timersub(te->penalty_ends, &now, &res);
 	return res.tv_sec;
 }
 
