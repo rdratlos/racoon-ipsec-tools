@@ -2564,7 +2564,7 @@ set_isakmp_proposal(rmconf)
 		plog(LLV_DEBUG2, LOCATION, NULL,
 			"encklen=%d\n", s->encklen);
 
-		memset(types, 0, ARRAYLEN(types) * sizeof(types[0]));
+		memset(types, 0, ARRAYLEN(types) * sizeof(int32_t));
 		types[algclass_isakmp_enc] = s->algclass[algclass_isakmp_enc];
 		types[algclass_isakmp_hash] = s->algclass[algclass_isakmp_hash];
 		types[algclass_isakmp_dh] = s->algclass[algclass_isakmp_dh];
