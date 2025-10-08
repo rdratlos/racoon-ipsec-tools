@@ -39,7 +39,7 @@
 struct throttle_entry {
 	struct timeval penalty_ends;
 	TAILQ_ENTRY(throttle_entry) next;
-	struct sockaddr_storage host;
+	char host[];  /* Flexible array member for variable-sized sockaddr using struct sockaddr_storage */
 };
 
 TAILQ_HEAD(throttle_list, throttle_entry);

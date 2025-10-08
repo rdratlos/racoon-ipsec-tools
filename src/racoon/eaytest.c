@@ -50,6 +50,7 @@
 
 #include <openssl/bio.h>
 #include <openssl/pem.h>
+#include <openssl/err.h>
 
 #include "var.h"
 #include "vmbuf.h"
@@ -65,6 +66,10 @@
 #include "openssl_compat.h"
 
 #include "package_version.h"
+#include <openssl/des.h>
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#include <openssl/param_build.h>
+#endif
 
 #define PVDUMP(var) racoon_hexdump((var)->v, (var)->l)
 
@@ -82,12 +87,32 @@ int sha1test __P((int, char **));
 int md5test __P((int, char **));
 int dhtest __P((int, char **));
 int bntest __P((int, char **));
+int compat_test __P((int, char **));
 #ifndef CERTTEST_BROKEN
 static char **getcerts __P((char *));
 int certtest __P((int, char **));
 #endif
 
 /* test */
+
+static void
+check_openssl_errors(const char *test_name)
+{
+	unsigned long err;
+	int count = 0;
+
+	while ((err = ERR_get_error()) != 0) {
+		char buf[256];
+		ERR_error_string_n(err, buf, sizeof(buf));
+		printf("WARNING: Hidden OpenSSL error after %s: %s\n", test_name, buf);
+		count++;
+	}
+
+	if (count > 0) {
+		printf("WARNING: %d OpenSSL error(s) were left in the queue after %s\n",
+		       count, test_name);
+	}
+}
 
 static int
 rsa_verify_with_pubkey(src, sig, pubkey_txt)
@@ -104,7 +129,9 @@ rsa_verify_with_pubkey(src, sig, pubkey_txt)
 		printf ("PEM_read_PUBKEY(): %s\n", eay_strerror());
 		return -1;
 	}
-	error = eay_check_rsasign(src, sig, EVP_PKEY_get0_RSA(evp));
+	RSA *rsa = compat_EVP_PKEY_get1_RSA(evp);
+	error = eay_check_rsasign(src, sig, rsa);
+	compat_RSA_free(rsa);
 
 	return error;
 }
@@ -175,14 +202,18 @@ rsatest(ac, av)
 		printf ("Failed.\n");
 		return -1;
 	}
-	else
+	else {
+		check_openssl_errors("rsatest"); /* Check before wrong pubkey test */
 		printf ("Verified. Good.\n");
+	}
 
 	loglevel_saved = loglevel;
 	loglevel = 0;
 	printf("Verification with wrong pubkey: ");
-	if (rsa_verify_with_pubkey (&src, sig, pubkey_wrong) != 0)
+	if (rsa_verify_with_pubkey (&src, sig, pubkey_wrong) != 0) {
 		printf ("Not verified. Good.\n");
+		ERR_clear_error();
+	}
 	else {
 		printf ("Verified. This is bad...\n");
 		loglevel = loglevel_saved;
@@ -314,7 +345,11 @@ certtest(ac, av)
 
 	printf("exact match: succeed.\n");
 
-	if (dnstr_w1 != NULL) {
+#if defined(ORIG_DN)
+		if (dnstr_w1) {
+#else
+		if (strlen(dnstr_w1) > 0) {
+#endif
 		asn1dn = eay_str2asn1dn(dnstr_w1, strlen(dnstr_w1));
 		if (asn1dn == NULL || asn1dn->l == asn1dn0.l)
 			errx(1, "asn1dn length wrong for wildcard 1\n");
@@ -324,7 +359,11 @@ certtest(ac, av)
 		printf("wildcard 1 match: succeed.\n");
 	}
 
-	if (dnstr_w1 != NULL) {
+#if defined(ORIG_DN)
+		if (dnstr_w2) {
+#else
+		if (strlen(dnstr_w2) > 0) {
+#endif
 		asn1dn = eay_str2asn1dn(dnstr_w2, strlen(dnstr_w2));
 		if (asn1dn == NULL || asn1dn->l == asn1dn0.l)
 			errx(1, "asn1dn length wrong for wildcard 2\n");
@@ -335,7 +374,6 @@ certtest(ac, av)
 	}
 
     }
-	eay_init();
 
 	/* get certs */
 	if (ac > 1) {
@@ -1000,6 +1038,211 @@ bntest(ac, av)
 	return 0;
 }
 
+int
+compat_test(ac, av)
+	int ac;
+	char **av;
+{
+	(void)ac;
+	(void)av;
+	int failed = 0;
+
+	printf("\n**Test for openssl_compat shim functions.**\n");
+
+	/* --- Test compat_DES_is_weak_key --- */
+	{
+		/* The 4 known DES weak keys */
+		DES_cblock weak_keys[4] = {
+			{ 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01 },
+			{ 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE },
+			{ 0x1F, 0x1F, 0x1F, 0x1F, 0x0E, 0x0E, 0x0E, 0x0E },
+			{ 0xE0, 0xE0, 0xE0, 0xE0, 0xF1, 0xF1, 0xF1, 0xF1 },
+		};
+		DES_cblock strong_key = { 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF };
+
+		int i;
+		for (i = 0; i < 4; i++) {
+			if (!compat_DES_is_weak_key(weak_keys[i])) {
+				printf("ERROR: compat_DES_is_weak_key did not detect weak key #%d\n", i);
+				failed++;
+			}
+		}
+		if (compat_DES_is_weak_key(strong_key)) {
+			printf("ERROR: compat_DES_is_weak_key falsely flagged a strong key\n");
+			failed++;
+		}
+		if (compat_DES_is_weak_key(NULL)) {
+			printf("ERROR: compat_DES_is_weak_key(NULL) should return 0\n");
+			failed++;
+		}
+	}
+
+	/* --- Test compat_RSA_get0_params --- */
+	{
+		EVP_PKEY_CTX *ctx = NULL;
+		EVP_PKEY *pkey = NULL;
+		RSA *rsa = NULL;
+		OSSL_PARAM_BLD *bld = NULL;
+		OSSL_PARAM *params = NULL;
+		BIGNUM *n = NULL, *e = NULL;
+		int is_private = 0;
+
+		/* Generate a test RSA keypair */
+		ctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
+		if (!ctx) {
+			printf("ERROR: EVP_PKEY_CTX_new_from_name failed\n");
+			failed++;
+			goto rsa_params_cleanup;
+		}
+		if (EVP_PKEY_keygen_init(ctx) <= 0 || EVP_PKEY_keygen(ctx, &pkey) <= 0) {
+			printf("ERROR: RSA key generation failed\n");
+			failed++;
+			goto rsa_params_cleanup;
+		}
+
+		rsa = compat_EVP_PKEY_get1_RSA(pkey);
+		if (!rsa) {
+			printf("ERROR: compat_EVP_PKEY_get1_RSA failed for generated key\n");
+			failed++;
+			goto rsa_params_cleanup;
+		}
+
+		const BIGNUM *out_n = NULL, *out_e = NULL, *out_d = NULL;
+		const BIGNUM *out_p = NULL, *out_q = NULL;
+		const BIGNUM *out_dmp1 = NULL, *out_dmq1 = NULL, *out_iqmp = NULL;
+
+		if (compat_RSA_get0_params(rsa, &out_n, &out_e, &out_d,
+					      &out_p, &out_q, &out_dmp1, &out_dmq1, &out_iqmp) != 0) {
+			printf("ERROR: compat_RSA_get0_params returned error\n");
+			failed++;
+		} else {
+			if (!out_n || !out_e || !out_d || !out_p || !out_q) {
+				printf("ERROR: RSA params are NULL (private key)\n");
+				failed++;
+			}
+			if (out_dmp1 && out_dmq1 && out_iqmp) {
+				is_private = 1;
+			}
+			if (!is_private) {
+				printf("ERROR: CRT params missing for private key\n");
+				failed++;
+			}
+		}
+
+		/* Test with partial NULL outputs */
+		if (compat_RSA_get0_params(rsa, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL) != 0) {
+			printf("ERROR: compat_RSA_get0_params with all-NULL outputs should succeed\n");
+			failed++;
+		}
+
+		/* Test with NULL rsa */
+		if (compat_RSA_get0_params(NULL, &out_n, &out_e, &out_d,
+					       &out_p, &out_q, &out_dmp1, &out_dmq1, &out_iqmp) != -1) {
+			printf("ERROR: compat_RSA_get0_params(NULL) should return -1\n");
+			failed++;
+		}
+
+		/* Test public-only extraction */
+		RSA *rsa_pub = NULL;
+		BIGNUM *pub_n = NULL, *pub_e = NULL;
+
+		pub_n = BN_dup(out_n);
+		pub_e = BN_dup(out_e);
+		rsa_pub = compat_RSA_new_from_params(pub_n, pub_e, NULL, NULL, NULL, NULL, NULL, NULL);
+		if (!rsa_pub) {
+			printf("ERROR: compat_RSA_new_from_params (pubkey) failed\n");
+			BN_free(pub_n);
+			BN_free(pub_e);
+			failed++;
+		} else {
+			const BIGNUM *pub_out_n = NULL, *pub_out_e = NULL, *pub_out_d = NULL;
+			const BIGNUM *pub_out_p = NULL, *pub_out_q = NULL;
+			const BIGNUM *pub_out_dmp1 = NULL, *pub_out_dmq1 = NULL, *pub_out_iqmp = NULL;
+
+			if (compat_RSA_get0_params(rsa_pub, &pub_out_n, &pub_out_e, &pub_out_d,
+						      &pub_out_p, &pub_out_q,
+						      &pub_out_dmp1, &pub_out_dmq1, &pub_out_iqmp) != 0) {
+				printf("ERROR: compat_RSA_get0_params on pubkey failed\n");
+				failed++;
+			} else {
+				if (!pub_out_n || !pub_out_e) {
+					printf("ERROR: pubkey n or e is NULL\n");
+					failed++;
+				}
+				if (pub_out_d || pub_out_p || pub_out_q) {
+					printf("ERROR: pubkey should have NULL private params\n");
+					failed++;
+				}
+			}
+			compat_RSA_free(rsa_pub);
+		}
+
+	rsa_params_cleanup:
+		if (rsa) compat_RSA_free(rsa);
+		if (pkey) EVP_PKEY_free(pkey);
+		compat_EVP_PKEY_CTX_free(ctx);
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+		if (bld) OSSL_PARAM_BLD_free(bld);
+		if (params) OSSL_PARAM_free(params);
+#endif
+		BN_free(n);
+		BN_free(e);
+	}
+
+	/* --- Test compat_EVP_PKEY_get1_RSA --- */
+	{
+		EVP_PKEY *pkey = NULL;
+		EVP_PKEY_CTX *ctx = NULL;
+
+		ctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
+		if (!ctx) {
+			printf("ERROR: EVP_PKEY_CTX_new_from_name failed\n");
+			failed++;
+			goto rsa_get1_cleanup;
+		}
+		if (EVP_PKEY_keygen_init(ctx) <= 0 || EVP_PKEY_keygen(ctx, &pkey) <= 0) {
+			printf("ERROR: RSA key generation failed\n");
+			failed++;
+			goto rsa_get1_cleanup;
+		}
+
+		/* Test NULL input */
+		if (compat_EVP_PKEY_get1_RSA(NULL) != NULL) {
+			printf("ERROR: compat_EVP_PKEY_get1_RSA(NULL) should return NULL\n");
+			failed++;
+		}
+
+		/* Test reference counting: get1_RSA twice, free both */
+		RSA *rsa1 = compat_EVP_PKEY_get1_RSA(pkey);
+		RSA *rsa2 = compat_EVP_PKEY_get1_RSA(pkey);
+		if (!rsa1 || !rsa2) {
+			printf("ERROR: compat_EVP_PKEY_get1_RSA returned NULL\n");
+			failed++;
+		}
+		compat_RSA_free(rsa1);
+		compat_RSA_free(rsa2);
+
+		/* After freeing both, pkey should still be valid */
+		RSA *rsa3 = compat_EVP_PKEY_get1_RSA(pkey);
+		if (!rsa3) {
+			printf("ERROR: compat_EVP_PKEY_get1_RSA failed after freeing prior refs\n");
+			failed++;
+		}
+		compat_RSA_free(rsa3);
+
+	rsa_get1_cleanup:
+		if (pkey) EVP_PKEY_free(pkey);
+		compat_EVP_PKEY_CTX_free(ctx);
+	}
+
+	if (failed) {
+		printf("ERROR: %d compat_test sub-tests failed\n", failed);
+		return -1;
+	}
+	printf("compat_test: all sub-tests passed\n");
+	return 0;
+}
+
 struct {
 	char *name;
 	int (*func) __P((int, char **));
@@ -1014,6 +1257,7 @@ struct {
 	{ "cert", certtest, },
 #endif
 	{ "rsa", rsatest, },
+	{ "compat", compat_test, },
 };
 
 int
@@ -1027,6 +1271,9 @@ main(ac, av)
 	f_foreground = 1;
 	ploginit();
 
+	/* Initialize crypto library */
+	eay_init();
+
 	printf ("\nTestsuite of the %s\nlinked with %s\n\n", TOP_PACKAGE_STRING, eay_version());
 
 	if (strcmp(*av, "-h") == 0)
@@ -1039,8 +1286,10 @@ main(ac, av)
 		if ((ac == 0) || (strcmp(*av, func[i].name) == 0)) {
 			if ((func[i].func)(ac, av) != 0) {
 				printf ("\n!!!!! Test '%s' failed. !!!!!\n\n", func[i].name);
+				check_openssl_errors(func[i].name); /* Check for hidden errors */
 				exit(1);
 			}
+			check_openssl_errors(func[i].name); /* Check even on success */
 			if (ac)
 				break;
 		}
@@ -1049,6 +1298,9 @@ main(ac, av)
 		Usage();
 
 	printf ("\n===== All tests passed =====\n\n");
+
+	eay_cleanup();
+
 	exit(0);
 }
 

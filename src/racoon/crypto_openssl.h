@@ -5,7 +5,7 @@
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -17,7 +17,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -34,8 +34,17 @@
 #ifndef _CRYPTO_OPENSSL_H
 #define _CRYPTO_OPENSSL_H
 
+/*
+ * OpenSSL Compatibility Notes:
+ * This implementation requires OpenSSL >= 1.1.0
+ * Fully compatible with OpenSSL 3.0+
+ * All deprecated APIs have been replaced with EVP high-level interfaces
+ */
+
 #include <openssl/x509v3.h>
 #include <openssl/rsa.h>
+
+#include "openssl_compat.h"
 
 #define GENT_OTHERNAME	GEN_OTHERNAME
 #define GENT_EMAIL	GEN_EMAIL
@@ -59,12 +68,11 @@ extern vchar_t *eay_get_x509cert __P((char *));
 extern vchar_t *eay_get_x509sign __P((vchar_t *, vchar_t *));
 extern int eay_check_x509sign __P((vchar_t *, vchar_t *, vchar_t *));
 
+/* RSA */
+extern vchar_t *eay_pkey_sign __P((vchar_t *, EVP_PKEY *));
+extern int eay_pkey_verify __P((vchar_t *, vchar_t *, EVP_PKEY *));
 extern int eay_check_rsasign __P((vchar_t *, vchar_t *, RSA *));
 extern vchar_t *eay_get_rsasign __P((vchar_t *, RSA *));
-
-/* RSA */
-extern vchar_t *eay_rsa_sign __P((vchar_t *, RSA *));
-extern int eay_rsa_verify __P((vchar_t *, vchar_t *, RSA *));
 
 /* ASN.1 */
 extern vchar_t *eay_get_pkcs1privkey __P((char *));
@@ -75,6 +83,7 @@ extern char *eay_strerror __P((void));
 
 /* OpenSSL initialization */
 extern void eay_init __P((void));
+extern void eay_cleanup __P((void));
 
 /* Generic EVP */
 extern vchar_t *evp_crypt __P((vchar_t *data, vchar_t *key, vchar_t *iv,
@@ -166,29 +175,31 @@ extern void eay_hmacmd5_update __P((caddr_t, vchar_t *));
 extern vchar_t *eay_hmacmd5_final __P((caddr_t));
 
 #if defined(WITH_SHA2)
-/* SHA2 functions */
+/* SHA2-512 functions */
 extern caddr_t eay_sha2_512_init __P((void));
 extern void eay_sha2_512_update __P((caddr_t, vchar_t *));
 extern vchar_t *eay_sha2_512_final __P((caddr_t));
 extern vchar_t *eay_sha2_512_one __P((vchar_t *));
-#endif
 extern int eay_sha2_512_hashlen __P((void));
+#endif
 
 #if defined(WITH_SHA2)
+/* SHA2-384 functions */
 extern caddr_t eay_sha2_384_init __P((void));
 extern void eay_sha2_384_update __P((caddr_t, vchar_t *));
 extern vchar_t *eay_sha2_384_final __P((caddr_t));
 extern vchar_t *eay_sha2_384_one __P((vchar_t *));
-#endif
 extern int eay_sha2_384_hashlen __P((void));
+#endif
 
 #if defined(WITH_SHA2)
+/* SHA2-256 functions */
 extern caddr_t eay_sha2_256_init __P((void));
 extern void eay_sha2_256_update __P((caddr_t, vchar_t *));
 extern vchar_t *eay_sha2_256_final __P((caddr_t));
 extern vchar_t *eay_sha2_256_one __P((vchar_t *));
-#endif
 extern int eay_sha2_256_hashlen __P((void));
+#endif
 
 /* SHA functions */
 extern caddr_t eay_sha1_init __P((void));
@@ -213,8 +224,8 @@ extern int eay_dh_generate __P((vchar_t *, u_int32_t, u_int, vchar_t **, vchar_t
 extern int eay_dh_compute __P((vchar_t *, u_int32_t, vchar_t *, vchar_t *, vchar_t *, vchar_t **));
 
 /* Base 64 */
-vchar_t *base64_encode(char *in, long inlen);
-vchar_t *base64_decode(char *in, long inlen);
+vchar_t *base64_encode(const char *in, long inlen);
+vchar_t *base64_decode(const char *in, long inlen);
 
 RSA *base64_pubkey2rsa(char *in);
 RSA *bignum_pubkey2rsa(BIGNUM *in);

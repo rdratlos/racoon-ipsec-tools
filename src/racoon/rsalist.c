@@ -65,6 +65,11 @@
 /* from prsa_tok.l */
 int prsa_parse_file(struct genlist *list, const char *fname, enum rsa_key_type type);
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
 int
 rsa_key_insert(struct genlist *list, struct netaddr *src,
 	       struct netaddr *dst, RSA *rsa)
@@ -276,3 +281,7 @@ rsa_try_check_rsasign(vchar_t *source, vchar_t *sig, struct genlist *list)
 	}
 	return NULL;
 }
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#pragma GCC diagnostic pop
+#endif

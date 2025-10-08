@@ -62,9 +62,7 @@ throttle_add(addr)
 	struct timeval now, penalty;
 	size_t len;
 
-	len = sizeof(*te) 
-	    - sizeof(struct sockaddr_storage) 
-	    + sysdep_sa_len(addr);
+	len = sizeof(*te) + sysdep_sa_len(addr);
 
 	if ((te = racoon_malloc(len)) == NULL)
 		return NULL;

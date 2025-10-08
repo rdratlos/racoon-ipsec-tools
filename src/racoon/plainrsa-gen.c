@@ -82,6 +82,11 @@ usage (char *argv0)
 	exit(1);
 }
 
+/* Suppress deprecation warnings for OpenSSL 3.0 low-level API usage */
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 /*
  * See RFC 2065, section 3.5 for details about the output format.
  */
@@ -107,6 +112,10 @@ mix_b64_pubkey(const RSA *key)
 
 	return base64_encode(binbuf, binlen);
 }
+/* Restore warnings */
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#pragma GCC diagnostic pop
+#endif
 
 char *
 lowercase(char *input)
@@ -121,6 +130,11 @@ lowercase(char *input)
 	return input;
 }
 
+/* Suppress deprecation warnings for OpenSSL 3.0 low-level API usage */
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 int
 print_rsa_key(FILE *fp, const RSA *key)
 {
@@ -153,6 +167,10 @@ print_rsa_key(FILE *fp, const RSA *key)
 	vfree(pubkey64);
 	return 0;
 }
+/* Restore warnings */
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#pragma GCC diagnostic pop
+#endif
 
 int
 print_public_rsa_key(FILE *fp, const RSA *key)
@@ -171,6 +189,11 @@ print_public_rsa_key(FILE *fp, const RSA *key)
 	return 0;
 }
 
+/* Suppress deprecation warnings for OpenSSL 3.0 low-level API usage */
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 int
 convert_rsa_key(FILE *fpout, FILE *fpin)
 {
@@ -205,7 +228,16 @@ convert_rsa_key(FILE *fpout, FILE *fpin)
 	fprintf(stderr, "convert_rsa_key: %s\n", "Only conversion from PEM at this time");
 	return -1;
 }
+/* Restore warnings */
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#pragma GCC diagnostic pop
+#endif
 
+/* Suppress deprecation warnings for OpenSSL 3.0 low-level API usage */
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 int
 gen_rsa_key(FILE *fp, size_t bits, unsigned long exp)
 {
@@ -225,6 +257,10 @@ gen_rsa_key(FILE *fp, size_t bits, unsigned long exp)
 
 	return ret;
 }
+/* Restore warnings */
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#pragma GCC diagnostic pop
+#endif
 
 int
 main (int argc, char *argv[])
