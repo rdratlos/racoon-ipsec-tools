@@ -87,11 +87,6 @@
 #ifdef HAVE_GSSAPI
 #include <iconv.h>
 #include "gssapi.h"
-#ifdef HAVE_ICONV_2ND_CONST
-#define __iconv_const const
-#else
-#define __iconv_const
-#endif
 #endif
 
 static vchar_t *get_ph1approval __P((struct ph1handle *, u_int32_t, u_int32_t,
@@ -606,7 +601,7 @@ t2isakmpsa(trns, sa, vendorid_mask)
 			int error = -1;
 			iconv_t cd = (iconv_t) -1;
 			size_t srcleft, dstleft, rv;
-			__iconv_const char *src;
+			ICONV_CONST char *src;
 			char *dst;
 			int len = ntohs(d->lorv);
 
@@ -655,14 +650,13 @@ t2isakmpsa(trns, sa, vendorid_mask)
 				goto out;
 			}
 
-			src = (__iconv_const char *)(d + 1);
+			src = (ICONV_CONST char *)(d + 1);
 			srcleft = len;
 
 			dst = sa->gssid->v;
 			dstleft = len / 2;
 
-			rv = iconv(cd, (__iconv_const char **)&src, &srcleft,
-				   &dst, &dstleft);
+			rv = iconv(cd, &src, &srcleft, &dst, &dstleft);
 			if (rv != 0) {
 				if (rv == -1) {
 					plog(LLV_ERROR, LOCATION, NULL,
@@ -2842,7 +2836,7 @@ setph1attr(sa, buf)
 			} else {
 				size_t dstleft = sa->gssid->l * 2;
 				size_t srcleft = sa->gssid->l;
-				const char *src = (const char *)sa->gssid->v;
+				ICONV_CONST char *src = (ICONV_CONST char *)sa->gssid->v;
 				char *odst, *dst = racoon_malloc(dstleft);
 				iconv_t cd;
 				size_t rv;
@@ -2858,8 +2852,7 @@ setph1attr(sa, buf)
 					goto gssid_done;
 				}
 				odst = dst;
-				rv = iconv(cd, (__iconv_const char **)&src,
-				    &srcleft, &dst, &dstleft);
+				rv = iconv(cd, &src, &srcleft, &dst, &dstleft);
 				if (rv != 0) {
 					if (rv == -1) {
 						plog(LLV_ERROR, LOCATION, NULL,

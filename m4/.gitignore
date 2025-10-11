@@ -1,0 +1,8 @@
+# Ignore auto-generated m4 files
+*.m4
+
+# But track our custom macro file
+!racoon.m4
+
+# Keep this .gitignore
+!.gitignore

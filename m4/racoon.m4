@@ -3,20 +3,20 @@ dnl            [, ACTION-IF-NOT-FOUND [, OTHER-LIBRARIES]]])
 dnl Search for a library defining FUNC, if it's not already available.
 
 AC_DEFUN([RACOON_PATH_LIBS],
-[AC_PREREQ([2.13])
+[AC_PREREQ([2.69])
 AC_CACHE_CHECK([for $2 containing $1], [ac_cv_search_$1],
 [ac_func_search_save_LIBS="$LIBS"
 ac_cv_search_$1="no"
-AC_TRY_LINK_FUNC([$1], [ac_cv_search_$1="none required"],
+AC_LINK_IFELSE([AC_LANG_CALL([], [$1])], [ac_cv_search_$1="none required"],
 	[LIBS="-l$2 $LIBS"
-	AC_TRY_LINK_FUNC([$1], [ac_cv_search_$1="-l$2"], [])])
+	AC_LINK_IFELSE([AC_LANG_CALL([], [$1])], [ac_cv_search_$1="-l$2"], [])])
 LIBS="$ac_func_search_save_LIBS"
 ifelse("x$3", "x", , [ test "$ac_cv_search_$1" = "no" && for i in $3; do
   LIBS="-L$i -l$2 $ac_func_search_save_LIBS"
-  AC_TRY_LINK_FUNC([$1],
+  AC_LINK_IFELSE([AC_LANG_CALL([], [$1])],
   [ac_cv_search_$1="-L$i -l$2"
   break])
-  done 
+  done
 LIBS="$ac_func_search_save_LIBS" ]) ])
 if test "$ac_cv_search_$1" != "no"; then
   test "$ac_cv_search_$1" = "none required" || LIBS="$ac_cv_search_$1 $LIBS"
@@ -25,36 +25,42 @@ else :
   $5
 fi])
 
-dnl  Check if either va_copy() or __va_copy() is available. On linux systems 
+dnl  Check if either va_copy() or __va_copy() is available. On linux systems
 dnl  at least one of these should be present.
 AC_DEFUN([RACOON_CHECK_VA_COPY], [
 	saved_CFLAGS=$CFLAGS
+	saved_CPPFLAGS=$CPPFLAGS
+	saved_LDFLAGS=$LDFLAGS
 	CFLAGS="-Wall -O2"
+	CPPFLAGS=
+	LDFLAGS=
 	AC_CACHE_CHECK([for an implementation of va_copy()],
 		ac_cv_va_copy,[
-		AC_TRY_RUN([#include <stdarg.h>
+		AC_RUN_IFELSE([AC_LANG_SOURCE([#include <stdarg.h>
+		#include <stdlib.h>
 		void func (int i, ...) {
 			va_list args1, args2;
 			va_start (args1, i);
 			va_copy (args2, args1);
 			if (va_arg (args1, int) != 1 || va_arg (args2, int) != 1)
 				exit (1);
-	 		va_end (args1);
+				va_end (args1);
 			va_end (args2);
 		}
-		int main() {
+		int main(void) {
 			func (0, 1);
 			return 0;
-		}],
+		}])],
 		[ac_cv_va_copy=yes],
 		[ac_cv_va_copy=no],
-		AC_MSG_WARN(Cross compiling... Unable to test va_copy)
-		[ac_cv_va_copy=no])
+		[AC_MSG_WARN(Cross compiling... Unable to test va_copy)
+		ac_cv_va_copy=no])
 	])
-	if test x$ac_cv_va_copy != xyes; then
+	AS_IF([test "x$ac_cv_va_copy" != "xyes"], [
 		AC_CACHE_CHECK([for an implementation of __va_copy()],
 			ac_cv___va_copy,[
-			AC_TRY_RUN([#include <stdarg.h>
+			AC_RUN_IFELSE([AC_LANG_SOURCE([#include <stdarg.h>
+			#include <stdlib.h>
 			void func (int i, ...) {
 				va_list args1, args2;
 				va_start (args1, i);
@@ -64,52 +70,59 @@ AC_DEFUN([RACOON_CHECK_VA_COPY], [
 				va_end (args1);
 				va_end (args2);
 			}
-			int main() {
+			int main(void) {
 				func (0, 1);
 				return 0;
-			}],
+			}])],
 			[ac_cv___va_copy=yes],
 			[ac_cv___va_copy=no],
-			AC_MSG_WARN(Cross compiling... Unable to test __va_copy)
-			[ac_cv___va_copy=no])
+			[AC_MSG_WARN(Cross compiling... Unable to test __va_copy)
+			ac_cv___va_copy=no])
 		])
-	fi
+		])
 
-	if test "x$ac_cv_va_copy" = "xyes"; then
+
+	AS_IF([test "x$ac_cv_va_copy" = "xyes"], [
 		va_copy_func=va_copy
-	elif test "x$ac_cv___va_copy" = "xyes"; then
+	], [test "x$ac_cv___va_copy" = "xyes"], [
 		va_copy_func=__va_copy
-	fi
+	])
 
-	if test -n "$va_copy_func"; then
+	AS_IF([test -n "$va_copy_func"], [
 		AC_DEFINE_UNQUOTED(VA_COPY,$va_copy_func,
 			[A 'va_copy' style function])
-	else
+	], [
 		AC_MSG_WARN([Hmm, neither va_copy() nor __va_copy() found.])
 		AC_MSG_WARN([Using a generic fallback.])
-	fi
+	])
 	CFLAGS=$saved_CFLAGS
-	unset saved_CFLAGS
+	CPPFLAGS=$saved_CPPFLAGS
+	LDFLAGS=$saved_LDFLAGS
+	unset saved_CFLAGS saved_CPPFLAGS saved_LDFLAGS
 ])
 
 AC_DEFUN([RACOON_CHECK_BUGGY_GETADDRINFO], [
 	AC_MSG_CHECKING(getaddrinfo bug)
 	saved_CFLAGS=$CFLAGS
+	saved_CPPFLAGS=$CPPFLAGS
+	saved_LDFLAGS=$LDFLAGS
 	CFLAGS="-Wall -O2"
-	AC_TRY_RUN([
+	CPPFLAGS=
+	LDFLAGS=
+	AC_RUN_IFELSE([AC_LANG_SOURCE([[
 	#include <sys/types.h>
 	#include <sys/socket.h>
 	#include <netdb.h>
 	#include <stdlib.h>
 	#include <string.h>
 	#include <netinet/in.h>
-	
-	int main()
+
+	int main(void)
 	{
 	  int passive, gaierr, inet4 = 0, inet6 = 0;
 	  struct addrinfo hints, *ai, *aitop;
 	  char straddr[INET6_ADDRSTRLEN], strport[16];
-	
+
 	  for (passive = 0; passive <= 1; passive++) {
 	    memset(&hints, 0, sizeof(hints));
 	    hints.ai_family = AF_UNSPEC;
@@ -168,28 +181,30 @@ AC_DEFUN([RACOON_CHECK_BUGGY_GETADDRINFO], [
 	      }
 	    }
 	  }
-	
+
 	  if (!(inet4 == 0 || inet4 == 2))
 	    goto bad;
 	  if (!(inet6 == 0 || inet6 == 2))
 	    goto bad;
-	
+
 	  if (aitop)
 	    freeaddrinfo(aitop);
 	  exit(0);
-	
+
 	 bad:
 	  if (aitop)
 	    freeaddrinfo(aitop);
 	  exit(1);
 	}
-	],
-	AC_MSG_RESULT(good)
-	buggygetaddrinfo=no,
-	AC_MSG_RESULT(buggy)
-	buggygetaddrinfo=yes,
-	AC_MSG_RESULT(Cross compiling ... Assuming getaddrinfo is not buggy.)
-	buggygetaddrinfo=no)
+	]])],
+	[AC_MSG_RESULT(good)
+	buggygetaddrinfo=no],
+	[AC_MSG_RESULT(buggy)
+	buggygetaddrinfo=yes],
+	[AC_MSG_RESULT(Cross compiling ... Assuming getaddrinfo is not buggy.)
+	buggygetaddrinfo=no])
 	CFLAGS=$saved_CFLAGS
-	unset saved_CFLAGS
+	CPPFLAGS=$saved_CPPFLAGS
+	LDFLAGS=$saved_LDFLAGS
+	unset saved_CFLAGS saved_CPPFLAGS saved_LDFLAGS
 ])

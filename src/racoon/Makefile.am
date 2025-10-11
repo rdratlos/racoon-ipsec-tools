@@ -4,13 +4,13 @@ sbin_PROGRAMS = racoon racoonctl plainrsa-gen
 noinst_PROGRAMS = eaytest
 include_racoon_HEADERS = racoonctl.h var.h vmbuf.h misc.h gcmalloc.h admin.h \
 	schedule.h sockmisc.h isakmp_var.h isakmp.h isakmp_xauth.h \
-	isakmp_cfg.h isakmp_unity.h ipsec_doi.h evt.h openssl_compat.h
+	isakmp_cfg.h isakmp_unity.h ipsec_doi.h evt.h
 lib_LTLIBRARIES = libracoon.la
 
 adminsockdir=${localstatedir}/racoon
 
 BUILT_SOURCES = cfparse.h prsa_par.h
-INCLUDES = -I${srcdir}/../libipsec 
+AM_CPPFLAGS = -I${srcdir}/../libipsec
 AM_CFLAGS = -D_GNU_SOURCE @GLIBC_BUGS@ -DSYSCONFDIR=\"${sysconfdir}\" \
 	-DADMINPORTDIR=\"${adminsockdir}\"
 AM_LDFLAGS = @EXTRA_CRYPTO@ -lcrypto
@@ -35,7 +35,7 @@ racoon_SOURCES = \
 	openssl_compat.c proposal.c sainfo.c strnames.c \
 	plog.c logger.c schedule.c str2val.c \
 	safefile.c backupsa.c genlist.c rsalist.c \
-	cftoken.l cfparse.y prsa_tok.l prsa_par.y 
+	cftoken.l cfparse.y prsa_tok.l prsa_par.y
 EXTRA_racoon_SOURCES = isakmp_xauth.c isakmp_cfg.c isakmp_unity.c throttle.c \
 	isakmp_frag.c nattraversal.c security.c $(MISSING_ALGOS)
 racoon_LDADD = $(CRYPTOBJS) $(HYBRID_OBJS) $(NATT_OBJS) $(FRAG_OBJS) $(LEXLIB) \
@@ -44,8 +44,8 @@ racoon_DEPENDENCIES = \
 	$(CRYPTOBJS) $(HYBRID_OBJS) $(NATT_OBJS) $(FRAG_OBJS) $(SECCTX_OBJS) \
 	vmbuf.o sockmisc.o misc.o
 
-racoonctl_SOURCES = racoonctl.c str2val.c 
-racoonctl_LDADD = libracoon.la ../libipsec/libipsec.la 
+racoonctl_SOURCES = racoonctl.c str2val.c
+racoonctl_LDADD = libracoon.la ../libipsec/libipsec.la
 
 libracoon_la_SOURCES = kmpstat.c vmbuf.c sockmisc.c misc.c
 libracoon_la_CFLAGS = -DNOUSE_PRIVSEP $(AM_CFLAGS)
