@@ -124,3 +124,11 @@ rijndael-alg-fst.o: $(srcdir)/missing/crypto/rijndael/rijndael-alg-fst.c
 	$(COMPILE) -c $(srcdir)/missing/crypto/rijndael/$*.c
 sha2.o: $(srcdir)/missing/crypto/sha2/sha2.c
 	$(COMPILE) -c $(srcdir)/missing/crypto/sha2/$*.c
+
+MAINTAINERCLEANFILES = \
+    cftoken.c \
+    cfparse.c \
+    cfparse.h \
+    prsa_tok.c \
+    prsa_par.c \
+    prsa_par.h
