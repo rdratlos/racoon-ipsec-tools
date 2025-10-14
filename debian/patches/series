@@ -42,3 +42,4 @@ sprintf-sizes
 0044-Fix-array-against-NULL-comparison-bug.patch
 0045-Provide-compatibility-functions-for-OpenSSL-RSA.patch
 0046-Better-handle-different-sockaddr-types.patch
+0047-Add-further-unit-tests-for-OpenSSL-3.0-migration.patch
