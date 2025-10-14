@@ -2,13 +2,13 @@ By default through the upstream script the raccon directory /var/run/racoon gets
 As the content in /var/run/* could get lost due to a reboot, this patch gets rid of that
 creation and let the initscript handle this.
 
-Index: pkg-ipsec-tools/src/racoon/Makefile.in
+Index: pkg-ipsec-tools/src/racoon/Makefile.am
 ===================================================================
---- pkg-ipsec-tools.orig/src/racoon/Makefile.in	2014-07-10 23:47:47.399903984 -0700
-+++ pkg-ipsec-tools/src/racoon/Makefile.in	2014-07-10 23:49:56.944546357 -0700
-@@ -1465,9 +1465,6 @@
- 	uninstall-sbinPROGRAMS
+--- pkg-ipsec-tools.orig/src/racoon/Makefile.am	2014-07-10 23:47:47.399903984 -0700
++++ pkg-ipsec-tools/src/racoon/Makefile.am	2014-07-10 23:49:56.944546357 -0700
+@@ -104,9 +104,6 @@ EXTRA_DIST = \
  
+ TESTS = eaytest
  
 -install-exec-local:
 -	${mkinstalldirs} $(DESTDIR)${adminsockdir}
