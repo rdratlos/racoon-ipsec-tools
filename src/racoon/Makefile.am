@@ -104,9 +104,6 @@ EXTRA_DIST = \
 
 TESTS = eaytest
 
-install-exec-local:
-	${mkinstalldirs} $(DESTDIR)${adminsockdir}
-
 # special object rules
 crypto_openssl_test.o: crypto_openssl.c
 	$(COMPILE) -DEAYDEBUG -o crypto_openssl_test.o -c $(srcdir)/crypto_openssl.c
