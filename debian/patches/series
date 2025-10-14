@@ -4,7 +4,6 @@ ipsec-str_error-spelling.patch
 Fix-spelling-error-racoon.conf.5.patch
 0001-extend-setkey.8-manpage-esp-udp-tcp-md5.patch
 modify-makefile-to-let-initscript-create-var-run-directory.patch
-move-private-libraries-to-subfolder.patch
 FTBFS2_kfreebsd.patch
 support-iphone-os-main-mode-with-psk.patch
 configure-pass-Wl-with-R.patch
@@ -35,6 +34,5 @@ sprintf-sizes
 0035-NetBSD-Improve-error-output-for-script-and-command-m.patch
 0036-NetBSD-Remove-extra-semicolon.patch
 0037-Correct-memory-management-and-malicious-includes.patch
-0038-Use-automake-YACC-LEX-wrapper.patch
 0039-NetBSD-Update-release-summary-and-README.patch
 0040-Fix-pointers-to-packed-struct-members.patch
