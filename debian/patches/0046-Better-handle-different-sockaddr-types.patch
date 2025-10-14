@@ -1,0 +1,41 @@
+From b3ecb088ae4b8b1bf1fdf6f0ad9cd9b9ec066e97 Mon Sep 17 00:00:00 2001
+From: Thomas Reim <reimth@gmail.com>
+Date: Fri, 10 Oct 2025 09:23:45 +0200
+Subject: [PATCH 6/7] Better handle different sockaddr types
+
+---
+ src/racoon/throttle.c | 4 +---
+ src/racoon/throttle.h | 2 +-
+ 2 files changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/src/racoon/throttle.c b/src/racoon/throttle.c
+index 84a2d6b..7e2ec64 100644
+--- a/src/racoon/throttle.c
++++ b/src/racoon/throttle.c
+@@ -62,9 +62,7 @@ throttle_add(addr)
+ 	struct timeval now, penalty;
+ 	size_t len;
+ 
+-	len = sizeof(*te) 
+-	    - sizeof(struct sockaddr_storage) 
+-	    + sysdep_sa_len(addr);
++	len = sizeof(*te) + sysdep_sa_len(addr);
+ 
+ 	if ((te = racoon_malloc(len)) == NULL)
+ 		return NULL;
+diff --git a/src/racoon/throttle.h b/src/racoon/throttle.h
+index 54a8ed1..17f4f7c 100644
+--- a/src/racoon/throttle.h
++++ b/src/racoon/throttle.h
+@@ -39,7 +39,7 @@
+ struct throttle_entry {
+ 	struct timeval penalty_ends;
+ 	TAILQ_ENTRY(throttle_entry) next;
+-	struct sockaddr_storage host;
++	char host[];  /* Flexible array member for variable-sized sockaddr using struct sockaddr_storage */
+ };
+ 
+ TAILQ_HEAD(throttle_list, throttle_entry);
+-- 
+2.51.0
+
