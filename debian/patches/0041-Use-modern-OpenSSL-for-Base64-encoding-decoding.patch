@@ -1,0 +1,150 @@
+From 445f7e720fb8948f893dce32ddc310d31662dbae Mon Sep 17 00:00:00 2001
+From: Thomas Reim <reimth@gmail.com>
+Date: Wed, 8 Oct 2025 12:27:03 +0200
+Subject: [PATCH 1/7] Use modern OpenSSL for Base64 encoding/decoding
+
+(cherry picked from commit 9b6c608ebca7060629a2133b22030e58370f3ed2)
+---
+ src/racoon/crypto_openssl.c | 79 ++++++++++++++-----------------------
+ src/racoon/crypto_openssl.h |  4 +-
+ 2 files changed, 32 insertions(+), 51 deletions(-)
+
+diff --git a/src/racoon/crypto_openssl.c b/src/racoon/crypto_openssl.c
+index 6d4df34..a3f8315 100644
+--- a/src/racoon/crypto_openssl.c
++++ b/src/racoon/crypto_openssl.c
+@@ -38,7 +38,6 @@
+ 
+ #include <stdlib.h>
+ #include <stdio.h>
+-#include <limits.h>
+ #include <string.h>
+ 
+ /* get openssl/ssleay version number */
+@@ -114,7 +113,7 @@ static int cb_check_cert_local __P((int, X509_STORE_CTX *));
+ static int cb_check_cert_remote __P((int, X509_STORE_CTX *));
+ static X509 *mem2x509 __P((vchar_t *));
+ 
+-static caddr_t eay_hmac_init __P((vchar_t *, const EVP_MD *));
++static __caddr_t eay_hmac_init __P((vchar_t *, const EVP_MD *));
+ 
+ /* X509 Certificate */
+ /*
+@@ -2450,70 +2449,52 @@ eay_init()
+ }
+ 
+ vchar_t *
+-base64_decode(char *in, long inlen)
++base64_decode(const char *in, long inlen)
+ {
+-	BIO *bio=NULL, *b64=NULL;
++	unsigned char *buf;
++	int outlen;
+ 	vchar_t *res = NULL;
+-	char *outb;
+-	long outlen;
+ 
+-	outb = malloc(inlen * 2);
+-	if (outb == NULL)
+-		goto out;
+-	bio = BIO_new_mem_buf(in, inlen);
+-	b64 = BIO_new(BIO_f_base64());
+-	BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
+-	bio = BIO_push(b64, bio);
++	buf = malloc(inlen);
++	if (!buf)
++		return NULL;
+ 
+-	outlen = BIO_read(bio, outb, inlen * 2);
+-	if (outlen <= 0) {
+-		plog(LLV_ERROR, LOCATION, NULL, "%s\n", eay_strerror());
+-		goto out;
++	outlen = EVP_DecodeBlock(buf, (const unsigned char *)in, inlen);
++	if (outlen < 0) {
++		free(buf);
++		return NULL;
+ 	}
+ 
+ 	res = vmalloc(outlen);
+-	if (!res)
+-		goto out;
+-
+-	memcpy(res->v, outb, outlen);
+-
+-out:
+-	if (outb)
+-		free(outb);
+-	if (bio)
+-		BIO_free_all(bio);
+-
++	if (res)
++		memcpy(res->v, buf, outlen);
++	free(buf);
+ 	return res;
+ }
+ 
+ vchar_t *
+-base64_encode(char *in, long inlen)
++base64_encode(const char *in, long inlen)
+ {
+-	BIO *bio=NULL, *b64=NULL;
+-	char *ptr;
+-	long plen = -1;
+ 	vchar_t *res = NULL;
++	int outlen;
++	unsigned char *buf;
+ 
+-	bio = BIO_new(BIO_s_mem());
+-	b64 = BIO_new(BIO_f_base64());
+-	BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
+-	bio = BIO_push(b64, bio);
+-
+-	BIO_write(bio, in, inlen);
+-	BIO_flush(bio);
++	if (!in || inlen <= 0)
++		return NULL;
+ 
+-	plen = BIO_get_mem_data(bio, &ptr);
+-	res = vmalloc(plen+1);
+-	if (!res)
+-		goto out;
+-	
+-	memcpy (res->v, ptr, plen);
+-	res->v[plen] = '\0';
++	/* Each 3 bytes -> 4 chars */
++	outlen = 4 * ((inlen + 2) / 3);
++	buf = malloc(outlen + 1);
++	if (!buf)
++		return NULL;
+ 
+-out:	
+-	if (bio)
+-		BIO_free_all(bio);
++	outlen = EVP_EncodeBlock(buf, (const unsigned char *)in, inlen);
++	buf[outlen] = '\0';
+ 
++	res = vmalloc(outlen);
++	if (res)
++		memcpy(res->v, buf, outlen);
++	free(buf);
+ 	return res;
+ }
+ 
+diff --git a/src/racoon/crypto_openssl.h b/src/racoon/crypto_openssl.h
+index ee5b765..f511ac2 100644
+--- a/src/racoon/crypto_openssl.h
++++ b/src/racoon/crypto_openssl.h
+@@ -213,8 +213,8 @@ extern int eay_dh_generate __P((vchar_t *, u_int32_t, u_int, vchar_t **, vchar_t
+ extern int eay_dh_compute __P((vchar_t *, u_int32_t, vchar_t *, vchar_t *, vchar_t *, vchar_t **));
+ 
+ /* Base 64 */
+-vchar_t *base64_encode(char *in, long inlen);
+-vchar_t *base64_decode(char *in, long inlen);
++vchar_t *base64_encode(const char *in, long inlen);
++vchar_t *base64_decode(const char *in, long inlen);
+ 
+ RSA *base64_pubkey2rsa(char *in);
+ RSA *bignum_pubkey2rsa(BIGNUM *in);
+-- 
+2.51.0
+

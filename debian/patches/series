@@ -36,3 +36,8 @@ sprintf-sizes
 0037-Correct-memory-management-and-malicious-includes.patch
 0039-NetBSD-Update-release-summary-and-README.patch
 0040-Fix-pointers-to-packed-struct-members.patch
+0041-Use-modern-OpenSSL-for-Base64-encoding-decoding.patch
+0042-Migrate-to-OpenSSL-1.1.0.patch
+0043-Replace-API-functions-deprecated-in-OpenSSL-3.0.patch
+0044-Fix-array-against-NULL-comparison-bug.patch
+0045-Provide-compatibility-functions-for-OpenSSL-RSA.patch

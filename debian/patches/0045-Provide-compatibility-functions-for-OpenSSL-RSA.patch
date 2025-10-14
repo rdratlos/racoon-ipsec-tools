@@ -1,0 +1,786 @@
+From a592695b71b269f043f156f930309c94b9cbfbca Mon Sep 17 00:00:00 2001
+From: Thomas Reim <reimth@gmail.com>
+Date: Fri, 10 Oct 2025 08:17:15 +0200
+Subject: [PATCH 1/3] Provide compatibility functions for OpenSSL RSA
+
+---
+ src/racoon/crypto_openssl.c | 293 +++++++++++++++++++++++++++++-------
+ src/racoon/crypto_openssl.h |   7 +-
+ src/racoon/eaytest.c        |  11 +-
+ src/racoon/openssl_compat.c | 101 ++++++++++++-
+ src/racoon/openssl_compat.h |  19 ++-
+ src/racoon/plainrsa-gen.c   |  36 +++++
+ src/racoon/prsa_par.y       |  11 ++
+ src/racoon/rsalist.c        |   9 ++
+ 8 files changed, 420 insertions(+), 67 deletions(-)
+
+diff --git a/src/racoon/crypto_openssl.c b/src/racoon/crypto_openssl.c
+index 4733658..1744d18 100644
+--- a/src/racoon/crypto_openssl.c
++++ b/src/racoon/crypto_openssl.c
+@@ -1503,23 +1503,6 @@ end:
+ 	return ret;
+ }
+ 
+-/* Legacy wrappers for compatibility */
+-vchar_t *
+-eay_rsa_sign(src, rsa)
+-	vchar_t *src;
+-	RSA *rsa;
+-{
+-	return eay_get_rsasign(src, rsa);
+-}
+-
+-int
+-eay_rsa_verify(src, sig, rsa)
+-	vchar_t *src, *sig;
+-	RSA *rsa;
+-{
+-	return eay_check_rsasign(src, sig, rsa);
+-}
+-
+ /*
+  * get error string
+  */
+@@ -2883,12 +2866,13 @@ eay_dh_generate(prime, g, publen, pub, priv)
+ 	if (!OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_FFC_G, BNg))
+ 		goto end;
+ 
+-	/* Optionally set private key length */
++	/* Optional: set private key length (bits) */
+ 	if (publen != 0) {
+-		if (!OSSL_PARAM_BLD_push_size_t(bld, OSSL_PKEY_PARAM_DH_PRIV_LEN, publen / 8))
++		if (!OSSL_PARAM_BLD_push_size_t(bld, OSSL_PKEY_PARAM_DH_PRIV_LEN, publen))
+ 			goto end;
+ 	}
+ 
++
+ 	params_array = OSSL_PARAM_BLD_to_param(bld);
+ 	if (!params_array)
+ 		goto end;
+@@ -3057,14 +3041,12 @@ eay_dh_compute(prime, g, pub, priv, pub2, key)
+ 	if (EVP_PKEY_derive_init(kctx) <= 0)
+ 		goto end;
+ 
+-	/* Set peer - this is where validation happens and may generate warnings */
++	/* Set peer - this is where validation happens and may generate errors */
+ 	if (EVP_PKEY_derive_set_peer(kctx, peerkey) <= 0) {
+-		/* Log but try to continue - some validation errors are warnings in practice */
+-		plog(LLV_WARNING, LOCATION, NULL,
+-		     "EVP_PKEY_derive_set_peer validation warnings (may be non-fatal): %s\n",
++		plog(LLV_ERROR, LOCATION, NULL,
++		     "EVP_PKEY_derive_set_peer failed: %s\n",
+ 		     eay_strerror());
+-		/* Clear errors and try to continue */
+-		ERR_clear_error();
++		goto end;
+ 	}
+ 
+ 	/* Determine buffer length */
+@@ -3223,7 +3205,7 @@ vchar_t *
+ base64_decode(const char *in, long inlen)
+ {
+ 	unsigned char *buf;
+-	int outlen;
++	int outlen, padding = 0;
+ 	vchar_t *res = NULL;
+ 
+ 	buf = malloc(inlen);
+@@ -3236,9 +3218,19 @@ base64_decode(const char *in, long inlen)
+ 		return NULL;
+ 	}
+ 
++	/* EVP_DecodeBlock includes padding - remove it */
++	if (inlen > 0 && in[inlen - 1] == '=') {
++		padding++;
++		if (inlen > 1 && in[inlen - 2] == '=')
++			padding++;
++	}
++	outlen -= padding;
++
+ 	res = vmalloc(outlen);
+-	if (res)
++	if (res) {
+ 		memcpy(res->v, buf, outlen);
++		res->l = outlen;  /* Ensure length is set correctly */
++	}
+ 	free(buf);
+ 	return res;
+ }
+@@ -3262,13 +3254,73 @@ base64_encode(const char *in, long inlen)
+ 	outlen = EVP_EncodeBlock(buf, (const unsigned char *)in, inlen);
+ 	buf[outlen] = '\0';
+ 
+-	res = vmalloc(outlen);
+-	if (res)
++	/* Allocate with space for null terminator */
++	res = vmalloc(outlen + 1);
++	if (res) {
+ 		memcpy(res->v, buf, outlen);
++		((char *)res->v)[outlen] = '\0';
++		res->l = outlen; /* Length without null terminator */
++	}
+ 	free(buf);
+ 	return res;
+ }
+ 
++/*
++ * binbuf_pubkey2rsa - Convert IPSec/IKE wire format public key to RSA structure
++ *
++ * Parses an RSA public key from IPSec/IKE wire format and creates an RSA
++ * structure suitable for textbook RSA operations (raw encryption/decryption
++ * with PKCS#1 v1.5 padding).
++ *
++ * Wire Format (RFC 2408/2409):
++ *   Byte 0:          Length of exponent in bytes
++ *   Bytes 1..N:      Public exponent (big-endian)
++ *   Bytes (N+1)..end: Modulus (big-endian)
++ *
++ * This format is used in IKEv1 RSASIG authentication where public keys are
++ * exchanged as raw key material rather than X.509 certificates.
++ *
++ * Example wire format for exponent 0x03 and 1024-bit modulus:
++ *   [0x01][0x03][128 bytes of modulus]
++ *
++ * OpenSSL 3.0 Compatibility:
++ *   Uses EVP_PKEY_fromdata() to construct the key, then extracts RSA*
++ *   for compatibility with legacy code expecting RSA structures.
++ *
++ * Parameters:
++ *   binbuf - vchar_t containing the wire format public key
++ *            Must not be NULL and must contain at least 2 bytes
++ *
++ * Returns:
++ *   RSA* - Pointer to RSA structure on success (caller must free with RSA_free)
++ *   NULL - On failure (invalid format, memory allocation failure, or OpenSSL error)
++ *
++ * Error Conditions:
++ *   - First byte (exponent length) exceeds buffer length
++ *   - Memory allocation failure
++ *   - Invalid key parameters
++ *   - OpenSSL 3.0 key construction failure
++ *
++ * Notes:
++ *   - The returned RSA structure supports textbook RSA operations
++ *   - Both common exponents (3, 65537) and arbitrary exponents are supported
++ *   - The function validates that exponent length makes sense relative to buffer size
++ *   - Errors are logged via plog() with detailed OpenSSL error strings
++ *
++ * Security Considerations:
++ *   - No validation of key strength (modulus size, exponent value)
++ *   - Caller must ensure the key comes from a trusted source
++ *   - Small exponents (e.g., 3) are supported but may be cryptographically weak
++ *
++ * Example Usage:
++ *   vchar_t *wire_key = ...; // From IKE message
++ *   RSA *pubkey = binbuf_pubkey2rsa(wire_key);
++ *   if (!pubkey) {
++ *       // Handle error
++ *   }
++ *   // Use pubkey for signature verification
++ *   RSA_free(pubkey);
++ */
+ static RSA *
+ binbuf_pubkey2rsa(vchar_t *binbuf)
+ {
+@@ -3276,14 +3328,15 @@ binbuf_pubkey2rsa(vchar_t *binbuf)
+ 	RSA *rsa_pub = NULL;
+ 	EVP_PKEY *pkey = NULL;
+ 	EVP_PKEY_CTX *ctx = NULL;
+-	OSSL_PARAM params[3];
+-	int ret = -1;
++	OSSL_PARAM_BLD *bld = NULL;
++	OSSL_PARAM *params = NULL;
+ 
+ 	if (binbuf->v[0] > binbuf->l - 1) {
+ 		plog(LLV_ERROR, LOCATION, NULL, "Plain RSA pubkey format error: decoded string doesn't make sense.\n");
+ 		goto out;
+ 	}
+ 
++	/* Parse IPSec format: [exp_len][exponent][modulus] */
+ 	exp = BN_bin2bn((unsigned char *) (binbuf->v + 1), binbuf->v[0], NULL);
+ 	mod = BN_bin2bn((unsigned char *) (binbuf->v + binbuf->v[0] + 1),
+ 			binbuf->l - binbuf->v[0] - 1, NULL);
+@@ -3293,33 +3346,31 @@ binbuf_pubkey2rsa(vchar_t *binbuf)
+ 		goto out;
+ 	}
+ 
+-	/* Build RSA key using EVP_PKEY */
++	/* Build RSA key using OSSL_PARAM_BLD */
++	bld = OSSL_PARAM_BLD_new();
++	if (!bld)
++		goto out;
++
++	if (!OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_N, mod))
++		goto out;
++	if (!OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_E, exp))
++		goto out;
++
++	params = OSSL_PARAM_BLD_to_param(bld);
++	if (!params)
++		goto out;
++
+ 	ctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
+ 	if (!ctx)
+ 		goto out;
+ 
+-	params[0] = OSSL_PARAM_construct_BN(OSSL_PKEY_PARAM_RSA_N,
+-					    (unsigned char *)mod, BN_num_bytes(mod));
+-	params[1] = OSSL_PARAM_construct_BN(OSSL_PKEY_PARAM_RSA_E,
+-					    (unsigned char *)exp, BN_num_bytes(exp));
+-	params[2] = OSSL_PARAM_construct_end();
+-
+ 	if (EVP_PKEY_fromdata_init(ctx) <= 0)
+ 		goto out;
+ 
+ 	if (EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params) <= 0)
+ 		goto out;
+ 
+-	/* OpenSSL 3.0 deprecated direct RSA structure access in favor of EVP_PKEY.
+-	 * However, IPSec standards rely on raw RSA operations (textbook RSA with
+-	 * PKCS#1 v1.5 padding), and Racoon's architecture expects RSA* structures.
+-	 *
+-	 * We use EVP_PKEY_get1_RSA() here because:
+-	 * 1. It's functionally correct and maintained by OpenSSL
+-	 * 2. Refactoring all IPSec code to use EVP_PKEY would be invasive
+-	 * 3. The RSA structure behavior remains identical
+-	 * 4. OpenSSL maintains backward compatibility
+-	 */
++	/* Extract RSA structure for compatibility with legacy code */
+ #pragma GCC diagnostic push
+ #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+ 	rsa_pub = EVP_PKEY_get1_RSA(pkey);
+@@ -3330,6 +3381,10 @@ out:
+ 		EVP_PKEY_CTX_free(ctx);
+ 	if (pkey)
+ 		EVP_PKEY_free(pkey);
++	if (params)
++		OSSL_PARAM_free(params);
++	if (bld)
++		OSSL_PARAM_BLD_free(bld);
+ 	if (exp)
+ 		BN_free(exp);
+ 	if (mod)
+@@ -3369,24 +3424,150 @@ out:
+ 	return rsa_pub;
+ }
+ 
++/*
++ * bignum_pubkey2rsa - Create RSA public key from modulus with standard exponent
++ *
++ * Constructs an RSA public key structure from a modulus BIGNUM, using the
++ * standard public exponent 65537 (0x10001 = RSA_F4). This is a utility
++ * function for cases where only the modulus is known and the standard
++ * exponent can be assumed.
++ *
++ * The standard exponent 65537 is recommended by NIST and widely used because:
++ *   - It's large enough to resist basic attacks
++ *   - It's a Fermat prime (2^16 + 1), making modular exponentiation efficient
++ *   - It's the de facto standard in modern RSA implementations
++ *
++ * Use Cases:
++ *   - Converting certificate modulus to RSA key for verification
++ *   - Testing RSA operations with known modulus
++ *   - Reconstructing public key when exponent is implicit
++ *   - Legacy code migration where only modulus was stored
++ *
++ * OpenSSL 3.0 Compatibility:
++ *   Uses the modern EVP_PKEY API internally, then extracts RSA* for
++ *   compatibility with existing Racoon code that expects RSA structures
++ *   for textbook RSA operations.
++ *
++ * Parameters:
++ *   in - BIGNUM containing the RSA modulus (must not be NULL)
++ *        The modulus is duplicated internally, so caller retains ownership
++ *
++ * Returns:
++ *   RSA* - Pointer to RSA public key structure on success
++ *          Caller must free with RSA_free()
++ *   NULL - On failure (NULL input, memory allocation failure, or OpenSSL error)
++ *
++ * Error Conditions:
++ *   - NULL input BIGNUM
++ *   - BN_dup() failure (memory allocation)
++ *   - Exponent creation failure
++ *   - OpenSSL 3.0 parameter building or key construction failure
++ *
++ * Notes:
++ *   - Input BIGNUM is duplicated; caller retains ownership of original
++ *   - Always uses exponent 65537 (RSA_F4); not configurable
++ *   - No validation of modulus size or cryptographic strength
++ *   - Returned RSA structure supports textbook RSA operations
++ *   - All errors are logged via plog() for debugging
++ *
++ * Security Considerations:
++ *   - Assumes modulus comes from a trusted source
++ *   - Does not validate modulus is a proper RSA modulus (product of two primes)
++ *   - Does not check modulus size (caller should ensure >= 2048 bits for security)
++ *   - Fixed exponent may not be suitable for all applications
++ *
++ * Difference from binbuf_pubkey2rsa():
++ *   - bignum_pubkey2rsa(): Takes BIGNUM modulus, assumes e=65537
++ *   - binbuf_pubkey2rsa(): Parses wire format with both exponent and modulus
++ *
++ * Example Usage:
++ *   const BIGNUM *cert_modulus = ...; // From X.509 certificate
++ *   RSA *pubkey = bignum_pubkey2rsa((BIGNUM *)cert_modulus);
++ *   if (!pubkey) {
++ *       // Handle error
++ *   }
++ *   // Use pubkey for signature verification with textbook RSA
++ *   int result = eay_check_rsasign(data, signature, pubkey);
++ *   RSA_free(pubkey);
++ *
++ * Design Rationale:
++ *   This function exists because Racoon's architecture expects RSA* structures
++ *   for textbook RSA operations, but may only have the modulus available from
++ *   certain sources (certificates, stored keys, etc.). Rather than requiring
++ *   full key material, this function fills in the standard exponent.
++ */
+ RSA *
+ bignum_pubkey2rsa(BIGNUM *in)
+ {
+ 	RSA *rsa_pub = NULL;
+-	vchar_t *binbuf;
++	BIGNUM *n = NULL, *e = NULL;
++	EVP_PKEY *pkey = NULL;
++	EVP_PKEY_CTX *ctx = NULL;
++	OSSL_PARAM_BLD *bld = NULL;
++	OSSL_PARAM *params = NULL;
+ 
+-	binbuf = vmalloc(BN_num_bytes(in));
+-	if (!binbuf) {
+-		plog(LLV_ERROR, LOCATION, NULL, "Plain RSA pubkey conversion: memory allocation failed..\n");
++	if (!in) {
++		plog(LLV_ERROR, LOCATION, NULL, "bignum_pubkey2rsa: NULL BIGNUM\n");
+ 		return NULL;
+ 	}
+ 
+-	BN_bn2bin(in, (unsigned char *) binbuf->v);
++	/* Duplicate the modulus */
++	n = BN_dup(in);
++	if (!n) {
++		plog(LLV_ERROR, LOCATION, NULL, "bignum_pubkey2rsa: BN_dup failed\n");
++		return NULL;
++	}
+ 
+-	rsa_pub = binbuf_pubkey2rsa(binbuf);
++	/* Create standard public exponent (65537 = RSA_F4) */
++	e = BN_new();
++	if (!e || !BN_set_word(e, RSA_F4)) {
++		plog(LLV_ERROR, LOCATION, NULL, "bignum_pubkey2rsa: Failed to create exponent\n");
++		goto out;
++	}
+ 
+-	if (binbuf)
+-		vfree(binbuf);
++	/* Build RSA key using OSSL_PARAM_BLD */
++	bld = OSSL_PARAM_BLD_new();
++	if (!bld)
++		goto out;
++
++	if (!OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_N, n))
++		goto out;
++	if (!OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_E, e))
++		goto out;
++
++	params = OSSL_PARAM_BLD_to_param(bld);
++	if (!params)
++		goto out;
++
++	ctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
++	if (!ctx)
++		goto out;
++
++	if (EVP_PKEY_fromdata_init(ctx) <= 0)
++		goto out;
++
++	if (EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params) <= 0)
++		goto out;
++
++	/* Extract RSA structure for compatibility with legacy textbook RSA code */
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
++	rsa_pub = EVP_PKEY_get1_RSA(pkey);
++#pragma GCC diagnostic pop
++
++out:
++	if (ctx)
++		EVP_PKEY_CTX_free(ctx);
++	if (pkey)
++		EVP_PKEY_free(pkey);
++	if (params)
++		OSSL_PARAM_free(params);
++	if (bld)
++		OSSL_PARAM_BLD_free(bld);
++	if (e)
++		BN_free(e);
++	if (n)
++		BN_free(n);
+ 
+ 	return rsa_pub;
+ }
+diff --git a/src/racoon/crypto_openssl.h b/src/racoon/crypto_openssl.h
+index fa16e29..099436e 100644
+--- a/src/racoon/crypto_openssl.h
++++ b/src/racoon/crypto_openssl.h
+@@ -66,14 +66,11 @@ extern vchar_t *eay_get_x509cert __P((char *));
+ extern vchar_t *eay_get_x509sign __P((vchar_t *, vchar_t *));
+ extern int eay_check_x509sign __P((vchar_t *, vchar_t *, vchar_t *));
+ 
+-extern int eay_check_rsasign __P((vchar_t *, vchar_t *, RSA *));
+-extern vchar_t *eay_get_rsasign __P((vchar_t *, RSA *));
+-
+ /* RSA */
+ extern vchar_t *eay_pkey_sign __P((vchar_t *, EVP_PKEY *));
+-extern vchar_t *eay_rsa_sign __P((vchar_t *, RSA *));
+ extern int eay_pkey_verify __P((vchar_t *, vchar_t *, EVP_PKEY *));
+-extern int eay_rsa_verify __P((vchar_t *, vchar_t *, RSA *));
++extern int eay_check_rsasign __P((vchar_t *, vchar_t *, RSA *));
++extern vchar_t *eay_get_rsasign __P((vchar_t *, RSA *));
+ 
+ /* ASN.1 */
+ extern vchar_t *eay_get_pkcs1privkey __P((char *));
+diff --git a/src/racoon/eaytest.c b/src/racoon/eaytest.c
+index 63461ae..6ba6d3c 100644
+--- a/src/racoon/eaytest.c
++++ b/src/racoon/eaytest.c
+@@ -109,6 +109,11 @@ check_openssl_errors(const char *test_name)
+ 	}
+ }
+ 
++/* Suppress deprecation warnings for OpenSSL 3.0 low-level API usage */
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
++#endif
+ static int
+ rsa_verify_with_pubkey(src, sig, pubkey_txt)
+ 	vchar_t *src, *sig;
+@@ -124,10 +129,14 @@ rsa_verify_with_pubkey(src, sig, pubkey_txt)
+ 		printf ("PEM_read_PUBKEY(): %s\n", eay_strerror());
+ 		return -1;
+ 	}
+-	error = eay_check_rsasign(src, sig, EVP_PKEY_get0_RSA(evp));
++	error = eay_check_rsasign(src, sig, EVP_PKEY_get1_RSA(evp));
+ 
+ 	return error;
+ }
++/* Restore warnings */
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#pragma GCC diagnostic pop
++#endif
+ 
+ int
+ rsatest(ac, av)
+diff --git a/src/racoon/openssl_compat.c b/src/racoon/openssl_compat.c
+index 864b5fb..69bcbde 100644
+--- a/src/racoon/openssl_compat.c
++++ b/src/racoon/openssl_compat.c
+@@ -9,9 +9,18 @@
+ 
+ #include "openssl_compat.h"
+ 
+-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+-
+ #include <string.h>
++#include <openssl/bio.h>
++#include <openssl/pem.h>
++#include <openssl/err.h>
++
++/* Suppress deprecation warnings for OpenSSL 3.0 low-level API usage */
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
++#endif
++
++#if OPENSSL_VERSION_NUMBER < 0x10100000L
+ 
+ static void *OPENSSL_zalloc(size_t num)
+ {
+@@ -210,4 +219,90 @@ RSA *EVP_PKEY_get0_RSA(EVP_PKEY *pkey)
+ }
+ 
+ 
+-#endif /* OPENSSL_VERSION_NUMBER */
++#endif /* OPENSSL_VERSION_NUMBER < 0x10100000L */
++
++/*
++ * Compatibility functions that work across OpenSSL 1.1.0, 1.1.1, and 3.0+
++ * These use low-level RSA API which is deprecated in 3.0 but still maintained
++ */
++
++/* Check if RSA key has private component */
++int compat_RSA_has_private(const RSA *rsa)
++{
++	const BIGNUM *d = NULL;
++
++	if (rsa == NULL)
++		return 0;
++
++	RSA_get0_key(rsa, NULL, NULL, &d);
++	return (d != NULL);
++}
++
++/* Duplicate RSA key (handles both public and private keys) */
++RSA *compat_RSA_dup(const RSA *rsa)
++{
++	RSA *ret = NULL;
++
++	if (rsa == NULL)
++		return NULL;
++
++	/* Use i2d/d2i approach which works for all versions
++     * This creates a true deep copy via DER encoding */
++	if (compat_RSA_has_private(rsa)) {
++		unsigned char *der = NULL;
++		const unsigned char *der_const = NULL;
++		int der_len = 0;
++
++		/* Encode private key to DER format */
++		der_len = i2d_RSAPrivateKey(rsa, &der);
++		if (der_len <= 0)
++			return NULL;
++
++		/* Decode back to create a new RSA structure */
++		der_const = der;
++		ret = d2i_RSAPrivateKey(NULL, &der_const, der_len);
++		OPENSSL_free(der);
++	} else {
++		unsigned char *der = NULL;
++		const unsigned char *der_const = NULL;
++		int der_len = 0;
++
++		/* Encode public key to DER format */
++		der_len = i2d_RSAPublicKey(rsa, &der);
++		if (der_len <= 0)
++			return NULL;
++
++		/* Decode back to create a new RSA structure */
++		der_const = der;
++		ret = d2i_RSAPublicKey(NULL, &der_const, der_len);
++		OPENSSL_free(der);
++	}
++
++	return ret;
++}
++
++/* Print RSA key to file pointer */
++int compat_RSA_print_fp(FILE *fp, const RSA *rsa, int indent)
++{
++	BIO *bio = NULL;
++	int ret = 0;
++
++	if (rsa == NULL || fp == NULL)
++		return 0;
++
++	/* Create a BIO from the file pointer */
++	bio = BIO_new_fp(fp, BIO_NOCLOSE);
++	if (bio == NULL)
++		return 0;
++
++	/* Use RSA_print which works for all versions */
++	ret = RSA_print(bio, (RSA *)rsa, indent);
++
++	BIO_free(bio);
++	return ret;
++}
++
++/* Restore warnings */
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#pragma GCC diagnostic pop
++#endif
+diff --git a/src/racoon/openssl_compat.h b/src/racoon/openssl_compat.h
+index 9e152c2..180fbde 100644
+--- a/src/racoon/openssl_compat.h
++++ b/src/racoon/openssl_compat.h
+@@ -2,9 +2,10 @@
+ #define OPENSSL_COMPAT_H
+ 
+ #include <openssl/opensslv.h>
++#include <openssl/rsa.h>
++
+ #if OPENSSL_VERSION_NUMBER < 0x10100000L
+ 
+-#include <openssl/rsa.h>
+ #include <openssl/dh.h>
+ #include <openssl/evp.h>
+ #include <openssl/hmac.h>
+@@ -40,6 +41,20 @@ RSA *EVP_PKEY_get0_RSA(EVP_PKEY *pkey);
+ #define OPENSSL_VERSION SSLEAY_VERSION
+ #define OpenSSL_version SSLeay_version
+ 
+-#endif /* OPENSSL_VERSION_NUMBER */
++#endif /* OPENSSL_VERSION_NUMBER < 0x10100000L */
++
++/*
++ * Compatibility functions for RSA operations
++ * These work across OpenSSL 1.1.0, 1.1.1, and 3.0+
++ */
++
++/* Check if RSA key has private component */
++int compat_RSA_has_private(const RSA *rsa);
++
++/* Duplicate RSA key (handles both public and private keys) */
++RSA *compat_RSA_dup(const RSA *rsa);
++
++/* Print RSA key to file pointer */
++int compat_RSA_print_fp(FILE *fp, const RSA *rsa, int indent);
+ 
+ #endif /* OPENSSL_COMPAT_H */
+diff --git a/src/racoon/plainrsa-gen.c b/src/racoon/plainrsa-gen.c
+index b949b08..71608c6 100644
+--- a/src/racoon/plainrsa-gen.c
++++ b/src/racoon/plainrsa-gen.c
+@@ -82,6 +82,11 @@ usage (char *argv0)
+ 	exit(1);
+ }
+ 
++/* Suppress deprecation warnings for OpenSSL 3.0 low-level API usage */
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
++#endif
+ /*
+  * See RFC 2065, section 3.5 for details about the output format.
+  */
+@@ -107,6 +112,10 @@ mix_b64_pubkey(const RSA *key)
+ 
+ 	return base64_encode(binbuf, binlen);
+ }
++/* Restore warnings */
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#pragma GCC diagnostic pop
++#endif
+ 
+ char *
+ lowercase(char *input)
+@@ -121,6 +130,11 @@ lowercase(char *input)
+ 	return input;
+ }
+ 
++/* Suppress deprecation warnings for OpenSSL 3.0 low-level API usage */
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
++#endif
+ int
+ print_rsa_key(FILE *fp, const RSA *key)
+ {
+@@ -153,6 +167,10 @@ print_rsa_key(FILE *fp, const RSA *key)
+ 	vfree(pubkey64);
+ 	return 0;
+ }
++/* Restore warnings */
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#pragma GCC diagnostic pop
++#endif
+ 
+ int
+ print_public_rsa_key(FILE *fp, const RSA *key)
+@@ -171,6 +189,11 @@ print_public_rsa_key(FILE *fp, const RSA *key)
+ 	return 0;
+ }
+ 
++/* Suppress deprecation warnings for OpenSSL 3.0 low-level API usage */
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
++#endif
+ int
+ convert_rsa_key(FILE *fpout, FILE *fpin)
+ {
+@@ -205,7 +228,16 @@ convert_rsa_key(FILE *fpout, FILE *fpin)
+ 	fprintf(stderr, "convert_rsa_key: %s\n", "Only conversion from PEM at this time");
+ 	return -1;
+ }
++/* Restore warnings */
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#pragma GCC diagnostic pop
++#endif
+ 
++/* Suppress deprecation warnings for OpenSSL 3.0 low-level API usage */
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
++#endif
+ int
+ gen_rsa_key(FILE *fp, size_t bits, unsigned long exp)
+ {
+@@ -225,6 +257,10 @@ gen_rsa_key(FILE *fp, size_t bits, unsigned long exp)
+ 
+ 	return ret;
+ }
++/* Restore warnings */
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#pragma GCC diagnostic pop
++#endif
+ 
+ int
+ main (int argc, char *argv[])
+diff --git a/src/racoon/prsa_par.y b/src/racoon/prsa_par.y
+index 27ce4c6..64b06ba 100644
+--- a/src/racoon/prsa_par.y
++++ b/src/racoon/prsa_par.y
+@@ -35,6 +35,7 @@
+ 
+ /* This file contains a parser for FreeS/WAN-style ipsec.secrets RSA keys. */
+ 
++
+ #include "config.h"
+ 
+ #include <stdio.h>
+@@ -213,12 +214,21 @@ rsa_statement:
+ 				rsa_cur->iqmp = NULL;
+ 			}
+ 		}
++		/* Suppress deprecation warnings for OpenSSL 3.0 low-level API usage */
++		#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++		#pragma GCC diagnostic push
++		#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
++		#endif
+ 		RSA * rsa_tmp = RSA_new();
+ 		RSA_set0_key(rsa_tmp, rsa_cur->n, rsa_cur->e, rsa_cur->d);
+ 		RSA_set0_factors(rsa_tmp, rsa_cur->p, rsa_cur->q);
+ 		RSA_set0_crt_params(rsa_tmp, rsa_cur->dmp1, rsa_cur->dmq1, rsa_cur->iqmp);
+ 		$$ = rsa_tmp;
+ 		memset(rsa_cur, 0, sizeof(struct my_rsa_st));
++		/* Restore warnings */
++		#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++		#pragma GCC diagnostic pop
++		#endif
+ 	}
+ 	| TAG_PUB BASE64
+ 	{
+@@ -379,3 +389,4 @@ prsa_parse_file(struct genlist *list, char *fname, enum rsa_key_type type)
+ 	prsain = NULL;
+ 	return ret;
+ }
++
+diff --git a/src/racoon/rsalist.c b/src/racoon/rsalist.c
+index 96e8363..dd8e7e9 100644
+--- a/src/racoon/rsalist.c
++++ b/src/racoon/rsalist.c
+@@ -65,6 +65,11 @@
+ /* from prsa_tok.l */
+ int prsa_parse_file(struct genlist *list, const char *fname, enum rsa_key_type type);
+ 
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
++#endif
++
+ int
+ rsa_key_insert(struct genlist *list, struct netaddr *src,
+ 	       struct netaddr *dst, RSA *rsa)
+@@ -276,3 +281,7 @@ rsa_try_check_rsasign(vchar_t *source, vchar_t *sig, struct genlist *list)
+ 	}
+ 	return NULL;
+ }
++
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#pragma GCC diagnostic pop
++#endif
+-- 
+2.51.0
+

@@ -1,0 +1,136 @@
+From 9cc3311c5ead7b5f6d7d4d2ef877b4b6ecef55fa Mon Sep 17 00:00:00 2001
+From: Thomas Reim <reimth@gmail.com>
+Date: Thu, 9 Oct 2025 11:07:51 +0200
+Subject: [PATCH 4/7] Fix array against NULL comparison bug
+
+---
+ src/racoon/eaytest.c | 49 +++++++++++++++++++++++++++++++++++++++-----
+ 1 file changed, 44 insertions(+), 5 deletions(-)
+
+diff --git a/src/racoon/eaytest.c b/src/racoon/eaytest.c
+index 21fee15..63461ae 100644
+--- a/src/racoon/eaytest.c
++++ b/src/racoon/eaytest.c
+@@ -50,6 +50,7 @@
+ 
+ #include <openssl/bio.h>
+ #include <openssl/pem.h>
++#include <openssl/err.h>
+ 
+ #include "var.h"
+ #include "vmbuf.h"
+@@ -89,6 +90,25 @@ int certtest __P((int, char **));
+ 
+ /* test */
+ 
++static void
++check_openssl_errors(const char *test_name)
++{
++	unsigned long err;
++	int count = 0;
++
++	while ((err = ERR_get_error()) != 0) {
++		char buf[256];
++		ERR_error_string_n(err, buf, sizeof(buf));
++		printf("WARNING: Hidden OpenSSL error after %s: %s\n", test_name, buf);
++		count++;
++	}
++
++	if (count > 0) {
++		printf("WARNING: %d OpenSSL error(s) were left in the queue after %s\n",
++		       count, test_name);
++	}
++}
++
+ static int
+ rsa_verify_with_pubkey(src, sig, pubkey_txt)
+ 	vchar_t *src, *sig;
+@@ -175,14 +195,18 @@ rsatest(ac, av)
+ 		printf ("Failed.\n");
+ 		return -1;
+ 	}
+-	else
++	else {
++		check_openssl_errors("rsatest"); /* Check before wrong pubkey test */
+ 		printf ("Verified. Good.\n");
++	}
+ 
+ 	loglevel_saved = loglevel;
+ 	loglevel = 0;
+ 	printf("Verification with wrong pubkey: ");
+-	if (rsa_verify_with_pubkey (&src, sig, pubkey_wrong) != 0)
++	if (rsa_verify_with_pubkey (&src, sig, pubkey_wrong) != 0) {
+ 		printf ("Not verified. Good.\n");
++		ERR_clear_error();
++	}
+ 	else {
+ 		printf ("Verified. This is bad...\n");
+ 		loglevel = loglevel_saved;
+@@ -314,7 +338,11 @@ certtest(ac, av)
+ 
+ 	printf("exact match: succeed.\n");
+ 
+-	if (dnstr_w1 != NULL) {
++#if defined(ORIG_DN)
++		if (dnstr_w1) {
++#else
++		if (strlen(dnstr_w1) > 0) {
++#endif
+ 		asn1dn = eay_str2asn1dn(dnstr_w1, strlen(dnstr_w1));
+ 		if (asn1dn == NULL || asn1dn->l == asn1dn0.l)
+ 			errx(1, "asn1dn length wrong for wildcard 1\n");
+@@ -324,7 +352,11 @@ certtest(ac, av)
+ 		printf("wildcard 1 match: succeed.\n");
+ 	}
+ 
+-	if (dnstr_w1 != NULL) {
++#if defined(ORIG_DN)
++		if (dnstr_w2) {
++#else
++		if (strlen(dnstr_w2) > 0) {
++#endif
+ 		asn1dn = eay_str2asn1dn(dnstr_w2, strlen(dnstr_w2));
+ 		if (asn1dn == NULL || asn1dn->l == asn1dn0.l)
+ 			errx(1, "asn1dn length wrong for wildcard 2\n");
+@@ -335,7 +367,6 @@ certtest(ac, av)
+ 	}
+ 
+     }
+-	eay_init();
+ 
+ 	/* get certs */
+ 	if (ac > 1) {
+@@ -1027,6 +1058,9 @@ main(ac, av)
+ 	f_foreground = 1;
+ 	ploginit();
+ 
++	/* Initialize crypto library */
++	eay_init();
++
+ 	printf ("\nTestsuite of the %s\nlinked with %s\n\n", TOP_PACKAGE_STRING, eay_version());
+ 
+ 	if (strcmp(*av, "-h") == 0)
+@@ -1039,8 +1073,10 @@ main(ac, av)
+ 		if ((ac == 0) || (strcmp(*av, func[i].name) == 0)) {
+ 			if ((func[i].func)(ac, av) != 0) {
+ 				printf ("\n!!!!! Test '%s' failed. !!!!!\n\n", func[i].name);
++				check_openssl_errors(func[i].name); /* Check for hidden errors */
+ 				exit(1);
+ 			}
++			check_openssl_errors(func[i].name); /* Check even on success */
+ 			if (ac)
+ 				break;
+ 		}
+@@ -1049,6 +1085,9 @@ main(ac, av)
+ 		Usage();
+ 
+ 	printf ("\n===== All tests passed =====\n\n");
++
++	eay_cleanup();
++
+ 	exit(0);
+ }
+ 
+-- 
+2.51.0
+

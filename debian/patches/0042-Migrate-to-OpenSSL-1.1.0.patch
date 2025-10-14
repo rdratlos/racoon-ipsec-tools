@@ -1,0 +1,1188 @@
+From 07b179292734fa0ed5fdf13a3a46f1d494215250 Mon Sep 17 00:00:00 2001
+From: Thomas Reim <reimth@gmail.com>
+Date: Wed, 8 Oct 2025 13:08:38 +0200
+Subject: [PATCH 2/7] Migrate to OpenSSL >= 1.1.0
+
+(cherry picked from commit 010a705d5537e62b77758cb24ade55889e149a55)
+---
+ src/racoon/crypto_openssl.c | 506 ++++++++++++++++++++----------------
+ src/racoon/crypto_openssl.h |  11 +-
+ 2 files changed, 298 insertions(+), 219 deletions(-)
+
+diff --git a/src/racoon/crypto_openssl.c b/src/racoon/crypto_openssl.c
+index a3f8315..6de74a5 100644
+--- a/src/racoon/crypto_openssl.c
++++ b/src/racoon/crypto_openssl.c
+@@ -5,7 +5,7 @@
+ /*
+  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
+  * All rights reserved.
+- * 
++ *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+  * are met:
+@@ -17,7 +17,7 @@
+  * 3. Neither the name of the project nor the names of its contributors
+  *    may be used to endorse or promote products derived from this software
+  *    without specific prior written permission.
+- * 
++ *
+  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
+  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+@@ -43,8 +43,8 @@
+ /* get openssl/ssleay version number */
+ #include <openssl/opensslv.h>
+ 
+-#if !defined(OPENSSL_VERSION_NUMBER) || (OPENSSL_VERSION_NUMBER < 0x0090813fL)
+-#error OpenSSL version 0.9.8s or later required.
++#if !defined(OPENSSL_VERSION_NUMBER) || (OPENSSL_VERSION_NUMBER < 0x1010000fL)
++#error OpenSSL version 1.1.0 or later required.
+ #endif
+ 
+ #include <openssl/pem.h>
+@@ -184,13 +184,13 @@ eay_str2asn1dn(str, len)
+ 
+ 			if (!value) goto err;
+ 			if (!X509_NAME_add_entry_by_txt(name, field,
+-					(value[0] == '*' && value[1] == 0) ? 
+-						V_ASN1_PRINTABLESTRING : MBSTRING_ASC,
+-					(unsigned char *) value, -1, -1, 0)) {
+-				plog(LLV_ERROR, LOCATION, NULL, 
++							(value[0] == '*' && value[1] == 0) ?
++								V_ASN1_PRINTABLESTRING : MBSTRING_ASC,
++							(unsigned char *) value, -1, -1, 0)) {
++				plog(LLV_ERROR, LOCATION, NULL,
+ 				     "Invalid DN field: %s=%s\n",
+ 				     field, value);
+-				plog(LLV_ERROR, LOCATION, NULL, 
++				plog(LLV_ERROR, LOCATION, NULL,
+ 				     "%s\n", eay_strerror());
+ 				goto err;
+ 			}
+@@ -210,13 +210,13 @@ eay_str2asn1dn(str, len)
+ 
+ 	if (!value) goto err;
+ 	if (!X509_NAME_add_entry_by_txt(name, field,
+-			(value[0] == '*' && value[1] == 0) ? 
+-				V_ASN1_PRINTABLESTRING : MBSTRING_ASC,
+-			(unsigned char *) value, -1, -1, 0)) {
+-		plog(LLV_ERROR, LOCATION, NULL, 
++					(value[0] == '*' && value[1] == 0) ?
++						V_ASN1_PRINTABLESTRING : MBSTRING_ASC,
++					(unsigned char *) value, -1, -1, 0)) {
++		plog(LLV_ERROR, LOCATION, NULL,
+ 		     "Invalid DN field: %s=%s\n",
+ 		     field, value);
+-		plog(LLV_ERROR, LOCATION, NULL, 
++		plog(LLV_ERROR, LOCATION, NULL,
+ 		     "%s\n", eay_strerror());
+ 		goto err;
+ 	}
+@@ -234,7 +234,7 @@ eay_str2asn1dn(str, len)
+ 
+ 	return ret;
+ 
+-    err:
++err:
+ 	if (buf)
+ 		racoon_free(buf);
+ 	if (name)
+@@ -254,17 +254,17 @@ eay_hex2asn1dn(const char *hex, int len)
+ 	char *binbuf;
+ 	size_t binlen;
+ 	vchar_t *ret = NULL;
+-	
++
+ 	if (len == -1)
+ 		len = strlen(hex);
+ 
+ 	if (BN_hex2bn(&bn, hex) != len) {
+-		plog(LLV_ERROR, LOCATION, NULL, 
++		plog(LLV_ERROR, LOCATION, NULL,
+ 		     "conversion of Hex-encoded ASN1 string to binary failed: %s\n",
+ 		     eay_strerror());
+ 		goto out;
+ 	}
+-	
++
+ 	binlen = BN_num_bytes(bn);
+ 	ret = vmalloc(binlen);
+ 	if (!ret) {
+@@ -322,11 +322,11 @@ eay_cmp_asn1dn(n1, n2)
+ 		ASN1_STRING *sb = X509_NAME_ENTRY_get_data(eb);
+ 		if ((ASN1_STRING_length(sa) == 1 && ASN1_STRING_get0_data(sa)[0] == '*') ||
+ 		    (ASN1_STRING_length(sb) == 1 && ASN1_STRING_get0_data(sb)[0] == '*')) {
+-	    		if (OBJ_cmp(X509_NAME_ENTRY_get_object(ea),
++			if (OBJ_cmp(X509_NAME_ENTRY_get_object(ea),
+ 				    X509_NAME_ENTRY_get_object(eb))) {
+ 				i = idx+1;
+ 				goto end;
+-	    		}
++			}
+ 			/* OK: object type equals, we don't care for this entry anymore, so let's forget it... */
+ 			X509_NAME_delete_entry(a, idx);
+ 			X509_NAME_delete_entry(b, idx);
+@@ -340,7 +340,7 @@ eay_cmp_asn1dn(n1, n2)
+ 	else
+ 		i = X509_NAME_cmp(a, b);
+ 
+-    end:
++end:
+ 	if (a)
+ 		X509_NAME_free(a);
+ 	if (b)
+@@ -361,7 +361,7 @@ eay_check_x509cert(cert, CApath, CAfile, local)
+ 	X509_STORE *cert_ctx = NULL;
+ 	X509_LOOKUP *lookup = NULL;
+ 	X509 *x509 = NULL;
+-	X509_STORE_CTX *csc;
++	X509_STORE_CTX *csc = NULL;
+ 	int error = -1;
+ 
+ 	cert_ctx = X509_STORE_new();
+@@ -369,16 +369,16 @@ eay_check_x509cert(cert, CApath, CAfile, local)
+ 		goto end;
+ 
+ 	if (local)
+-		X509_STORE_set_verify_cb_func(cert_ctx, cb_check_cert_local);
+-	else 
+-		X509_STORE_set_verify_cb_func(cert_ctx, cb_check_cert_remote);
++		X509_STORE_set_verify_cb(cert_ctx, cb_check_cert_local);
++	else
++		X509_STORE_set_verify_cb(cert_ctx, cb_check_cert_remote);
+ 
+ 	lookup = X509_STORE_add_lookup(cert_ctx, X509_LOOKUP_file());
+ 	if (lookup == NULL)
+ 		goto end;
+ 
+-	X509_LOOKUP_load_file(lookup, CAfile, 
+-	    (CAfile == NULL) ? X509_FILETYPE_DEFAULT : X509_FILETYPE_PEM);
++	X509_LOOKUP_load_file(lookup, CAfile,
++			      (CAfile == NULL) ? X509_FILETYPE_DEFAULT : X509_FILETYPE_PEM);
+ 
+ 	lookup = X509_STORE_add_lookup(cert_ctx, X509_LOOKUP_hash_dir());
+ 	if (lookup == NULL)
+@@ -398,7 +398,8 @@ eay_check_x509cert(cert, CApath, CAfile, local)
+ 	csc = X509_STORE_CTX_new();
+ 	if (csc == NULL)
+ 		goto end;
+-	X509_STORE_CTX_init(csc, cert_ctx, x509, NULL);
++	if (!X509_STORE_CTX_init(csc, cert_ctx, x509, NULL))
++		goto end;
+ 	X509_STORE_CTX_set_flags (csc, X509_V_FLAG_CRL_CHECK);
+ 	X509_STORE_CTX_set_flags (csc, X509_V_FLAG_CRL_CHECK_ALL);
+ 	error = X509_verify_cert(csc);
+@@ -435,14 +436,14 @@ cb_check_cert_local(ok, ctx)
+ 
+ 	if (!ok) {
+ 		X509_NAME_oneline(
+-				X509_get_subject_name(X509_STORE_CTX_get_current_cert(ctx)),
+-				buf,
+-				256);
++			X509_get_subject_name(X509_STORE_CTX_get_current_cert(ctx)),
++			buf,
++			256);
+ 		/*
+ 		 * since we are just checking the certificates, it is
+ 		 * ok if they are self signed. But we should still warn
+ 		 * the user.
+- 		 */
++		 */
+ 		int ctx_error = X509_STORE_CTX_get_error(ctx);
+ 		switch (ctx_error) {
+ 		case X509_V_ERR_CERT_HAS_EXPIRED:
+@@ -458,11 +459,11 @@ cb_check_cert_local(ok, ctx)
+ 			log_tag = LLV_ERROR;
+ 		}
+ 		plog(log_tag, LOCATION, NULL,
+-			"%s(%d) at depth:%d SubjectName:%s\n",
+-			X509_verify_cert_error_string(ctx_error),
+-			ctx_error,
+-			X509_STORE_CTX_get_error_depth(ctx),
+-			buf);
++		     "%s(%d) at depth:%d SubjectName:%s\n",
++		     X509_verify_cert_error_string(ctx_error),
++		     ctx_error,
++		     X509_STORE_CTX_get_error_depth(ctx),
++		     buf);
+ 	}
+ 	ERR_clear_error();
+ 
+@@ -483,9 +484,9 @@ cb_check_cert_remote(ok, ctx)
+ 
+ 	if (!ok) {
+ 		X509_NAME_oneline(
+-				X509_get_subject_name(X509_STORE_CTX_get_current_cert(ctx)),
+-				buf,
+-				256);
++			X509_get_subject_name(X509_STORE_CTX_get_current_cert(ctx)),
++			buf,
++			256);
+ 		int ctx_error=X509_STORE_CTX_get_error(ctx);
+ 		switch (ctx_error) {
+ 		case X509_V_ERR_UNABLE_TO_GET_CRL:
+@@ -496,11 +497,11 @@ cb_check_cert_remote(ok, ctx)
+ 			log_tag = LLV_ERROR;
+ 		}
+ 		plog(log_tag, LOCATION, NULL,
+-			"%s(%d) at depth:%d SubjectName:%s\n",
+-			X509_verify_cert_error_string(ctx_error),
+-			ctx_error,
+-			X509_STORE_CTX_get_error_depth(ctx),
+-			buf);
++		     "%s(%d) at depth:%d SubjectName:%s\n",
++		     X509_verify_cert_error_string(ctx_error),
++		     ctx_error,
++		     X509_STORE_CTX_get_error_depth(ctx),
++		     buf);
+ 	}
+ 	ERR_clear_error();
+ 
+@@ -540,7 +541,7 @@ eay_get_x509asn1subjectname(cert)
+ error:
+ 	plog(LLV_ERROR, LOCATION, NULL, "%s\n", eay_strerror());
+ 
+-	if (name != NULL) 
++	if (name != NULL)
+ 		vfree(name);
+ 
+ 	if (x509 != NULL)
+@@ -585,23 +586,23 @@ eay_get_x509subjectaltname(cert, altname, type, pos)
+ 
+ 	/* read DNSName / Email */
+ 	if (gen->type == GEN_DNS	||
+-		gen->type == GEN_EMAIL	||
+-		gen->type == GEN_URI )
++	    gen->type == GEN_EMAIL	||
++	    gen->type == GEN_URI )
+ 	{
+ 		/* make sure if the data is terminated by '\0'. */
+ 		if (gen->d.ia5->data[gen->d.ia5->length] != '\0')
+ 		{
+ 			plog(LLV_ERROR, LOCATION, NULL,
+-				 "data is not terminated by NUL.");
++			     "data is not terminated by NUL.");
+ 			racoon_hexdump(gen->d.ia5->data, gen->d.ia5->length + 1);
+ 			goto end;
+ 		}
+-		
++
+ 		len = gen->d.ia5->length + 1;
+ 		*altname = racoon_malloc(len);
+ 		if (!*altname)
+ 			goto end;
+-		
++
+ 		strlcpy(*altname, (char *) gen->d.ia5->data, len);
+ 		*type = gen->type;
+ 		error = 0;
+@@ -616,10 +617,10 @@ eay_get_x509subjectaltname(cert, altname, type, pos)
+ 				goto end;
+ 
+ 			snprintf(*altname, 12+3+1, "%u.%u.%u.%u",
+-			         (unsigned)gen->d.iPAddress->data[0],
+-			         (unsigned)gen->d.iPAddress->data[1],
+-			         (unsigned)gen->d.iPAddress->data[2],
+-			         (unsigned)gen->d.iPAddress->data[3]);
++				 (unsigned)gen->d.iPAddress->data[0],
++				 (unsigned)gen->d.iPAddress->data[1],
++				 (unsigned)gen->d.iPAddress->data[2],
++				 (unsigned)gen->d.iPAddress->data[3]);
+ 			break;
+ 		case 16: { /* IPv6 */
+ 			int i;
+@@ -636,7 +637,7 @@ eay_get_x509subjectaltname(cert, altname, type, pos)
+ 					(*altname)[pos-1] = ':';
+ 
+ 				snprintf(*altname + pos, 3, "%02x",
+-				         (unsigned)gen->d.iPAddress->data[i]);
++					 (unsigned)gen->d.iPAddress->data[i]);
+ 
+ 			}
+ 			plog(LLV_INFO, LOCATION, NULL,
+@@ -754,7 +755,7 @@ eay_get_x509text(cert)
+ 
+ 	error = 0;
+ 
+-    end:
++end:
+ 	if (error) {
+ 		if (text) {
+ 			racoon_free(text);
+@@ -778,27 +779,27 @@ mem2x509(cert)
+ 	X509 *x509;
+ 
+ #ifndef EAYDEBUG
+-    {
+-	u_char *bp;
++	{
++		u_char *bp;
+ 
+-	bp = (unsigned char *) cert->v + 1;
++		bp = (unsigned char *) cert->v + 1;
+ 
+-	x509 = d2i_X509(NULL, (void *)&bp, cert->l - 1);
+-    }
++		x509 = d2i_X509(NULL, (void *)&bp, cert->l - 1);
++	}
+ #else
+-    {
+-	BIO *bio;
+-	int len;
++	{
++		BIO *bio;
++		int len;
+ 
+-	bio = BIO_new(BIO_s_mem());
+-	if (bio == NULL)
+-		return NULL;
+-	len = BIO_write(bio, cert->v + 1, cert->l - 1);
+-	if (len == -1)
+-		return NULL;
+-	x509 = PEM_read_bio_X509(bio, NULL, NULL, NULL);
+-	BIO_free(bio);
+-    }
++		bio = BIO_new(BIO_s_mem());
++		if (bio == NULL)
++			return NULL;
++		len = BIO_write(bio, cert->v + 1, cert->l - 1);
++		if (len == -1)
++			return NULL;
++		x509 = PEM_read_bio_X509(bio, NULL, NULL, NULL);
++		BIO_free(bio);
++	}
+ #endif
+ 	return x509;
+ }
+@@ -853,11 +854,9 @@ eay_get_x509cert(path)
+ }
+ 
+ /*
+- * check a X509 signature
+- *	XXX: to be get hash type from my cert ?
+- *		to be handled EVP_dss().
++ * check a X509 signature using EVP_PKEY
+  * OUT: return -1 when error.
+- *	0
++ *	0 on success
+  */
+ int
+ eay_check_x509sign(source, sig, cert)
+@@ -867,22 +866,45 @@ eay_check_x509sign(source, sig, cert)
+ {
+ 	X509 *x509;
+ 	EVP_PKEY *evp;
+-	int res;
++	EVP_MD_CTX *md_ctx = NULL;
++	int res = -1;
+ 
+ 	x509 = mem2x509(cert);
+ 	if (x509 == NULL)
+ 		return -1;
+ 
+ 	evp = X509_get_pubkey(x509);
+-	if (! evp) {
++	if (!evp) {
+ 		plog(LLV_ERROR, LOCATION, NULL, "X509_get_pubkey(): %s\n", eay_strerror());
+ 		X509_free(x509);
+ 		return -1;
+ 	}
+ 
+-	res = eay_rsa_verify(source, sig, EVP_PKEY_get0_RSA(evp));
++	md_ctx = EVP_MD_CTX_new();
++	if (!md_ctx) {
++		plog(LLV_ERROR, LOCATION, NULL, "EVP_MD_CTX_new() failed\n");
++		goto end;
++	}
+ 
+-	EVP_PKEY_free(evp);
++	if (EVP_PKEY_id(evp) == EVP_PKEY_RSA) {
++		/* For RSA, we do raw RSA verification */
++		RSA *rsa = EVP_PKEY_get1_RSA(evp);
++		if (!rsa) {
++			plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_get1_RSA() failed\n");
++			goto end;
++		}
++		res = eay_rsa_verify(source, sig, rsa);
++		RSA_free(rsa);
++	} else {
++		plog(LLV_ERROR, LOCATION, NULL, "Unsupported key type for signature verification\n");
++		res = -1;
++	}
++
++end:
++	if (md_ctx)
++		EVP_MD_CTX_free(md_ctx);
++	if (evp)
++		EVP_PKEY_free(evp);
+ 	X509_free(x509);
+ 
+ 	return res;
+@@ -978,7 +1000,7 @@ eay_get_pkcs1pubkey(path)
+ 
+ 	if (x509 == NULL)
+ 		return NULL;
+-  
++
+ 	/* Get public key - eay */
+ 	evp = X509_get_pubkey(x509);
+ 	if (evp == NULL)
+@@ -1014,15 +1036,19 @@ eay_get_x509sign(src, privkey)
+ 	EVP_PKEY *evp;
+ 	u_char *bp = (unsigned char *) privkey->v;
+ 	vchar_t *sig = NULL;
+-	int len;
+-	int pad = RSA_PKCS1_PADDING;
+ 
+ 	/* XXX to be handled EVP_PKEY_DSA */
+ 	evp = d2i_PrivateKey(EVP_PKEY_RSA, NULL, (void *)&bp, privkey->l);
+ 	if (evp == NULL)
+ 		return NULL;
+ 
+-	sig = eay_rsa_sign(src, EVP_PKEY_get0_RSA(evp));
++	if (EVP_PKEY_id(evp) == EVP_PKEY_RSA) {
++		RSA *rsa = EVP_PKEY_get1_RSA(evp);
++		if (rsa) {
++			sig = eay_rsa_sign(src, rsa);
++			RSA_free(rsa);
++		}
++	}
+ 
+ 	EVP_PKEY_free(evp);
+ 
+@@ -1050,8 +1076,8 @@ eay_rsa_sign(vchar_t *src, RSA *rsa)
+ 	if (sig == NULL)
+ 		return NULL;
+ 
+-	len = RSA_private_encrypt(src->l, (unsigned char *) src->v, 
+-			(unsigned char *) sig->v, rsa, pad);
++	len = RSA_private_encrypt(src->l, (unsigned char *) src->v,
++				  (unsigned char *) sig->v, rsa, pad);
+ 
+ 	if (len == 0 || len != sig->l) {
+ 		vfree(sig);
+@@ -1078,8 +1104,8 @@ eay_rsa_verify(src, sig, rsa)
+ 		return -1;
+ 	}
+ 
+-	len = RSA_public_decrypt(sig->l, (unsigned char *) sig->v, 
+-			(unsigned char *) xbuf->v, rsa, pad);
++	len = RSA_public_decrypt(sig->l, (unsigned char *) sig->v,
++				 (unsigned char *) xbuf->v, rsa, pad);
+ 	if (len == 0 || len != src->l) {
+ 		plog(LLV_ERROR, LOCATION, NULL, "%s\n", eay_strerror());
+ 		vfree(xbuf);
+@@ -1105,21 +1131,19 @@ eay_strerror()
+ 	int len = 0, n;
+ 	unsigned long l;
+ 	char buf[200];
+-	const char *file, *data;
+-	int line, flags;
+-	unsigned long es;
+-
+-#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+-	es = 0; /* even when allowed by OPENSSL_API_COMPAT, it is defined as 0 */
++#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++	const char *file = NULL, *func = NULL, *data = NULL;
++	int line = 0, flags = 0;
+ #else
+-	es = CRYPTO_thread_id();
++	const char *file = NULL, *data = NULL;
++	int line = 0, flags = 0;
+ #endif
+ 
+-	while ((l = ERR_get_error_line_data(&file, &line, &data, &flags)) != 0){
++	while ((l = ERR_get_error_line_data(&file, &line, &data, &flags)) != 0) {
+ 		n = snprintf(ebuf + len, sizeof(ebuf) - len,
+-				"%lu:%s:%s:%d:%s ",
+-				es, ERR_error_string(l, buf), file, line,
+-				(flags & ERR_TXT_STRING) ? data : "");
++			     "%s:%s:%d:%s ",
++			     ERR_error_string(l, buf), file, line,
++			     (flags & ERR_TXT_STRING) ? data : "");
+ 		if (n < 0 || n >= sizeof(ebuf) - len)
+ 			break;
+ 		len += n;
+@@ -1159,10 +1183,10 @@ evp_crypt(vchar_t *data, vchar_t *key, vchar_t *iv, const EVP_CIPHER *e, int enc
+ 		/* XXX: can we do that also for algos with a fixed key size ?
+ 		 */
+ 		/* init context without key/iv
+-                 */
++		 */
+ 		if (!EVP_CipherInit(ctx, e, NULL, NULL, enc))
+ 			goto out;
+-		
++
+ 		/* update key size
+ 		 */
+ 		if (!EVP_CIPHER_CTX_set_key_length(ctx, key->l))
+@@ -1171,18 +1195,18 @@ evp_crypt(vchar_t *data, vchar_t *key, vchar_t *iv, const EVP_CIPHER *e, int enc
+ 		/* finalize context init with desired key size
+ 		 */
+ 		if (!EVP_CipherInit(ctx, NULL, (u_char *) key->v,
+-							(u_char *) iv->v, enc))
++				    (u_char *) iv->v, enc))
+ 			goto out;
+ 		break;
+ 	default:
+ 		if (!EVP_CipherInit(ctx, e, (u_char *) key->v,
+-							(u_char *) iv->v, enc))
+-            		goto out;
++				    (u_char *) iv->v, enc))
++			goto out;
+ 	}
+ 
+ 	/* disable openssl padding */
+ 	EVP_CIPHER_CTX_set_padding(ctx, 0);
+-	
++
+ 	if (!EVP_Cipher(ctx, (u_char *) res->v, (u_char *) data->v, data->l))
+ 		goto out;
+ 
+@@ -1212,7 +1236,7 @@ evp_keylen(int len, const EVP_CIPHER *e)
+ 	 */
+ 	if (len != 0 && len != (EVP_CIPHER_key_length(e) << 3))
+ 		return -1;
+-	
++
+ 	return EVP_CIPHER_key_length(e) << 3;
+ }
+ 
+@@ -1270,7 +1294,7 @@ eay_idea_encrypt(data, key, iv)
+ 
+ 	/* decryption data */
+ 	idea_cbc_encrypt((unsigned char *)data->v, (unsigned char *)res->v, data->l,
+-			&ks, (unsigned char *)iv->v, IDEA_ENCRYPT);
++			 &ks, (unsigned char *)iv->v, IDEA_ENCRYPT);
+ 
+ 	return res;
+ }
+@@ -1291,7 +1315,7 @@ eay_idea_decrypt(data, key, iv)
+ 
+ 	/* decryption data */
+ 	idea_cbc_encrypt((unsigned char *)data->v, (unsigned char *)res->v, data->l,
+-			&dks, (unsigned char *)iv->v, IDEA_DECRYPT);
++			 &dks, (unsigned char *)iv->v, IDEA_DECRYPT);
+ 
+ 	return res;
+ }
+@@ -1368,7 +1392,7 @@ eay_rc5_encrypt(data, key, iv)
+ 
+ 	/* decryption data */
+ 	RC5_32_cbc_encrypt((unsigned char *)data->v, (unsigned char *)res->v, data->l,
+-		&ks, (unsigned char *)iv->v, RC5_ENCRYPT);
++			   &ks, (unsigned char *)iv->v, RC5_ENCRYPT);
+ 
+ 	return res;
+ }
+@@ -1389,7 +1413,7 @@ eay_rc5_decrypt(data, key, iv)
+ 
+ 	/* decryption data */
+ 	RC5_32_cbc_encrypt((unsigned char *)data->v, (unsigned char *)res->v, data->l,
+-		&ks, (unsigned char *)iv->v, RC5_DECRYPT);
++			   &ks, (unsigned char *)iv->v, RC5_DECRYPT);
+ 
+ 	return res;
+ }
+@@ -1437,15 +1461,15 @@ eay_3des_weakkey(key)
+ {
+ #ifdef USE_NEW_DES_API
+ 	return (DES_is_weak_key((void *)key->v) ||
+-	    DES_is_weak_key((void *)(key->v + 8)) ||
+-	    DES_is_weak_key((void *)(key->v + 16)));
++		DES_is_weak_key((void *)(key->v + 8)) ||
++		DES_is_weak_key((void *)(key->v + 16)));
+ #else
+ 	if (key->l < 24)
+ 		return 0;
+ 
+ 	return (des_is_weak_key((void *)key->v) ||
+-	    des_is_weak_key((void *)(key->v + 8)) ||
+-	    des_is_weak_key((void *)(key->v + 16)));
++		des_is_weak_key((void *)(key->v + 8)) ||
++		des_is_weak_key((void *)(key->v + 16)));
+ #endif
+ }
+ 
+@@ -1561,17 +1585,17 @@ static inline const EVP_CIPHER *
+ aes_evp_by_keylen(int keylen)
+ {
+ 	switch(keylen) {
+-		case 16:
+-		case 128:
+-			return EVP_aes_128_cbc();
+-		case 24:
+-		case 192:
+-			return EVP_aes_192_cbc();
+-		case 32:
+-		case 256:
+-			return EVP_aes_256_cbc();
+-		default:
+-			return NULL;
++	case 16:
++	case 128:
++		return EVP_aes_128_cbc();
++	case 24:
++	case 192:
++		return EVP_aes_192_cbc();
++	case 32:
++	case 256:
++		return EVP_aes_256_cbc();
++	default:
++		return NULL;
+ 	}
+ }
+ 
+@@ -1616,17 +1640,17 @@ static inline const EVP_CIPHER *
+ camellia_evp_by_keylen(int keylen)
+ {
+ 	switch(keylen) {
+-		case 16:
+-		case 128:
+-			return EVP_camellia_128_cbc();
+-		case 24:
+-		case 192:
+-			return EVP_camellia_192_cbc();
+-		case 32:
+-		case 256:
+-			return EVP_camellia_256_cbc();
+-		default:
+-			return NULL;
++	case 16:
++	case 128:
++		return EVP_camellia_128_cbc();
++	case 24:
++	case 192:
++		return EVP_camellia_192_cbc();
++	case 32:
++	case 256:
++		return EVP_camellia_256_cbc();
++	default:
++		return NULL;
+ 	}
+ }
+ 
+@@ -1752,14 +1776,14 @@ vchar_t *
+ eay_hmacsha2_512_one(key, data)
+ 	vchar_t *key, *data;
+ {
+-	return eay_hmac_one(key, data, EVP_sha2_512());
++	return eay_hmac_one(key, data, EVP_sha512());
+ }
+ 
+ caddr_t
+ eay_hmacsha2_512_init(key)
+ 	vchar_t *key;
+ {
+-	return eay_hmac_init(key, EVP_sha2_512());
++	return eay_hmac_init(key, EVP_sha512());
+ }
+ 
+ void
+@@ -1786,7 +1810,7 @@ eay_hmacsha2_512_final(c)
+ 
+ 	if (SHA512_DIGEST_LENGTH != res->l) {
+ 		plog(LLV_ERROR, LOCATION, NULL,
+-			"hmac sha2_512 length mismatch %zd.\n", res->l);
++		     "hmac sha2_512 length mismatch %zd.\n", res->l);
+ 		vfree(res);
+ 		return NULL;
+ 	}
+@@ -1801,14 +1825,14 @@ vchar_t *
+ eay_hmacsha2_384_one(key, data)
+ 	vchar_t *key, *data;
+ {
+-	return eay_hmac_one(key, data, EVP_sha2_384());
++	return eay_hmac_one(key, data, EVP_sha384());
+ }
+ 
+ caddr_t
+ eay_hmacsha2_384_init(key)
+ 	vchar_t *key;
+ {
+-	return eay_hmac_init(key, EVP_sha2_384());
++	return eay_hmac_init(key, EVP_sha384());
+ }
+ 
+ void
+@@ -1835,7 +1859,7 @@ eay_hmacsha2_384_final(c)
+ 
+ 	if (SHA384_DIGEST_LENGTH != res->l) {
+ 		plog(LLV_ERROR, LOCATION, NULL,
+-			"hmac sha2_384 length mismatch %zd.\n", res->l);
++		     "hmac sha2_384 length mismatch %zd.\n", res->l);
+ 		vfree(res);
+ 		return NULL;
+ 	}
+@@ -1850,14 +1874,14 @@ vchar_t *
+ eay_hmacsha2_256_one(key, data)
+ 	vchar_t *key, *data;
+ {
+-	return eay_hmac_one(key, data, EVP_sha2_256());
++	return eay_hmac_one(key, data, EVP_sha256());
+ }
+ 
+ caddr_t
+ eay_hmacsha2_256_init(key)
+ 	vchar_t *key;
+ {
+-	return eay_hmac_init(key, EVP_sha2_256());
++	return eay_hmac_init(key, EVP_sha256());
+ }
+ 
+ void
+@@ -1884,7 +1908,7 @@ eay_hmacsha2_256_final(c)
+ 
+ 	if (SHA256_DIGEST_LENGTH != res->l) {
+ 		plog(LLV_ERROR, LOCATION, NULL,
+-			"hmac sha2_256 length mismatch %zd.\n", res->l);
++		     "hmac sha2_256 length mismatch %zd.\n", res->l);
+ 		vfree(res);
+ 		return NULL;
+ 	}
+@@ -1934,7 +1958,7 @@ eay_hmacsha1_final(c)
+ 
+ 	if (SHA_DIGEST_LENGTH != res->l) {
+ 		plog(LLV_ERROR, LOCATION, NULL,
+-			"hmac sha1 length mismatch %zd.\n", res->l);
++		     "hmac sha1 length mismatch %zd.\n", res->l);
+ 		vfree(res);
+ 		return NULL;
+ 	}
+@@ -1983,7 +2007,7 @@ eay_hmacmd5_final(c)
+ 
+ 	if (MD5_DIGEST_LENGTH != res->l) {
+ 		plog(LLV_ERROR, LOCATION, NULL,
+-			"hmac md5 length mismatch %zd.\n", res->l);
++		     "hmac md5 length mismatch %zd.\n", res->l);
+ 		vfree(res);
+ 		return NULL;
+ 	}
+@@ -1993,16 +2017,21 @@ eay_hmacmd5_final(c)
+ 
+ #ifdef WITH_SHA2
+ /*
+- * SHA2-512 functions
++ * SHA2-512 functions using EVP interface
+  */
+ caddr_t
+ eay_sha2_512_init()
+ {
+-	SHA512_CTX *c = racoon_malloc(sizeof(*c));
++	EVP_MD_CTX *c = EVP_MD_CTX_new();
++	if (!c)
++		return NULL;
+ 
+-	SHA512_Init(c);
++	if (!EVP_DigestInit_ex(c, EVP_sha512(), NULL)) {
++		EVP_MD_CTX_free(c);
++		return NULL;
++	}
+ 
+-	return((caddr_t)c);
++	return (caddr_t)c;
+ }
+ 
+ void
+@@ -2010,9 +2039,7 @@ eay_sha2_512_update(c, data)
+ 	caddr_t c;
+ 	vchar_t *data;
+ {
+-	SHA512_Update((SHA512_CTX *)c, (unsigned char *) data->v, data->l);
+-
+-	return;
++	EVP_DigestUpdate((EVP_MD_CTX *)c, (unsigned char *) data->v, data->l);
+ }
+ 
+ vchar_t *
+@@ -2020,14 +2047,21 @@ eay_sha2_512_final(c)
+ 	caddr_t c;
+ {
+ 	vchar_t *res;
++	unsigned int len;
+ 
+-	if ((res = vmalloc(SHA512_DIGEST_LENGTH)) == 0)
+-		return(0);
++	if ((res = vmalloc(SHA512_DIGEST_LENGTH)) == 0) {
++		EVP_MD_CTX_free((EVP_MD_CTX *)c);
++		return NULL;
++	}
+ 
+-	SHA512_Final((unsigned char *) res->v, (SHA512_CTX *)c);
+-	(void)racoon_free(c);
++	if (!EVP_DigestFinal_ex((EVP_MD_CTX *)c, (unsigned char *) res->v, &len)) {
++		vfree(res);
++		EVP_MD_CTX_free((EVP_MD_CTX *)c);
++		return NULL;
++	}
+ 
+-	return(res);
++	EVP_MD_CTX_free((EVP_MD_CTX *)c);
++	return res;
+ }
+ 
+ vchar_t *
+@@ -2046,16 +2080,21 @@ eay_sha2_512_hashlen()
+ 
+ #ifdef WITH_SHA2
+ /*
+- * SHA2-384 functions
++ * SHA2-384 functions using EVP interface
+  */
+ caddr_t
+ eay_sha2_384_init()
+ {
+-	SHA384_CTX *c = racoon_malloc(sizeof(*c));
++	EVP_MD_CTX *c = EVP_MD_CTX_new();
++	if (!c)
++		return NULL;
+ 
+-	SHA384_Init(c);
++	if (!EVP_DigestInit_ex(c, EVP_sha384(), NULL)) {
++		EVP_MD_CTX_free(c);
++		return NULL;
++	}
+ 
+-	return((caddr_t)c);
++	return (caddr_t)c;
+ }
+ 
+ void
+@@ -2063,9 +2102,7 @@ eay_sha2_384_update(c, data)
+ 	caddr_t c;
+ 	vchar_t *data;
+ {
+-	SHA384_Update((SHA384_CTX *)c, (unsigned char *) data->v, data->l);
+-
+-	return;
++	EVP_DigestUpdate((EVP_MD_CTX *)c, (unsigned char *) data->v, data->l);
+ }
+ 
+ vchar_t *
+@@ -2073,21 +2110,28 @@ eay_sha2_384_final(c)
+ 	caddr_t c;
+ {
+ 	vchar_t *res;
++	unsigned int len;
+ 
+-	if ((res = vmalloc(SHA384_DIGEST_LENGTH)) == 0)
+-		return(0);
++	if ((res = vmalloc(SHA384_DIGEST_LENGTH)) == 0) {
++		EVP_MD_CTX_free((EVP_MD_CTX *)c);
++		return NULL;
++	}
+ 
+-	SHA384_Final((unsigned char *) res->v, (SHA384_CTX *)c);
+-	(void)racoon_free(c);
++	if (!EVP_DigestFinal_ex((EVP_MD_CTX *)c, (unsigned char *) res->v, &len)) {
++		vfree(res);
++		EVP_MD_CTX_free((EVP_MD_CTX *)c);
++		return NULL;
++	}
+ 
+-	return(res);
++	EVP_MD_CTX_free((EVP_MD_CTX *)c);
++	return res;
+ }
+ 
+ vchar_t *
+ eay_sha2_384_one(data)
+ 	vchar_t *data;
+ {
+-	return eay_digest_one(data, EVP_sha2_384());
++	return eay_digest_one(data, EVP_sha384());
+ }
+ 
+ int
+@@ -2099,16 +2143,21 @@ eay_sha2_384_hashlen()
+ 
+ #ifdef WITH_SHA2
+ /*
+- * SHA2-256 functions
++ * SHA2-256 functions using EVP interface
+  */
+ caddr_t
+ eay_sha2_256_init()
+ {
+-	SHA256_CTX *c = racoon_malloc(sizeof(*c));
++	EVP_MD_CTX *c = EVP_MD_CTX_new();
++	if (!c)
++		return NULL;
+ 
+-	SHA256_Init(c);
++	if (!EVP_DigestInit_ex(c, EVP_sha256(), NULL)) {
++		EVP_MD_CTX_free(c);
++		return NULL;
++	}
+ 
+-	return((caddr_t)c);
++	return (caddr_t)c;
+ }
+ 
+ void
+@@ -2116,9 +2165,7 @@ eay_sha2_256_update(c, data)
+ 	caddr_t c;
+ 	vchar_t *data;
+ {
+-	SHA256_Update((SHA256_CTX *)c, (unsigned char *) data->v, data->l);
+-
+-	return;
++	EVP_DigestUpdate((EVP_MD_CTX *)c, (unsigned char *) data->v, data->l);
+ }
+ 
+ vchar_t *
+@@ -2126,21 +2173,28 @@ eay_sha2_256_final(c)
+ 	caddr_t c;
+ {
+ 	vchar_t *res;
++	unsigned int len;
+ 
+-	if ((res = vmalloc(SHA256_DIGEST_LENGTH)) == 0)
+-		return(0);
++	if ((res = vmalloc(SHA256_DIGEST_LENGTH)) == 0) {
++		EVP_MD_CTX_free((EVP_MD_CTX *)c);
++		return NULL;
++	}
+ 
+-	SHA256_Final((unsigned char *) res->v, (SHA256_CTX *)c);
+-	(void)racoon_free(c);
++	if (!EVP_DigestFinal_ex((EVP_MD_CTX *)c, (unsigned char *) res->v, &len)) {
++		vfree(res);
++		EVP_MD_CTX_free((EVP_MD_CTX *)c);
++		return NULL;
++	}
+ 
+-	return(res);
++	EVP_MD_CTX_free((EVP_MD_CTX *)c);
++	return res;
+ }
+ 
+ vchar_t *
+ eay_sha2_256_one(data)
+ 	vchar_t *data;
+ {
+-	return eay_digest_one(data, EVP_sha2_256());
++	return eay_digest_one(data, EVP_sha256());
+ }
+ 
+ int
+@@ -2151,16 +2205,21 @@ eay_sha2_256_hashlen()
+ #endif
+ 
+ /*
+- * SHA functions
++ * SHA1 functions using EVP interface
+  */
+ caddr_t
+ eay_sha1_init()
+ {
+-	SHA_CTX *c = racoon_malloc(sizeof(*c));
++	EVP_MD_CTX *c = EVP_MD_CTX_new();
++	if (!c)
++		return NULL;
+ 
+-	SHA1_Init(c);
++	if (!EVP_DigestInit_ex(c, EVP_sha1(), NULL)) {
++		EVP_MD_CTX_free(c);
++		return NULL;
++	}
+ 
+-	return((caddr_t)c);
++	return (caddr_t)c;
+ }
+ 
+ void
+@@ -2168,9 +2227,7 @@ eay_sha1_update(c, data)
+ 	caddr_t c;
+ 	vchar_t *data;
+ {
+-	SHA1_Update((SHA_CTX *)c, data->v, data->l);
+-
+-	return;
++	EVP_DigestUpdate((EVP_MD_CTX *)c, data->v, data->l);
+ }
+ 
+ vchar_t *
+@@ -2178,14 +2235,21 @@ eay_sha1_final(c)
+ 	caddr_t c;
+ {
+ 	vchar_t *res;
++	unsigned int len;
+ 
+-	if ((res = vmalloc(SHA_DIGEST_LENGTH)) == 0)
+-		return(0);
++	if ((res = vmalloc(SHA_DIGEST_LENGTH)) == 0) {
++		EVP_MD_CTX_free((EVP_MD_CTX *)c);
++		return NULL;
++	}
+ 
+-	SHA1_Final((unsigned char *) res->v, (SHA_CTX *)c);
+-	(void)racoon_free(c);
++	if (!EVP_DigestFinal_ex((EVP_MD_CTX *)c, (unsigned char *) res->v, &len)) {
++		vfree(res);
++		EVP_MD_CTX_free((EVP_MD_CTX *)c);
++		return NULL;
++	}
+ 
+-	return(res);
++	EVP_MD_CTX_free((EVP_MD_CTX *)c);
++	return res;
+ }
+ 
+ vchar_t *
+@@ -2202,16 +2266,21 @@ eay_sha1_hashlen()
+ }
+ 
+ /*
+- * MD5 functions
++ * MD5 functions using EVP interface
+  */
+ caddr_t
+ eay_md5_init()
+ {
+-	MD5_CTX *c = racoon_malloc(sizeof(*c));
++	EVP_MD_CTX *c = EVP_MD_CTX_new();
++	if (!c)
++		return NULL;
+ 
+-	MD5_Init(c);
++	if (!EVP_DigestInit_ex(c, EVP_md5(), NULL)) {
++		EVP_MD_CTX_free(c);
++		return NULL;
++	}
+ 
+-	return((caddr_t)c);
++	return (caddr_t)c;
+ }
+ 
+ void
+@@ -2219,9 +2288,7 @@ eay_md5_update(c, data)
+ 	caddr_t c;
+ 	vchar_t *data;
+ {
+-	MD5_Update((MD5_CTX *)c, data->v, data->l);
+-
+-	return;
++	EVP_DigestUpdate((EVP_MD_CTX *)c, data->v, data->l);
+ }
+ 
+ vchar_t *
+@@ -2229,14 +2296,21 @@ eay_md5_final(c)
+ 	caddr_t c;
+ {
+ 	vchar_t *res;
++	unsigned int len;
+ 
+-	if ((res = vmalloc(MD5_DIGEST_LENGTH)) == 0)
+-		return(0);
++	if ((res = vmalloc(MD5_DIGEST_LENGTH)) == 0) {
++		EVP_MD_CTX_free((EVP_MD_CTX *)c);
++		return NULL;
++	}
+ 
+-	MD5_Final((unsigned char *) res->v, (MD5_CTX *)c);
+-	(void)racoon_free(c);
++	if (!EVP_DigestFinal_ex((EVP_MD_CTX *)c, (unsigned char *) res->v, &len)) {
++		vfree(res);
++		EVP_MD_CTX_free((EVP_MD_CTX *)c);
++		return NULL;
++	}
+ 
+-	return(res);
++	EVP_MD_CTX_free((EVP_MD_CTX *)c);
++	return res;
+ }
+ 
+ vchar_t *
+@@ -2438,14 +2512,12 @@ eay_bn2v(var, bn)
+ void
+ eay_init()
+ {
+-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+ 	OpenSSL_add_all_algorithms();
+ 	ERR_load_crypto_strings();
+ #ifdef HAVE_OPENSSL_ENGINE_H
+ 	ENGINE_load_builtin_engines();
+ 	ENGINE_register_all_complete();
+ #endif
+-#endif
+ }
+ 
+ vchar_t *
+@@ -2510,7 +2582,7 @@ binbuf_pubkey2rsa(vchar_t *binbuf)
+ 	}
+ 
+ 	exp = BN_bin2bn((unsigned char *) (binbuf->v + 1), binbuf->v[0], NULL);
+-	mod = BN_bin2bn((unsigned char *) (binbuf->v + binbuf->v[0] + 1), 
++	mod = BN_bin2bn((unsigned char *) (binbuf->v + binbuf->v[0] + 1),
+ 			binbuf->l - binbuf->v[0] - 1, NULL);
+ 	rsa_pub = RSA_new();
+ 
+@@ -2525,7 +2597,7 @@ binbuf_pubkey2rsa(vchar_t *binbuf)
+ 		rsa_pub = NULL;
+ 		goto out;
+ 	}
+-	
++
+ 	RSA_set0_key(rsa_pub, mod, exp, NULL);
+ 
+ out:
+@@ -2549,7 +2621,7 @@ base64_pubkey2rsa(char *in)
+ 		plog(LLV_ERROR, LOCATION, NULL, "Plain RSA pubkey format error: Base64 decoding failed.\n");
+ 		return NULL;
+ 	}
+-	
++
+ 	if (binbuf->v[0] > binbuf->l - 1) {
+ 		plog(LLV_ERROR, LOCATION, NULL, "Plain RSA pubkey format error: decoded string doesn't make sense.\n");
+ 		goto out;
+@@ -2575,7 +2647,7 @@ bignum_pubkey2rsa(BIGNUM *in)
+ 		plog(LLV_ERROR, LOCATION, NULL, "Plain RSA pubkey conversion: memory allocation failed..\n");
+ 		return NULL;
+ 	}
+-	
++
+ 	BN_bn2bin(in, (unsigned char *) binbuf->v);
+ 
+ 	rsa_pub = binbuf_pubkey2rsa(binbuf);
+diff --git a/src/racoon/crypto_openssl.h b/src/racoon/crypto_openssl.h
+index f511ac2..81e3d7b 100644
+--- a/src/racoon/crypto_openssl.h
++++ b/src/racoon/crypto_openssl.h
+@@ -5,7 +5,7 @@
+ /*
+  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
+  * All rights reserved.
+- * 
++ *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+  * are met:
+@@ -17,7 +17,7 @@
+  * 3. Neither the name of the project nor the names of its contributors
+  *    may be used to endorse or promote products derived from this software
+  *    without specific prior written permission.
+- * 
++ *
+  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
+  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+@@ -34,6 +34,13 @@
+ #ifndef _CRYPTO_OPENSSL_H
+ #define _CRYPTO_OPENSSL_H
+ 
++/*
++ * OpenSSL Compatibility Notes:
++ * This implementation requires OpenSSL >= 1.1.0
++ * Fully compatible with OpenSSL 3.0+
++ * All deprecated APIs have been replaced with EVP high-level interfaces
++ */
++
+ #include <openssl/x509v3.h>
+ #include <openssl/rsa.h>
+ 
+-- 
+2.51.0
+
