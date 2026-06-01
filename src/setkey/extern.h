@@ -30,7 +30,7 @@
 void parse_init(void);
 
 /* token.l */
-int parse(const char *, FILE *);
+int parse_file(const char *, FILE *);
 int parse_string(char *);
 
 /* setkey.c */

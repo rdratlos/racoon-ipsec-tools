@@ -9,9 +9,19 @@
 
 #include "openssl_compat.h"
 
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-
 #include <string.h>
+#include <stdio.h>
+#include <openssl/bio.h>
+#include <openssl/pem.h>
+#include <openssl/err.h>
+
+/* Suppress deprecation warnings for OpenSSL 3.0 low-level API usage */
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 
 static void *OPENSSL_zalloc(size_t num)
 {
@@ -210,4 +220,153 @@ RSA *EVP_PKEY_get0_RSA(EVP_PKEY *pkey)
 }
 
 
-#endif /* OPENSSL_VERSION_NUMBER */
+#endif /* OPENSSL_VERSION_NUMBER < 0x10100000L */
+
+/*
+ * Compatibility functions that work across OpenSSL 1.1.0, 1.1.1, and 3.0+
+ * These use low-level RSA API which is deprecated in 3.0 but still maintained.
+ * All deprecation warnings are suppressed at the top of this file.
+ */
+
+/* Check if RSA key has private component */
+int compat_RSA_has_private(const RSA *rsa)
+{
+	const BIGNUM *d = NULL;
+
+	if (rsa == NULL)
+		return 0;
+
+	RSA_get0_key(rsa, NULL, NULL, &d);
+	return (d != NULL);
+}
+
+/* Duplicate RSA key (handles both public and private keys) */
+RSA *compat_RSA_dup(const RSA *rsa)
+{
+	RSA *ret = NULL;
+
+	if (rsa == NULL)
+		return NULL;
+
+	/* Use i2d/d2i approach which works for all versions.
+     * This creates a true deep copy via DER encoding. */
+	if (compat_RSA_has_private(rsa)) {
+		unsigned char *der = NULL;
+		const unsigned char *der_const = NULL;
+		int der_len = 0;
+
+		/* Encode private key to DER format */
+		der_len = i2d_RSAPrivateKey(rsa, &der);
+		if (der_len <= 0)
+			return NULL;
+
+		/* Decode back to create a new RSA structure */
+		der_const = der;
+		ret = d2i_RSAPrivateKey(NULL, &der_const, der_len);
+		OPENSSL_free(der);
+	} else {
+		unsigned char *der = NULL;
+		const unsigned char *der_const = NULL;
+		int der_len = 0;
+
+		/* Encode public key to DER format */
+		der_len = i2d_RSAPublicKey(rsa, &der);
+		if (der_len <= 0)
+			return NULL;
+
+		/* Decode back to create a new RSA structure */
+		der_const = der;
+		ret = d2i_RSAPublicKey(NULL, &der_const, der_len);
+		OPENSSL_free(der);
+	}
+
+	return ret;
+}
+
+/* Print RSA key to file pointer */
+int compat_RSA_print_fp(FILE *fp, const RSA *rsa, int indent)
+{
+	BIO *bio = NULL;
+	int ret = 0;
+
+	if (rsa == NULL || fp == NULL)
+		return 0;
+
+	/* Create a BIO from the file pointer */
+	bio = BIO_new_fp(fp, BIO_NOCLOSE);
+	if (bio == NULL)
+		return 0;
+
+	/* Use RSA_print which works for all versions */
+	ret = RSA_print(bio, (RSA *)rsa, indent);
+
+	BIO_free(bio);
+	return ret;
+}
+
+/*
+ * Allocate a new RSA key and populate it from individual BIGNUMs.
+ * Takes ownership of all passed BIGNUMs.
+ * Returns NULL on failure (all BIGNUMs are freed on error).
+ */
+RSA *compat_RSA_new_from_params(BIGNUM *n, BIGNUM *e, BIGNUM *d,
+                                BIGNUM *p, BIGNUM *q,
+                                BIGNUM *dmp1, BIGNUM *dmq1, BIGNUM *iqmp)
+{
+	RSA *rsa = RSA_new();
+	if (rsa == NULL) {
+		BN_free(n);
+		BN_free(e);
+		BN_free(d);
+		if (p)    BN_clear_free(p);
+		if (q)    BN_clear_free(q);
+		if (dmp1) BN_clear_free(dmp1);
+		if (dmq1) BN_clear_free(dmq1);
+		if (iqmp) BN_clear_free(iqmp);
+		return NULL;
+	}
+
+	if (!RSA_set0_key(rsa, n, e, d)) {
+		RSA_free(rsa);
+		BN_free(n);
+		BN_free(e);
+		BN_free(d);
+		if (p)    BN_clear_free(p);
+		if (q)    BN_clear_free(q);
+		if (dmp1) BN_clear_free(dmp1);
+		if (dmq1) BN_clear_free(dmq1);
+		if (iqmp) BN_clear_free(iqmp);
+		return NULL;
+	}
+
+	/* Optional CRT parameters - only set if all are present */
+	if (p && q && dmp1 && dmq1 && iqmp) {
+		if (!RSA_set0_factors(rsa, p, q) ||
+		    !RSA_set0_crt_params(rsa, dmp1, dmq1, iqmp)) {
+			RSA_free(rsa);
+			if (p)    BN_clear_free(p);
+			if (q)    BN_clear_free(q);
+			if (dmp1) BN_clear_free(dmp1);
+			if (dmq1) BN_clear_free(dmq1);
+			if (iqmp) BN_clear_free(iqmp);
+			return NULL;
+		}
+	}
+
+	return rsa;
+}
+
+/*
+ * Wrapper around RSA_free() to avoid deprecated-declarations warnings
+ * in caller code when building against OpenSSL 3.0+.
+ */
+void compat_RSA_free(RSA *rsa)
+{
+	if (rsa != NULL)
+		RSA_free(rsa);
+}
+
+/* Restore warnings */
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#pragma GCC diagnostic pop
+#endif

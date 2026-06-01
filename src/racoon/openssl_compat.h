@@ -2,12 +2,13 @@
 #define OPENSSL_COMPAT_H
 
 #include <openssl/opensslv.h>
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-
 #include <openssl/rsa.h>
 #include <openssl/dh.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
+#include <openssl/bn.h>
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 
 int RSA_set0_key(RSA *r, BIGNUM *n, BIGNUM *e, BIGNUM *d);
 int RSA_set0_factors(RSA *r, BIGNUM *p, BIGNUM *q);
@@ -41,5 +42,23 @@ RSA *EVP_PKEY_get0_RSA(EVP_PKEY *pkey);
 #define OpenSSL_version SSLeay_version
 
 #endif /* OPENSSL_VERSION_NUMBER */
+
+/*
+ * Helper to allocate a new RSA key and populate it from individual BIGNUMs.
+ * This is used by the prsa parser to avoid direct use of deprecated RSA_new()
+ * in grammar action code where pragma suppression is unreliable.
+ *
+ * Takes ownership of all passed BIGNUMs (they must not be freed by caller).
+ * Returns NULL on failure (and frees all passed BIGNUMs on error).
+ */
+RSA *compat_RSA_new_from_params(BIGNUM *n, BIGNUM *e, BIGNUM *d,
+                                BIGNUM *p, BIGNUM *q,
+                                BIGNUM *dmp1, BIGNUM *dmq1, BIGNUM *iqmp);
+
+/*
+ * Wrapper around RSA_free() to avoid deprecated-declarations warnings
+ * in caller code when building against OpenSSL 3.0+.
+ */
+void compat_RSA_free(RSA *rsa);
 
 #endif /* OPENSSL_COMPAT_H */

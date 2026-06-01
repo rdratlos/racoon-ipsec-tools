@@ -35,6 +35,7 @@
 
 /* This file contains a parser for FreeS/WAN-style ipsec.secrets RSA keys. */
 
+
 #include "config.h"
 
 #include <stdio.h>
@@ -147,16 +148,12 @@ prsawrap()
 	struct netaddr *naddr;
 }
 
-%token COLON HEX
-%token OBRACE EBRACE COLON HEX
+%token COLON <bn> HEX
+%token OBRACE EBRACE
 %token TAG_RSA TAG_PUB TAG_PSK
 %token MODULUS PUBLIC_EXPONENT PRIVATE_EXPONENT 
 %token PRIME1 PRIME2 EXPONENT1 EXPONENT2 COEFFICIENT
-%token ADDR4 ADDR6 ADDRANY SLASH NUMBER BASE64
-
-%type <bn>	HEX
-%type <num>	NUMBER
-%type <chr>	ADDR4 ADDR6 BASE64
+%token <chr> ADDR4 <chr> ADDR6 ADDRANY SLASH <num> NUMBER <chr> BASE64
 
 %type <rsa>	rsa_statement
 %type <num>	prefix
@@ -213,11 +210,20 @@ rsa_statement:
 				rsa_cur->iqmp = NULL;
 			}
 		}
-		RSA * rsa_tmp = RSA_new();
-		RSA_set0_key(rsa_tmp, rsa_cur->n, rsa_cur->e, rsa_cur->d);
-		RSA_set0_factors(rsa_tmp, rsa_cur->p, rsa_cur->q);
-		RSA_set0_crt_params(rsa_tmp, rsa_cur->dmp1, rsa_cur->dmq1, rsa_cur->iqmp);
-		$$ = rsa_tmp;
+		/*
+		 * Use compat_RSA_new_from_params() which wraps RSA_new(),
+		 * RSA_set0_key(), RSA_set0_factors() and RSA_set0_crt_params()
+		 * inside openssl_compat.c where OpenSSL 3.0 deprecation warnings
+		 * are suppressed via #pragma GCC diagnostic.
+		 */
+		$$ = compat_RSA_new_from_params(
+			rsa_cur->n, rsa_cur->e, rsa_cur->d,
+			rsa_cur->p, rsa_cur->q,
+			rsa_cur->dmp1, rsa_cur->dmq1, rsa_cur->iqmp);
+		if ($$ == NULL) {
+			prsaerror("Failed to construct RSA key.\n");
+			YYABORT;
+		}
 		memset(rsa_cur, 0, sizeof(struct my_rsa_st));
 	}
 	| TAG_PUB BASE64

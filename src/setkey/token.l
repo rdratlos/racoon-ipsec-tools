@@ -315,8 +315,7 @@ any		{ return(ANY); }
 %%
 
 void
-yyfatal(s)
-	const char *s;
+yyfatal(const char *s)
 {
 	yyerror(s);
 	exit(1);
@@ -332,7 +331,7 @@ yyerror(const char *s)
 }
 
 int
-parse(const char *fname, FILE *fp)
+parse_file(const char *fname, FILE *fp)
 {
 	yyin = fp;
 	filename = fname;
@@ -358,4 +357,3 @@ parse_string(char *src)
 	yy_delete_buffer(buf_state);
 	return result;
 }
-

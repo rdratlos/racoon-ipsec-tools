@@ -135,15 +135,14 @@ extern char *__libipsectext;	/*XXX*/
 	} val;
 }
 
-%token DIR 
+%token <num> DIR
 %token PRIORITY PLUS
-%token <num32> PRIO_BASE 
-%token <val> PRIO_OFFSET 
-%token ACTION PROTOCOL MODE LEVEL LEVEL_SPECIFY IPADDRESS PORT
+%token <num32> PRIO_BASE
+%token <val> PRIO_OFFSET
+%token <num> ACTION PROTOCOL MODE LEVEL
+%token <val> LEVEL_SPECIFY IPADDRESS PORT
 %token ME ANY
 %token SLASH HYPHEN
-%type <num> DIR PRIORITY ACTION PROTOCOL MODE LEVEL
-%type <val> IPADDRESS LEVEL_SPECIFY PORT
 
 %%
 policy_spec
