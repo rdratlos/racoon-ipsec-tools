@@ -1,6 +1,6 @@
-SUBDIRS = src @RPM@
+SUBDIRS = src test @RPM@
 
-DIST_SUBDIRS = src rpm
+DIST_SUBDIRS = src test rpm
 
 EXTRA_DIST = bootstrap README NEWS depcomp ChangeLog ChangeLog.old
 

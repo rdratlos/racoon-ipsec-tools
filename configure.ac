@@ -12,6 +12,7 @@ AM_INIT_AUTOMAKE(foreign dist-bzip2 subdir-objects)
 LT_PREREQ([2.4])
 
 AC_PROG_CC
+AC_PROG_CPP
 AC_CHECK_HEADERS(stdc.h)
 AM_PROG_AR
 LT_INIT([disable-shared])
@@ -35,6 +36,19 @@ case "$host_os" in
 esac
 AC_MSG_RESULT([$RPATH_FLAG])
 AC_SUBST(RPATH_FLAG)
+
+AC_ARG_ENABLE([coverage],
+  [AS_HELP_STRING([--enable-coverage],
+    [enable coverage instrumentation (gcov) @<:@default=no@:>@])],
+  [],
+  [enable_coverage=no])
+
+if test "$enable_coverage" = yes; then
+  COVERAGE_FLAGS="-fprofile-arcs -ftest-coverage"
+else
+  COVERAGE_FLAGS=""
+fi
+AC_SUBST(COVERAGE_FLAGS)
 
 CFLAGS_ADD="$CFLAGS_ADD -Wall -Werror -Wno-unused"
 
@@ -256,7 +270,23 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
 AC_MSG_ERROR([OpenSSL version must be 1.1.0 or higher. Aborting.])
 ])
 
-AC_CHECK_HEADERS(openssl/engine.h)
+AC_MSG_CHECKING([OpenSSL version string])
+cat > conftest_sslver.c << 'EOF'
+#include <openssl/opensslv.h>
+OPENSSL_VERSION_TEXT
+EOF
+OPENSSL_VERSION_STR=$(
+	${CPP} ${CPPFLAGS} conftest_sslver.c 2>/dev/null \
+	| grep '"OpenSSL' \
+	| tr -d '"' \
+	| tr -s ' ' \
+	| xargs
+)
+rm -f conftest_sslver.c
+AS_IF([test -z "$OPENSSL_VERSION_STR"],
+	[AC_MSG_FAILURE([could not extract OpenSSL version string from headers])])
+AC_MSG_RESULT([$OPENSSL_VERSION_STR])
+AC_SUBST([OPENSSL_VERSION_STR])
 
 # checking rijndael
 AC_CHECK_HEADERS([openssl/aes.h], [],
@@ -929,6 +959,7 @@ AC_CONFIG_FILES([
   src/racoon/Makefile
   src/racoon/samples/psk.txt
   src/racoon/samples/racoon.conf
+  test/Makefile
   rpm/Makefile
   rpm/suse/Makefile
   rpm/suse/ipsec-tools.spec

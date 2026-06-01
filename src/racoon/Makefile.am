@@ -12,7 +12,8 @@ adminsockdir=${localstatedir}/racoon
 BUILT_SOURCES = cfparse.h prsa_par.h
 AM_CPPFLAGS = -I${srcdir}/../libipsec
 AM_CFLAGS = -D_GNU_SOURCE @GLIBC_BUGS@ -DSYSCONFDIR=\"${sysconfdir}\" \
-	-DADMINPORTDIR=\"${adminsockdir}\"
+	-DADMINPORTDIR=\"${adminsockdir}\" \
+	@COVERAGE_FLAGS@
 AM_LDFLAGS = @EXTRA_CRYPTO@ -lcrypto
 AM_YFLAGS = -d ${$*_YFLAGS}
 AM_LFLAGS = ${$*_LFLAGS}
@@ -103,6 +104,9 @@ EXTRA_DIST = \
    samples/roadwarrior/server/racoon.conf-radius
 
 TESTS = eaytest
+
+install-exec-local:
+	${mkinstalldirs} $(DESTDIR)${adminsockdir}
 
 # special object rules
 crypto_openssl_test.o: crypto_openssl.c
