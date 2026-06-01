@@ -8,7 +8,10 @@ DEB_HOST_ARCH   ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
 DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 
 CPPFLAGS:=$(shell dpkg-buildflags --get CPPFLAGS)
-CFLAGS:=$(shell dpkg-buildflags --get CFLAGS)
+# GCC 15 / -std=gnu23 promotes -Wold-style-definition to an error.
+# ~1400 K&R style definitions in this legacy codebase require suppression
+# until a dedicated modernization pass is completed (see GitHub issue #1).
+CFLAGS:=$(shell dpkg-buildflags --get CFLAGS) -Wno-old-style-definition
 CXXFLAGS:=$(shell dpkg-buildflags --get CXXFLAGS)
 LDFLAGS:=$(shell dpkg-buildflags --get LDFLAGS)
 
