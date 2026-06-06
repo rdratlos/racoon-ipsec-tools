@@ -767,8 +767,10 @@ admin_init()
 int
 admin_close()
 {
-	unmonitor_fd(lcconf->sock_admin);
-	close(lcconf->sock_admin);
+	if (lcconf->sock_admin != -1) {
+		unmonitor_fd(lcconf->sock_admin);
+		close(lcconf->sock_admin);
+	}
 	return 0;
 }
 

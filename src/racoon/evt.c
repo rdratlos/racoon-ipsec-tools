@@ -6,7 +6,7 @@
  * Copyright (C) 2004 Emmanuel Dreyfus
  * Copyright (C) 2008 Timo Teras
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -18,7 +18,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -124,14 +124,14 @@ evt_push(src, dst, type, optdata)
 
 	/* If we are above the limit, don't record anything */
 	if (evtlist_len > EVTLIST_MAX) {
-		plog(LLV_DEBUG, LOCATION, NULL, 
+		plog(LLV_DEBUG, LOCATION, NULL,
 		    "Cannot record event: event queue overflowed\n");
 		return;
 	}
 
 	/* If we hit the limit, record an overflow event instead */
 	if (evtlist_len == EVTLIST_MAX) {
-		plog(LLV_ERROR, LOCATION, NULL, 
+		plog(LLV_ERROR, LOCATION, NULL,
 		    "Cannot record event: event queue overflow\n");
 		src = NULL;
 		dst = NULL;
@@ -204,11 +204,11 @@ evt_dump(void) {
 
 	if ((evtdump = evt_pop()) != NULL) {
 		if ((buf = vmalloc(evtdump->len)) == NULL) {
-			plog(LLV_ERROR, LOCATION, NULL, 
+			plog(LLV_ERROR, LOCATION, NULL,
 			    "evt_dump failed: %s\n", strerror(errno));
 			return NULL;
 		}
-		memcpy(buf->v, evtdump, evtdump->len);	
+		memcpy(buf->v, evtdump, evtdump->len);
 		racoon_free(evtdump);
 	}
 
@@ -254,8 +254,10 @@ evt_unsubscribe(l)
 	     "[%d] admin connection released\n", l->fd);
 
 	LIST_REMOVE(l, ll_chain);
-	unmonitor_fd(l->fd);
-	close(l->fd);
+	if (l->fd != -1) {
+		unmonitor_fd(l->fd);
+		close(l->fd);
+	}
 	racoon_free(l);
 }
 

@@ -154,7 +154,7 @@ void
 unmonitor_fd(int fd)
 {
 	if (fd < 0 || fd >= FD_SETSIZE) {
-		plog(LLV_ERROR, LOCATION, NULL, "fd_set overrun");
+		plog(LLV_ERROR, LOCATION, NULL, "fd_set overrun: fd=%d FD_SETSIZE=%d\n", fd, FD_SETSIZE);
 		exit(1);
 	}
 

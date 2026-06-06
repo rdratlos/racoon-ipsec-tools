@@ -784,7 +784,7 @@ AS_IF([test "$enable_natt" = "yes"], [
 ])
 
 # Set up defines for supported NAT-T versions.
-natt_versions_default="00,02,rfc"
+natt_versions_default="02,rfc"
 AC_MSG_CHECKING(which NAT-T versions to support)
 AC_ARG_ENABLE(natt_versions,
 	[  --enable-natt-versions=list    list of supported NAT-T versions delimited by coma.],
