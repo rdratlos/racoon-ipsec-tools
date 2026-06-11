@@ -39,6 +39,7 @@ struct ossl_param_bld_st {
     BIGNUM             *bn;
     size_t              size_t_val;
     ossl_param_type_t   type;
+    int                 is_sensitive;
     struct ossl_param_bld_st *next;
 };
 
@@ -73,11 +74,16 @@ OSSL_PARAM_BLD_free(OSSL_PARAM_BLD *bld)
 	node = bld->head;
 	while (node != NULL) {
 		next = node->next;
-		/* Free the duplicated key string */
+		/* Free the duplicated BIGNUM if present; use BN_clear_free
+		   for private-key material to avoid leaking key bits */
+		if (node->type == PARAM_BN && node->bn != NULL) {
+			if (node->is_sensitive)
+				BN_clear_free(node->bn);
+			else
+				BN_free(node->bn);
+		}
+		/* Free the duplicated key string after it is no longer needed */
 		OPENSSL_free(node->key);
-		/* Free the duplicated BIGNUM if present */
-		if (node->type == PARAM_BN && node->bn != NULL)
-			BN_free(node->bn);
 		OPENSSL_free(node);
 		node = next;
 	}
@@ -115,6 +121,9 @@ OSSL_PARAM_BLD_push_BN(OSSL_PARAM_BLD *bld, const char *key,
 	}
 
 	node->type = PARAM_BN;
+	node->is_sensitive =
+		(strcmp(node->key, OSSL_PKEY_PARAM_PRIV_KEY) == 0 ||
+		 strcmp(node->key, OSSL_PKEY_PARAM_RSA_D) == 0);
 	node->next = NULL;
 
 	/* Append to end of list */
@@ -185,6 +194,7 @@ OSSL_PARAM_BLD_to_param(OSSL_PARAM_BLD *bld)
 	params = (struct ossl_param_st *)OPENSSL_malloc(sizeof(struct ossl_param_st));
 	if (params == NULL)
 		return NULL;
+	memset(params, 0, sizeof(*params));
 
 	/* Transfer ownership of the node list from bld to params */
 	params->head  = bld->head;
@@ -295,12 +305,16 @@ EVP_PKEY_fromdata(EVP_PKEY_CTX *ctx, EVP_PKEY **pkey,
 		for (node = params->head; node != NULL; node = node->next) {
 			if (node->type == PARAM_BN && node->bn != NULL) {
 				if (strcmp(node->key, OSSL_PKEY_PARAM_FFC_P) == 0) {
+					BN_free(p);
 					p = BN_dup(node->bn);
 				} else if (strcmp(node->key, OSSL_PKEY_PARAM_FFC_G) == 0) {
+					BN_free(g);
 					g = BN_dup(node->bn);
 				} else if (strcmp(node->key, OSSL_PKEY_PARAM_PUB_KEY) == 0) {
+					BN_free(pub);
 					pub = BN_dup(node->bn);
 				} else if (strcmp(node->key, OSSL_PKEY_PARAM_PRIV_KEY) == 0) {
+					BN_clear_free(priv);
 					priv = BN_dup(node->bn);
 				}
 			} else if (node->type == PARAM_SIZE_T) {
@@ -390,8 +404,10 @@ EVP_PKEY_fromdata(EVP_PKEY_CTX *ctx, EVP_PKEY **pkey,
 		for (node = params->head; node != NULL; node = node->next) {
 			if (node->type == PARAM_BN && node->bn != NULL) {
 				if (strcmp(node->key, OSSL_PKEY_PARAM_RSA_N) == 0) {
+					BN_free(n);
 					n = BN_dup(node->bn);
 				} else if (strcmp(node->key, OSSL_PKEY_PARAM_RSA_E) == 0) {
+					BN_free(e);
 					e = BN_dup(node->bn);
 				} else if (strcmp(node->key, OSSL_PKEY_PARAM_RSA_D) == 0) {
 					BN_clear_free(d);
@@ -619,7 +635,7 @@ int compat_RSA_has_private(const RSA *rsa)
 		return 0;
 
 	RSA_get0_key(rsa, NULL, NULL, &d);
-	return (d != NULL);
+	return (d != NULL && !BN_is_zero(d));
 }
 
 /* Duplicate RSA key (handles both public and private keys) */
@@ -723,14 +739,21 @@ RSA *compat_RSA_new_from_params(BIGNUM *n, BIGNUM *e, BIGNUM *d,
 
 	/* Optional CRT parameters - only set if all are present */
 	if (p && q && dmp1 && dmq1 && iqmp) {
-		if (!RSA_set0_factors(rsa, p, q) ||
-		    !RSA_set0_crt_params(rsa, dmp1, dmq1, iqmp)) {
+		if (!RSA_set0_factors(rsa, p, q)) {
 			RSA_free(rsa);
-			if (p)    BN_clear_free(p);
-			if (q)    BN_clear_free(q);
-			if (dmp1) BN_clear_free(dmp1);
-			if (dmq1) BN_clear_free(dmq1);
-			if (iqmp) BN_clear_free(iqmp);
+			BN_clear_free(p);
+			BN_clear_free(q);
+			BN_clear_free(dmp1);
+			BN_clear_free(dmq1);
+			BN_clear_free(iqmp);
+			return NULL;
+		}
+		/* p and q are now owned by rsa */
+		if (!RSA_set0_crt_params(rsa, dmp1, dmq1, iqmp)) {
+			RSA_free(rsa);   /* releases p and q */
+			BN_clear_free(dmp1);
+			BN_clear_free(dmq1);
+			BN_clear_free(iqmp);
 			return NULL;
 		}
 	}

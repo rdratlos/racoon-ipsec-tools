@@ -127,7 +127,7 @@ lowercase(char *input)
 	while (*ptr) {
 		if (*ptr >= 'A' && *ptr <= 'F')
 			*ptr -= 'A' - 'a';
-		*ptr++;
+		ptr++;
 	}
 
 	return input;
@@ -144,6 +144,7 @@ print_rsa_key(FILE *fp, const eayRSA *key)
 	vchar_t *pubkey64 = NULL;
 	BIGNUM *n = NULL, *e = NULL, *d = NULL;
 	BIGNUM *p = NULL, *q = NULL, *dmp1 = NULL, *dmq1 = NULL, *iqmp = NULL;
+	char *hex;
 
 	pubkey64 = mix_b64_pubkey(key);
 	if (!pubkey64) {
@@ -161,14 +162,30 @@ print_rsa_key(FILE *fp, const eayRSA *key)
 	fprintf(fp, ": RSA\t{\n");
 	fprintf(fp, "\t# RSA %d bits\n", BN_num_bits(n));
 	fprintf(fp, "\t# pubkey=0s%s\n", pubkey64->v);
-	fprintf(fp, "\tModulus: 0x%s\n", lowercase(BN_bn2hex(n)));
-	fprintf(fp, "\tPublicExponent: 0x%s\n", lowercase(BN_bn2hex(e)));
-	fprintf(fp, "\tPrivateExponent: 0x%s\n", lowercase(BN_bn2hex(d)));
-	fprintf(fp, "\tPrime1: 0x%s\n", lowercase(BN_bn2hex(p)));
-	fprintf(fp, "\tPrime2: 0x%s\n", lowercase(BN_bn2hex(q)));
-	fprintf(fp, "\tExponent1: 0x%s\n", lowercase(BN_bn2hex(dmp1)));
-	fprintf(fp, "\tExponent2: 0x%s\n", lowercase(BN_bn2hex(dmq1)));
-	fprintf(fp, "\tCoefficient: 0x%s\n", lowercase(BN_bn2hex(iqmp)));
+	hex = BN_bn2hex(n);
+	fprintf(fp, "\tModulus: 0x%s\n", lowercase(hex));
+	OPENSSL_free(hex);
+	hex = BN_bn2hex(e);
+	fprintf(fp, "\tPublicExponent: 0x%s\n", lowercase(hex));
+	OPENSSL_free(hex);
+	hex = BN_bn2hex(d);
+	fprintf(fp, "\tPrivateExponent: 0x%s\n", lowercase(hex));
+	OPENSSL_free(hex);
+	hex = BN_bn2hex(p);
+	fprintf(fp, "\tPrime1: 0x%s\n", lowercase(hex));
+	OPENSSL_free(hex);
+	hex = BN_bn2hex(q);
+	fprintf(fp, "\tPrime2: 0x%s\n", lowercase(hex));
+	OPENSSL_free(hex);
+	hex = BN_bn2hex(dmp1);
+	fprintf(fp, "\tExponent1: 0x%s\n", lowercase(hex));
+	OPENSSL_free(hex);
+	hex = BN_bn2hex(dmq1);
+	fprintf(fp, "\tExponent2: 0x%s\n", lowercase(hex));
+	OPENSSL_free(hex);
+	hex = BN_bn2hex(iqmp);
+	fprintf(fp, "\tCoefficient: 0x%s\n", lowercase(hex));
+	OPENSSL_free(hex);
 	fprintf(fp, "  }\n");
 
 	BN_free(n);

@@ -254,6 +254,8 @@ eay_str2asn1dn(str, len)
 	if (!i)
 		goto err;
 
+	racoon_free(buf);
+	X509_NAME_free(name);
 	return ret;
 
 err:
