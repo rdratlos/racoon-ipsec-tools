@@ -808,9 +808,6 @@ xauth_ldap_init_conf(void)
 	int error = -1;
 
 	xauth_ldap_config.pver = 3;
-	xauth_ldap_config.debug = 0;
-	xauth_ldap_config.timeout = -1;
-	xauth_ldap_config.uri = NULL;
 	xauth_ldap_config.host = NULL;
 	xauth_ldap_config.port = LDAP_PORT;
 	xauth_ldap_config.base = NULL;
@@ -901,34 +898,18 @@ xauth_login_ldap(iph1, usr, pwd)
 	atlist[1] = NULL;
 	atlist[2] = NULL;
 
-	if (xauth_ldap_config.uri != NULL) {
-		tmplen = strlen(xauth_ldap_config.uri->v) + 1;
-		init = racoon_malloc(tmplen);
-		if (init == NULL) {
-			plog(LLV_ERROR, LOCATION, NULL,
-				"unable to alloc ldap init url\n");
-			goto ldap_end;
-		}
-		sprintf(init, "%s", xauth_ldap_config.uri->v);
-	} else {
-		/* build our initialization url */
-		tmplen = strlen("ldap://:") + 17;
-		tmplen += strlen(xauth_ldap_config.host->v);
-		init = racoon_malloc(tmplen);
-		if (init == NULL) {
-			plog(LLV_ERROR, LOCATION, NULL,
-				"unable to alloc ldap init url\n");
-			goto ldap_end;
-		}
-		sprintf(init,"ldap://%s:%d",
-			xauth_ldap_config.host->v,
-			xauth_ldap_config.port );
+	/* build our initialization url */
+	tmplen = strlen("ldap://:") + 17;
+	tmplen += strlen(xauth_ldap_config.host->v);
+	init = racoon_malloc(tmplen);
+	if (init == NULL) {
+		plog(LLV_ERROR, LOCATION, NULL,
+			"unable to alloc ldap init url\n");
+		goto ldap_end;
 	}
-
-	/* initialize the debug level */
-	ldap_set_option(NULL, LDAP_OPT_DEBUG_LEVEL, &xauth_ldap_config.debug);
-
-	plog(LLV_DEBUG, LOCATION, NULL, "ldap URI: %s\n", init);
+	sprintf(init,"ldap://%s:%d",
+		xauth_ldap_config.host->v,
+		xauth_ldap_config.port );
 
 	/* initialize the ldap handle */
 	res = ldap_initialize(&ld, init);
@@ -947,20 +928,6 @@ xauth_login_ldap(iph1, usr, pwd)
 			xauth_ldap_config.pver,
 			ldap_err2string(res));
 		goto ldap_end;
-	}
-
-	if (xauth_ldap_config.timeout > 0) {
-		struct timeval nettimeout;
-		nettimeout.tv_sec = xauth_ldap_config.timeout;
-		nettimeout.tv_usec = 0;
-		if ((res = ldap_set_option(ld, LDAP_OPT_NETWORK_TIMEOUT,
-			(void *)&nettimeout)) != LDAP_OPT_SUCCESS) {
-			plog(LLV_ERROR, LOCATION, NULL,
-				"LDAP_OPT_NETWORK_TIMEOUT %d failed: %s\n",
-				xauth_ldap_config.timeout,
-				ldap_err2string(res));
-			goto ldap_end;
-		}
 	}
 
 	/*
