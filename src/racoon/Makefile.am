@@ -16,6 +16,12 @@ AM_CPPFLAGS = -I${srcdir}/../libipsec
 AM_CFLAGS = -D_GNU_SOURCE @GLIBC_BUGS@ -DSYSCONFDIR=\"${sysconfdir}\" \
 	-DADMINPORTDIR=\"${adminsockdir}\" \
 	@COVERAGE_FLAGS@
+if WARN_DEPRECATED
+AM_CFLAGS += -DRACOON_WARN_DEPRECATED -Wno-error=deprecated-declarations \
+  $(if @DEPRECATION_DIAG_FORMAT@,-fdiagnostics-format=@DEPRECATION_DIAG_FORMAT@,)
+
+endif
+
 AM_LDFLAGS = @EXTRA_CRYPTO@ -lcrypto
 AM_YFLAGS = -d ${$*_YFLAGS}
 AM_LFLAGS = ${$*_LFLAGS}
@@ -156,3 +162,63 @@ MAINTAINERCLEANFILES = \
     prsa_tok.c \
     prsa_par.c \
     prsa_par.h
+
+DEPRECATION_REPORT_DIR = deprecation-report
+DEPRECATION_SCRIPT     = $(top_srcdir)/tools/gen_deprecation_report.py
+DEPRECATION_DIAG_EXT   = @DEPRECATION_DIAG_EXT@
+
+.PHONY: dev
+dev:
+	@echo "=== Development build: OpenSSL deprecation warnings ENABLED ==="
+	$(MAKE) clean
+if DEPRECATION_DIAG_STDERR
+	@echo "Capturing JSON diagnostics from stderr..."
+	@$(MAKE) \
+	  NO_RECURSE=1 \
+	  CFLAGS="$(CFLAGS) -DRACOON_WARN_DEPRECATED -Wno-error=deprecated-declarations \
+	    $(if @DEPRECATION_DIAG_FORMAT@,-fdiagnostics-format=@DEPRECATION_DIAG_FORMAT@,)" \
+	  all > $(builddir)/deprecation-stdout.log 2> $(builddir)/deprecation-stderr-raw.log; \
+	python3 $(top_srcdir)/tools/merge_gcc_json.py \
+	  --input $(builddir)/deprecation-stderr-raw.log \
+	  --output $(builddir)/diagnostics.gcc.json
+else
+	$(MAKE) \
+	  CFLAGS="$(CFLAGS) -DRACOON_WARN_DEPRECATED -Wno-error=deprecated-declarations \
+	    $(if @DEPRECATION_DIAG_FORMAT@,-fdiagnostics-format=@DEPRECATION_DIAG_FORMAT@,)" \
+	  all
+endif
+	@cat $(builddir)/deprecation-stderr-raw.log 2>/dev/null || true
+	$(MAKE) deprecation-report
+
+.PHONY: deprecation-report
+deprecation-report:
+	$(MKDIR_P) $(DEPRECATION_REPORT_DIR)
+	@if [ -z "$(DEPRECATION_DIAG_EXT)" ]; then \
+	  echo "NOTICE: GCC < 9 -- no machine-readable diagnostics available."; \
+	  echo "        Check stderr output from 'make dev' manually."; \
+	else \
+	  echo "Collecting deprecation diagnostics (*.$(DEPRECATION_DIAG_EXT))..."; \
+	  if [ "$(DEPRECATION_DIAG_FORMAT)" = "json" ]; then \
+	    diag_files="$(builddir)/diagnostics.gcc.json"; \
+	    [ -f "$$diag_files" ] || diag_files=""; \
+	  else \
+	    diag_files=$$(find $(builddir) -name '*.$(DEPRECATION_DIAG_EXT)' | sort); \
+	  fi; \
+	  if [ -n "$$diag_files" ]; then \
+	    python3 $(DEPRECATION_SCRIPT) \
+	      --format $(DEPRECATION_DIAG_EXT) \
+	      --output-dir $(DEPRECATION_REPORT_DIR) \
+	      --source-root $(top_srcdir) \
+	      $$diag_files; \
+	    echo "Deprecation report written to $(DEPRECATION_REPORT_DIR)/index.html"; \
+	  else \
+	    echo "NOTICE: No diagnostic files found. Run 'make dev' first."; \
+	  fi; \
+	fi
+
+.PHONY: clean-deprecation-report
+clean-deprecation-report:
+	rm -rf $(DEPRECATION_REPORT_DIR)
+	find $(builddir) \( -name '*.sarif' -o -name '*.gcc.json' \) -delete
+
+clean-local: clean-deprecation-report

@@ -623,7 +623,11 @@ EVP_PKEY_get_bn_param(const EVP_PKEY *pkey, const char *key_name, BIGNUM **bn)
  */
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 #pragma GCC diagnostic push
+#ifndef RACOON_WARN_DEPRECATED
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#else
+#pragma GCC diagnostic warning "-Wdeprecated-declarations"
+#endif
 #endif
 
 /* Check if RSA key has private component */

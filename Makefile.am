@@ -16,3 +16,20 @@ $(srcdir)/ChangeLog:
 	fi
 
 .PHONY: $(srcdir)/ChangeLog
+
+if WARN_DEPRECATED
+# When --enable-warn-deprecated is set, redirect 'make' to the 'dev'
+# target, which handles diagnostic capture correctly for all GCC versions
+# (file-based and stderr JSON).  This avoids injecting
+# -fdiagnostics-format=json into AM_CFLAGS globally, which would corrupt
+# libtool's output parsing on GCC 9-11.
+# We use .DEFAULT_GOAL to change make's default target from 'all' to 'dev'.
+# The 'all' target still exists and works normally for explicit 'make all'.
+.DEFAULT_GOAL = dev
+
+all-local: dev
+endif
+
+.PHONY: dev
+dev:
+	$(MAKE) $(AM_MAKEFLAGS) -C src dev

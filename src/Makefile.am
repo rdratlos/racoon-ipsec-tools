@@ -24,3 +24,10 @@ libtestcrypto_la_CFLAGS = -D_GNU_SOURCE @GLIBC_BUGS@ -DSYSCONFDIR=\"${sysconfdir
         -DADMINPORTDIR=\"${adminsockdir}\"
 
 libtestcrypto_la_YFLAGS = -d ${$*_YFLAGS}
+
+.PHONY: dev
+dev:
+	@for dir in @INCLUDE_GLIBC@ libipsec setkey; do \
+	  $(MAKE) $(AM_MAKEFLAGS) -C $$dir all || exit 1; \
+	done
+	$(MAKE) $(AM_MAKEFLAGS) -C racoon dev

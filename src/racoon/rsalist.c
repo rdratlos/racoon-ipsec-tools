@@ -67,7 +67,11 @@ int prsa_parse_file(struct genlist *list, const char *fname, enum rsa_key_type t
 
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 #pragma GCC diagnostic push
+#ifndef RACOON_WARN_DEPRECATED
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#else
+#pragma GCC diagnostic warning "-Wdeprecated-declarations"
+#endif
 #endif
 
 int

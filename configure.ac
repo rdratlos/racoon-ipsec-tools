@@ -934,6 +934,65 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
 	 AC_MSG_RESULT(yes)],
 	[AC_MSG_RESULT(no)])
 
+AC_ARG_ENABLE([warn-deprecated],
+  [AS_HELP_STRING([--enable-warn-deprecated],
+    [Enable OpenSSL deprecation warnings for development (default: no)])],
+  [warn_deprecated=$enableval],
+  [warn_deprecated=no])
+
+AM_CONDITIONAL([WARN_DEPRECATED], [test "x$warn_deprecated" = "xyes"])
+
+AC_MSG_CHECKING([if --enable-warn-deprecated option is specified])
+AC_MSG_RESULT([$warn_deprecated])
+
+AS_IF([test "x$warn_deprecated" = "xyes"],
+  [AC_DEFINE([RACOON_WARN_DEPRECATED], [1],
+    [Define to surface OpenSSL 3.x deprecation warnings during development])])
+
+# Probe GCC diagnostic format capabilities at configure time.
+# Try in order: sarif-file (GCC 13+), json-file (GCC 12+), json (GCC 10+).
+# This is future-proof against removal of deprecated formats.
+DEPRECATION_DIAG_FORMAT=""
+DEPRECATION_DIAG_EXT=""
+saved_CFLAGS=$CFLAGS
+AC_MSG_CHECKING([for GCC -fdiagnostics-format=sarif-file support])
+CFLAGS="$CFLAGS -fdiagnostics-format=sarif-file"
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([], [])],
+  [AC_MSG_RESULT(yes)
+   DEPRECATION_DIAG_FORMAT="sarif-file"
+   DEPRECATION_DIAG_EXT="sarif"],
+  [AC_MSG_RESULT(no)])
+CFLAGS=$saved_CFLAGS
+
+AS_IF([test -z "$DEPRECATION_DIAG_FORMAT"],
+  [AC_MSG_CHECKING([for GCC -fdiagnostics-format=json-file support])
+   CFLAGS="$CFLAGS -fdiagnostics-format=json-file"
+   AC_COMPILE_IFELSE([AC_LANG_PROGRAM([], [])],
+     [AC_MSG_RESULT(yes)
+      DEPRECATION_DIAG_FORMAT="json-file"
+      DEPRECATION_DIAG_EXT="gcc.json"],
+     [AC_MSG_RESULT(no)])
+   CFLAGS=$saved_CFLAGS])
+
+AS_IF([test -z "$DEPRECATION_DIAG_FORMAT"],
+  [AC_MSG_CHECKING([for GCC -fdiagnostics-format=json support])
+   CFLAGS="$CFLAGS -fdiagnostics-format=json"
+   AC_COMPILE_IFELSE([AC_LANG_PROGRAM([], [])],
+     [AC_MSG_RESULT(yes)
+      DEPRECATION_DIAG_FORMAT="json"
+      DEPRECATION_DIAG_EXT="gcc.json"],
+     [AC_MSG_RESULT(no)])
+   CFLAGS=$saved_CFLAGS])
+
+AS_IF([test -n "$DEPRECATION_DIAG_FORMAT"],
+  [AC_MSG_NOTICE([Deprecation diagnostic format: -fdiagnostics-format=$DEPRECATION_DIAG_FORMAT])],
+  [AC_MSG_NOTICE([Compiler does not support machine-readable diagnostics; no automated report])])
+
+AM_CONDITIONAL([DEPRECATION_DIAG_STDERR], [test "$DEPRECATION_DIAG_FORMAT" = "json"])
+
+AC_SUBST([DEPRECATION_DIAG_FORMAT])
+AC_SUBST([DEPRECATION_DIAG_EXT])
+
 CFLAGS="$CFLAGS $CFLAGS_ADD"
 CPPFLAGS="$CPPFLAGS $CPPFLAGS_ADD"
 
