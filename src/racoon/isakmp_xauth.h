@@ -168,6 +168,9 @@ int xauth_login_radius(struct ph1handle *, char *, char *);
 
 struct xauth_ldap_config {
 	int		pver;
+	int		debug;
+	int		timeout;
+	vchar_t 	*uri;
 	vchar_t 	*host;
 	int		port;
 	vchar_t		*base;

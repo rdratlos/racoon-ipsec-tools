@@ -267,7 +267,7 @@ static int process_rmconf()
 	/* listen */
 %token LISTEN X_ISAKMP X_ISAKMP_NATT X_ADMIN STRICT_ADDRESS ADMINSOCK DISABLED
 	/* ldap config */
-%token LDAPCFG LDAP_HOST LDAP_PORT LDAP_PVER LDAP_BASE LDAP_BIND_DN LDAP_BIND_PW LDAP_SUBTREE
+%token LDAPCFG LDAP_URI LDAP_HOST LDAP_PORT LDAP_PVER LDAP_DEBUG LDAP_TIMEOUT LDAP_BASE LDAP_BIND_DN LDAP_BIND_PW LDAP_SUBTREE
 %token LDAP_ATTR_USER LDAP_ATTR_ADDR LDAP_ATTR_MASK LDAP_ATTR_GROUP LDAP_ATTR_MEMBER
 	/* radius config */
 %token RADCFG RAD_AUTH RAD_ACCT RAD_TIMEOUT RAD_RETRIES
@@ -696,6 +696,35 @@ ldapcfg_stmt
 			if (($2<2)||($2>3))
 				yyerror("invalid ldap protocol version (2|3)");
 			xauth_ldap_config.pver = $2;
+#endif
+#endif
+		}
+		EOS
+	|	LDAP_DEBUG NUMBER
+		{
+#ifdef ENABLE_HYBRID
+#ifdef HAVE_LIBLDAP
+			xauth_ldap_config.debug = $2;
+#endif
+#endif
+		}
+		EOS
+	|	LDAP_TIMEOUT NUMBER
+		{
+#ifdef ENABLE_HYBRID
+#ifdef HAVE_LIBLDAP
+			xauth_ldap_config.timeout = $2;
+#endif
+#endif
+		}
+		EOS
+	|	LDAP_URI QUOTEDSTRING
+		{
+#ifdef ENABLE_HYBRID
+#ifdef HAVE_LIBLDAP
+			if (xauth_ldap_config.uri != NULL)
+				vfree(xauth_ldap_config.uri);
+			xauth_ldap_config.uri = vdup($2);
 #endif
 #endif
 		}
