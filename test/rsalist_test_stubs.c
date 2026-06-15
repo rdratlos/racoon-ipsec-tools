@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+ *
+ * Part of rdratlos/racoon-ipsec-tools — https://github.com/rdratlos/racoon-ipsec-tools
+ */
+
 /*
  * Minimal stub implementations for symbols that rsalist.o (via
  * sockmisc.o) needs at link time but which are never exercised by

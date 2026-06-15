@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+ *
+ * Part of rdratlos/racoon-ipsec-tools — https://github.com/rdratlos/racoon-ipsec-tools
+ */
+
 /*
  * Cipher Shim Unit Tests for Racoon IPSec
  * Tests the evp_crypt shim and legacy cipher support (Blowfish, CAST5, IDEA, RC5)

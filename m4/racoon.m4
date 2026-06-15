@@ -1,3 +1,7 @@
+dnl configure.ac — Autoconf input for racoon-ipsec-tools
+dnl Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+dnl SPDX-License-Identifier: BSD-3-Clause
+
 dnl RACOON_PATH_LIBS(FUNCTION, LIB, SEARCH-PATHS [, ACTION-IF-FOUND
 dnl            [, ACTION-IF-NOT-FOUND [, OTHER-LIBRARIES]]])
 dnl Search for a library defining FUNC, if it's not already available.

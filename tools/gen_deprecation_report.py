@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+
 """Generate a deprecation-warning report from GCC diagnostics.
 
 Supports two diagnostic formats:

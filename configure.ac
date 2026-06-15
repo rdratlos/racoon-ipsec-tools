@@ -1,5 +1,7 @@
-dnl -*- mode: m4 -*-
-dnl Id: configure.ac,v 1.77 2006/07/20 19:19:27 manubsd Exp
+dnl configure.ac — Autoconf input for racoon-ipsec-tools
+dnl Copyright (C) 1995-1998 WIDE Project. All rights reserved.
+dnl Modifications Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+dnl SPDX-License-Identifier: BSD-3-Clause
 
 AC_PREREQ(2.69)
 AC_INIT(ipsec-tools, 0.9.0)
