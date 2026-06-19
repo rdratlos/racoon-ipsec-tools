@@ -1,0 +1,106 @@
+# .github/workflows/openssl-deprecation-canary.yml
+#
+# OpenSSL 4.0 readiness canary.
+#
+# Compiles selected source files against a "no deprecated symbols"
+# configuration (OPENSSL_API_COMPAT=0x40000000L + OPENSSL_NO_DEPRECATED),
+# which makes deprecated declarations disappear from the OpenSSL headers
+# entirely -- simulating their removal in OpenSSL 4.0.
+#
+# IMPORTANT: This is scoped to specific files, NOT the whole tree.
+#   - openssl_compat.c is the deliberate containment point for deprecated
+#     calls and is EXEMPT -- it is expected to break under 4.0 by design.
+#
+# Two checks with different intent:
+#   1. Regression guard (crypto_openssl.o): expected GREEN today. If it goes
+#      red, a direct deprecated call was reintroduced into the daemon. Real
+#      alarm -> this step is allowed to fail the job (blocking).
+#   2. Readiness tracker (plainrsa-gen.o): expected RED today (deferred work,
+#      see issue). Goes green when the migration lands. Non-blocking until
+#      then.
+
+name: OpenSSL Deprecation Canary
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+  schedule:
+    # Weekly: also catches the runner's libssl advancing toward 4.0 over time.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to run the canary against (required — no default, so a forgotten value fails fast instead of silently testing develop)'
+        required: true
+
+jobs:
+  resolve-ref:
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.ref.outputs.ref }}
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - name: Resolve target ref
+        id: ref
+        run: |
+          if [ -n "${{ inputs.branch }}" ]; then
+            echo "ref=${{ inputs.branch }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ github.head_ref }}" ]; then
+            echo "ref=${{ github.head_ref }}" >> $GITHUB_OUTPUT
+          else
+            echo "ref=${{ github.ref_name || 'develop' }}" >> $GITHUB_OUTPUT
+          fi
+      - name: Checkout resolved ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+      - name: Resolve target sha
+        id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+      - name: Report canary target
+        run: |
+          echo "### Canary target" >> $GITHUB_STEP_SUMMARY
+          echo "- branch: \`${{ steps.ref.outputs.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- sha: \`${{ steps.sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+
+  canary:
+    needs: resolve-ref
+    uses: rdratlos/shared-ci/.github/workflows/ccpp-target-compile.yml@main
+    with:
+      ref: ${{ needs.resolve-ref.outputs.ref }}
+      project-deps: 'libssl-dev libfl-dev libkrb5-dev libldap2-dev libpam0g-dev linux-headers-generic libcrypt-dev'
+      env-vars: |
+        NODEP="-DOPENSSL_API_COMPAT=0x30000000L -DOPENSSL_NO_DEPRECATED"
+      configure-command: >
+        CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=3"
+        LDFLAGS="-Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -Wl,-z,relro"
+        CFLAGS="-g -O2 -Werror=implicit-function-declaration -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wformat -Werror=format-security -fcf-protection -Wno-old-style-definition"
+        ./configure --verbose --host=x86_64-linux-gnu --build=x86_64-linux-gnu
+        --prefix=/usr --sysconfdir=/etc/racoon --libdir=/usr/lib/ipsec-tools
+        --mandir=${prefix}/share/man --infodir=${prefix}/share/info
+        --localstatedir=/var/run --enable-shared --disable-static
+        --enable-frag --enable-gssapi --enable-hybrid --with-libldap
+        --enable-dpd --enable-adminport --with-kernel-headers=/usr/include
+        --with-libpam --without-readline --disable-security-context --enable-natt
+      targets: >-
+        [
+          {"name":"guard","label":"Regression guard: crypto_openssl.o","dir":"src/racoon","target":"crypto_openssl.o","cc":"gcc ${NODEP}","blocking":true},
+          {"name":"tracker","label":"Readiness tracker: plainrsa-gen.o (expected red until migrated)","dir":"src/racoon","target":"plainrsa-gen.o","cc":"gcc ${NODEP}","blocking":false}
+        ]
+      artifact-name: openssl-canary-logs
+
+  annotate:
+    needs: canary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Annotate readiness status
+        run: |
+          if [ "${{ needs.canary.outputs.result }}" = "success" ]; then
+            echo "::notice title=4.0 Readiness::All tracked checks pass. If the readiness tracker is green, the RSA*->EVP_PKEY migration may be complete -- consider promoting it to a hard gate and closing the migration issue."
+          else
+            echo "::notice title=4.0 Readiness::See the compile results in the canary job summary. Regression of reintroduced deprecated *calls* is guarded separately by the normal -Werror build."
+          fi

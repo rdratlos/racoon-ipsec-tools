@@ -1,0 +1,200 @@
+# Consumer workflow for racoon-ipsec-tools.
+# Calls the reusable C/C++ Autotools CI workflow from shared-ci, then applies
+# project-specific tri-state reporting (RED / ORANGE / GREEN).
+#
+# Replace the old monolithic build-test.yml with this file.
+
+name: CI Build & Test
+
+on:
+  # No branches: filter — build any branch that gets pushed to, and any PR
+  # regardless of its base. The old filters (develop/feature/**/bugfix/**
+  # for push, develop-only for pull_request) silently dropped CI for any
+  # other branch naming convention or PR base (e.g. chore/** PRs into main).
+  push: {}
+  pull_request: {}
+  schedule:
+    # Nightly: catches toolchain / libssl drift on the runner image.
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build and test (required — no default, so a forgotten value fails fast instead of silently testing develop)'
+        required: true
+
+permissions:
+  contents: read
+  checks: write   # required to publish the dedicated tri-state check run
+
+jobs:
+  resolve-ref:
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.ref.outputs.ref }}
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - name: Resolve target ref
+        id: ref
+        run: |
+          if [ -n "${{ inputs.branch }}" ]; then
+            echo "ref=${{ inputs.branch }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ github.head_ref }}" ]; then
+            echo "ref=${{ github.head_ref }}" >> $GITHUB_OUTPUT
+          else
+            echo "ref=${{ github.ref_name || 'develop' }}" >> $GITHUB_OUTPUT
+          fi
+      - name: Checkout resolved ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+      - name: Resolve target sha
+        id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+      - name: Report CI target
+        run: |
+          echo "### CI target" >> $GITHUB_STEP_SUMMARY
+          echo "- branch: \`${{ steps.ref.outputs.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- sha: \`${{ steps.sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+
+  # Delegate build + test to the shared reusable workflow.
+  ci:
+    needs: resolve-ref
+    uses: rdratlos/shared-ci/.github/workflows/ccpp-autotools.yml@main
+    with:
+      ref: ${{ needs.resolve-ref.outputs.ref }}
+      # racoon-ipsec-tools requires these runtime libraries at build time.
+      project-deps: >-
+        libssl-dev libfl-dev libkrb5-dev libldap2-dev
+        libpam0g-dev linux-headers-generic libcrypt-dev
+      # Full configure invocation with Ubuntu hardening flags.
+      configure-command: |-
+        CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=3" \
+        LDFLAGS="-Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -Wl,-z,relro" \
+        CFLAGS="-g -O2 -Werror=implicit-function-declaration -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wformat -Werror=format-security -fcf-protection -Wno-old-style-definition" \
+        ./configure --verbose --host=x86_64-linux-gnu --build=x86_64-linux-gnu \
+          --prefix=/usr --sysconfdir=/etc/racoon --libdir=/usr/lib/ipsec-tools \
+          --mandir=\${prefix}/share/man --infodir=\${prefix}/share/info \
+          --localstatedir=/var/run --enable-shared --disable-static \
+          --enable-frag --enable-gssapi --enable-hybrid --with-libldap \
+          --enable-dpd --enable-adminport --with-kernel-headers=/usr/include \
+          --with-libpam --without-readline --disable-security-context --enable-natt
+      # Compile code + unit test binaries (but do not run them yet).
+      build-command: |
+        make
+        make check TESTS=
+      # Run the actual unit tests in the test/ subdirectory.
+      test-command: |
+        make check-verbose
+      test-working-directory: test
+      # Valgrind is opt-in upstream (both for installing the tool in the
+      # build job and for running `make check-valgrind` in the test job).
+      # The project's review policy requires check-valgrind to be green
+      # before approving PRs, so enable it by default instead of leaving
+      # it silently skipped.
+      install-valgrind: true
+      enable-valgrind: true
+
+  # Publish the tri-state check run (RED / ORANGE / GREEN).
+  # Runs after the reusable workflow completes, regardless of outcome.
+  publish-tristate:
+    name: 'Publish tri-state check'
+    needs: [resolve-ref, ci]
+    runs-on: ubuntu-latest
+    if: always()
+    permissions:
+      checks: write
+
+    steps:
+      - name: Publish check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = '${{ needs.resolve-ref.outputs.ref }}';
+            // Use the sha that resolve-ref actually checked out and tested,
+            // not context.sha (which on workflow_dispatch is the dispatching
+            // ref's tip, not necessarily the target branch).
+            const sha = '${{ needs.resolve-ref.outputs.sha }}' || context.payload.pull_request?.head?.sha || context.sha;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const buildResult = '${{ needs.ci.outputs.build-result || 'success' }}';
+            // Unit-test result alone, excluding Valgrind — Valgrind gets its
+            // own check run below so its outcome isn't folded into this one.
+            const testResult  = '${{ needs.ci.outputs.unit-test-result || 'success' }}';
+
+            let conclusion, title, summary;
+            if (buildResult === 'failure') {
+              conclusion = 'failure';
+              title = 'Build failed';
+              summary = 'The project build (`make`) failed. See the Build step logs.';
+            } else if (testResult === 'failure') {
+              conclusion = 'neutral';
+              title = 'Build OK — unit tests failed';
+              summary = 'The project built successfully, but `make check` reported failing unit tests.';
+            } else {
+              conclusion = 'success';
+              title = 'Build and tests passed';
+              summary = 'The project built and all unit tests passed.';
+            }
+
+            const text = [
+              `**Branch tested:** \`${branch}\``,
+              `**Commit:** \`${sha}\``,
+              '**Build command:** `make` / `make check TESTS=`',
+              '**Test command:** `make check-verbose` (run in `test/`)',
+              '',
+              `Build outcome: \`${buildResult}\``,
+              `Unit-test outcome: \`${testResult}\``,
+              '',
+              `[Full workflow run](${runUrl})`
+            ].join('\n');
+
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'CI: build & test',
+              head_sha: sha,
+              status: 'completed',
+              conclusion,
+              output: { title, summary, text }
+            });
+
+            // Publish Valgrind as its own distinct check run — the review
+            // policy requires `make check-valgrind` to be green, and that
+            // needs a separate signal instead of being folded into the
+            // build/test conclusion above.
+            const valgrindResult = '${{ needs.ci.outputs.valgrind-result }}';
+
+            let vgConclusion, vgTitle, vgSummary;
+            if (valgrindResult === 'failure') {
+              vgConclusion = 'failure';
+              vgTitle = 'Valgrind found memory issues';
+              vgSummary = '`make check-valgrind` reported memory issues. See the Test job logs.';
+            } else if (valgrindResult === 'success') {
+              vgConclusion = 'success';
+              vgTitle = 'Valgrind checks passed';
+              vgSummary = '`make check-valgrind` completed with no memory issues.';
+            } else {
+              vgConclusion = 'neutral';
+              vgTitle = 'Valgrind not run';
+              vgSummary = 'Valgrind checks were skipped for this run (status: ' + (valgrindResult || 'unknown') + ').';
+            }
+
+            const vgText = [
+              `**Branch tested:** \`${branch}\``,
+              `**Commit:** \`${sha}\``,
+              '**Command:** `make check-valgrind` (run in `test/`)',
+              '',
+              `Valgrind outcome: \`${valgrindResult || 'unknown'}\``,
+              '',
+              `[Full workflow run](${runUrl})`
+            ].join('\n');
+
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'CI: valgrind',
+              head_sha: sha,
+              status: 'completed',
+              conclusion: vgConclusion,
+              output: { title: vgTitle, summary: vgSummary, text: vgText }
+            });
