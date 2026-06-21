@@ -1,0 +1,106 @@
+# Valgrind suppressions for OpenSSL 3.x by-design reachable leaks
+#
+# OpenSSL 3.x uses a provider architecture that builds substantial
+# global state during OSSL_PROVIDER_try_load_ex() (called from
+# eay_init()).  This state is released via OPENSSL_cleanup() on
+# atexit, which runs after Valgrind has taken its snapshot —
+# hence "reachable" rather than "lost".  None of these are racoon
+# bugs.  Do not add suppressions for "definitely lost" or
+# "indirectly lost" blocks without explicit justification.
+#
+# Generated against OpenSSL 3.x on Arch Linux / Ubuntu Noble.
+# Re-validate with --gen-suppressions=all when upgrading to a new
+# OpenSSL major version.
+#
+# Developer one-shot command to regenerate:
+#   LD_LIBRARY_PATH=src/libipsec/.libs \
+#   valgrind --leak-check=full --show-leak-kinds=all \
+#            --track-origins=yes --gen-suppressions=all \
+#            test/.libs/test_eay_rsa 2>&1 \
+#     | awk '/^\{/,/^\}/' > test/valgrind_supp.raw
+
+{
+   openssl3_provider_init_lib_ctx
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   obj:*/libcrypto.so*
+   ...
+   fun:OSSL_LIB_CTX_new
+   fun:OSSL_LIB_CTX_new_from_dispatch
+   fun:OSSL_LIB_CTX_new_child
+   ...
+}
+
+{
+   openssl3_provider_try_load_alloc
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:OSSL_PROVIDER_try_load*
+   ...
+}
+
+{
+   openssl3_evp_keymgmt_fetch
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:EVP_KEYMGMT_fetch
+   ...
+}
+
+{
+   openssl3_pem_encoder_cache
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:realloc
+   ...
+   fun:OSSL_ENCODER_do_all_provided
+   fun:OSSL_ENCODER_CTX_new_for_pkey
+   fun:PEM_write_bio_PrivateKey_ex
+   fun:PEM_write_PrivateKey_ex
+   fun:PEM_write_PrivateKey
+   ...
+}
+
+{
+   openssl3_dlopen_glibc_internal_new_object
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   fun:malloc
+   fun:_dl_new_object
+   ...
+}
+
+{
+   openssl3_dlopen_glibc_internal_new_object
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:calloc
+   fun:calloc
+   fun:_dl_new_object
+   ...
+}
+
+{
+   openssl3_dlopen_glibc_internal_check_map_versions
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:calloc
+   fun:calloc
+   fun:_dl_check_map_versions
+   ...
+}
+
+{
+   openssl3_dlopen_glibc_internal_map_new_object
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   fun:malloc
+   fun:strdup
+   fun:_dl_map_new_object
+   ...
+}

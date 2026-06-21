@@ -147,7 +147,7 @@ test_eay_rsa_LDFLAGS  = $(AM_LDFLAGS)
 TESTS = $(check_PROGRAMS)
 
 # Extra files to distribute
-EXTRA_DIST = README.md
+EXTRA_DIST = README.md valgrind.supp
 
 # Clean generated files
 CLEANFILES = *.log *.trs
@@ -169,7 +169,9 @@ check-valgrind: $(check_PROGRAMS)
 	@echo "Running tests with valgrind..."
 	@for test in $(TESTS); do \
 		echo "Testing $$test..."; \
-		valgrind --leak-check=full --show-leak-kinds=all \
+		valgrind --suppressions=$(srcdir)/valgrind.supp \
+			--num-callers=40 \
+			--leak-check=full --show-leak-kinds=all \
 			--track-origins=yes --error-exitcode=1 \
 			./$$test || exit 1; \
 	done

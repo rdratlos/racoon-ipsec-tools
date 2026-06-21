@@ -1,4 +1,6 @@
-# Id: Makefile.am,v 1.23 2005/07/01 08:57:50 manubsd Exp
+# Makefile.am — Automake input for racoon-ipsec-tools
+# Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+# SPDX-License-Identifier: BSD-3-Clause
 
 sbin_PROGRAMS = racoon racoonctl plainrsa-gen
 noinst_PROGRAMS = eaytest
@@ -104,6 +106,24 @@ EXTRA_DIST = \
    samples/roadwarrior/server/racoon.conf-radius
 
 TESTS = eaytest
+
+.PHONY: check-valgrind
+
+# Run with valgrind. "still reachable" blocks are excluded from the
+# error count: glibc's dynamic linker keeps a few dlopen()-related
+# allocations (for the OpenSSL provider .so files) reachable for the
+# life of the process by design -- they are not leaks.
+check-valgrind: $(TESTS)
+	@echo "Running eaytest with valgrind..."
+	@for test in $(TESTS); do \
+		echo "Testing $$test..."; \
+		valgrind --leak-check=full --show-leak-kinds=all \
+			--errors-for-leak-kinds=definite,indirect,possible \
+			--track-origins=yes --error-exitcode=1 \
+			./$$test || exit 1; \
+	done
+	@echo "All tests passed valgrind!"
+
 
 install-exec-local:
 	${mkinstalldirs} $(DESTDIR)${adminsockdir}

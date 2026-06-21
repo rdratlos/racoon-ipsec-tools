@@ -1938,13 +1938,10 @@ int test_ossl_param_bld_free_clears_priv_key()
 	OSSL_PARAM_BLD_free(bld);
 	bld = NULL;
 
-	/* Original BIGNUMs are untouched (only the internal duplicates were freed) */
-	if (BN_cmp(priv, BN_new()) == 0) {
-		/* priv was not modified by the builder; only the dup was freed */
-		BN_free(priv); BN_free(p); BN_free(g);
-	} else {
-		BN_free(priv); BN_free(p); BN_free(g);
-	}
+	/* Original BIGNUMs are caller-owned; free them now. */
+	BN_free(priv);
+	BN_free(p);
+	BN_free(g);
 
 	/* If we reach here without a crash or ASAN error, the free succeeded.
 	   The actual zeroing of the duplicated priv BN inside OSSL_PARAM_BLD_free
