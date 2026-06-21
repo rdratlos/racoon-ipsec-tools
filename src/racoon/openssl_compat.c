@@ -557,19 +557,37 @@ EVP_PKEY_get_bn_param(const EVP_PKEY *pkey, const char *key_name, BIGNUM **bn)
 			found = g;
 		}
 
-	} else if (EVP_PKEY_get_id(pkey) == EVP_PKEY_RSA) {
-		RSA *rsa = EVP_PKEY_get0_RSA((EVP_PKEY *)pkey);
+	} else if (EVP_PKEY_base_id(pkey) == EVP_PKEY_RSA) {
+		RSA *rsa;
 		const BIGNUM *n = NULL, *e = NULL, *d = NULL;
+		const BIGNUM *p = NULL, *q = NULL;
+		const BIGNUM *dmp1 = NULL, *dmq1 = NULL, *iqmp = NULL;
 
-		if (rsa == NULL)
+		/* Borrowed reference; do NOT free. */
+		rsa = EVP_PKEY_get0_RSA((EVP_PKEY *)pkey);
+		if (rsa == NULL) {
 			return 0;
-
+		}
 		RSA_get0_key(rsa, &n, &e, &d);
+		RSA_get0_factors(rsa, &p, &q);
+		RSA_get0_crt_params(rsa, &dmp1, &dmq1, &iqmp);
 
 		if (strcmp(key_name, OSSL_PKEY_PARAM_RSA_N) == 0) {
 			found = n;
 		} else if (strcmp(key_name, OSSL_PKEY_PARAM_RSA_E) == 0) {
 			found = e;
+		} else if (strcmp(key_name, OSSL_PKEY_PARAM_RSA_D) == 0) {
+			found = d;
+		} else if (strcmp(key_name, OSSL_PKEY_PARAM_RSA_FACTOR1) == 0) {
+			found = p;
+		} else if (strcmp(key_name, OSSL_PKEY_PARAM_RSA_FACTOR2) == 0) {
+			found = q;
+		} else if (strcmp(key_name, OSSL_PKEY_PARAM_RSA_EXPONENT1) == 0) {
+			found = dmp1;
+		} else if (strcmp(key_name, OSSL_PKEY_PARAM_RSA_EXPONENT2) == 0) {
+			found = dmq1;
+		} else if (strcmp(key_name, OSSL_PKEY_PARAM_RSA_COEFFICIENT1) == 0) {
+			found = iqmp;
 		}
 	}
 

@@ -64,6 +64,7 @@
 #include "crypto_openssl.h"
 #include "gnuc.h"
 #include "openssl_compat.h"
+#include "eay_rsa.h"
 
 #include "package_version.h"
 #include <openssl/des.h>
@@ -88,6 +89,7 @@ int md5test __P((int, char **));
 int dhtest __P((int, char **));
 int bntest __P((int, char **));
 int compat_test __P((int, char **));
+int eayrsa_test __P((int, char **));
 #ifndef CERTTEST_BROKEN
 static char **getcerts __P((char *));
 int certtest __P((int, char **));
@@ -121,17 +123,37 @@ rsa_verify_with_pubkey(src, sig, pubkey_txt)
 {
 	BIO *bio;
 	EVP_PKEY *evp;
+	RSA *rsa;
+	eayRSA *ersa;
+	const BIGNUM *n = NULL, *e = NULL;
 	int error;
 
 	bio = BIO_new_mem_buf(pubkey_txt, strlen(pubkey_txt));
 	evp = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
+	BIO_free(bio);
 	if (! evp) {
 		printf ("PEM_read_PUBKEY(): %s\n", eay_strerror());
 		return -1;
 	}
-	RSA *rsa = compat_EVP_PKEY_get1_RSA(evp);
-	error = eay_check_rsasign(src, sig, rsa);
+	rsa = compat_EVP_PKEY_get1_RSA(evp);
+	if (!rsa || compat_RSA_get0_params(rsa, &n, &e, NULL, NULL, NULL,
+					    NULL, NULL, NULL) < 0) {
+		printf("Failed to extract RSA public key parameters\n");
+		if (rsa)
+			compat_RSA_free(rsa);
+		EVP_PKEY_free(evp);
+		return -1;
+	}
+	ersa = eayRSA_new_pub(n, e);
 	compat_RSA_free(rsa);
+	EVP_PKEY_free(evp);
+	if (!ersa) {
+		printf("eayRSA_new_pub() failed\n");
+		return -1;
+	}
+
+	error = eay_check_rsasign(src, sig, ersa);
+	eayRSA_free(ersa);
 
 	return error;
 }
@@ -191,6 +213,7 @@ rsatest(ac, av)
 	sig = eay_get_x509sign(&src, priv);
 	if (sig == NULL) {
 		printf("sign failed. %s\n", eay_strerror());
+		vfree(priv);
 		return -1;
 	}
 
@@ -200,6 +223,8 @@ rsatest(ac, av)
 	printf("Verification with correct pubkey: ");
 	if (rsa_verify_with_pubkey (&src, sig, pubkey) != 0) {
 		printf ("Failed.\n");
+		vfree(priv);
+		vfree(sig);
 		return -1;
 	}
 	else {
@@ -217,9 +242,14 @@ rsatest(ac, av)
 	else {
 		printf ("Verified. This is bad...\n");
 		loglevel = loglevel_saved;
+		vfree(priv);
+		vfree(sig);
 		return -1;
 	}
 	loglevel = loglevel_saved;
+
+	vfree(priv);
+	vfree(sig);
 
 	return 0;
 }
@@ -237,12 +267,17 @@ pem_read_buf(buf)
 
 	bio = BIO_new_mem_buf(buf, strlen(buf));
 	error = PEM_read_bio(bio, &nm, &header, &data, &len);
+	BIO_free(bio);
 	if (error == 0)
 		errx(1, "%s", eay_strerror());
 	ret = vmalloc(len);
 	if (ret == NULL)
 		err(1, "vmalloc");
 	memcpy(ret->v, data, len);
+
+	OPENSSL_free(nm);
+	OPENSSL_free(header);
+	OPENSSL_free(data);
 
 	return ret;
 }
@@ -637,9 +672,10 @@ ciphertest_1 (const char *name,
 	      eay_func decrypt)
 {
 	int padlen;
-	vchar_t *buf, *iv, *res1, *res2;
+	int rc = 0;
+	vchar_t *buf, *iv, *res1 = NULL, *res2 = NULL;
 	iv = vmalloc(iv_length);
-	
+
 	printf("Test for cipher %s\n", name);
 	printf("data:\n");
 	PVDUMP(data);
@@ -656,7 +692,8 @@ ciphertest_1 (const char *name,
 	res1 = (encrypt)(buf, key, iv);
 	if (res1 == NULL) {
 		printf("%s encryption failed.\n", name);
-		return -1;
+		rc = -1;
+		goto done;
 	}
 	printf("encrypted:\n");
 	PVDUMP(res1);
@@ -665,23 +702,26 @@ ciphertest_1 (const char *name,
 	res2 = (decrypt)(res1, key, iv);
 	if (res2 == NULL) {
 		printf("%s decryption failed.\n", name);
-		return -1;
+		rc = -1;
+		goto done;
 	}
 	printf("decrypted:\n");
 	PVDUMP(res2);
 
 	if (memcmp(data->v, res2->v, data->l)) {
 		printf("XXXX NG (%s) XXXX\n", name);
-		return -1;
+		rc = -1;
 	}
 	else
 		printf("%s cipher verified.\n", name);
+
+done:
 	vfree(res1);
 	vfree(res2);
 	vfree(buf);
 	vfree(iv);
 
-	return 0;
+	return rc;
 }
 
 int
@@ -692,6 +732,7 @@ ciphertest(ac, av)
 	vchar_t data;
 	vchar_t key;
 	vchar_t iv0;
+	int rc = 0;
 
 	printf("\n**Testing CIPHERS**\n");
 
@@ -702,48 +743,62 @@ ciphertest(ac, av)
 	key.v = str2val("f59bd70f 81b9b9cc 2a32c7fd 229a4b37", 16, &key.l);
 	iv0.v = str2val("26b68c90 9467b4ab 7ec29fa0 0b696b55", 16, &iv0.l);
 
-	if (ciphertest_1 ("DES", 
-			  &data, 8, 
-			  &key, 8, 
-			  &iv0, 8, 
+	/*
+	 * OpenSSL's optimized DES_set_key_unchecked() reads a few bytes
+	 * past the end of the 8-byte DES key it is given; pad the buffer
+	 * so that harmless over-read stays inside allocated memory instead
+	 * of tripping valgrind's "Invalid read" check.
+	 */
+	{
+		void *padded = realloc(key.v, key.l + 16);
+		if (padded == NULL)
+			err(1, "realloc");
+		key.v = padded;
+		memset((char *)key.v + key.l, 0, 16);
+	}
+
+	if (ciphertest_1 ("DES",
+			  &data, 8,
+			  &key, 8,
+			  &iv0, 8,
 			  eay_des_encrypt, eay_des_decrypt) < 0)
-	  return -1;
-	
+	  { rc = -1; goto done; }
+
 	if (ciphertest_1 ("3DES",
 			  &data, 8,
 			  &key, 24,
 			  &iv0, 8,
 			  eay_3des_encrypt, eay_3des_decrypt) < 0)
-	  return -1;
-	
+	  { rc = -1; goto done; }
+
 	if (ciphertest_1 ("AES",
 			  &data, 16,
 			  &key, key.l,
 			  &iv0, 16,
 			  eay_aes_encrypt, eay_aes_decrypt) < 0)
-	  return -1;
+	  { rc = -1; goto done; }
 
 	if (ciphertest_1 ("BLOWFISH",
 			  &data, 8,
 			  &key, key.l,
 			  &iv0, 8,
 			  eay_bf_encrypt, eay_bf_decrypt) < 0)
-	  return -1;
+	  { rc = -1; goto done; }
 
 	if (ciphertest_1 ("CAST",
 			  &data, 8,
 			  &key, key.l,
 			  &iv0, 8,
 			  eay_cast_encrypt, eay_cast_decrypt) < 0)
-	  return -1;
-	
+	  { rc = -1; goto done; }
+
 #if defined(HAVE_OPENSSL_IDEA_H) && ! defined(OPENSSL_NO_IDEA)
 	if (ciphertest_1 ("IDEA",
 			  &data, 8,
 			  &key, key.l,
 			  &iv0, 8,
 			  eay_idea_encrypt, eay_idea_decrypt) < 0)
-	  return -1;
+	  { rc = -1; goto done; }
 #endif
 
 #ifdef HAVE_OPENSSL_RC5_H
@@ -752,7 +807,7 @@ ciphertest(ac, av)
 			  &key, key.l,
 			  &iv0, 8,
 			  eay_rc5_encrypt, eay_rc5_decrypt) < 0)
-	  return -1;
+	  { rc = -1; goto done; }
 #endif
 #if defined(HAVE_OPENSSL_CAMELLIA_H) && ! defined(OPENSSL_NO_CAMELLIA)
 	if (ciphertest_1 ("CAMELLIA",
@@ -760,9 +815,14 @@ ciphertest(ac, av)
 			  &key, key.l,
 			  &iv0, 16,
 			  eay_camellia_encrypt, eay_camellia_decrypt) < 0)
-	  return -1;
+	  { rc = -1; goto done; }
 #endif
-	return 0;
+
+done:
+	free(data.v);
+	free(key.v);
+	free(iv0.v);
+	return rc;
 }
 
 int
@@ -982,6 +1042,8 @@ dhtest(ac, av)
 
 		if (eay_dh_generate(&p1, 2, 96, &pub1, &priv1) < 0) {
 			printf("error\n");
+			free(p1.v);
+			free(p2.v);
 			return -1;
 		}
 		printf("private key for user 1 = \n"); PVDUMP(priv1);
@@ -989,6 +1051,10 @@ dhtest(ac, av)
 
 		if (eay_dh_generate(&p2, 2, 96, &pub2, &priv2) < 0) {
 			printf("error\n");
+			vfree(pub1);
+			vfree(priv1);
+			free(p1.v);
+			free(p2.v);
 			return -1;
 		}
 		printf("private key for user 2 = \n"); PVDUMP(priv2);
@@ -1008,6 +1074,14 @@ dhtest(ac, av)
 
 		if (memcmp(gxy1->v, gxy2->v, gxy1->l)) {
 			printf("ERROR: sharing gxy mismatched.\n");
+			vfree(pub1);
+			vfree(pub2);
+			vfree(priv1);
+			vfree(priv2);
+			vfree(gxy1);
+			vfree(gxy2);
+			free(p1.v);
+			free(p2.v);
 			return -1;
 		}
 
@@ -1017,6 +1091,8 @@ dhtest(ac, av)
 		vfree(priv2);
 		vfree(gxy1);
 		vfree(gxy2);
+		free(p1.v);
+		free(p2.v);
 	}
 
 	return 0;
@@ -1243,6 +1319,59 @@ compat_test(ac, av)
 	return 0;
 }
 
+int
+eayrsa_test(ac, av)
+	int ac;
+	char **av;
+{
+	(void)ac;
+	(void)av;
+	char *text = "this is test of the eayRSA object.";
+	eayRSA *r = NULL;
+	vchar_t src, *sig = NULL;
+	int rc = -1;
+
+	printf("\n**Test for the eayRSA object.**\n");
+
+	r = eayRSA_generate(1024, RSA_F4);
+	if (r == NULL) {
+		printf("ERROR: eayRSA_generate failed. %s\n", eay_strerror());
+		return -1;
+	}
+
+	if (!eayRSA_has_private(r)) {
+		printf("ERROR: generated eayRSA key has no private component\n");
+		goto done;
+	}
+
+	src.v = text;
+	src.l = strlen(text);
+
+	sig = eayRSA_sign(r, &src);
+	if (sig == NULL) {
+		printf("ERROR: eayRSA_sign failed. %s\n", eay_strerror());
+		goto done;
+	}
+	printf("eayRSA signed data.\n");
+	PVDUMP(sig);
+
+	if (eayRSA_verify(r, &src, sig) != 0) {
+		printf("ERROR: eayRSA_verify failed to verify own signature\n");
+		goto done;
+	}
+	printf("eayRSA_verify: Verified. Good.\n");
+
+	rc = 0;
+
+done:
+	if (sig)
+		vfree(sig);
+	if (r)
+		eayRSA_free(r);
+
+	return rc;
+}
+
 struct {
 	char *name;
 	int (*func) __P((int, char **));
@@ -1258,6 +1387,7 @@ struct {
 #endif
 	{ "rsa", rsatest, },
 	{ "compat", compat_test, },
+	{ "eayrsa", eayrsa_test, },
 };
 
 int

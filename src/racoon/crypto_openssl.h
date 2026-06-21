@@ -30,6 +30,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #ifndef _CRYPTO_OPENSSL_H
 #define _CRYPTO_OPENSSL_H
@@ -42,9 +46,9 @@
  */
 
 #include <openssl/x509v3.h>
-#include <openssl/rsa.h>
 
 #include "openssl_compat.h"
+#include "eay_rsa.h"
 
 #define GENT_OTHERNAME	GEN_OTHERNAME
 #define GENT_EMAIL	GEN_EMAIL
@@ -68,11 +72,14 @@ extern vchar_t *eay_get_x509cert __P((char *));
 extern vchar_t *eay_get_x509sign __P((vchar_t *, vchar_t *));
 extern int eay_check_x509sign __P((vchar_t *, vchar_t *, vchar_t *));
 
+extern int eay_check_rsasign __P((vchar_t *, vchar_t *, eayRSA *));
+extern vchar_t *eay_get_rsasign __P((vchar_t *, eayRSA *));
+
 /* RSA */
 extern vchar_t *eay_pkey_sign __P((vchar_t *, EVP_PKEY *));
+extern vchar_t *eay_rsa_sign __P((vchar_t *, eayRSA *));
 extern int eay_pkey_verify __P((vchar_t *, vchar_t *, EVP_PKEY *));
-extern int eay_check_rsasign __P((vchar_t *, vchar_t *, RSA *));
-extern vchar_t *eay_get_rsasign __P((vchar_t *, RSA *));
+extern int eay_rsa_verify __P((vchar_t *, vchar_t *, eayRSA *));
 
 /* ASN.1 */
 extern vchar_t *eay_get_pkcs1privkey __P((char *));
@@ -227,8 +234,8 @@ extern int eay_dh_compute __P((vchar_t *, u_int32_t, vchar_t *, vchar_t *, vchar
 vchar_t *base64_encode(const char *in, long inlen);
 vchar_t *base64_decode(const char *in, long inlen);
 
-RSA *base64_pubkey2rsa(char *in);
-RSA *bignum_pubkey2rsa(BIGNUM *in);
+eayRSA *base64_pubkey2rsa(char *in);
+eayRSA *bignum_pubkey2rsa(BIGNUM *in);
 
 /* misc */
 extern int eay_revbnl __P((vchar_t *));

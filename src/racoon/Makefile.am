@@ -32,7 +32,7 @@ racoon_SOURCES = \
 	gssapi.c dnssec.c getcertsbyname.c privsep.c \
 	pfkey.c admin.c evt.c ipsec_doi.c oakley.c grabmyaddr.c vendorid.c \
 	policy.c localconf.c remoteconf.c crypto_openssl.c algorithm.c \
-	openssl_compat.c proposal.c sainfo.c strnames.c \
+	openssl_compat.c eay_rsa.c proposal.c sainfo.c strnames.c \
 	plog.c logger.c schedule.c str2val.c \
 	safefile.c backupsa.c genlist.c rsalist.c \
 	cftoken.l cfparse.y prsa_tok.l prsa_par.y
@@ -51,12 +51,12 @@ libracoon_la_SOURCES = kmpstat.c vmbuf.c sockmisc.c misc.c
 libracoon_la_CFLAGS = -DNOUSE_PRIVSEP $(AM_CFLAGS)
 
 plainrsa_gen_SOURCES = plainrsa-gen.c plog.c \
-	crypto_openssl.c logger.c openssl_compat.c
+	crypto_openssl.c logger.c openssl_compat.c eay_rsa.c
 EXTRA_plainrsa_gen_SOURCES = $(MISSING_ALGOS)
 plainrsa_gen_LDADD = $(CRYPTOBJS) vmbuf.o misc.o
 plainrsa_gen_DEPENDENCIES = $(CRYPTOBJS) vmbuf.o misc.o
 
-eaytest_SOURCES = eaytest.c plog.c logger.c openssl_compat.c
+eaytest_SOURCES = eaytest.c plog.c logger.c openssl_compat.c eay_rsa.c
 EXTRA_eaytest_SOURCES = missing/crypto/sha2/sha2.c
 eaytest_LDADD =	crypto_openssl_test.o vmbuf.o str2val.o misc_noplog.o \
 	$(CRYPTOBJS)
@@ -75,7 +75,7 @@ noinst_HEADERS = \
 	debugrm.h         isakmp.h      misc.h          sainfo.h \
 	dhgroup.h         isakmp_agg.h  netdb_dnssec.h  schedule.h \
 	isakmp_cfg.h      isakmp_xauth.h isakmp_unity.h isakmp_frag.h \
-	throttle.h	  privsep.h     openssl_compat.h \
+	throttle.h	  privsep.h     openssl_compat.h eay_rsa.h \
 	cfparse_proto.h	  cftoken_proto.h genlist.h     rsalist.h \
 	missing/crypto/sha2/sha2.h missing/crypto/rijndael/rijndael_local.h \
 	missing/crypto/rijndael/rijndael-api-fst.h \

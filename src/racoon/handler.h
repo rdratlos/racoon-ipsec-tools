@@ -36,6 +36,7 @@
 
 #include <sys/queue.h>
 #include <openssl/rsa.h>
+#include "eay_rsa.h"
 
 #include <sys/time.h>
 
@@ -169,8 +170,8 @@ struct ph1handle {
 	vchar_t *cert_p;		/* peer's CERT minus general header */
 	vchar_t *crl_p;			/* peer's CRL minus general header */
 	vchar_t *cr_p;			/* peer's CR not including general */
-	RSA *rsa;			/* my RSA key */
-	RSA *rsa_p;			/* peer's RSA key */
+	eayRSA *rsa;			/* my RSA key */
+	eayRSA *rsa_p;			/* peer's RSA key */
 	struct genlist *rsa_candidates;	/* possible candidates for peer's RSA key */
 	vchar_t *id;			/* ID minus gen header */
 	vchar_t *id_p;			/* partner's ID minus general header */

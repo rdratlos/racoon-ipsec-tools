@@ -39,6 +39,7 @@
 
 #include "handler.h"
 #include "genlist.h"
+#include "eay_rsa.h"
 
 enum rsa_key_type {
 	RSA_TYPE_ANY = 0,
@@ -49,16 +50,16 @@ enum rsa_key_type {
 struct rsa_key {
 	struct netaddr *src;
 	struct netaddr *dst;
-	RSA *rsa;
+	eayRSA *rsa;
 };
 
-int rsa_key_insert(struct genlist *list, struct netaddr *src, struct netaddr *dst, RSA *rsa);
+int rsa_key_insert(struct genlist *list, struct netaddr *src, struct netaddr *dst, eayRSA *rsa);
 struct rsa_key *rsa_key_dup(struct rsa_key *key);
 void rsa_key_free(void *data);
 void rsa_key_dump(struct genlist *list);
 
 struct genlist *rsa_lookup_keys(struct ph1handle *iph1, int my);
-RSA *rsa_try_check_rsasign(vchar_t *source, vchar_t *sig, struct genlist *list);
+eayRSA *rsa_try_check_rsasign(vchar_t *source, vchar_t *sig, struct genlist *list);
 
 unsigned long rsa_list_count(struct genlist *list);
 

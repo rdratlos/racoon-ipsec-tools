@@ -64,7 +64,6 @@
 #include <openssl/hmac.h>
 #include <openssl/des.h>
 #include <openssl/crypto.h>
-#include <openssl/rsa.h>
 #include <openssl/kdf.h>
 #ifdef HAVE_OPENSSL_ENGINE_H
 #include <openssl/engine.h>
@@ -916,157 +915,8 @@ eay_check_x509sign(source, sig, cert)
 	return res;
 }
 
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L
-
 /*
- * Convert RSA structure to EVP_PKEY for OpenSSL 3.0
- *
- * DEPRECATION NOTE:
- * This function uses RSA_get0_key() and related functions which are deprecated
- * in OpenSSL 3.0. However, there is NO non-deprecated alternative for converting
- * an existing RSA* structure to EVP_PKEY*.
- *
- * OpenSSL 3.0's design philosophy assumes you never use RSA* at all, but Racoon's
- * legacy codebase passes RSA* structures throughout. The proper long-term solution
- * would be a complete refactor to use EVP_PKEY* everywhere, but that is beyond
- * the scope of OpenSSL 3.0 compatibility work.
- *
- * The deprecation warning is suppressed locally using #pragma to:
- * 1. Avoid compilation noise
- * 2. Make it clear this is intentional and documented
- * 3. Isolate the deprecated usage to this conversion function
- *
- * OUT: Returns EVP_PKEY* on success, NULL on failure
- */
-static EVP_PKEY *
-rsa_to_evp_pkey(RSA *rsa)
-{
-	EVP_PKEY_CTX *ctx = NULL;
-	EVP_PKEY *pkey = NULL;
-	OSSL_PARAM_BLD *bld = NULL;
-	OSSL_PARAM *params = NULL;
-	const BIGNUM *n = NULL, *e = NULL, *d = NULL;
-	const BIGNUM *p = NULL, *q = NULL;
-	const BIGNUM *dmp1 = NULL, *dmq1 = NULL, *iqmp = NULL;
-	int is_private = 0;
-
-	if (!rsa) {
-		plog(LLV_ERROR, LOCATION, NULL, "rsa_to_evp_pkey: NULL RSA pointer\n");
-		return NULL;
-	}
-
-	if (compat_RSA_get0_params(rsa, &n, &e, &d, &p, &q, &dmp1, &dmq1, &iqmp) != 0) {
-		plog(LLV_ERROR, LOCATION, NULL,
-		     "Failed to extract RSA parameters\n");
-		return NULL;
-	}
-	is_private = (d != NULL && BN_is_zero(d) == 0);
-
-	/* Validate required parameters */
-	if (!n || !e) {
-		plog(LLV_ERROR, LOCATION, NULL,
-		     "RSA key missing required parameters (n or e)\n");
-		return NULL;
-	}
-
-	/* Build OSSL_PARAM array */
-	bld = OSSL_PARAM_BLD_new();
-	if (!bld) {
-		plog(LLV_ERROR, LOCATION, NULL, "OSSL_PARAM_BLD_new failed\n");
-		return NULL;
-	}
-
-	/* Add public key parameters (required) */
-	if (!OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_N, n)) {
-		plog(LLV_ERROR, LOCATION, NULL, "Failed to add RSA modulus\n");
-		goto err;
-	}
-	if (!OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_E, e)) {
-		plog(LLV_ERROR, LOCATION, NULL, "Failed to add RSA public exponent\n");
-		goto err;
-	}
-
-	/* Add private key parameters if present */
-	if (is_private) {
-		if (d && !OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_D, d)) {
-			plog(LLV_ERROR, LOCATION, NULL, "Failed to add RSA private exponent\n");
-			goto err;
-		}
-
-		/* CRT parameters are optional but improve performance */
-		if (p && !OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_FACTOR1, p)) {
-			plog(LLV_WARNING, LOCATION, NULL,
-			     "Failed to add RSA factor p (continuing anyway)\n");
-		}
-		if (q && !OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_FACTOR2, q)) {
-			plog(LLV_WARNING, LOCATION, NULL,
-			     "Failed to add RSA factor q (continuing anyway)\n");
-		}
-		if (dmp1 && !OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_EXPONENT1, dmp1)) {
-			plog(LLV_WARNING, LOCATION, NULL,
-			     "Failed to add RSA exponent1 (continuing anyway)\n");
-		}
-		if (dmq1 && !OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_EXPONENT2, dmq1)) {
-			plog(LLV_WARNING, LOCATION, NULL,
-			     "Failed to add RSA exponent2 (continuing anyway)\n");
-		}
-		if (iqmp && !OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_COEFFICIENT1, iqmp)) {
-			plog(LLV_WARNING, LOCATION, NULL,
-			     "Failed to add RSA coefficient (continuing anyway)\n");
-		}
-	}
-
-	/* Convert OSSL_PARAM_BLD to OSSL_PARAM */
-	params = OSSL_PARAM_BLD_to_param(bld);
-	if (!params) {
-		plog(LLV_ERROR, LOCATION, NULL, "OSSL_PARAM_BLD_to_param failed\n");
-		goto err;
-	}
-
-	/* Create EVP_PKEY_CTX for RSA */
-	ctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
-	if (!ctx) {
-		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_CTX_new_from_name failed\n");
-		goto err;
-	}
-
-	/* Initialize for key creation from data */
-	if (EVP_PKEY_fromdata_init(ctx) <= 0) {
-		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_fromdata_init failed\n");
-		goto err;
-	}
-
-	/* Create EVP_PKEY from parameters */
-	if (EVP_PKEY_fromdata(ctx, &pkey,
-			      is_private ? EVP_PKEY_KEYPAIR : EVP_PKEY_PUBLIC_KEY,
-			      params) <= 0) {
-		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_fromdata failed: %s\n",
-		     eay_strerror());
-		goto err;
-	}
-
-	plog(LLV_DEBUG, LOCATION, NULL,
-	     "Successfully converted RSA to EVP_PKEY (%s key)\n",
-	     is_private ? "private" : "public");
-
-	/* Clean up and return success */
-	OSSL_PARAM_BLD_free(bld);
-	OSSL_PARAM_free(params);
-	compat_EVP_PKEY_CTX_free(ctx);
-	return pkey;
-
-err:
-	OSSL_PARAM_BLD_free(bld);
-	OSSL_PARAM_free(params);
-	compat_EVP_PKEY_CTX_free(ctx);
-	EVP_PKEY_free(pkey);
-	return NULL;
-}
-
-#endif /* OPENSSL_VERSION_NUMBER >= 0x30000000L */
-
-/*
- * check RSA signature - wrapper that converts RSA to EVP_PKEY
+ * check RSA signature - thin delegation to eayRSA_verify
  * OUT: return -1 when error.
  *	0 on success
  */
@@ -1074,44 +924,14 @@ int
 eay_check_rsasign(source, sig, rsa)
 	vchar_t *source;
 	vchar_t *sig;
-	RSA *rsa;
+	eayRSA *rsa;
 {
-	EVP_PKEY *pkey = NULL;
-	int res = -1;
-
 	if (!rsa) {
 		plog(LLV_ERROR, LOCATION, NULL, "eay_check_rsasign: NULL RSA key\n");
 		return -1;
 	}
 
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L
-	/* OpenSSL 3.0: Convert RSA* to EVP_PKEY */
-	pkey = rsa_to_evp_pkey(rsa);
-	if (!pkey) {
-		plog(LLV_ERROR, LOCATION, NULL,
-		     "Failed to convert RSA to EVP_PKEY\n");
-		return -1;
-	}
-#else
-	/* OpenSSL 1.1.0: Use EVP_PKEY_set1_RSA (not deprecated in 1.1.0) */
-	pkey = EVP_PKEY_new();
-	if (!pkey) {
-		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_new failed\n");
-		return -1;
-	}
-
-	if (EVP_PKEY_set1_RSA(pkey, rsa) != 1) {
-		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_set1_RSA failed\n");
-		EVP_PKEY_free(pkey);
-		return -1;
-	}
-#endif
-
-	/* Perform verification using EVP_PKEY wrapper */
-	res = eay_pkey_verify(source, sig, pkey);
-
-	EVP_PKEY_free(pkey);
-	return res;
+	return eayRSA_verify(rsa, source, sig);
 }
 
 /*
@@ -1240,21 +1060,15 @@ eay_get_x509sign(src, privkey)
 }
 
 /*
- * Get RSA signature - converts RSA* to EVP_PKEY and signs
- *
- * This is a compatibility wrapper that handles both OpenSSL 1.1.0+
- * and OpenSSL 3.0+ by converting RSA* to EVP_PKEY as needed.
+ * Get RSA signature - thin delegation to eayRSA_sign
  *
  * OUT: Returns signature in vchar_t* on success, NULL on failure
  */
 vchar_t *
 eay_get_rsasign(src, rsa)
 	vchar_t *src;
-	RSA *rsa;
+	eayRSA *rsa;
 {
-	EVP_PKEY *pkey = NULL;
-	vchar_t *sig = NULL;
-
 	if (!rsa) {
 		plog(LLV_ERROR, LOCATION, NULL, "eay_get_rsasign: NULL RSA key\n");
 		return NULL;
@@ -1267,40 +1081,13 @@ eay_get_rsasign(src, rsa)
 	 * NULL pointer dereference/crash inside EVP_PKEY_sign() instead of
 	 * a clean error return.
 	 */
-	if (!compat_RSA_has_private(rsa)) {
+	if (!eayRSA_has_private(rsa)) {
 		plog(LLV_ERROR, LOCATION, NULL,
 		     "eay_get_rsasign: RSA key has no private component\n");
 		return NULL;
 	}
 
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L
-	/* OpenSSL 3.0: Convert RSA* to EVP_PKEY */
-	pkey = rsa_to_evp_pkey(rsa);
-	if (!pkey) {
-		plog(LLV_ERROR, LOCATION, NULL,
-		     "Failed to convert RSA to EVP_PKEY\n");
-		return NULL;
-	}
-#else
-	/* OpenSSL 1.1.0: Use EVP_PKEY_set1_RSA (not deprecated in 1.1.0) */
-	pkey = EVP_PKEY_new();
-	if (!pkey) {
-		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_new failed\n");
-		return NULL;
-	}
-
-	if (EVP_PKEY_set1_RSA(pkey, rsa) != 1) {
-		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_set1_RSA failed\n");
-		EVP_PKEY_free(pkey);
-		return NULL;
-	}
-#endif
-
-	/* Perform signing using EVP_PKEY wrapper */
-	sig = eay_pkey_sign(src, pkey);
-
-	EVP_PKEY_free(pkey);
-	return sig;
+	return eayRSA_sign(rsa, src);
 }
 
 /*
@@ -1370,9 +1157,9 @@ eay_pkey_sign(src, pkey)
 		goto end;
 	}
 
-	/* Set PKCS#1 v1.5 padding (matches original RSA_PKCS1_PADDING) */
-	if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_PADDING) <= 0) {
-		plog(LLV_ERROR, LOCATION, NULL, "EVP_PKEY_CTX_set_rsa_padding failed\n");
+	/* Set PKCS#1 v1.5 padding */
+	if (eayRSA_set_pkcs1_padding(ctx) != 0) {
+		plog(LLV_ERROR, LOCATION, NULL, "eayRSA_set_pkcs1_padding failed\n");
 		goto end;
 	}
 
@@ -1473,10 +1260,10 @@ eay_pkey_verify(src, sig, pkey)
 		goto end;
 	}
 
-	/* Set PKCS#1 v1.5 padding (matches original RSA_PKCS1_PADDING) */
-	if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_PADDING) <= 0) {
+	/* Set PKCS#1 v1.5 padding */
+	if (eayRSA_set_pkcs1_padding(ctx) != 0) {
 		plog(LLV_ERROR, LOCATION, NULL,
-		     "EVP_PKEY_CTX_set_rsa_padding failed: %s\n", eay_strerror());
+		     "eayRSA_set_pkcs1_padding failed: %s\n", eay_strerror());
 		goto end;
 	}
 
@@ -1542,7 +1329,7 @@ end:
 vchar_t *
 eay_rsa_sign(src, rsa)
 	vchar_t *src;
-	RSA *rsa;
+	eayRSA *rsa;
 {
 	return eay_get_rsasign(src, rsa);
 }
@@ -1550,7 +1337,7 @@ eay_rsa_sign(src, rsa)
 int
 eay_rsa_verify(src, sig, rsa)
 	vchar_t *src, *sig;
-	RSA *rsa;
+	eayRSA *rsa;
 {
 	return eay_check_rsasign(src, sig, rsa);
 }
@@ -3406,15 +3193,11 @@ base64_encode(const char *in, long inlen)
 	return res;
 }
 
-static RSA *
+static eayRSA *
 binbuf_pubkey2rsa(vchar_t *binbuf)
 {
 	BIGNUM *exp = NULL, *mod = NULL;
-	RSA *rsa_pub = NULL;
-	EVP_PKEY *pkey = NULL;
-	EVP_PKEY_CTX *ctx = NULL;
-	OSSL_PARAM_BLD *bld = NULL;
-	OSSL_PARAM *params_built = NULL;
+	eayRSA *rsa_pub = NULL;
 
 	if (binbuf->l < 1 || (unsigned char)binbuf->v[0] > binbuf->l - 1) {
 		plog(LLV_ERROR, LOCATION, NULL, "Plain RSA pubkey format error: decoded string doesn't make sense.\n");
@@ -3447,53 +3230,9 @@ binbuf_pubkey2rsa(vchar_t *binbuf)
 		goto out;
 	}
 
-	/*
-	 * Build EVP_PKEY using OSSL_PARAM_BLD with BIGNUM objects.
-	 * OSSL_PARAM_construct_BN() expects an internal BIGNUM wire format,
-	 * not raw big-endian bytes — using it with BN_bn2bin output is wrong.
-	 * OSSL_PARAM_BLD_push_BN() correctly serialises a BIGNUM* for use
-	 * with EVP_PKEY_fromdata().
-	 */
-	bld = OSSL_PARAM_BLD_new();
-	if (!bld)
-		goto out;
-
-	if (!OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_N, mod) ||
-	    !OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_E, exp)) {
-		plog(LLV_ERROR, LOCATION, NULL, "Plain RSA pubkey: OSSL_PARAM_BLD_push_BN failed.\n");
-		goto out;
-	}
-
-	params_built = OSSL_PARAM_BLD_to_param(bld);
-	if (!params_built) {
-		plog(LLV_ERROR, LOCATION, NULL, "Plain RSA pubkey: OSSL_PARAM_BLD_to_param failed.\n");
-		goto out;
-	}
-
-	ctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
-	if (!ctx)
-		goto out;
-
-	if (EVP_PKEY_fromdata_init(ctx) <= 0)
-		goto out;
-
-	if (EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params_built) <= 0) {
-		plog(LLV_ERROR, LOCATION, NULL, "Plain RSA pubkey: EVP_PKEY_fromdata failed: %s\n",
-		     eay_strerror());
-		goto out;
-	}
-
-	rsa_pub = compat_EVP_PKEY_get1_RSA(pkey);
+	rsa_pub = eayRSA_new_pub(mod, exp);
 
 out:
-	if (params_built)
-		OSSL_PARAM_free(params_built);
-	if (bld)
-		OSSL_PARAM_BLD_free(bld);
-	if (ctx)
-		compat_EVP_PKEY_CTX_free(ctx);
-	if (pkey)
-		EVP_PKEY_free(pkey);
 	if (exp)
 		BN_free(exp);
 	if (mod)
@@ -3502,10 +3241,10 @@ out:
 	return rsa_pub;
 }
 
-RSA *
+eayRSA *
 base64_pubkey2rsa(char *in)
 {
-	RSA *rsa_pub = NULL;
+	eayRSA *rsa_pub = NULL;
 	vchar_t *binbuf;
 
 	if (strncmp(in, "0s", 2) != 0) {
@@ -3533,10 +3272,10 @@ out:
 	return rsa_pub;
 }
 
-RSA *
+eayRSA *
 bignum_pubkey2rsa(BIGNUM *in)
 {
-	RSA *rsa_pub = NULL;
+	eayRSA *rsa_pub = NULL;
 	vchar_t *binbuf;
 
 	binbuf = vmalloc(BN_num_bytes(in));

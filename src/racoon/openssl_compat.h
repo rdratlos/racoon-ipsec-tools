@@ -2,7 +2,6 @@
 #define OPENSSL_COMPAT_H
 
 #include <openssl/opensslv.h>
-#include <openssl/rsa.h>
 #include <openssl/dh.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
@@ -84,7 +83,15 @@ int EVP_PKEY_get_bn_param(const EVP_PKEY *pkey, const char *key_name,
 /*
  * Compatibility functions for RSA operations
  * These work across OpenSSL 1.1.0, 1.1.1, and 3.0+
+ *
+ * These all operate on the legacy RSA* type, which is unavailable when
+ * building with OPENSSL_NO_DEPRECATED. Production code (crypto_openssl.c)
+ * no longer needs the legacy RSA* type at all -- it uses eayRSA* throughout
+ * -- so these are only declared for the remaining legacy boundary callers
+ * (e.g. test code and eaytest.c that still parse RSA* out of PEM/ASN.1).
  */
+#ifndef OPENSSL_NO_DEPRECATED
+#include <openssl/rsa.h>
 
 /* Check if RSA key has private component */
 int compat_RSA_has_private(const RSA *rsa);
@@ -128,14 +135,6 @@ int compat_RSA_get0_params(const RSA *rsa,
                            const BIGNUM **iqmp);
 
 /*
- * Wrapper around DES_is_weak_key() to avoid deprecated-declarations warnings
- * in caller code when building against OpenSSL 3.0+.
- *
- * Returns non-zero if the key is weak, 0 otherwise.
- */
-int compat_DES_is_weak_key(const void *key);
-
-/*
  * Wrapper around EVP_PKEY_get1_RSA() to avoid deprecated-declarations warnings
  * in caller code when building against OpenSSL 3.0+.
  *
@@ -144,6 +143,15 @@ int compat_DES_is_weak_key(const void *key);
  * RSA_free() or compat_RSA_free().
  */
 RSA *compat_EVP_PKEY_get1_RSA(const EVP_PKEY *pkey);
+#endif /* !OPENSSL_NO_DEPRECATED */
+
+/*
+ * Wrapper around DES_is_weak_key() to avoid deprecated-declarations warnings
+ * in caller code when building against OpenSSL 3.0+.
+ *
+ * Returns non-zero if the key is weak, 0 otherwise.
+ */
+int compat_DES_is_weak_key(const void *key);
 
 /* compat_EVP_PKEY_CTX_free: free EVP_PKEY_CTX and any compat shim app_data.
    On OpenSSL 3.0+, this is a no-op wrapper around EVP_PKEY_CTX_free. */
@@ -154,6 +162,37 @@ static inline void compat_EVP_PKEY_CTX_free(EVP_PKEY_CTX *ctx)
 {
 	EVP_PKEY_CTX_free(ctx);
 }
+#endif
+
+/*
+ * compat_rsa_keygen_pubexp() / COMPAT_RSA_KEYGEN_PUBEXP(): set the RSA
+ * keygen public exponent on an EVP_PKEY_CTX.
+ *
+ * EVP_PKEY_CTX_set1_rsa_keygen_pubexp() (3.0+) copies e and leaves
+ * ownership with the caller, while the pre-3.0
+ * EVP_PKEY_CTX_set_rsa_keygen_pubexp() consumes e on success. This macro
+ * normalizes both to a single convention: the caller always owns and
+ * frees the BIGNUM passed in.
+ */
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+/* set1 makes its own copy; caller retains ownership. */
+#  define COMPAT_RSA_KEYGEN_PUBEXP(ctx, e) \
+            EVP_PKEY_CTX_set1_rsa_keygen_pubexp((ctx), (e))
+#else
+/* Pre-3.0 set_ CONSUMES the BIGNUM on success. Hand it a copy so the
+ * caller's "I always own e" convention holds uniformly. Not deprecated on
+ * 1.0.x/1.1.x, so no pragma needed here. */
+static inline int
+compat_rsa_keygen_pubexp(EVP_PKEY_CTX *ctx, BIGNUM *e)
+{
+	BIGNUM *copy = BN_dup(e);
+	int rc;
+	if (copy == NULL) { return -1; }
+	rc = EVP_PKEY_CTX_set_rsa_keygen_pubexp(ctx, copy);
+	if (rc <= 0) { BN_free(copy); }   /* not consumed on failure */
+	return rc;
+}
+#  define COMPAT_RSA_KEYGEN_PUBEXP(ctx, e) compat_rsa_keygen_pubexp((ctx), (e))
 #endif
 
 #endif /* OPENSSL_COMPAT_H */

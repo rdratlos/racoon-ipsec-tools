@@ -1753,7 +1753,7 @@ oakley_getsign(iph1)
 		iph1->sig = eay_get_x509sign(iph1->hash, privkey);
 		break;
 	case ISAKMP_CERT_PLAINRSA:
-		iph1->sig = eay_get_rsasign(iph1->hash, iph1->rsa);
+		iph1->sig = eayRSA_sign(iph1->rsa, iph1->hash);
 		break;
 	default:
 		plog(LLV_ERROR, LOCATION, NULL,

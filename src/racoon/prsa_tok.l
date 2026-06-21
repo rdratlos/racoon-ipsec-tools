@@ -38,6 +38,7 @@
 #include <string.h>
 #include <openssl/bn.h>
 #include <openssl/rsa.h>
+#include "eay_rsa.h"
 #include "prsa_par.h"
 
 extern int prsalex (void);

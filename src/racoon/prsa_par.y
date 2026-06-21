@@ -72,6 +72,7 @@
 #include "openssl_compat.h"
 #include "sockmisc.h"
 #include "rsalist.h"
+#include "eay_rsa.h"
 
 extern void prsaerror(const char *str, ...);
 extern int prsawrap (void);
@@ -99,6 +100,25 @@ struct my_rsa_st {
 };
 
 static struct my_rsa_st *rsa_cur;
+
+static void
+rsa_cur_free(struct my_rsa_st *r)
+{
+	if (r == NULL)
+		return;
+	/* n and e are public values */
+	BN_free(r->n);
+	BN_free(r->e);
+	/* d, p, q and CRT params are private key material */
+	BN_clear_free(r->d);
+	BN_clear_free(r->p);
+	BN_clear_free(r->q);
+	BN_clear_free(r->dmp1);
+	BN_clear_free(r->dmq1);
+	BN_clear_free(r->iqmp);
+	memset(r, 0, sizeof(*r));
+	free(r);
+}
 
 void
 prsaerror(const char *s, ...)
@@ -142,22 +162,18 @@ prsawrap()
 %}
 %union {
 	BIGNUM *bn;
-	RSA *rsa;
+	eayRSA *rsa;
 	char *chr;
 	long num;
 	struct netaddr *naddr;
 }
 
-%token COLON HEX
-%token OBRACE EBRACE COLON HEX
+%token COLON <bn> HEX
+%token OBRACE EBRACE
 %token TAG_RSA TAG_PUB TAG_PSK
 %token MODULUS PUBLIC_EXPONENT PRIVATE_EXPONENT 
 %token PRIME1 PRIME2 EXPONENT1 EXPONENT2 COEFFICIENT
-%token ADDR4 ADDR6 ADDRANY SLASH NUMBER BASE64
-
-%type <bn>	HEX
-%type <num>	NUMBER
-%type <chr>	ADDR4 ADDR6 BASE64
+%token <chr> ADDR4 <chr> ADDR6 ADDRANY SLASH <num> NUMBER <chr> BASE64
 
 %type <rsa>	rsa_statement
 %type <num>	prefix
@@ -191,12 +207,16 @@ rsa_statement:
 			prsawarning("Using private key for public key purpose.\n");
 			if (!rsa_cur->n || !rsa_cur->e) {
 				prsaerror("Incomplete key. Mandatory parameters are missing!\n");
+				rsa_cur_free(rsa_cur);
+				rsa_cur = NULL;
 				YYABORT;
 			}
 		}
 		else {
 			if (!rsa_cur->n || !rsa_cur->e || !rsa_cur->d) {
 				prsaerror("Incomplete key. Mandatory parameters are missing!\n");
+				rsa_cur_free(rsa_cur);
+				rsa_cur = NULL;
 				YYABORT;
 			}
 			if (!rsa_cur->p || !rsa_cur->q || !rsa_cur->dmp1
@@ -214,21 +234,21 @@ rsa_statement:
 				rsa_cur->iqmp = NULL;
 			}
 		}
-		/* Suppress deprecation warnings for OpenSSL 3.0 low-level API usage */
-		#if OPENSSL_VERSION_NUMBER >= 0x30000000L
-		#pragma GCC diagnostic push
-		#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-		#endif
-		RSA * rsa_tmp = RSA_new();
-		RSA_set0_key(rsa_tmp, rsa_cur->n, rsa_cur->e, rsa_cur->d);
-		RSA_set0_factors(rsa_tmp, rsa_cur->p, rsa_cur->q);
-		RSA_set0_crt_params(rsa_tmp, rsa_cur->dmp1, rsa_cur->dmq1, rsa_cur->iqmp);
-		$$ = rsa_tmp;
+		/*
+		 * eayRSA_new_priv() copies the BIGNUMs; rsa_cur retains
+		 * ownership and is cleared below as before.
+		 */
+		$$ = eayRSA_new_priv(
+			rsa_cur->n, rsa_cur->e, rsa_cur->d,
+			rsa_cur->p, rsa_cur->q,
+			rsa_cur->dmp1, rsa_cur->dmq1, rsa_cur->iqmp);
+		if ($$ == NULL) {
+			prsaerror("Failed to construct RSA key.\n");
+			rsa_cur_free(rsa_cur);
+			rsa_cur = NULL;
+			YYABORT;
+		}
 		memset(rsa_cur, 0, sizeof(struct my_rsa_st));
-		/* Restore warnings */
-		#if OPENSSL_VERSION_NUMBER >= 0x30000000L
-		#pragma GCC diagnostic pop
-		#endif
 	}
 	| TAG_PUB BASE64
 	{
@@ -238,14 +258,24 @@ rsa_statement:
 		}
 		$$ = base64_pubkey2rsa($2);
 		free($2);
+		if ($$ == NULL) {
+			prsaerror("Failed to parse public key.\n");
+			YYABORT;
+		}
 	}
 	| TAG_PUB HEX
 	{
 		if (prsa_cur_type == RSA_TYPE_PRIVATE) {
 			prsaerror("Public key in private-key file!\n");
+			BN_free($2);
 			YYABORT;
 		}
 		$$ = bignum_pubkey2rsa($2);
+		BN_free($2);
+		if ($$ == NULL) {
+			prsaerror("Failed to parse public key.\n");
+			YYABORT;
+		}
 	}
 	;
 
@@ -279,6 +309,8 @@ addr4:
 		err = getaddrinfo($1, NULL, &hints, &res);
 		if (err < 0) {
 			prsaerror("getaddrinfo(%s): %s\n", $1, gai_strerror(err));
+			free($$);
+			free($1);
 			YYABORT;
 		}
 		memcpy(sap, res->ai_addr, res->ai_addrlen);
@@ -308,6 +340,8 @@ addr6:
 		err = getaddrinfo($1, NULL, &hints, &res);
 		if (err < 0) {
 			prsaerror("getaddrinfo(%s): %s\n", $1, gai_strerror(err));
+			free($$);
+			free($1);
 			YYABORT;
 		}
 		memcpy(sap, res->ai_addr, res->ai_addrlen);
@@ -378,15 +412,17 @@ prsa_parse_file(struct genlist *list, char *fname, enum rsa_key_type type)
 	prsa_cur_list = list;
 	prsa_cur_type = type;
 	rsa_cur = malloc(sizeof(struct my_rsa_st));
+	if (rsa_cur == NULL) {
+		fclose(fp);
+		return -1;
+	}
 	memset(rsa_cur, 0, sizeof(struct my_rsa_st));
 	ret = prsaparse();
 	if (rsa_cur) {
-		memset(rsa_cur, 0, sizeof(struct my_rsa_st));
-		free(rsa_cur);
+		rsa_cur_free(rsa_cur);
 		rsa_cur = NULL;
 	}
 	fclose (fp);
 	prsain = NULL;
 	return ret;
 }
-

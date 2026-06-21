@@ -45,13 +45,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#include <openssl/bio.h>
 #include <openssl/bn.h>
-#include <openssl/err.h>
-#include <openssl/objects.h>
-#include <openssl/pem.h>
-#include <openssl/rsa.h>
-#include <openssl/evp.h>
 #ifdef HAVE_OPENSSL_ENGINE_H
 #include <openssl/engine.h>
 #endif
@@ -60,7 +54,7 @@
 #include "vmbuf.h"
 #include "plog.h"
 #include "crypto_openssl.h"
-#include "openssl_compat.h"
+#include "eay_rsa.h"
 
 #include "package_version.h"
 
@@ -91,26 +85,35 @@ usage (char *argv0)
  * See RFC 2065, section 3.5 for details about the output format.
  */
 vchar_t *
-mix_b64_pubkey(const RSA *key)
+mix_b64_pubkey(const eayRSA *key)
 {
 	char *binbuf;
 	long binlen, ret;
 	vchar_t *res;
-	const BIGNUM *e, *n;
+	BIGNUM *e = NULL, *n = NULL;
 
-	RSA_get0_key(key, &n, &e, NULL);
+	if (eayRSA_get_params(key, &n, &e, NULL, NULL, NULL, NULL, NULL, NULL) < 0) {
+		plog(LLV_ERROR, LOCATION, NULL,
+		     "mix_b64_pubkey: failed to extract RSA public key parameters\n");
+		return NULL;
+	}
 	binlen = 1 + BN_num_bytes(e) + BN_num_bytes(n);
 	binbuf = malloc(binlen);
 	memset(binbuf, 0, binlen);
 	binbuf[0] = BN_bn2bin(e, (unsigned char *) &binbuf[1]);
 	ret = BN_bn2bin(n, (unsigned char *) (&binbuf[binbuf[0] + 1]));
+	BN_free(e);
+	BN_free(n);
 	if (1 + binbuf[0] + ret != binlen) {
 		plog(LLV_ERROR, LOCATION, NULL,
 		     "Pubkey generation failed. This is really strange...\n");
+		free(binbuf);
 		return NULL;
 	}
 
-	return base64_encode(binbuf, binlen);
+	res = base64_encode(binbuf, binlen);
+	free(binbuf);
+	return res;
 }
 /* Restore warnings */
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
@@ -136,22 +139,26 @@ lowercase(char *input)
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
 int
-print_rsa_key(FILE *fp, const RSA *key)
+print_rsa_key(FILE *fp, const eayRSA *key)
 {
 	vchar_t *pubkey64 = NULL;
+	BIGNUM *n = NULL, *e = NULL, *d = NULL;
+	BIGNUM *p = NULL, *q = NULL, *dmp1 = NULL, *dmq1 = NULL, *iqmp = NULL;
 
 	pubkey64 = mix_b64_pubkey(key);
 	if (!pubkey64) {
 		fprintf(stderr, "mix_b64_pubkey(): %s\n", eay_strerror());
 		return -1;
 	}
-	
+
+	if (eayRSA_get_params(key, &n, &e, &d, &p, &q, &dmp1, &dmq1, &iqmp) < 0) {
+		fprintf(stderr, "print_rsa_key: eayRSA_get_params() failed\n");
+		vfree(pubkey64);
+		return -1;
+	}
+
 	fprintf(fp, "# : PUB 0s%s\n", pubkey64->v);
 	fprintf(fp, ": RSA\t{\n");
-	const BIGNUM *n, *e, *d, *p, *q, *dmp1, *dmq1, *iqmp;
-	RSA_get0_key(key, &n, &e, &d);
-	RSA_get0_factors(key, &p, &q);
-	RSA_get0_crt_params(key, &dmp1, &dmq1, &iqmp);
 	fprintf(fp, "\t# RSA %d bits\n", BN_num_bits(n));
 	fprintf(fp, "\t# pubkey=0s%s\n", pubkey64->v);
 	fprintf(fp, "\tModulus: 0x%s\n", lowercase(BN_bn2hex(n)));
@@ -164,6 +171,14 @@ print_rsa_key(FILE *fp, const RSA *key)
 	fprintf(fp, "\tCoefficient: 0x%s\n", lowercase(BN_bn2hex(iqmp)));
 	fprintf(fp, "  }\n");
 
+	BN_free(n);
+	BN_free(e);
+	BN_clear_free(d);
+	BN_clear_free(p);
+	BN_clear_free(q);
+	BN_clear_free(dmp1);
+	BN_clear_free(dmq1);
+	BN_clear_free(iqmp);
 	vfree(pubkey64);
 	return 0;
 }
@@ -173,7 +188,7 @@ print_rsa_key(FILE *fp, const RSA *key)
 #endif
 
 int
-print_public_rsa_key(FILE *fp, const RSA *key)
+print_public_rsa_key(FILE *fp, const eayRSA *key)
 {
 	vchar_t *pubkey64 = NULL;
 
@@ -198,22 +213,22 @@ int
 convert_rsa_key(FILE *fpout, FILE *fpin)
 {
 	int ret;
-	RSA *key = NULL;
+	eayRSA *key = NULL;
 
-	key = PEM_read_RSAPrivateKey(fpin, NULL, NULL, NULL);
+	key = eayRSA_read_private_pem(fpin);
 	if (key) {
 		ret = print_rsa_key(fpout, key);
-		RSA_free(key);
+		eayRSA_free(key);
 
 		return ret;
 	}
-	
+
 	rewind(fpin);
 
-	key = PEM_read_RSA_PUBKEY(fpin, NULL, NULL, NULL);
+	key = eayRSA_read_public_pem(fpin);
 	if (key) {
 		ret = print_public_rsa_key(fpout, key);
-		RSA_free(key);
+		eayRSA_free(key);
 
 		return ret;
 	}
@@ -242,18 +257,15 @@ int
 gen_rsa_key(FILE *fp, size_t bits, unsigned long exp)
 {
 	int ret;
-	RSA *key = RSA_new();
-	BIGNUM *e = BN_new();
+	eayRSA *key = eayRSA_generate(bits, exp);
 
-	BN_set_word(e, exp);
-	if (! RSA_generate_key_ex(key, bits, e, NULL)) {
-		fprintf(stderr, "RSA_generate_key(): %s\n", eay_strerror());
-		RSA_free(key);
+	if (key == NULL) {
+		fprintf(stderr, "eayRSA_generate(): %s\n", eay_strerror());
 		return -1;
 	}
-	
+
 	ret = print_rsa_key(fp, key);
-	RSA_free(key);
+	eayRSA_free(key);
 
 	return ret;
 }
