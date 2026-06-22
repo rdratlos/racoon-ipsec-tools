@@ -3260,16 +3260,9 @@ base64_pubkey2rsa(char *in)
 		return NULL;
 	}
 
-	if (binbuf->v[0] > binbuf->l - 1) {
-		plog(LLV_ERROR, LOCATION, NULL, "Plain RSA pubkey format error: decoded string doesn't make sense.\n");
-		goto out;
-	}
-
 	rsa_pub = binbuf_pubkey2rsa(binbuf);
 
-out:
-	if (binbuf)
-		vfree(binbuf);
+	vfree(binbuf);
 
 	return rsa_pub;
 }
