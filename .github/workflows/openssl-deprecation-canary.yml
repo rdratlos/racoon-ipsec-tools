@@ -22,12 +22,13 @@
 name: OpenSSL Deprecation Canary
 
 on:
-  push:
-    branches:
-      - develop
-  pull_request:
-    branches:
-      - develop
+  # No branches: filter — build any branch that gets pushed to, and any PR
+  # regardless of its base. The old filters (develop-only for both push and
+  # pull_request) silently dropped the canary for any other branch naming
+  # convention or PR base (e.g. chore/** PRs into main), matching the same
+  # gap fixed in build-test.yml.
+  push: {}
+  pull_request: {}
   schedule:
     # Weekly: also catches the runner's libssl advancing toward 4.0 over time.
     - cron: '0 6 * * 1'
