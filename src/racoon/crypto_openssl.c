@@ -3003,7 +3003,7 @@ eay_dh_compute(prime, g, pub, priv, pub2, key)
 	}
 
 end:
-		if (secret) {
+	if (secret) {
 		memset(secret, 0, secret_alloc_len);
 		racoon_free(secret);
 	}
