@@ -21,6 +21,10 @@
 
 name: OpenSSL Deprecation Canary
 
+permissions:
+  contents: read
+  checks: write   # required to publish the dedicated canary check runs
+
 on:
   # No branches: filter — build any branch that gets pushed to, and any PR
   # regardless of its base. The old filters (develop-only for both push and
@@ -90,7 +94,7 @@ jobs:
       targets: >-
         [
           {"name":"guard","label":"Regression guard: crypto_openssl.o","dir":"src/racoon","target":"crypto_openssl.o","cc":"gcc ${NODEP}","blocking":true},
-          {"name":"tracker","label":"Readiness tracker: plainrsa-gen.o (expected red until migrated)","dir":"src/racoon","target":"plainrsa-gen.o","cc":"gcc ${NODEP}","blocking":false}
+          {"name":"tracker","label":"Readiness tracker: plainrsa-gen.o","dir":"src/racoon","target":"plainrsa-gen.o","cc":"gcc ${NODEP}","blocking":false}
         ]
       artifact-name: openssl-canary-logs
 
@@ -105,3 +109,111 @@ jobs:
           else
             echo "::notice title=4.0 Readiness::See the compile results in the canary job summary. Regression of reintroduced deprecated *calls* is guarded separately by the normal -Werror build."
           fi
+
+  # Publish per-target check runs on the PR's Checks tab, mirroring
+  # build-test.yml's publish-tristate job. The reusable workflow only
+  # exposes a single JSON `results` output (one entry per target), not
+  # per-target named outputs, so it's parsed here instead of guessed at.
+  publish-canary-check:
+    name: 'Publish canary checks'
+    needs: [resolve-ref, canary]
+    runs-on: ubuntu-latest
+    if: always()
+    permissions:
+      checks: write
+
+    steps:
+      - name: Publish check runs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = '${{ needs.resolve-ref.outputs.ref }}';
+            const sha = '${{ needs.resolve-ref.outputs.sha }}' || context.payload.pull_request?.head?.sha || context.sha;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            let results = [];
+            try {
+              results = JSON.parse(`${{ needs.canary.outputs.results || '[]' }}`);
+            } catch (e) {
+              core.warning(`Failed to parse canary results JSON: ${e}`);
+            }
+
+            const guard = results.find(r => r.name === 'guard');
+            const tracker = results.find(r => r.name === 'tracker');
+
+            // Regression guard: a real failure here is a genuine alarm, so
+            // it is reported as `failure` if it breaks.
+            const guardOutcome = guard?.outcome || 'unknown';
+            let guardConclusion, guardTitle, guardSummary;
+            if (guardOutcome === 'success') {
+              guardConclusion = 'success';
+              guardTitle = 'No deprecated OpenSSL calls in crypto_openssl.o';
+              guardSummary = 'crypto_openssl.o compiled cleanly under the OpenSSL 4.0 "no deprecated symbols" configuration.';
+            } else if (guardOutcome === 'failure') {
+              guardConclusion = 'failure';
+              guardTitle = 'Deprecated OpenSSL call reintroduced';
+              guardSummary = 'crypto_openssl.o failed to compile under the OpenSSL 4.0 "no deprecated symbols" configuration — a deprecated call was reintroduced into the daemon.';
+            } else {
+              guardConclusion = 'neutral';
+              guardTitle = 'Regression guard result unavailable';
+              guardSummary = 'Could not determine the regression guard outcome for this run.';
+            }
+
+            const guardText = [
+              `**Branch tested:** \`${branch}\``,
+              `**Commit:** \`${sha}\``,
+              `**Target compiled:** \`${guard?.target || 'crypto_openssl.o'}\` (in \`src/racoon\`)`,
+              '',
+              '**Regression guard** — expected GREEN. A failure here is a real alarm: it means a direct deprecated OpenSSL call was reintroduced into the daemon. This check is blocking.',
+              '',
+              `Outcome: \`${guardOutcome}\``,
+              '',
+              `[Full workflow run](${runUrl})`
+            ].join('\n');
+
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'CI: OpenSSL 4.0 canary (regression guard)',
+              head_sha: sha,
+              status: 'completed',
+              conclusion: guardConclusion,
+              output: { title: guardTitle, summary: guardSummary, text: guardText }
+            });
+
+            // Readiness tracker: informational only. It is expected to be
+            // RED until the RSA*->EVP_PKEY migration lands, so it must
+            // never report `failure` — only `success` or `neutral`.
+            const trackerOutcome = tracker?.outcome || 'unknown';
+            let trackerConclusion, trackerTitle, trackerSummary;
+            if (trackerOutcome === 'success') {
+              trackerConclusion = 'success';
+              trackerTitle = 'OpenSSL 4.0 readiness: plainrsa-gen.o migrated';
+              trackerSummary = 'plainrsa-gen.o now compiles cleanly under the OpenSSL 4.0 "no deprecated symbols" configuration — the RSA*->EVP_PKEY migration appears complete.';
+            } else {
+              trackerConclusion = 'neutral';
+              trackerTitle = 'OpenSSL 4.0 readiness: migration pending (informational)';
+              trackerSummary = 'plainrsa-gen.o still uses deprecated OpenSSL APIs. This is expected today and does not block this PR.';
+            }
+
+            const trackerText = [
+              `**Branch tested:** \`${branch}\``,
+              `**Commit:** \`${sha}\``,
+              `**Target compiled:** \`${tracker?.target || 'plainrsa-gen.o'}\` (in \`src/racoon\`)`,
+              '',
+              '**Readiness tracker** — informational only, non-blocking. Confirms plainrsa-gen remains free of direct OpenSSL 4.0-incompatible calls. GREEN = tool is 4.0-ready (via openssl_compat). Turns RED if a deprecated call is reintroduced outside the shim boundary.',
+              '',
+              `Outcome: \`${trackerOutcome}\``,
+              '',
+              `[Full workflow run](${runUrl})`
+            ].join('\n');
+
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'CI: OpenSSL 4.0 canary (readiness tracker)',
+              head_sha: sha,
+              status: 'completed',
+              conclusion: trackerConclusion,
+              output: { title: trackerTitle, summary: trackerSummary, text: trackerText }
+            });
