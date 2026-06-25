@@ -6,20 +6,20 @@ SUBDIRS = src test @RPM@
 
 DIST_SUBDIRS = src test rpm
 
-EXTRA_DIST = bootstrap README NEWS depcomp ChangeLog ChangeLog.old
+EXTRA_DIST = bootstrap README NEWS.md depcomp docs/history/ChangeLog docs/history/ChangeLog.old docs/history/NEWS
 
-MAINTAINERCLEANFILES = ChangeLog
+MAINTAINERCLEANFILES = docs/history/ChangeLog
 
-$(srcdir)/ChangeLog:
+$(srcdir)/docs/history/ChangeLog:
 	@if test -d "$(srcdir)/CVS"; then \
-	  $(srcdir)/misc/cvs2cl.pl --follow-only ipsec-tools-0_8-branch -I ChangeLog --utc -U $(srcdir)/misc/cvsusermap --group-by-author --fsf -T -l "-d2006-09-10<now" --tag-regexp "^ipsec-tools" --stdout > $@ ; \
-	  echo "For older changes see ChangeLog.old" >> $@ ; \
+	  $(srcdir)/misc/cvs2cl.pl --follow-only ipsec-tools-0_8-branch -I docs/history/ChangeLog --utc -U $(srcdir)/misc/cvsusermap --group-by-author --fsf -T -l "-d2006-09-10<now" --tag-regexp "^ipsec-tools" --stdout > $@ ; \
+	  echo "For older changes see docs/history/ChangeLog.old" >> $@ ; \
 	else \
 	  echo "A CVS checkout and perl is required to generate ChangeLog" ; \
 	  exit 1 ; \
 	fi
 
-.PHONY: $(srcdir)/ChangeLog
+.PHONY: $(srcdir)/docs/history/ChangeLog
 
 if WARN_DEPRECATED
 # When --enable-warn-deprecated is set, redirect 'make' to the 'dev'
