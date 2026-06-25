@@ -30,6 +30,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include "config.h"
 
@@ -154,7 +158,7 @@ void
 unmonitor_fd(int fd)
 {
 	if (fd < 0 || fd >= FD_SETSIZE) {
-		plog(LLV_ERROR, LOCATION, NULL, "fd_set overrun");
+		plog(LLV_ERROR, LOCATION, NULL, "fd_set overrun: fd=%d FD_SETSIZE=%d\n", fd, FD_SETSIZE);
 		exit(1);
 	}
 

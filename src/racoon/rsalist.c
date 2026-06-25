@@ -31,6 +31,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include "config.h"
 
@@ -65,9 +69,18 @@
 /* from prsa_tok.l */
 int prsa_parse_file(struct genlist *list, const char *fname, enum rsa_key_type type);
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#pragma GCC diagnostic push
+#ifndef RACOON_WARN_DEPRECATED
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#else
+#pragma GCC diagnostic warning "-Wdeprecated-declarations"
+#endif
+#endif
+
 int
 rsa_key_insert(struct genlist *list, struct netaddr *src,
-	       struct netaddr *dst, RSA *rsa)
+	       struct netaddr *dst, eayRSA *rsa)
 {
 	struct rsa_key *rsa_key;
 
@@ -99,9 +112,7 @@ rsa_key_dup(struct rsa_key *key)
 		return NULL;
 
 	if (key->rsa) {
-		const BIGNUM *d;
-		RSA_get0_key(key->rsa, NULL, NULL, &d);
-		new->rsa = (d != NULL ? RSAPrivateKey_dup(key->rsa) : RSAPublicKey_dup(key->rsa));
+		new->rsa = eayRSA_dup(key->rsa);
 		if (new->rsa == NULL)
 			goto dup_error;
 	}
@@ -111,7 +122,7 @@ rsa_key_dup(struct rsa_key *key)
 		if (new->src == NULL)
 			goto dup_error;
 		memcpy(new->src, key->src, sizeof(*new->src));
-	}	
+	}
 	if (key->dst) {
 		new->dst = malloc(sizeof(*new->dst));
 		if (new->dst == NULL)
@@ -123,7 +134,7 @@ rsa_key_dup(struct rsa_key *key)
 
 dup_error:
 	if (new->rsa != NULL)
-		RSA_free(new->rsa);
+		eayRSA_free(new->rsa);
 	if (new->dst != NULL)
 		free(new->dst);
 	if (new->src != NULL)
@@ -138,14 +149,14 @@ rsa_key_free(void *data)
 {
 	struct rsa_key *rsa_key;
 
-	
+
 	rsa_key = (struct rsa_key *)data;
 	if (rsa_key->src)
 		free(rsa_key->src);
 	if (rsa_key->dst)
 		free(rsa_key->dst);
 	if (rsa_key->rsa)
-		RSA_free(rsa_key->rsa);
+		eayRSA_free(rsa_key->rsa);
 
 	free(rsa_key);
 }
@@ -159,7 +170,7 @@ rsa_key_dump_one(void *entry, void *arg)
 	     naddrwop2str_fromto("%s -> %s", key->src,
 				 key->dst));
 	if (loglevel > LLV_DEBUG)
-		RSA_print_fp(stdout, key->rsa, 4);
+		eayRSA_print(stdout, key->rsa);
 
 	return NULL;
 }
@@ -191,7 +202,7 @@ struct lookup_result {
 	int max_score;
 	struct genlist *winners;
 };
-	
+
 static void *
 rsa_lookup_key_one(void *entry, void *data)
 {
@@ -251,7 +262,7 @@ int
 rsa_parse_file(struct genlist *list, const char *fname, enum rsa_key_type type)
 {
 	int ret;
-	
+
 	plog(LLV_DEBUG, LOCATION, NULL, "Parsing %s\n", fname);
 	ret = prsa_parse_file(list, fname, type);
 	if (loglevel >= LLV_DEBUG)
@@ -259,7 +270,7 @@ rsa_parse_file(struct genlist *list, const char *fname, enum rsa_key_type type)
 	return ret;
 }
 
-RSA *
+eayRSA *
 rsa_try_check_rsasign(vchar_t *source, vchar_t *sig, struct genlist *list)
 {
 	struct rsa_key *key;
@@ -268,7 +279,7 @@ rsa_try_check_rsasign(vchar_t *source, vchar_t *sig, struct genlist *list)
 	for(key = genlist_next(list, &gp); key; key = genlist_next(NULL, &gp)) {
 		plog(LLV_DEBUG, LOCATION, NULL, "Checking key %s...\n",
 			naddrwop2str_fromto("%s -> %s", key->src, key->dst));
-		if (eay_check_rsasign(source, sig, key->rsa) == 0) {
+		if (eayRSA_verify(key->rsa, source, sig) == 0) {
 			plog(LLV_DEBUG, LOCATION, NULL, " ... YEAH!\n");
 			return key->rsa;
 		}
@@ -276,3 +287,7 @@ rsa_try_check_rsasign(vchar_t *source, vchar_t *sig, struct genlist *list)
 	}
 	return NULL;
 }
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#pragma GCC diagnostic pop
+#endif

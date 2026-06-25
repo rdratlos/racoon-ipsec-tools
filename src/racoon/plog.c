@@ -30,6 +30,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include "config.h"
 
@@ -66,10 +70,6 @@
 #include "debug.h"
 #include "gcmalloc.h"
 
-#ifndef VA_COPY
-# define VA_COPY(dst,src) memcpy(&(dst), &(src), sizeof(va_list))
-#endif
-
 char *pname = NULL;
 u_int32_t loglevel = LLV_BASE;
 int f_foreground = 0;
@@ -79,7 +79,7 @@ int print_location = 0;
 static struct log *logp = NULL;
 static char *logfile = NULL;
 
-static char *plog_common __P((int, const char *, const char *, struct sockaddr *));
+static char *plog_common(int, const char *, const char *, struct sockaddr *);
 
 static struct plogtags {
 	char *name;
@@ -95,10 +95,7 @@ static struct plogtags {
 };
 
 static char *
-plog_common(pri, fmt, func, sa)
-	int pri;
-	const char *fmt, *func;
-	struct sockaddr *sa;
+plog_common(int pri, const char *fmt, const char *func, struct sockaddr *sa)
 {
 	static char buf[800];	/* XXX shoule be allocated every time ? */
 	void *addr;
@@ -186,8 +183,8 @@ plogv(int pri, const char *func, struct sockaddr *sa,
 
 	newfmt = plog_common(pri, fmt, func, sa);
 
-	VA_COPY(ap_bak, ap);
-	
+	va_copy(ap_bak, ap);
+
 	if (f_foreground)
 		vprintf(newfmt, ap);
 
@@ -199,13 +196,12 @@ plogv(int pri, const char *func, struct sockaddr *sa,
 		else
 			vsyslog(LOG_ALERT, newfmt, ap_bak);
 	}
+
+	va_end(ap_bak);
 }
 
 void
-plogdump(pri, data, len)
-	int pri;
-	void *data;
-	size_t len;
+plogdump(int pri, void *data, size_t len)
 {
 	caddr_t buf;
 	size_t buflen;
@@ -244,7 +240,7 @@ plogdump(pri, data, len)
 }
 
 void
-ploginit()
+ploginit(void)
 {
 	if (logfile) {
 		logp = log_open(250, logfile);
@@ -257,8 +253,7 @@ ploginit()
 }
 
 void
-plogset(file)
-	char *file;
+plogset(char *file)
 {
 	if (logfile != NULL)
 		racoon_free(logfile);
@@ -271,13 +266,11 @@ plogset(file)
    concatenates all unprintable chars to one space.
    XXX Maybe the printable chars range is too large...
  */
-char*
-binsanitize(binstr, n)
-	char *binstr;
-	size_t n;
+char *
+binsanitize(char *binstr, size_t n)
 {
-	int p,q;
-	char* d;
+	int p, q;
+	char *d;
 
 	d = racoon_malloc(n + 1);
 	for (p = 0, q = 0; p < n; p++) {
@@ -292,4 +285,3 @@ binsanitize(binstr, n)
 
 	return d;
 }
-	

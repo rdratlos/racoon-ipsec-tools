@@ -30,6 +30,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include "config.h"
 
@@ -890,7 +894,7 @@ int
 naddr_score(const struct netaddr *naddr, const struct sockaddr *saddr)
 {
 	static const struct netaddr naddr_any;	/* initialized to all-zeros */
-	struct sockaddr sa;
+	union sockaddr_any sa;
 	u_int16_t naddr_port, saddr_port;
 	int port_score;
 
@@ -920,12 +924,12 @@ naddr_score(const struct netaddr *naddr, const struct sockaddr *saddr)
 		return -1;
 
 	/* Here it comes - compare network addresses. */
-	mask_sockaddr(&sa, saddr, naddr->prefix);
+	mask_sockaddr(&sa.sa, saddr, naddr->prefix);
 	if (loglevel >= LLV_DEBUG) {	/* debug only */
 		char *a1, *a2, *a3;
 		a1 = racoon_strdup(naddrwop2str(naddr));
 		a2 = racoon_strdup(saddrwop2str(saddr));
-		a3 = racoon_strdup(saddrwop2str(&sa));
+		a3 = racoon_strdup(saddrwop2str(&sa.sa));
 		STRDUP_FATAL(a1);
 		STRDUP_FATAL(a2);
 		STRDUP_FATAL(a3);
@@ -936,7 +940,7 @@ naddr_score(const struct netaddr *naddr, const struct sockaddr *saddr)
 		free(a2);
 		free(a3);
 	}
-	if (cmpsaddr(&sa, &naddr->sa.sa) <= CMPSADDR_WOP_MATCH)
+	if (cmpsaddr(&sa.sa, &naddr->sa.sa) <= CMPSADDR_WOP_MATCH)
 		return naddr->prefix + port_score;
 
 	return -1;

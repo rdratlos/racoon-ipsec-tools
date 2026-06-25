@@ -1,3 +1,6 @@
+# Makefile.am — Automake input for racoon-ipsec-tools
+# Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+# SPDX-License-Identifier: BSD-3-Clause
 
 #bin_PROGRAMS = test-policy test-policy-priority
 lib_LTLIBRARIES = libipsec.la
@@ -36,3 +39,8 @@ noinst_HEADERS = ipsec_strerror.h
 #test_policy_priority_LDFLAGS = libipsec.la
 
 EXTRA_DIST = ${man3_MANS} test-policy.c
+
+MAINTAINERCLEANFILES = \
+    policy_token.c \
+    policy_parse.c \
+    policy_parse.h

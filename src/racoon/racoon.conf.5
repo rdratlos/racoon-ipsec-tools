@@ -1348,6 +1348,19 @@ The default is
 The port that the ldap server is configured to listen on.
 The default is
 .Ic 389 .
+.It Ic uri Ar ldapuri ;
+URI referring to the ldap server, e.g.
+.Ic ldaps://ldap.example.com .
+It takes precedence over
+.Ic host
+and
+.Ic port .
+.It Ic timeout Ar number ;
+Network timeout in seconds when connecting to the ldap server.
+The default is the connect timeout of the underlying ldap library.
+.It Ic debug Ar number ;
+Set the ldap library debug level.
+The default value is 0.
 .It Ic base Ar distinguished name ;
 The ldap search base.
 This option has no default value.

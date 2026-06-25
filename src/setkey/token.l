@@ -29,6 +29,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 %{
 
@@ -315,8 +319,7 @@ any		{ return(ANY); }
 %%
 
 void
-yyfatal(s)
-	const char *s;
+yyfatal(const char *s)
 {
 	yyerror(s);
 	exit(1);
@@ -332,7 +335,7 @@ yyerror(const char *s)
 }
 
 int
-parse(const char *fname, FILE *fp)
+parse_file(const char *fname, FILE *fp)
 {
 	yyin = fp;
 	filename = fname;
@@ -358,4 +361,3 @@ parse_string(char *src)
 	yy_delete_buffer(buf_state);
 	return result;
 }
-

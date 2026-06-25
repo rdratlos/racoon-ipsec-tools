@@ -30,6 +30,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include "config.h"
 
@@ -62,9 +66,7 @@ throttle_add(addr)
 	struct timeval now, penalty;
 	size_t len;
 
-	len = sizeof(*te) 
-	    - sizeof(struct sockaddr_storage) 
-	    + sysdep_sa_len(addr);
+	len = sizeof(*te) + sysdep_sa_len(addr);
 
 	if ((te = racoon_malloc(len)) == NULL)
 		return NULL;

@@ -29,6 +29,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -115,34 +119,26 @@ static int setkeymsg_add(unsigned int, unsigned int,
 
 %token EOT SLASH BLCL ELCL
 %token ADD UPDATE GET GETSPI DELETE DELETEALL FLUSH DUMP EXIT
-%token PR_ESP PR_AH PR_IPCOMP PR_ESPUDP PR_TCP
+%token <num> PR_ESP <num> PR_AH <num> PR_IPCOMP <num> PR_ESPUDP <num> PR_TCP
 %token F_PROTOCOL F_AUTH F_ENC F_REPLAY F_COMP F_RAWCPI
-%token F_MODE MODE F_REQID
-%token F_EXT EXTENSION NOCYCLICSEQ
-%token ALG_AUTH ALG_AUTH_NOKEY
-%token ALG_ENC ALG_ENC_NOKEY ALG_ENC_DESDERIV ALG_ENC_DES32IV ALG_ENC_OLD
-%token ALG_COMP
+%token F_MODE <num> MODE F_REQID
+%token F_EXT <num> EXTENSION NOCYCLICSEQ
+%token <num> ALG_AUTH <num> ALG_AUTH_NOKEY
+%token <num> ALG_ENC <num> ALG_ENC_NOKEY <num> ALG_ENC_DESDERIV <num> ALG_ENC_DES32IV <num> ALG_ENC_OLD
+%token <num> ALG_COMP
 %token F_LIFETIME_HARD F_LIFETIME_SOFT
 %token F_LIFEBYTE_HARD F_LIFEBYTE_SOFT
-%token DECSTRING QUOTEDSTRING HEXSTRING STRING ANY
+%token <ulnum> DECSTRING <val> QUOTEDSTRING <val> HEXSTRING <val> STRING ANY
 	/* SPD management */
 %token SPDADD SPDUPDATE SPDDELETE SPDDUMP SPDFLUSH
-%token F_POLICY PL_REQUESTS
-%token F_AIFLAGS
+%token F_POLICY <val> PL_REQUESTS
+%token <val> F_AIFLAGS
 %token TAGGED
 %token SECURITY_CTX
 
 %type <num> prefix protocol_spec upper_spec
-%type <num> ALG_ENC ALG_ENC_DESDERIV ALG_ENC_DES32IV ALG_ENC_OLD ALG_ENC_NOKEY
-%type <num> ALG_AUTH ALG_AUTH_NOKEY
-%type <num> ALG_COMP
-%type <num> PR_ESP PR_AH PR_IPCOMP PR_ESPUDP PR_TCP
-%type <num> EXTENSION MODE
-%type <ulnum> DECSTRING
-%type <val> PL_REQUESTS portstr key_string
+%type <val> portstr key_string
 %type <val> policy_requests
-%type <val> QUOTEDSTRING HEXSTRING STRING
-%type <val> F_AIFLAGS
 %type <val> upper_misc_spec policy_spec
 %type <res> ipaddr ipandport
 
@@ -257,6 +253,7 @@ getspi_command
 			if (status < 0)
 				return -1;
 		}
+	;
 
 	/* flush */
 flush_command
@@ -918,13 +915,9 @@ exit_command
 %%
 
 int
-setkeymsg0(msg, type, satype, l)
-	struct sadb_msg *msg;
-	unsigned int type;
-	unsigned int satype;
-	size_t l;
+setkeymsg0(struct sadb_msg *msg, unsigned int type, unsigned int satype,
+    size_t l)
 {
-
 	msg->sadb_msg_version = PF_KEY_V2;
 	msg->sadb_msg_type = type;
 	msg->sadb_msg_errno = 0;
@@ -938,14 +931,8 @@ setkeymsg0(msg, type, satype, l)
 
 /* XXX NO BUFFER OVERRUN CHECK! BAD BAD! */
 static int
-setkeymsg_spdaddr(type, upper, policy, srcs, splen, dsts, dplen)
-	unsigned int type;
-	unsigned int upper;
-	vchar_t *policy;
-	struct addrinfo *srcs;
-	int splen;
-	struct addrinfo *dsts;
-	int dplen;
+setkeymsg_spdaddr(unsigned int type, unsigned int upper, vchar_t *policy,
+    struct addrinfo *srcs, int splen, struct addrinfo *dsts, int dplen)
 {
 	struct sadb_msg *msg;
 	char buf[BUFSIZ];
@@ -1089,10 +1076,7 @@ setkeymsg_spdaddr(type, upper, policy, srcs, splen, dsts, dplen)
 }
 
 static int
-setkeymsg_spdaddr_tag(type, tag, policy)
-	unsigned int type;
-	char *tag;
-	vchar_t *policy;
+setkeymsg_spdaddr_tag(unsigned int type, char *tag, vchar_t *policy)
 {
 	struct sadb_msg *msg;
 	char buf[BUFSIZ];
@@ -1134,12 +1118,8 @@ setkeymsg_spdaddr_tag(type, tag, policy)
 
 /* XXX NO BUFFER OVERRUN CHECK! BAD BAD! */
 static int
-setkeymsg_addr(type, satype, srcs, dsts, no_spi)
-	unsigned int type;
-	unsigned int satype;
-	struct addrinfo *srcs;
-	struct addrinfo *dsts;
-	int no_spi;
+setkeymsg_addr(unsigned int type, unsigned int satype, struct addrinfo *srcs,
+    struct addrinfo *dsts, int no_spi)
 {
 	struct sadb_msg *msg;
 	char buf[BUFSIZ];
@@ -1280,11 +1260,8 @@ static u_int16_t get_port (struct addrinfo *addr)
 
 /* XXX NO BUFFER OVERRUN CHECK! BAD BAD! */
 static int
-setkeymsg_add(type, satype, srcs, dsts)
-	unsigned int type;
-	unsigned int satype;
-	struct addrinfo *srcs;
-	struct addrinfo *dsts;
+setkeymsg_add(unsigned int type, unsigned int satype, struct addrinfo *srcs,
+    struct addrinfo *dsts)
 {
 	struct sadb_msg *msg;
 	char buf[BUFSIZ];
@@ -1561,9 +1538,7 @@ setkeymsg_add(type, satype, srcs, dsts)
 }
 
 static struct addrinfo *
-parse_addr(host, port)
-	char *host;
-	char *port;
+parse_addr(char *host, char *port)
 {
 	struct addrinfo hints, *res = NULL;
 	int error;
@@ -1582,9 +1557,7 @@ parse_addr(host, port)
 }
 
 static int
-fix_portstr(ulproto, spec, sport, dport)
-	int ulproto;
-	vchar_t *spec, *sport, *dport;
+fix_portstr(int ulproto, vchar_t *spec, vchar_t *sport, vchar_t *dport)
 {
 	char sp[16], dp[16];
 	int a, b, c, d;
@@ -1641,13 +1614,8 @@ fix_portstr(ulproto, spec, sport, dport)
 }
 
 static int
-setvarbuf(buf, off, ebuf, elen, vbuf, vlen)
-	char *buf;
-	int *off;
-	struct sadb_ext *ebuf;
-	int elen;
-	const void *vbuf;
-	int vlen;
+setvarbuf(char *buf, int *off, struct sadb_ext *ebuf, int elen,
+    const void *vbuf, int vlen)
 {
 	memset(buf + *off, 0, PFKEY_UNUNIT64(ebuf->sadb_ext_len));
 	memcpy(buf + *off, (caddr_t)ebuf, elen);
@@ -1658,7 +1626,7 @@ setvarbuf(buf, off, ebuf, elen, vbuf, vlen)
 }
 
 void
-parse_init()
+parse_init(void)
 {
 	p_spi = 0;
 
@@ -1688,7 +1656,7 @@ parse_init()
 }
 
 void
-free_buffer()
+free_buffer(void)
 {
 	/* we got tons of memory leaks in the parser anyways, leave them */
 
