@@ -1,0 +1,2624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>racoon IPSec – Administrator's Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0f1419;
+    --bg2:       #161d26;
+    --bg3:       #1e2733;
+    --border:    #2a3848;
+    --text:      #c8d6e5;
+    --text-dim:  #7a92ab;
+    --text-head: #e8f2ff;
+    --accent:    #f5a623;
+    --accent2:   #4fc3f7;
+    --green:     #7ec8a0;
+    --green-bg:  #0d1f17;
+    --red:       #e57373;
+    --red-bg:    #1f0d0d;
+    --mono:      'IBM Plex Mono', monospace;
+    --sans:      'Inter', sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.75; }
+
+  /* ── Layout ── */
+  .layout { display: flex; min-height: 100vh; }
+  nav {
+    width: 270px; flex-shrink: 0; background: var(--bg2);
+    border-right: 1px solid var(--border);
+    position: sticky; top: 0; height: 100vh; overflow-y: auto;
+    padding: 2rem 0;
+  }
+  nav .nav-logo {
+    font-family: var(--mono); font-size: 0.72rem; font-weight: 600;
+    color: var(--accent); letter-spacing: 0.15em; text-transform: uppercase;
+    padding: 0 1.5rem 1.5rem; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem;
+  }
+  nav ul { list-style: none; }
+  nav ul li a {
+    display: block; padding: 0.28rem 1.5rem; color: var(--text-dim);
+    text-decoration: none; font-size: 0.8rem; transition: color 0.15s, background 0.15s;
+    border-left: 2px solid transparent;
+  }
+  nav ul li a:hover { color: var(--text-head); background: var(--bg3); border-left-color: var(--accent2); }
+  nav ul li.section-head a {
+    font-family: var(--mono); font-size: 0.68rem; font-weight: 600;
+    color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase;
+    margin-top: 1.2rem; cursor: default; pointer-events: none;
+  }
+  nav ul li.sub a { padding-left: 2.5rem; }
+
+  main { flex: 1; max-width: 880px; padding: 3rem 3.5rem 6rem; }
+
+  /* ── Typography ── */
+  h1, h2, h3, h4 { font-family: var(--mono); font-weight: 600; color: var(--text-head); line-height: 1.3; }
+  h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+  h2 {
+    font-size: 1.15rem; color: var(--accent); letter-spacing: 0.05em; text-transform: uppercase;
+    margin-top: 3.5rem; margin-bottom: 1.2rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);
+  }
+  h3 { font-size: 1rem; color: var(--accent2); margin-top: 2rem; margin-bottom: 0.8rem; }
+  h4 { font-size: 0.85rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+  p { margin-bottom: 1rem; }
+  a { color: var(--accent2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── Header ── */
+  .doc-header { border-bottom: 1px solid var(--border); margin-bottom: 2.5rem; padding-bottom: 1.5rem; }
+  .doc-meta { font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim); margin-top: 0.5rem; display: flex; gap: 2rem; flex-wrap: wrap; }
+  .doc-meta span { color: var(--accent); }
+
+  /* ── Code ── */
+  pre {
+    background: var(--green-bg); border: 1px solid #1a3d2b; border-left: 3px solid var(--green);
+    border-radius: 4px; padding: 1.2rem 1.4rem; overflow-x: auto; margin: 1.2rem 0;
+    font-family: var(--mono); font-size: 0.82rem; line-height: 1.6; color: #b6e9cb;
+  }
+  code { font-family: var(--mono); font-size: 0.85em; background: var(--bg3); color: var(--green); padding: 0.1em 0.4em; border-radius: 3px; }
+  pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+  .comment { color: #4a7a5a; }
+  .kw { color: #7ec8a0; }
+  .val { color: #f5a623; }
+  .str { color: #4fc3f7; }
+
+  /* ── Callouts ── */
+  .note, .warn, .danger {
+    border-radius: 4px; padding: 1rem 1.2rem; margin: 1.2rem 0;
+    font-size: 0.88rem; border-left: 3px solid;
+  }
+  .note   { background: #0d1a2e; border-color: var(--accent2); color: #a8d4f0; }
+  .warn   { background: #1f1700; border-color: var(--accent);  color: #f0d090; }
+  .danger { background: var(--red-bg); border-color: var(--red); color: #f0a0a0; }
+  .note::before   { content: "ℹ  "; font-weight: 600; color: var(--accent2); }
+  .warn::before   { content: "⚠  "; font-weight: 600; color: var(--accent); }
+  .danger::before { content: "✖  "; font-weight: 600; color: var(--red); }
+
+  /* ── Tables ── */
+  table { width: 100%; border-collapse: collapse; margin: 1.2rem 0; font-size: 0.85rem; }
+  th {
+    font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--accent); background: var(--bg3);
+    padding: 0.6rem 0.9rem; text-align: left; border-bottom: 1px solid var(--border);
+  }
+  td { padding: 0.55rem 0.9rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg3); }
+  .param-name { font-family: var(--mono); color: var(--green); font-size: 0.82rem; white-space: nowrap; }
+
+  /* ── RFC Timeline ── */
+  .timeline-track { display: flex; align-items: flex-start; overflow-x: auto; padding-bottom: 0.5rem; margin: 2rem 0; }
+  .timeline-item { flex: 0 0 auto; width: 145px; }
+  .tl-connector { display: flex; align-items: center; height: 20px; }
+  .tl-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex-shrink: 0; border: 2px solid var(--bg2); position: relative; z-index: 1; }
+  .tl-dot.obsoleted { background: var(--text-dim); }
+  .tl-dot.current   { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .tl-line { flex: 1; height: 2px; background: var(--border); }
+  .timeline-item:last-child .tl-line { display: none; }
+  .tl-content { padding: 0.5rem 0.5rem 0 0; font-size: 0.75rem; }
+  .tl-rfc { font-family: var(--mono); font-weight: 600; color: var(--accent); font-size: 0.8rem; }
+  .tl-year { color: var(--text-dim); font-size: 0.7rem; margin-bottom: 0.15rem; }
+  .tl-desc { color: var(--text); line-height: 1.4; }
+  .tl-badge { display: inline-block; font-size: 0.62rem; font-family: var(--mono); padding: 0.05em 0.4em; border-radius: 3px; margin-top: 0.3rem; border: 1px solid; }
+  .tl-badge.obs  { color: var(--text-dim); border-color: var(--border); }
+  .tl-badge.curr { color: var(--green); border-color: var(--green); }
+  .tl-badge.rel  { color: var(--accent2); border-color: var(--accent2); }
+
+  /* ── Phase diagram ── */
+  .phase-diagram { display: flex; gap: 0; margin: 1.5rem 0; font-family: var(--mono); font-size: 0.78rem; overflow-x: auto; }
+  .phase-box { flex: 1; min-width: 160px; border: 1px solid var(--border); padding: 0.9rem 1rem; background: var(--bg2); }
+  .phase-box + .phase-box { border-left: none; }
+  .phase-box:first-child { border-radius: 4px 0 0 4px; }
+  .phase-box:last-child  { border-radius: 0 4px 4px 0; }
+  .phase-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 0.5rem; }
+  .phase-title  { font-size: 0.9rem; color: var(--text-head); margin-bottom: 0.4rem; }
+  .phase-detail { color: var(--text-dim); font-size: 0.75rem; line-height: 1.5; }
+  .phase-arrow  { display: flex; align-items: center; color: var(--border); font-size: 1.2rem; padding: 0 0.3rem; align-self: center; }
+
+  /* ── Auth flow diagrams (SVG-based) ── */
+  .auth-diagram {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 1.2rem 1.5rem; margin: 1.2rem 0; overflow-x: auto;
+  }
+  .auth-diagram svg { display: block; margin: 0 auto; }
+
+  /* ── Topology diagram ── */
+  .topo-diagram {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 1.2rem 1.5rem; margin: 1.2rem 0; overflow-x: auto; text-align: center;
+  }
+
+  /* ── Footer ── */
+  footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--border); font-size: 0.78rem; color: var(--text-dim); font-family: var(--mono); }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  @media (max-width: 800px) { nav { display: none; } main { padding: 2rem 1.2rem 4rem; } }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- ══════════════════════════ NAVIGATION ══════════════════════════ -->
+<nav>
+  <div class="nav-logo">racoon IPSec<br>Administrator's Guide</div>
+  <ul>
+    <li class="section-head"><a>1. Introduction</a></li>
+    <li><a href="#intro-purpose">1.1 Purpose</a></li>
+    <li><a href="#intro-audience">1.2 Intended Audience</a></li>
+    <li><a href="#intro-scope">1.3 Project Scope</a></li>
+    <li><a href="#intro-target-group">1.4 When to Use This Project</a></li>
+
+    <li class="section-head"><a>2. IPsec &amp; IKE Background</a></li>
+    <li><a href="#ipsec-overview">2.1 IPsec Overview</a></li>
+    <li><a href="#ikev1-overview">2.2 IKEv1 Overview</a></li>
+    <li><a href="#main-mode">2.3 Main Mode</a></li>
+    <li><a href="#aggressive-mode">2.4 Aggressive Mode</a></li>
+    <li><a href="#quick-mode">2.5 Quick Mode</a></li>
+    <li><a href="#nat-t">2.6 NAT Traversal</a></li>
+
+    <li class="section-head"><a>3. Building racoon</a></li>
+    <li><a href="#build-distros">3.1 Supported Distributions</a></li>
+    <li><a href="#build-deps">3.2 Build Dependencies</a></li>
+    <li><a href="#build-openssl">3.3 OpenSSL 3.x</a></li>
+    <li><a href="#build-ldap">3.4 LDAP Support</a></li>
+    <li><a href="#build-radius">3.5 RADIUS Support</a></li>
+    <li><a href="#build-git">3.6 Building from Git</a></li>
+    <li><a href="#build-packaging">3.7 Packaging</a></li>
+
+    <li class="section-head"><a>4. Configuration Basics</a></li>
+    <li><a href="#conf-racoonconf">4.1 racoon.conf</a></li>
+    <li><a href="#conf-setkey">4.2 setkey</a></li>
+    <li><a href="#conf-policies">4.3 Security Policies</a></li>
+    <li><a href="#conf-sa">4.4 Security Associations</a></li>
+
+    <li class="section-head"><a>5. Authentication Methods</a></li>
+    <li><a href="#auth-psk">5.1 Pre-Shared Keys</a></li>
+    <li><a href="#auth-x509">5.2 X.509 Certificates</a></li>
+    <li><a href="#auth-xauth">5.3 XAUTH</a></li>
+    <li><a href="#auth-hybrid">5.4 Hybrid Authentication</a></li>
+
+    <li class="section-head"><a>6. LDAP Authentication</a></li>
+    <li><a href="#ldap-architecture">6.1 Architecture</a></li>
+    <li><a href="#ldap-ldapcfg">6.2 ldapcfg</a></li>
+    <li><a href="#ldap-layout">6.3 Directory Layout</a></li>
+    <li><a href="#ldap-samba">6.4 Samba Active Directory</a></li>
+    <li><a href="#ldap-addr">6.5 User Address Assignment</a></li>
+    <li><a href="#ldap-troubleshoot">6.6 Troubleshooting LDAP</a></li>
+
+    <li class="section-head"><a>7. Apple Client Interop</a></li>
+    <li><a href="#apple-profile">7.1 Cisco IPSec Profile</a></li>
+    <li><a href="#apple-certreq">7.2 Certificate Requirements</a></li>
+    <li><a href="#apple-pkcs12">7.3 PKCS#12 Generation</a></li>
+    <li><a href="#apple-mobileconfig">7.4 iOS mobileconfig: VPN Profile &amp; Password Lifecycle</a></li>
+    <li><a href="#apple-issues">7.5 Common Apple Issues</a></li>
+
+    <li class="section-head"><a>8. Security Recommendations</a></li>
+    <li><a href="#sec-ciphers">8.1 Recommended Cipher Suites</a></li>
+    <li><a href="#sec-dh">8.2 Diffie-Hellman Groups</a></li>
+    <li><a href="#sec-aggressive">8.3 Aggressive Mode Considerations</a></li>
+    <li><a href="#sec-legacy">8.4 Legacy Algorithms</a></li>
+
+    <li class="section-head"><a>9. Troubleshooting</a></li>
+    <li><a href="#debug-logging">9.1 Debug Logging</a></li>
+    <li><a href="#debug-captures">9.2 Packet Captures</a></li>
+    <li><a href="#debug-apple">9.3 Apple Client Issues</a></li>
+    <li><a href="#debug-ldap">9.4 LDAP Issues</a></li>
+    <li><a href="#debug-certs">9.5 Certificate Problems</a></li>
+
+    <li class="section-head"><a>10. Migration Notes</a></li>
+    <li><a href="#migrate-legacy">10.1 Legacy ipsec-tools Installs</a></li>
+    <li><a href="#migrate-openssl">10.2 OpenSSL 1.1 → 3.x</a></li>
+    <li><a href="#migrate-packaging">10.3 Distribution Packaging</a></li>
+
+    <li class="section-head"><a>11. References</a></li>
+    <li><a href="#rfc-refs">RFCs</a></li>
+    <li><a href="#hist-refs">Historical Documentation</a></li>
+    <li><a href="#related-projects">Related Projects</a></li>
+  </ul>
+</nav>
+
+<!-- ══════════════════════════ MAIN CONTENT ══════════════════════════ -->
+<main>
+
+  <div class="doc-header">
+    <h1>racoon IPSec<br>Administrator's Guide</h1>
+    <div class="doc-meta">
+      <div>Project: <span>rdratlos/racoon-ipsec-tools</span></div>
+      <div>Context: <span>OpenSSL 3.x · iOS/macOS · LDAP/Samba AD · NAT-T</span></div>
+
+      <div>Revision: <span>2026</span></div>
+    </div>
+  </div>
+
+  <!-- ═══════════ 1. INTRODUCTION ═══════════ -->
+  <section id="intro">
+    <h2>1. Introduction</h2>
+
+    <h3 id="intro-purpose">1.1 Purpose</h3>
+    <p>
+      This guide targets administrators who operate or deploy IPSec VPNs with
+      <strong>racoon</strong> from the <em>ipsec-tools</em> package. The focus is on
+      conceptual understanding of IKE protocol phases, concrete racoon configuration
+      parameters, and known pitfalls — in particular with modern OpenSSL versions,
+      LDAP/Samba AD authentication backends, and the Apple platforms iOS and macOS.
+    </p>
+    <p>
+      racoon implements IKEv1 (RFC 2409). Despite the age of the protocol it remains
+      in use in many production environments, embedded systems, and legacy infrastructures.
+      Understanding the RFC genealogy is the key to correct configuration.
+    </p>
+
+    <h3 id="intro-audience">1.2 Intended Audience</h3>
+    <p>
+      This document is written for system administrators, network engineers, and
+      security engineers who are responsible for deploying or maintaining an IKEv1
+      VPN gateway based on racoon — whether for road-warrior access (Apple Cisco
+      IPSec clients, XAuth users), site-to-site tunnels, or migration of an existing
+      ipsec-tools installation to a modern Linux distribution. Familiarity with
+      basic networking (NAT, routing, firewalling) and X.509/PKI concepts is assumed.
+    </p>
+
+    <h3 id="intro-scope">1.3 Project Scope</h3>
+    <p>
+      This repository (<a href="https://github.com/rdratlos/racoon-ipsec-tools" target="_blank">rdratlos/racoon-ipsec-tools</a>)
+      is the upstream continuation of ipsec-tools after the original SourceForge
+      project was abandoned. It is not a fork in the sense of a divergent branch of
+      an active project; the full commit history from the KAME origin through the
+      SourceForge releases (up to and including 0.8.2) is preserved, and changes
+      tracked in NetBSD's CVS repository, Apple's Darwin/macOS fork, and FreeBSD's
+      ports tree are reviewed and selectively integrated.
+    </p>
+    <p>
+      The primary goal is to keep racoon buildable and functional on modern Linux
+      distributions and with current OpenSSL releases, without changing the
+      protocol scope or the fundamental architecture of the original code.
+    </p>
+    <h4>Key Additions and Fixes in This Continuation</h4>
+    <table>
+      <thead><tr><th>Area</th><th>Change</th></tr></thead>
+      <tbody>
+        <tr><td>OpenSSL 3.x</td><td>Compatibility shim layer (<code>openssl_compat.h/c</code>) mapping legacy EVP APIs to OpenSSL 3.x equivalents, while retaining backward compatibility with OpenSSL 1.1.x and 1.0.2.</td></tr>
+        <tr><td>Toolchain</td><td>Build system fixes for GCC 15 / C23 (Ubuntu 25.10 "Resolute" and later).</td></tr>
+        <tr><td>Runtime</td><td><code>fd_set</code> overrun fix and NAT-T runtime bug fixes.</td></tr>
+        <tr><td>Packaging</td><td>Debian packaging updated for Ubuntu LTS releases (Jammy, Noble, Resolute) and for all three OpenSSL licensing scenarios in <code>debian/copyright</code>; RPM packaging added for RHEL/CentOS environments.</td></tr>
+        <tr><td>Testing</td><td>Unit test infrastructure.</td></tr>
+      </tbody>
+    </table>
+    <p>
+      <strong>Not in scope:</strong> IKEv2, MOBIKE, EAP authentication, plugin
+      architecture, or feature parity with strongSwan/Libreswan. See
+      <a href="#migrate-legacy">Section 10</a> for guidance on when an alternative
+      stack is the better choice.
+    </p>
+    <h3 id="intro-target-group">1.4 When to Use This Project</h3>
+    <p>racoon/ipsec-tools (this continuation) is the right choice when:</p>
+    <ul style="margin: 0 0 1rem 1.4rem; padding: 0;">
+      <li>You must interoperate with Apple macOS or iOS clients using the built-in "Cisco IPSec" VPN type.</li>
+      <li>You are maintaining or migrating an existing racoon-based deployment on a distribution that has dropped the package.</li>
+      <li>Your counterpart is a legacy device or embedded system that speaks IKEv1 only.</li>
+      <li>You need a minimal-footprint IKE daemon without plugin infrastructure.</li>
+      <li>You need per-user IP address assignment for roadwarriors driven from a directory (OpenLDAP or Samba AD DC), combined with certificate-based Phase 1 authentication — see <a href="#ldap-architecture">Section 6</a>.</li>
+    </ul>
+    <p>You should probably choose strongSwan or Libreswan instead when:</p>
+    <ul style="margin: 0 0 1rem 1.4rem; padding: 0;">
+      <li>All your VPN peers can speak IKEv2.</li>
+      <li>You need MOBIKE for mobile client roaming between networks.</li>
+      <li>You need EAP authentication for roadwarriors without certificates.</li>
+      <li>You are starting a new deployment with no legacy constraints.</li>
+    </ul>
+    <table>
+      <thead><tr><th>Criterion</th><th>racoon (this continuation)</th><th>strongSwan</th><th>Libreswan</th></tr></thead>
+      <tbody>
+        <tr><td>IKEv1 support</td><td>yes</td><td>yes</td><td>yes</td></tr>
+        <tr><td>IKEv2 support</td><td>no</td><td>yes</td><td>yes</td></tr>
+        <tr><td>Security maintenance</td><td>best-effort</td><td>yes</td><td>yes</td></tr>
+        <tr><td>Code footprint</td><td>minimal</td><td>large</td><td>large</td></tr>
+        <tr><td>BSD licence</td><td>yes</td><td>no (GPL)</td><td>no (GPL)</td></tr>
+        <tr><td>Apple iOS/macOS compat.</td><td>yes (tested)</td><td>partial</td><td>limited</td></tr>
+        <tr><td>Native LDAP / AD auth</td><td>yes (XAUTH + Mode Config)</td><td>limited</td><td>limited</td></tr>
+        <tr><td>EAP / RADIUS</td><td>no</td><td>yes</td><td>yes</td></tr>
+        <tr><td>MOBIKE</td><td>no</td><td>yes</td><td>yes</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════ 2. IPSEC AND IKE BACKGROUND ═══════════ -->
+  <section id="ipsec-overview">
+    <h2>2. IPsec and IKE Background</h2>
+    <h3>2.1 IPsec Overview</h3>
+  </section>
+
+  <!-- ═══════════ RFC HISTORY ═══════════ -->
+  <section id="ikev1-overview">
+    <h3>2.2 IKEv1 Overview</h3>
+    <h4>RFC History: From ISAKMP to IKEv2</h4>
+    <p>
+      The development of Internet Key Exchange protocols spans almost three decades.
+      racoon implements the IKEv1 branch (RFC 2409), which emerged from several
+      concurrently developed predecessor RFCs.
+    </p>
+
+    <div class="timeline-track">
+      <div class="timeline-item">
+        <div class="tl-connector"><div class="tl-dot obsoleted"></div><div class="tl-line"></div></div>
+        <div class="tl-content">
+          <div class="tl-rfc">RFC 1825</div><div class="tl-year">1995</div>
+          <div class="tl-desc">IP Security Architecture (first version)</div>
+          <div><span class="tl-badge obs">obsoleted</span></div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="tl-connector"><div class="tl-dot obsoleted"></div><div class="tl-line"></div></div>
+        <div class="tl-content">
+          <div class="tl-rfc">RFC 2401</div><div class="tl-year">1998</div>
+          <div class="tl-desc">IPsec Architecture v2 – AH + ESP foundation</div>
+          <div><span class="tl-badge obs">obsoleted</span></div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="tl-connector"><div class="tl-dot obsoleted"></div><div class="tl-line"></div></div>
+        <div class="tl-content">
+          <div class="tl-rfc">RFC 2407<br>RFC 2408<br>RFC 2409</div><div class="tl-year">1998</div>
+          <div class="tl-desc">IPSEC DOI, ISAKMP, IKEv1<br><strong>← racoon</strong></div>
+          <div><span class="tl-badge obs">obsoleted</span></div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="tl-connector"><div class="tl-dot obsoleted"></div><div class="tl-line"></div></div>
+        <div class="tl-content">
+          <div class="tl-rfc">RFC 3947<br>RFC 3948</div><div class="tl-year">2005</div>
+          <div class="tl-desc">NAT-T for IKE, UDP Encapsulation ESP</div>
+          <div><span class="tl-badge rel">relevant</span></div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="tl-connector"><div class="tl-dot obsoleted"></div><div class="tl-line"></div></div>
+        <div class="tl-content">
+          <div class="tl-rfc">RFC 4306</div><div class="tl-year">2005</div>
+          <div class="tl-desc">IKEv2 – complete rewrite</div>
+          <div><span class="tl-badge obs">obsoleted</span></div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="tl-connector"><div class="tl-dot current"></div><div class="tl-line"></div></div>
+        <div class="tl-content">
+          <div class="tl-rfc">RFC 7296</div><div class="tl-year">2014</div>
+          <div class="tl-desc">IKEv2 current (obsoletes RFC 4306)</div>
+          <div><span class="tl-badge curr">current</span></div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="tl-connector"><div class="tl-dot current"></div><div class="tl-line"></div></div>
+        <div class="tl-content">
+          <div class="tl-rfc">RFC 4301</div><div class="tl-year">2005</div>
+          <div class="tl-desc">IPsec Architecture current</div>
+          <div><span class="tl-badge curr">current</span></div>
+        </div>
+      </div>
+    </div>
+
+    <p>
+    The following standards and working drafts are relevant for racoon interoperability:
+    </p>
+    <table>
+      <thead><tr><th>RFC / Draft</th><th>Title</th><th>Relevance</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">RFC 2367</td><td>PF_KEY Key Management API</td><td>Kernel SA interface</td></tr>
+        <tr><td class="param-name">RFC 2393/2394</td><td>IP Payload Compression (IPComp/DEFLATE)</td><td>Optional compression in sainfo</td></tr>
+        <tr><td class="param-name">RFC 2401–2409</td><td>IPsec Architecture, AH, ESP, ISAKMP, IKEv1</td><td>Core protocols of racoon</td></tr>
+        <tr><td class="param-name">RFC 2412</td><td>OAKLEY Key Determination</td><td>DH group definitions 1, 2, 5</td></tr>
+        <tr><td class="param-name">RFC 3526</td><td>More MODP DH Groups</td><td>DH groups 14–18 (2048–8192 bit)</td></tr>
+        <tr><td class="param-name">RFC 3706</td><td>Dead IKE Peer Detection (DPD)</td><td>dpd_delay / dpd_retry</td></tr>
+        <tr><td class="param-name">RFC 3947/3948</td><td>NAT-T negotiation &amp; UDP ESP encapsulation</td><td>nat_traversal on</td></tr>
+        <tr><td class="param-name">draft xauth-06</td><td>Extended Authentication within ISAKMP (XAuth)</td><td>xauth_psk_server, xauth_rsa_server</td></tr>
+        <tr><td class="param-name">draft hybrid-auth-05</td><td>Hybrid Authentication Mode for IKE</td><td>hybrid_rsa_server</td></tr>
+        <tr><td class="param-name">draft mode-cfg-05</td><td>ISAKMP Configuration Method (Mode Config)</td><td>mode_cfg block</td></tr>
+        <tr><td class="param-name">draft nat-t-ike-00…03</td><td>NAT-T IKE negotiation drafts</td><td>Older NAT-T clients</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════ IKE OVERVIEW ═══════════ -->
+  <section id="ike-overview">
+    <h4>IKE Protocol Overview</h4>
+    <p>
+      IKE is a hybrid protocol based on two underlying security protocols: the Internet Security
+      Association and Key Management Protocol (<strong>ISAKMP</strong>) and the OAKLEY Key
+      Determination Protocol (<strong>OAKLEY</strong>). ISAKMP provides a framework for authentication
+      and key exchange but does not define them. OAKLEY describes a series of key exchanges called
+      "modes" and details the services provided by each.
+    </p>
+    <p>
+      IKE runs on UDP port 500 (and 4500 for NAT-T) and is divided into two phases:
+    </p>
+
+    <div class="phase-diagram">
+      <div class="phase-box">
+        <div class="phase-label">Phase 1</div>
+        <div class="phase-title">IKE SA (ISAKMP SA)</div>
+        <div class="phase-detail">
+          Authenticates peers<br>
+          Establishes secure channel<br>
+          Main Mode or Aggressive Mode<br>
+          Result: ISAKMP SA
+        </div>
+      </div>
+      <div class="phase-arrow">→</div>
+      <div class="phase-box">
+        <div class="phase-label">Phase 2</div>
+        <div class="phase-title">IPSec SA (Quick Mode)</div>
+        <div class="phase-detail">
+          Negotiates data SAs<br>
+          Encryption: ESP or AH<br>
+          Runs over Phase 1 channel<br>
+          Can be repeated N times
+        </div>
+      </div>
+      <div class="phase-arrow">→</div>
+      <div class="phase-box">
+        <div class="phase-label">Optional</div>
+        <div class="phase-title">Mode Config / XAuth</div>
+        <div class="phase-detail">
+          After Phase 1, before Phase 2<br>
+          IP address assignment<br>
+          DNS/WINS/Split-Tunnel push<br>
+          User authentication (XAuth)
+        </div>
+      </div>
+      <div class="phase-arrow">→</div>
+      <div class="phase-box">
+        <div class="phase-label">Result</div>
+        <div class="phase-title">Protected Tunnel</div>
+        <div class="phase-detail">
+          Two unidirectional SAs<br>
+          Identified by SPI<br>
+          Lifetime-driven renewal
+        </div>
+      </div>
+    </div>
+
+    <p>
+      A <strong>Security Association (SA)</strong> is always unidirectional: bidirectional
+      communication requires two SAs. Each SA is identified by a <strong>Security Parameter
+      Index (SPI)</strong> carried in the ESP/AH header.
+    </p>
+    <p>
+      The <strong>Security Policy Database (SPD)</strong> (configured via <code>setkey</code>)
+      determines which traffic must be protected by IPSec. The
+      <strong>Security Association Database (SAD)</strong> holds active SAs with their key material.
+    </p>
+  </section>
+
+  <!-- ═══════════ ESP & AH ═══════════ -->
+  <section id="esp-ah">
+    <h4>ESP and AH Protocols</h4>
+    <p>
+      Two security protocols process traffic between peers once SAs are established:
+    </p>
+    <table>
+      <thead><tr><th>Protocol</th><th>Number</th><th>Provides</th><th>racoon support</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">ESP</td><td>50</td><td>Encryption + Authentication</td><td>✓ Primary protocol</td></tr>
+        <tr><td class="param-name">AH</td><td>51</td><td>Authentication only (including IP header)</td><td>Rarely used; AH breaks NAT</td></tr>
+      </tbody>
+    </table>
+    <p>
+      Both protocols support two modes of operation:
+    </p>
+    <table>
+      <thead><tr><th>Mode</th><th>What is protected</th><th>Use case</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Transport mode</strong></td>
+          <td>IP payload only; original IP header retained</td>
+          <td>Host-to-host, L2TP inner tunnel</td>
+        </tr>
+        <tr>
+          <td><strong>Tunnel mode</strong></td>
+          <td>Entire original IP datagram; encapsulated in new IP header</td>
+          <td>Site-to-site, road warrior — standard for racoon</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note">
+      racoon operates exclusively in <strong>Tunnel mode</strong> for client VPN scenarios.
+      Transport mode is not supported for VPN client connectivity.
+    </div>
+
+    <h3>Problems with IPSec in Practice</h3>
+    <p>
+      ESP adds header overhead which can cause packets to exceed the interface MTU.
+      Two important extensions address this:
+    </p>
+    <table>
+      <thead><tr><th>Problem</th><th>Extension</th><th>racoon parameter</th></tr></thead>
+      <tbody>
+        <tr><td>Large IKE packets fragmented/dropped</td><td>IKE Fragmentation</td><td><code>ike_frag on;</code></td></tr>
+        <tr><td>NAT breaks ESP (Protocol 50, no ports)</td><td>NAT Traversal (RFC 3947/3948)</td><td><code>nat_traversal on;</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════ PHASE 1 MODES ═══════════ -->
+  <section id="phase1-modes">
+    <h3 id="main-mode">2.3 Main Mode (Identity Protect Mode) — RFC 2409, §5.4</h3>
+    <p>
+      Main Mode uses six messages (three exchanges) and delays transmission of peer
+      identities until key material is available to encrypt the remaining packets. This
+      prevents identity values from being read by third parties but places restrictions on
+      the identity types usable with pre-shared key authentication: the address identity type
+      is the only type that can be used with main mode + PSK, because the peer's FQDN
+      identity cannot be used to look up the PSK before a packet is received.
+    </p>
+    <pre><code><span class="comment"># Main Mode message flow</span>
+Initiator               Responder
+─────────────────────────────────────────
+HDR, SA               →               <span class="comment"># Crypto proposal</span>
+                      ← HDR, SA        <span class="comment"># Selection</span>
+HDR, KE, Ni           →               <span class="comment"># DH public key, nonce</span>
+                      ← HDR, KE, Nr    <span class="comment"># DH public key, nonce</span>
+HDR*, IDii, HASH_I    →               <span class="comment"># Identity (encrypted)</span>
+                      ← HDR*, IDir, HASH_R</code></pre>
+
+    <h3 id="aggressive-mode">2.4 Aggressive Mode — RFC 2409, §5.5</h3>
+    <p>
+      Aggressive Mode compresses the negotiation into three messages. Peer identities
+      are transmitted in the clear before key material is available. It is required for
+      road-warrior scenarios with dynamically addressed clients (iOS/macOS Cisco IPSec,
+      XAuth). Due to its payload structure, the hash algorithm and DH group
+      <strong>cannot be auto-negotiated</strong> — they must be identically configured on
+      both sides.
+    </p>
+    <div class="warn">
+      Aggressive Mode exposes the peer identity (IDii) unencrypted and allows offline
+      dictionary attacks on pre-shared keys. Certificate-based authentication is strongly
+      preferred when using Aggressive Mode.
+    </div>
+    <pre><code><span class="comment"># Aggressive Mode message flow</span>
+Initiator                        Responder
+─────────────────────────────────────────────────
+HDR, SA, KE, Ni, IDii           →               <span class="comment"># Identity in clear</span>
+                                 ← HDR, SA, KE, Nr, IDir, HASH_R
+HDR*, HASH_I                    →</code></pre>
+
+    <h3 id="quick-mode">2.5 Quick Mode (Phase 2) — RFC 2409, §5.5</h3>
+    <p>
+      Quick Mode is used exclusively for Phase 2 to negotiate IPSec SAs. All packets
+      are encrypted under the previously established ISAKMP SA. See
+      <a href="#phase2-overview">Quick Mode message flow</a> below for details.
+    </p>
+
+    <h4>Informational Mode</h4>
+    <p>
+      Used to transmit Notification or SA Deletion messages between peers. Whenever
+      possible, informational exchanges are encrypted using an established ISAKMP SA.
+      Unlike other exchange types, informational exchanges are unidirectional.
+    </p>
+  </section>
+
+  <!-- ═══════════ NAT-T ═══════════ -->
+  <section id="nat-t">
+    <h3>2.6 NAT Traversal</h3>
+    <h4>The Problem</h4>
+    <p>
+      ESP packets carry no port information and are delivered directly over IP
+      (Protocol 50). NAT devices work by mapping source ports — they cannot correctly
+      handle ESP packets. AH packets are even more problematic because AH authenticates
+      the IP header including the source IP address, which NAT changes.
+    </p>
+    <h4>NAT-T Mechanism (RFC 3947 / RFC 3948)</h4>
+    <p>
+      NAT-T encapsulates ESP packets in UDP datagrams (port 4500). Detection happens
+      during Phase 1 via NAT-Detection (NAT-D) payloads: both peers hash their IP/port
+      combinations; if the hashes differ, NAT is present.
+    </p>
+    <pre><code><span class="comment"># NAT-T detection in Phase 1 (schematic)</span>
+Initiator                              Responder
+────────────────────────────────────────────────
+HDR, SA [+ NAT-D vendor ID]    →
+                               ← HDR, SA [+ NAT-D vendor ID]
+HDR, KE, Ni, NAT-D, NAT-D     →       <span class="comment"># NAT-Detection payloads</span>
+                               ← HDR, KE, Nr, NAT-D, NAT-D
+<span class="comment"># If NAT detected: switch to UDP port 4500</span>
+HDR*, IDii, HASH_I             →       <span class="comment"># via UDP 4500</span>
+                               ← HDR*, IDir, HASH_R</code></pre>
+    <div class="note">
+      racoon negotiates NAT-T automatically when <code>nat_traversal on</code> is set.
+      Both draft (v00–v03) and RFC versions of the NAT-T extension are supported,
+      ensuring compatibility with a wide range of client implementations.
+    </div>
+  </section>
+
+  <!-- ═══════════ 3. BUILDING RACOON ═══════════ -->
+  <section id="build">
+    <h2>3. Building racoon</h2>
+
+    <h3 id="build-distros">3.1 Supported Distributions</h3>
+    <table>
+      <thead><tr><th>Platform</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Debian 12+</td><td>Supported</td></tr>
+        <tr><td>Ubuntu 22.04+</td><td>Supported</td></tr>
+        <tr><td>Ubuntu 24.04+</td><td>Supported</td></tr>
+        <tr><td>Ubuntu 26.04+</td><td>Supported</td></tr>
+        <tr><td>RHEL-compatible distributions</td><td>Best effort</td></tr>
+        <tr><td>Fedora</td><td>Best effort</td></tr>
+      </tbody>
+    </table>
+    <p>NetBSD and FreeBSD maintain their own versions and are outside the support scope of this repository.</p>
+
+    <h3 id="build-deps">3.2 Build Dependencies</h3>
+    <p>Build dependencies vary by distribution, but typically include a C compiler toolchain, <code>autoconf</code>/<code>automake</code>/<code>libtool</code>, OpenSSL development headers, and (optionally) OpenLDAP client development headers.</p>
+
+    <h3 id="build-openssl">3.3 OpenSSL 3.x</h3>
+    <p>
+      This continuation links against OpenSSL 3.x via a compatibility shim
+      (<code>openssl_compat.h/c</code>) that maps legacy EVP calls used throughout
+      the original codebase onto the OpenSSL 3.x EVP API, while remaining
+      buildable against OpenSSL 1.1.x and 1.0.2. No special configure flags are
+      required for OpenSSL 3.x support — it is auto-detected at <code>./configure</code> time.
+      See <a href="#migrate-openssl">Section 10.2</a> for migration notes on
+      PKCS#12 changes.
+    </p>
+
+    <h3 id="build-ldap">3.4 LDAP Support</h3>
+    <p>
+      LDAP support, used for XAUTH authentication and per-user Mode Config address
+      assignment (<a href="#ldap-architecture">Section 6</a>), is enabled at compile
+      time with:
+    </p>
+    <pre><code>./configure --with-libldap</code></pre>
+
+    <h3 id="build-radius">3.5 RADIUS Support</h3>
+    <p>
+      The <code>--with-libradius</code> configure option enables a RADIUS backend for
+      XAUTH authentication (<code>auth_source radius</code>), backed by FreeBSD's
+      libradius. This was a functional feature in the original ipsec-tools codebase.
+    </p>
+    <div class="warn">
+      This backend is <strong>not maintained</strong> in this continuation project:
+      libradius is not packaged in current Debian or Ubuntu, so building against it
+      requires vendoring the library and adding an unreviewed dependency. The XAUTH
+      credential validation use case is better served by the native LDAP path against
+      a modern directory (Samba AD, OpenLDAP), which additionally provides Mode Config
+      address assignment. Deployments requiring RADIUS for roadwarrior authentication
+      should use strongSwan with EAP-RADIUS over IKEv2 instead, which provides proper
+      RADIUS accounting, CoA support, and active security maintenance.
+    </div>
+    <p>
+      The <code>--with-libradius</code> option is retained so that existing build
+      scripts do not break, but it is not tested and is not recommended for new
+      deployments.
+    </p>
+
+    <h3 id="build-git">3.6 Building from Git</h3>
+    <pre><code><span class="comment"># Typical build sequence</span>
+autoreconf -fi
+./configure
+make
+make check
+sudo make install
+
+<span class="comment"># With LDAP support</span>
+./configure --enable-hybrid --enable-frag --with-libldap</code></pre>
+
+    <h3 id="build-packaging">3.7 Packaging</h3>
+    <p>
+      Debian/Ubuntu packaging (<code>debian/</code>) and RPM packaging
+      (<code>rpm/</code>) are maintained in this repository for the distributions
+      listed in <a href="#build-distros">3.1</a>.
+    </p>
+  </section>
+
+  <!-- ═══════════ 4. CONFIGURATION BASICS ═══════════ -->
+  <section id="conf-racoonconf">
+    <h2>4. Configuration Basics</h2>
+    <h3>4.1 racoon.conf</h3>
+  </section>
+
+  <!-- ═══════════ LISTEN BLOCK ═══════════ -->
+  <section id="phase1-listen">
+    <h4>racoon.conf: listen Block</h4>
+    <p>
+      The <code>listen</code> block configures the network interfaces and protocols
+      that racoon will use to communicate. If no listen directive is specified, racoon
+      listens on all available interface addresses.
+    </p>
+    <pre><code><span class="comment">#
+# Listen Section
+#</span>
+<span class="kw">listen</span>
+{
+    <span class="comment"># Bind IKE to specific address:port</span>
+    <span class="kw">isakmp</span>      <span class="val">10.1.1.1</span> [<span class="val">500</span>];
+
+    <span class="comment"># NAT-T socket — required for clients behind NAT</span>
+    <span class="kw">isakmp_natt</span> <span class="val">10.1.1.1</span> [<span class="val">4500</span>];
+
+    <span class="comment"># Optional: require all ISAKMP addresses to be bound</span>
+    <span class="comment"># strict_address;</span>
+}</code></pre>
+
+    <h3>listen Reference</h3>
+    <table>
+      <thead><tr><th>Statement</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="param-name">isakmp address [port];</td>
+          <td>Bind IKE listener. Default port 500. Multiple definitions allowed. If omitted, racoon listens on all interfaces.</td>
+        </tr>
+        <tr>
+          <td class="param-name">isakmp_natt address [port];</td>
+          <td>Same as isakmp but also sets socket options to accept UDP-encapsulated ESP for NAT-Traversal. Must define at least one with port 4500. No default — <strong>required for NAT-T clients</strong>.</td>
+        </tr>
+        <tr>
+          <td class="param-name">strict_address;</td>
+          <td>Require all ISAKMP addresses to be bound. Ignored if no address is specified.</td>
+        </tr>
+        <tr>
+          <td class="param-name">adminsock path [owner group mode];</td>
+          <td>Path, owner, group and mode for the racoon admin socket. Default: <code>/var/racoon/racoon.sock</code>, UID 0, GID 0, mode 0600.</td>
+        </tr>
+        <tr>
+          <td class="param-name">adminsock disabled;</td>
+          <td>Tell racoon not to listen on the admin socket.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════ TIMER BLOCK ═══════════ -->
+  <section id="phase1-timer">
+    <h4>racoon.conf: timer Block</h4>
+    <p>
+      The <code>timer</code> block configures event timers used by racoon.
+      The most important setting for NAT-T deployments is the keepalive interval.
+    </p>
+    <pre><code><span class="comment">#
+# Timer Section
+#</span>
+<span class="kw">timer</span>
+{
+    <span class="comment"># Send NAT-T keepalive packet every N seconds</span>
+    <span class="comment"># Prevents NAT table entries from expiring</span>
+    <span class="kw">natt_keepalive</span>  <span class="val">20</span> seconds;
+
+    <span class="comment"># Retransmit IKE packets after N seconds (default: 10)</span>
+    <span class="comment"># interval 10 sec;</span>
+
+    <span class="comment"># Maximum retransmit count (default: 5)</span>
+    <span class="comment"># counter 5;</span>
+}</code></pre>
+
+    <h3>timer Reference</h3>
+    <table>
+      <thead><tr><th>Statement</th><th>Default</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">counter number;</td><td>5</td><td>Maximum number of retransmit attempts.</td></tr>
+        <tr><td class="param-name">interval N timeunit;</td><td>10 sec</td><td>Interval between retransmits.</td></tr>
+        <tr><td class="param-name">persend number;</td><td>1</td><td>Number of packets per send.</td></tr>
+        <tr><td class="param-name">phase1 N timeunit;</td><td>15 sec</td><td>Maximum time to complete Phase 1.</td></tr>
+        <tr><td class="param-name">phase2 N timeunit;</td><td>10 sec</td><td>Maximum time to complete Phase 2.</td></tr>
+        <tr><td class="param-name">natt_keepalive N timeunit;</td><td>20 sec</td><td>Interval between NAT-T keepalive packets. Set to 0 to disable. A keepalive prevents NAT state entries from expiring, which would break the tunnel.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════ REMOTE BLOCK ═══════════ -->
+  <section id="phase1-remote">
+    <h4>racoon.conf: remote Block (Phase 1)</h4>
+    <p>
+      The <code>remote</code> block configures Phase 1 parameters for a given peer or
+      peer group. racoon first attempts to find a <code>remote</code> block matching the
+      peer's address; if none matches, the <code>anonymous</code> block is used.
+      Use a specific address for site-to-site VPNs and <code>anonymous</code> for road
+      warrior / VPN client scenarios where the client IP is unknown.
+    </p>
+
+    <h3>PSK + XAuth Remote Block Example</h3>
+    <pre><code><span class="kw">remote</span> anonymous
+{
+    <span class="kw">exchange_mode</span>        <span class="val">aggressive</span>;
+    <span class="kw">verify_identifier</span>    <span class="val">on</span>;
+    <span class="kw">my_identifier</span>        <span class="val">fqdn</span> <span class="str">"vpngw.example.com"</span>;
+    <span class="kw">peers_identifier</span>     <span class="val">fqdn</span> <span class="str">"client.example.com"</span>;
+
+    <span class="kw">passive</span>              <span class="val">on</span>;
+    <span class="kw">generate_policy</span>      <span class="val">unique</span>;
+    <span class="kw">ike_frag</span>             <span class="val">on</span>;
+    <span class="kw">nat_traversal</span>        <span class="val">on</span>;
+    <span class="kw">dpd_delay</span>            <span class="val">30</span>;
+    <span class="kw">proposal_check</span>       <span class="val">claim</span>;
+    <span class="kw">lifetime</span>             <span class="val">time</span> 24 <span class="val">hours</span>;
+
+    <span class="kw">proposal</span> {
+        <span class="kw">encryption_algorithm</span>    <span class="val">aes 256</span>;
+        <span class="kw">hash_algorithm</span>          <span class="val">sha1</span>;
+        <span class="kw">authentication_method</span>   <span class="val">xauth_psk_server</span>;
+        <span class="kw">dh_group</span>                <span class="val">14</span>;
+    }
+}</code></pre>
+
+    <h3>RSA + XAuth Remote Block Example</h3>
+    <pre><code><span class="kw">remote</span> anonymous
+{
+    <span class="kw">exchange_mode</span>        <span class="val">main</span>;
+    <span class="kw">verify_identifier</span>    <span class="val">on</span>;
+    <span class="kw">my_identifier</span>        <span class="val">asn1dn</span>;
+    <span class="kw">peers_identifier</span>     <span class="val">asn1dn</span>;
+
+    <span class="comment"># When asn1dn is used without a value, racoon uses</span>
+    <span class="comment"># the certificate Subject DN as identifier.</span>
+    <span class="kw">certificate_type</span>     <span class="val">x509</span> <span class="str">"vpngw.crt"</span> <span class="str">"vpngw.key"</span>;
+    <span class="kw">ca_type</span>              <span class="val">x509</span> <span class="str">"ca.crt"</span>;
+
+    <span class="kw">passive</span>              <span class="val">on</span>;
+    <span class="kw">generate_policy</span>      <span class="val">unique</span>;
+    <span class="kw">ike_frag</span>             <span class="val">on</span>;
+    <span class="kw">nat_traversal</span>        <span class="val">on</span>;
+    <span class="kw">dpd_delay</span>            <span class="val">30</span>;
+    <span class="kw">proposal_check</span>       <span class="val">claim</span>;
+    <span class="kw">lifetime</span>             <span class="val">time</span> 24 <span class="val">hours</span>;
+
+    <span class="kw">proposal</span> {
+        <span class="kw">encryption_algorithm</span>    <span class="val">aes 256</span>;
+        <span class="kw">hash_algorithm</span>          <span class="val">sha256</span>;
+        <span class="kw">authentication_method</span>   <span class="val">xauth_rsa_server</span>;
+        <span class="kw">dh_group</span>                <span class="val">14</span>;
+    }
+}</code></pre>
+
+    <h3>Key remote Parameters</h3>
+    <table>
+      <thead><tr><th>Parameter</th><th>Values</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="param-name">exchange_mode</td>
+          <td><code>main</code>, <code>aggressive</code>, list</td>
+          <td>First mode in list is used when racoon is initiator. All listed modes are accepted as responder.</td>
+        </tr>
+        <tr>
+          <td class="param-name">my_identifier</td>
+          <td><code>address</code>, <code>fqdn</code>, <code>user_fqdn</code>, <code>asn1dn</code>, <code>keyid</code></td>
+          <td>Identity sent to the remote host. <code>asn1dn</code> without value = Subject from certificate.</td>
+        </tr>
+        <tr>
+          <td class="param-name">peers_identifier</td>
+          <td>same as my_identifier</td>
+          <td>Expected peer identity. If omitted, peer's ID payload is not verified. For <code>asn1dn</code>, individual components may use <code>*</code> as wildcard.</td>
+        </tr>
+        <tr>
+          <td class="param-name">verify_identifier</td>
+          <td><code>on</code> / <code>off</code></td>
+          <td>If on: negotiation fails if peers_identifier doesn't match received ID. Recommended: on.</td>
+        </tr>
+        <tr>
+          <td class="param-name">verify_cert</td>
+          <td><code>on</code> / <code>off</code></td>
+          <td>Verify peer certificate against CA and compare with identifier.</td>
+        </tr>
+        <tr>
+          <td class="param-name">passive</td>
+          <td><code>on</code> / <code>off</code></td>
+          <td>If on: racoon will not initiate negotiations. Always set on for server-side VPN client blocks.</td>
+        </tr>
+        <tr>
+          <td class="param-name">generate_policy</td>
+          <td><code>off</code>, <code>on</code>/<code>require</code>, <code>unique</code></td>
+          <td>Responder-only: auto-generate SPD policies during Phase 2. <code>unique</code> creates a separate SA per outbound policy — required for road warriors. Ignored when initiating.</td>
+        </tr>
+        <tr>
+          <td class="param-name">proposal_check</td>
+          <td><code>obey</code>, <code>strict</code>, <code>claim</code>, <code>exact</code></td>
+          <td>How to handle Phase 2 proposal acceptance. <code>claim</code> allows negotiation to proceed even if exact proposals don't match. Recommended: <code>claim</code>.</td>
+        </tr>
+        <tr>
+          <td class="param-name">ike_frag</td>
+          <td><code>on</code>, <code>off</code>, <code>force</code></td>
+          <td>Enable IKE fragmentation for clients behind restrictive firewalls. Recommended: on.</td>
+        </tr>
+        <tr>
+          <td class="param-name">nat_traversal</td>
+          <td><code>on</code>, <code>off</code>, <code>force</code></td>
+          <td><code>force</code> uses UDP encapsulation even without detected NAT.</td>
+        </tr>
+        <tr>
+          <td class="param-name">dpd</td>
+          <td><code>on</code> / <code>off</code></td>
+          <td>Advertise DPD vendor ID during Phase 1 negotiation. Default: on.</td>
+        </tr>
+        <tr>
+          <td class="param-name">dpd_delay</td>
+          <td>seconds</td>
+          <td>Activate DPD and set interval between liveness probes. Default: 0 (DPD negotiated but not monitored).</td>
+        </tr>
+        <tr>
+          <td class="param-name">dpd_retry</td>
+          <td>seconds</td>
+          <td>Wait time before retrying a DPD probe. Default: 5.</td>
+        </tr>
+        <tr>
+          <td class="param-name">dpd_maxfail</td>
+          <td>number</td>
+          <td>Maximum unanswered probes before declaring peer dead. Default: 5.</td>
+        </tr>
+        <tr>
+          <td class="param-name">lifetime time N timeunit;</td>
+          <td>seconds / minutes / hours</td>
+          <td>Proposed ISAKMP SA lifetime. Typical: 24h server-side.</td>
+        </tr>
+        <tr>
+          <td class="param-name">ph1id number;</td>
+          <td>integer, default 0</td>
+          <td>Links this remote block with sainfo blocks sharing the same <code>remoteid</code> value.</td>
+        </tr>
+        <tr>
+          <td class="param-name">mode_cfg (on|off);</td>
+          <td><code>on</code> / <code>off</code></td>
+          <td>Enable ISAKMP Mode Config exchange for this peer. Required for IP address/DNS/split-tunnel push.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="note">
+      <strong>Undocumented remote parameters:</strong> The following parameters documented in the racoon.conf(5) man page are not yet covered in the table above:
+      <code>rekey on|off|force</code>, <code>initial_contact on|off</code>, <code>keepalive on|off</code>,
+      <code>support_proxy on|off</code>, <code>send_cr on|off</code>, <code>match_empty_cr on|off</code>,
+      <code>xauth_login</code>, <code>peers_certfile</code>, <code>esp_frag on|off</code>,
+      <code>nonce_size</code>, <code>inherit</code>, <code>weak_phase1_check on|off</code>.
+    </div>
+    <table>
+      <thead><tr><th>Value</th><th>Responder behavior on Phase 2 lifetime, key length, and PFS</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">obey</td><td>Always use the initiator's proposal.</td></tr>
+        <tr><td class="param-name">strict</td><td>Use initiator's lifetime if shorter; use initiator's key length if shorter; reject if PFS group mismatch. Default.</td></tr>
+        <tr><td class="param-name">claim</td><td>Same as strict, but if responder's lifetime is shorter, use own value AND send a RESPONDER-LIFETIME notify (Phase 2 only). Recommended for VPN clients.</td></tr>
+        <tr><td class="param-name">exact</td><td>Reject if initiator's lifetime, key length, or PFS group differs from responder's values.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════ SETKEY / SPD / SAD ═══════════ -->
+  <section id="conf-setkey">
+    <h3>4.2 setkey</h3>
+    <p>
+      <code>setkey</code> provides direct, low-level access to the kernel's
+      XFRM Security Policy Database (SPD) and Security Association Database
+      (SAD), independent of racoon. It is useful for manual SA configuration,
+      scripting, and environments where IKE negotiation is not needed at all.
+    </p>
+    <pre><code><span class="comment"># Show active Security Associations (SAD)</span>
+setkey -D
+
+<span class="comment"># Show Security Policy Database (SPD)</span>
+setkey -DP
+
+<span class="comment"># Flush all SAs / policies</span>
+setkey -F
+setkey -FP
+
+<span class="comment"># Load a setkey script</span>
+setkey -f /etc/ipsec-tools.conf</code></pre>
+
+    <h3 id="conf-policies">4.3 Security Policies</h3>
+    <p>
+      The Security Policy Database (SPD) determines which traffic must be
+      protected by IPsec, and with what mode/protocol. racoon populates the SPD
+      indirectly via <code>generate_policy</code> (responder side, see
+      <a href="#phase1-remote">remote block</a>) or policies can be defined
+      statically with <code>setkey</code>.
+    </p>
+    <pre><code><span class="comment"># Inspect policy database</span>
+setkey -DP
+ip xfrm policy</code></pre>
+
+    <h3 id="conf-sa">4.4 Security Associations</h3>
+    <p>
+      The Security Association Database (SAD) holds active SAs together with
+      their key material, SPI, and lifetime. Each SA is unidirectional;
+      bidirectional traffic requires two SAs, one per direction.
+    </p>
+    <pre><code><span class="comment"># Inspect active SAs</span>
+setkey -D
+ip xfrm state
+
+<span class="comment"># Per-SA statistics</span>
+ip -s xfrm state</code></pre>
+  </section>
+
+  <!-- ═══════════ PHASE 1 CRYPTO ═══════════ -->
+  <section id="phase1-crypto">
+    <h4>Phase 1: Crypto Suites</h4>
+    <p>
+      A <code>proposal</code> sub-block inside <code>remote</code> combines four
+      cryptographic components. Multiple <code>proposal</code> blocks are permitted —
+      racoon offers them in order. Recommended values are summarized in
+      <a href="#sec-ciphers">Section 8 (Security Recommendations)</a>.
+    </p>
+
+    <h4 id="sec-ciphers-fwd">Encryption (encryption_algorithm)</h4>
+    <table>
+      <thead><tr><th>Value</th><th>Algorithm</th><th>Recommendation</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">aes 256</td><td>AES-256-CBC</td><td>✓ Recommended</td></tr>
+        <tr><td class="param-name">aes 128</td><td>AES-128-CBC</td><td>Acceptable</td></tr>
+        <tr><td class="param-name">camellia 256</td><td>Camellia-256-CBC</td><td>Alternative to AES</td></tr>
+        <tr><td class="param-name">3des</td><td>3DES-CBC</td><td>Legacy; avoid for new deployments</td></tr>
+        <tr><td class="param-name">cast128</td><td>CAST-128</td><td>Legacy</td></tr>
+        <tr><td class="param-name">blowfish</td><td>Blowfish</td><td>Legacy</td></tr>
+        <tr><td class="param-name">des</td><td>DES (56-bit)</td><td>✖ Do not use</td></tr>
+      </tbody>
+    </table>
+
+    <h4>Hash / PRF (hash_algorithm)</h4>
+    <table>
+      <thead><tr><th>Value</th><th>Algorithm</th><th>Recommendation</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">sha256</td><td>HMAC-SHA-256</td><td>✓ Recommended</td></tr>
+        <tr><td class="param-name">sha384</td><td>HMAC-SHA-384</td><td>✓ Strong</td></tr>
+        <tr><td class="param-name">sha512</td><td>HMAC-SHA-512</td><td>✓ Strong</td></tr>
+        <tr><td class="param-name">sha1</td><td>HMAC-SHA-1</td><td>Legacy; required for some iOS configs</td></tr>
+        <tr><td class="param-name">md5</td><td>HMAC-MD5</td><td>✖ Do not use</td></tr>
+      </tbody>
+    </table>
+
+    <h4>DH Groups (dh_group) — Phase 1</h4>
+    <table>
+      <thead><tr><th>Number</th><th>Name</th><th>RFC</th><th>Bits</th><th>Recommendation</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">1</td><td>modp768</td><td>RFC 2409</td><td>768</td><td>✖ Broken</td></tr>
+        <tr><td class="param-name">2</td><td>modp1024</td><td>RFC 2409</td><td>1024</td><td>✖ Too weak</td></tr>
+        <tr><td class="param-name">5</td><td>modp1536</td><td>RFC 3526</td><td>1536</td><td>Borderline</td></tr>
+        <tr><td class="param-name">14</td><td>modp2048</td><td>RFC 3526</td><td>2048</td><td>✓ Minimum today</td></tr>
+        <tr><td class="param-name">15</td><td>modp3072</td><td>RFC 3526</td><td>3072</td><td>✓ Good</td></tr>
+        <tr><td class="param-name">16</td><td>modp4096</td><td>RFC 3526</td><td>4096</td><td>✓ Strong</td></tr>
+        <tr><td class="param-name">17</td><td>modp6144</td><td>RFC 3526</td><td>6144</td><td>Very slow</td></tr>
+        <tr><td class="param-name">18</td><td>modp8192</td><td>RFC 3526</td><td>8192</td><td>Very slow</td></tr>
+        <tr><td class="param-name">19</td><td>ecp256</td><td>RFC 5903</td><td>256 (ECP)</td><td>✓ ECDH P-256</td></tr>
+        <tr><td class="param-name">20</td><td>ecp384</td><td>RFC 5903</td><td>384 (ECP)</td><td>✓ ECDH P-384</td></tr>
+      </tbody>
+    </table>
+    <div class="warn">
+      When using Aggressive Mode, all proposals <strong>must use the same DH group</strong>,
+      because the group cannot be auto-negotiated in that mode. Configure DH group 14
+      on both sides explicitly.
+    </div>
+  </section>
+
+  <!-- ═══════════ 5. AUTHENTICATION METHODS ═══════════ -->
+  <section id="phase1-auth">
+    <h2>5. Authentication Methods</h2>
+
+    <h3 id="auth-psk">5.1 Pre-Shared Keys</h3>
+    <p>
+      Both peers must share a common key value. The authenticating peer sends a Hash Value
+      generated from the shared key and ancillary data; the responder generates the same
+      hash locally and compares.
+    </p>
+
+    <!-- PSK Flow Diagram -->
+    <div class="auth-diagram">
+      <svg viewBox="0 0 480 140" width="480" height="140" xmlns="http://www.w3.org/2000/svg" style="font-family:'IBM Plex Mono',monospace;">
+        <!-- VPN Client box -->
+        <rect x="10" y="30" width="150" height="80" rx="6" fill="#1e2733" stroke="#2a3848"/>
+        <text x="85" y="55" text-anchor="middle" fill="#e8f2ff" font-size="12" font-weight="600">VPN Client</text>
+        <rect x="25" y="65" width="120" height="26" rx="4" fill="#0d1f17" stroke="#7ec8a0" stroke-width="1"/>
+        <text x="85" y="83" text-anchor="middle" fill="#7ec8a0" font-size="10">Initiator Hash Value</text>
+        <!-- VPN Gateway box -->
+        <rect x="320" y="30" width="150" height="80" rx="6" fill="#1e2733" stroke="#2a3848"/>
+        <text x="395" y="55" text-anchor="middle" fill="#e8f2ff" font-size="12" font-weight="600">VPN Gateway</text>
+        <rect x="335" y="65" width="120" height="26" rx="4" fill="#0d1f17" stroke="#7ec8a0" stroke-width="1"/>
+        <text x="395" y="83" text-anchor="middle" fill="#7ec8a0" font-size="10">Local Value ✓</text>
+        <!-- Arrow right -->
+        <line x1="150" y1="78" x2="320" y2="78" stroke="#f5a623" stroke-width="2" marker-end="url(#arr)"/>
+        <!-- Arrow left -->
+        <rect x="195" y="100" width="90" height="22" rx="4" fill="#1e2733" stroke="#2a3848"/>
+        <text x="240" y="115" text-anchor="middle" fill="#7ec8a0" font-size="9">Responder Hash ←</text>
+        <defs>
+          <marker id="arr" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#f5a623"/>
+          </marker>
+        </defs>
+      </svg>
+    </div>
+
+    <pre><code><span class="comment"># In proposal block:</span>
+<span class="kw">authentication_method</span>  <span class="val">pre_shared_key</span>;
+
+<span class="comment"># In /etc/racoon/psk.txt (peer-id  secret):</span>
+client.example.com   <span class="str">mysharedsecret</span>
+<span class="comment"># For address-based ID:</span>
+192.168.1.1          <span class="str">anothersecret</span></code></pre>
+    <div class="warn">
+      PSK with Aggressive Mode is vulnerable to offline brute-force attacks. Use long,
+      random keys (≥ 20 characters, high entropy).
+    </div>
+
+    <h3 id="auth-x509">5.2 X.509 Certificates (RSA)</h3>
+    <p>
+      The peer being validated must hold a Digital Certificate signed by a trusted CA
+      and the corresponding private key. During IKE authentication, the peer sends its
+      certificate and a Hash Value signed with the private key. The responder verifies
+      the certificate against the CA, then verifies the hash against the certificate's
+      public key.
+    </p>
+
+    <!-- RSA Flow Diagram -->
+    <div class="auth-diagram">
+      <svg viewBox="0 0 520 200" width="520" height="200" xmlns="http://www.w3.org/2000/svg" style="font-family:'IBM Plex Mono',monospace;font-size:10px;">
+        <defs>
+          <marker id="ar2" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#f5a623"/></marker>
+          <marker id="ar3" markerWidth="8" markerHeight="6" refX="2" refY="3" orient="auto"><polygon points="8 0,0 3,8 6" fill="#4fc3f7"/></marker>
+        </defs>
+        <text x="90"  y="18" text-anchor="middle" fill="#e8f2ff" font-size="11" font-weight="600">VPN Client</text>
+        <text x="430" y="18" text-anchor="middle" fill="#e8f2ff" font-size="11" font-weight="600">VPN Gateway</text>
+        <!-- rows -->
+        <rect x="10"  y="28" width="160" height="22" rx="3" fill="#0d1a2e" stroke="#4fc3f7"/>
+        <text x="90"  y="44" text-anchor="middle" fill="#4fc3f7">Initiator Cert →</text>
+        <line x1="170" y1="39" x2="340" y2="39" stroke="#f5a623" stroke-width="1.5" marker-end="url(#ar2)"/>
+
+        <rect x="350" y="56" width="160" height="22" rx="3" fill="#0d1a2e" stroke="#4fc3f7"/>
+        <text x="430" y="72" text-anchor="middle" fill="#4fc3f7">← CA ✓</text>
+        <line x1="350" y1="67" x2="170" y2="67" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ar3)"/>
+
+        <rect x="10"  y="84" width="160" height="22" rx="3" fill="#0d1a2e" stroke="#7ec8a0"/>
+        <text x="90"  y="100" text-anchor="middle" fill="#7ec8a0">Initiator Signed Hash →</text>
+        <line x1="170" y1="95" x2="340" y2="95" stroke="#f5a623" stroke-width="1.5" marker-end="url(#ar2)"/>
+
+        <rect x="10"  y="112" width="160" height="22" rx="3" fill="#0d1a2e" stroke="#4fc3f7"/>
+        <text x="90"  y="128" text-anchor="middle" fill="#4fc3f7">← Responder Cert</text>
+        <line x1="350" y1="123" x2="170" y2="123" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ar3)"/>
+
+        <rect x="350" y="140" width="160" height="22" rx="3" fill="#0d1a2e" stroke="#7ec8a0"/>
+        <text x="430" y="156" text-anchor="middle" fill="#7ec8a0">← Responder Signed Hash</text>
+        <line x1="350" y1="151" x2="170" y2="151" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ar3)"/>
+
+        <text x="260" y="185" text-anchor="middle" fill="#7ec8a0" font-size="9">Both signatures valid → Peer authenticated</text>
+      </svg>
+    </div>
+
+    <pre><code><span class="kw">authentication_method</span>  <span class="val">rsasig</span>;
+
+<span class="kw">certificate_type</span>  <span class="val">x509</span>  <span class="str">"gateway.crt"</span>  <span class="str">"gateway.key"</span>;
+<span class="kw">ca_type</span>           <span class="val">x509</span>  <span class="str">"ca.crt"</span>;</code></pre>
+
+    <h4>Authentication Method Values</h4>
+    <table>
+      <thead><tr><th>Value</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">pre_shared_key</td><td>Standard PSK — mutual authentication</td></tr>
+        <tr><td class="param-name">rsasig</td><td>RSA/X.509 certificates — mutual authentication</td></tr>
+        <tr><td class="param-name">xauth_psk_server</td><td>PSK Phase 1 + XAuth user authentication (server side)</td></tr>
+        <tr><td class="param-name">xauth_rsa_server</td><td>RSA Phase 1 + XAuth user authentication (server side)</td></tr>
+        <tr><td class="param-name">hybrid_rsa_server</td><td>Server-only RSA certificate + XAuth (client not authenticated by cert)</td></tr>
+        <tr><td class="param-name">xauth_psk_client</td><td>Client-side counterpart to xauth_psk_server</td></tr>
+        <tr><td class="param-name">xauth_rsa_client</td><td>Client-side counterpart to xauth_rsa_server</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════ PHASE 2 OVERVIEW ═══════════ -->
+  <section id="phase2-overview">
+    <h4>Quick Mode Message Flow (Phase 2 detail)</h4>
+    <p>
+      Phase 2 (Quick Mode) negotiates the actual IPSec SAs for data transport.
+      It runs fully encrypted over the Phase 1 IKE SA channel. One Quick Mode
+      exchange results in two unidirectional SAs (one per direction).
+    </p>
+    <pre><code><span class="comment"># Quick Mode message flow</span>
+Initiator                                    Responder
+────────────────────────────────────────────────────────
+HDR*, HASH(1), SA, Ni [, KE][, IDci, IDcr]  →
+                                             ← HDR*, HASH(2), SA, Nr [, KE][, IDci, IDcr]
+HDR*, HASH(3)                                →</code></pre>
+    <p>
+      The optional <code>KE</code> payload enables <strong>Perfect Forward Secrecy
+      (PFS)</strong>: a fresh DH key exchange ensures that compromise of a long-term key
+      cannot expose past session keys.
+    </p>
+    <div class="note">
+      racoon does not have a fixed list of security protocols to negotiate for Phase 2.
+      The list is passed by the SPD (Security Policy Database) in the kernel. Therefore
+      you must define all potential algorithms in the Phase 2 proposals even if some will
+      never be used — racoon computes the actual proposals by permutation.
+    </div>
+  </section>
+
+  <!-- ═══════════ SAINFO BLOCK ═══════════ -->
+  <section id="phase2-sainfo">
+    <h4>racoon.conf: sainfo Block (Phase 2)</h4>
+    <p>
+      The <code>sainfo</code> block defines which crypto parameters are offered for the
+      data tunnel. Selection is based on source/destination address ranges, or
+      <code>anonymous</code> for any peer. Multiple <code>sainfo</code> blocks can coexist.
+    </p>
+
+    <pre><code><span class="comment"># Semi-anonymous: specific local subnet, any peer</span>
+<span class="kw">sainfo</span> subnet <span class="val">10.1.2.0/24</span> any anonymous
+{
+    <span class="kw">pfs_group</span>                    <span class="val">14</span>;
+    <span class="kw">lifetime</span>                     <span class="val">time</span> 3600 <span class="val">seconds</span>;
+    <span class="kw">encryption_algorithm</span>         <span class="val">aes 256</span>, <span class="val">aes 128</span>;
+    <span class="kw">authentication_algorithm</span>     <span class="val">hmac_sha1</span>;
+    <span class="kw">compression_algorithm</span>        <span class="val">deflate</span>;
+}
+
+<span class="comment"># Fully anonymous: any subnet, any peer</span>
+<span class="kw">sainfo</span> anonymous
+{
+    <span class="kw">pfs_group</span>                    <span class="val">14</span>;
+    <span class="kw">lifetime</span>                     <span class="val">time</span> 3600 <span class="val">seconds</span>;
+    <span class="kw">encryption_algorithm</span>         <span class="val">aes 256</span>, <span class="val">aes 128</span>, <span class="val">3des</span>;
+    <span class="kw">authentication_algorithm</span>     <span class="val">hmac_sha1</span>;
+    <span class="kw">compression_algorithm</span>        <span class="val">none</span>;
+}
+
+<span class="comment"># XAuth group-restricted: only vpn-admin users may access 10.1.3.x</span>
+<span class="kw">sainfo</span> subnet <span class="val">10.1.3.0/24</span> any anonymous group <span class="str">"vpn-admin"</span>
+{
+    <span class="kw">pfs_group</span>                    <span class="val">14</span>;
+    <span class="kw">lifetime</span>                     <span class="val">time</span> 3600 <span class="val">seconds</span>;
+    <span class="kw">encryption_algorithm</span>         <span class="val">aes 256</span>;
+    <span class="kw">authentication_algorithm</span>     <span class="val">hmac_sha1</span>;
+}</code></pre>
+
+    <h3>sainfo Parameters</h3>
+    <table>
+      <thead><tr><th>Parameter</th><th>Values</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="param-name">encryption_algorithm</td>
+          <td><code>aes 256</code>, <code>aes 128</code>, <code>3des</code>, <code>des</code>, <code>null_enc</code>, <code>camellia</code>, …</td>
+          <td>ESP encryption. <code>null_enc</code> = no encryption (auth only). Multiple values: comma-separated.</td>
+        </tr>
+        <tr>
+          <td class="param-name">authentication_algorithm</td>
+          <td><code>hmac_sha1</code>, <code>hmac_sha256</code>, <code>hmac_sha384</code>, <code>hmac_sha512</code>, <code>hmac_md5</code>, <code>non_auth</code></td>
+          <td>ESP authentication HMAC. <code>non_auth</code> for AEAD ciphers only.</td>
+        </tr>
+        <tr>
+          <td class="param-name">pfs_group</td>
+          <td>DH group number</td>
+          <td>Enable Perfect Forward Secrecy with the specified DH group. Omit to disable PFS.</td>
+        </tr>
+        <tr>
+          <td class="param-name">lifetime</td>
+          <td>time N sec / volume N kbytes</td>
+          <td>SA lifetime. On expiry, racoon renegotiates.</td>
+        </tr>
+        <tr>
+          <td class="param-name">compression_algorithm</td>
+          <td><code>deflate</code>, <code>none</code></td>
+          <td>IP Payload Compression (RFC 3173). Rarely beneficial with encrypted data.</td>
+        </tr>
+        <tr>
+          <td class="param-name">remoteid number;</td>
+          <td>integer, default 0</td>
+          <td>Only use this sainfo if its <code>remoteid</code> matches the <code>ph1id</code> of the remote block used for Phase 1.</td>
+        </tr>
+        <tr>
+          <td class="param-name">group "name";</td>
+          <td>quoted group string</td>
+          <td>XAuth group membership check: the authenticated user must be a member of this group before this sainfo block matches.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="note">
+      <strong>Additional sainfo parameters</strong> documented in the racoon.conf(5) man page not yet covered above:
+      <code>sequence_number on|off</code>, <code>encap yes|no</code>, <code>replay_window N</code>,
+      <code>gss_id_enc yes|no</code>, <code>lzs N</code> (LZS compression), <code>null</code> (alias for <code>null_enc</code>),
+      <code>rijndael</code> (alias for <code>aes</code>).
+    </div>
+
+    <div class="note">
+      <strong>Additional global parameters</strong> not yet covered in this guide:
+      <code>padding</code>, <code>privsep</code>, <code>complex_bundle</code>, <code>pfkey_buffer</code>,
+      <code>exchange_mode base</code>, <code>lzs</code>.
+    </div>
+  </section>
+
+  <!-- ═══════════ PFS ═══════════ -->
+  <section id="phase2-pfs">
+    <h4>Perfect Forward Secrecy (PFS)</h4>
+    <p>
+      PFS ensures that compromise of a long-term private key (RSA key or PSK) does not
+      allow decryption of previously recorded traffic. Without PFS, all past session keys
+      could theoretically be reconstructed from the compromised long-term key.
+    </p>
+    <p>
+      With PFS, each Phase 2 negotiation performs a fresh Diffie-Hellman exchange.
+      The PFS DH group and the Phase 1 DH group need not be identical — a lower group
+      in Phase 2 speeds up frequent SA renewal.
+    </p>
+    <pre><code><span class="comment"># PFS enabled (recommended)</span>
+<span class="kw">sainfo</span> anonymous {
+    <span class="kw">pfs_group</span> <span class="val">14</span>;   <span class="comment"># MODP-2048 for Phase 2</span>
+    ...
+}
+
+<span class="comment"># PFS disabled (not recommended)</span>
+<span class="kw">sainfo</span> anonymous {
+    <span class="comment"># no pfs_group directive → no PFS</span>
+    ...
+}</code></pre>
+  </section>
+
+  <!-- ═══════════ MODE CONFIG ═══════════ -->
+  <section id="modecfg">
+    <h4>Mode Config (Configuration Exchange)</h4>
+    <p>
+      The Mode Config extension (ISAKMP Configuration Method, draft-ietf-ipsec-isakmp-mode-cfg)
+      exchanges client configuration information after Phase 1 and before Phase 2. It allows
+      the gateway to push or the client to pull: IP address, netmask, DNS, WINS, split-tunnel
+      topology, and a login banner.
+    </p>
+    <p>
+      racoon supports the <strong>Pull</strong> method — the client requests settings from
+      the gateway. This is the default and the only method supported by ipsec-tools.
+    </p>
+
+    <pre><code><span class="comment">#
+# Mode Config Section
+#</span>
+<span class="kw">mode_cfg</span>
+{
+    <span class="comment"># ── User authentication source ──────────────────────────</span>
+    <span class="kw">auth_source</span>   <span class="val">system</span>;          <span class="comment"># system | radius | pam | ldap</span>
+    <span class="kw">auth_groups</span>   <span class="str">"vpn-user"</span>;      <span class="comment"># restrict to group membership</span>
+    <span class="kw">group_source</span>  <span class="val">system</span>;          <span class="comment"># system | ldap</span>
+
+    <span class="comment"># ── IP address pool ─────────────────────────────────────</span>
+    <span class="kw">conf_source</span>   <span class="val">local</span>;           <span class="comment"># local | radius | ldap</span>
+    <span class="kw">network4</span>      <span class="val">192.168.254.1</span>;   <span class="comment"># pool base address</span>
+    <span class="kw">pool_size</span>     <span class="val">253</span>;             <span class="comment"># max concurrent clients</span>
+    <span class="kw">netmask4</span>      <span class="val">255.255.255.0</span>;
+
+    <span class="comment"># ── Name services ───────────────────────────────────────</span>
+    <span class="kw">dns4</span>          <span class="val">10.1.2.253</span>;
+    <span class="kw">wins4</span>         <span class="val">10.1.2.253</span>;
+    <span class="kw">default_domain</span> <span class="str">"example.com"</span>;
+    <span class="kw">split_dns</span>     <span class="str">"example.com"</span>;   <span class="comment"># Cisco VPN client only</span>
+
+    <span class="comment"># ── Split tunneling ─────────────────────────────────────</span>
+    <span class="kw">split_network</span> include <span class="val">10.1.2.0/24</span>;
+    <span class="comment"># split_network local_lan 192.168.0.0/16; # exclude local LAN</span>
+
+    <span class="comment"># ── Miscellaneous ───────────────────────────────────────</span>
+    <span class="kw">banner</span>        <span class="str">"/etc/racoon/motd"</span>;
+    <span class="kw">pfs_group</span>     <span class="val">14</span>;              <span class="comment"># Cisco VPN client only</span>
+    <span class="kw">save_passwd</span>   <span class="val">off</span>;             <span class="comment"># allow client to save Xauth password</span>
+}</code></pre>
+
+    <h4>mode_cfg Reference</h4>
+    <table>
+      <thead><tr><th>Parameter</th><th>Values</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">auth_source</td><td><code>system</code>, <code>radius</code>, <code>pam</code>, <code>ldap</code></td><td>XAuth user account source. <code>system</code> = Unix password database.</td></tr>
+        <tr><td class="param-name">auth_groups</td><td>quoted group name(s)</td><td>User must be a member of at least one group for XAuth to succeed.</td></tr>
+        <tr><td class="param-name">group_source</td><td><code>system</code>, <code>ldap</code></td><td>Source for group membership checks.</td></tr>
+        <tr><td class="param-name">conf_source</td><td><code>local</code>, <code>radius</code>, <code>ldap</code></td><td>Source for IP address/netmask assignment.</td></tr>
+        <tr><td class="param-name">network4</td><td>IP address</td><td>Pool base address for dynamic IP assignment.</td></tr>
+        <tr><td class="param-name">pool_size</td><td>integer, default 255</td><td>Maximum concurrent clients. Applies to both local pool and RADIUS.</td></tr>
+        <tr><td class="param-name">netmask4</td><td>netmask</td><td>Network mask assigned to the client virtual interface.</td></tr>
+        <tr><td class="param-name">dns4</td><td>IP address(es)</td><td>DNS server(s) pushed to the client.</td></tr>
+        <tr><td class="param-name">nbns4 / wins4</td><td>IP address(es)</td><td>WINS server(s) for NetBIOS/UNC name resolution.</td></tr>
+        <tr><td class="param-name">default_domain</td><td>domain string</td><td>Default DNS domain pushed to the client.</td></tr>
+        <tr><td class="param-name">split_dns</td><td>domain string(s)</td><td>DNS domains for which the client forwards queries to the tunnel DNS server (Cisco VPN client only).</td></tr>
+        <tr><td class="param-name">split_network include net/mask;</td><td>CIDR</td><td>Networks accessed via tunnel (Split Tunnel include list).</td></tr>
+        <tr><td class="param-name">split_network local_lan net/mask;</td><td>CIDR</td><td>Networks excluded from tunnel (local LAN passthrough).</td></tr>
+        <tr><td class="param-name">banner</td><td>file path</td><td>File displayed on the client at connection time. Default: <code>/etc/motd</code>.</td></tr>
+        <tr><td class="param-name">auth_throttle</td><td>seconds, default 1</td><td>Delay between failed XAuth attempts — prevents dictionary attacks.</td></tr>
+        <tr><td class="param-name">pfs_group</td><td>DH group number</td><td>PFS DH group for Phase 2 (Cisco VPN client only). Default: 0 (no PFS).</td></tr>
+        <tr><td class="param-name">save_passwd</td><td><code>on</code> / <code>off</code></td><td>Allow client to save XAuth password (Cisco VPN client only). Default: off.</td></tr>
+        <tr><td class="param-name">accounting</td><td><code>none</code>, <code>system</code>, <code>radius</code>, <code>pam</code></td><td>Accounting for XAuth logins/logouts.</td></tr>
+      </tbody>
+    </table>
+
+    <h4>Split Tunnel Topology</h4>
+
+    <!-- Split tunnel diagrams -->
+    <div class="topo-diagram">
+      <svg viewBox="0 0 520 120" width="520" height="120" xmlns="http://www.w3.org/2000/svg" style="font-family:'IBM Plex Mono',monospace;font-size:10px;">
+        <defs>
+          <marker id="ar4" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto"><polygon points="0 0,6 2.5,0 5" fill="#7ec8a0"/></marker>
+          <marker id="ar5" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto"><polygon points="0 0,6 2.5,0 5" fill="#f5a623"/></marker>
+        </defs>
+        <!-- Client -->
+        <rect x="10" y="40" width="80" height="40" rx="5" fill="#1e2733" stroke="#2a3848"/>
+        <text x="50" y="65" text-anchor="middle" fill="#e8f2ff" font-size="9">VPN Client</text>
+        <!-- Router -->
+        <rect x="180" y="40" width="80" height="40" rx="5" fill="#1e2733" stroke="#2a3848"/>
+        <text x="220" y="65" text-anchor="middle" fill="#e8f2ff" font-size="9">Internet</text>
+        <!-- Gateway -->
+        <rect x="350" y="40" width="80" height="40" rx="5" fill="#1e2733" stroke="#4fc3f7"/>
+        <text x="390" y="65" text-anchor="middle" fill="#4fc3f7" font-size="9">Gateway</text>
+        <!-- Private net -->
+        <rect x="450" y="40" width="65" height="40" rx="5" fill="#0d1f17" stroke="#7ec8a0"/>
+        <text x="482" y="65" text-anchor="middle" fill="#7ec8a0" font-size="9">Private Net</text>
+        <!-- Arrows: split tunnel traffic goes to gateway -->
+        <line x1="90" y1="55" x2="178" y2="55" stroke="#f5a623" stroke-width="1.5" marker-end="url(#ar5)"/>
+        <line x1="260" y1="55" x2="348" y2="55" stroke="#f5a623" stroke-width="1.5" marker-end="url(#ar5)"/>
+        <line x1="430" y1="60" x2="448" y2="60" stroke="#7ec8a0" stroke-width="1.5" marker-end="url(#ar4)"/>
+        <!-- Internet direct (curved) -->
+        <path d="M90,65 Q135,100 178,65" stroke="#4fc3f7" stroke-width="1" fill="none" stroke-dasharray="4,3" marker-end="url(#ar4)"/>
+        <text x="135" y="105" text-anchor="middle" fill="#4fc3f7" font-size="8">Internet → direct</text>
+        <text x="220" y="30" text-anchor="middle" fill="#f5a623" font-size="8">Private → tunnel</text>
+      </svg>
+    </div>
+
+    <p>
+      When <code>split_network include</code> is configured, the client only tunnels
+      packets destined for the specified networks. All other traffic uses the local
+      connection directly. If no topology information is received from the gateway, the
+      client falls back to tunneling all traffic.
+    </p>
+  </section>
+
+  <!-- ═══════════ XAUTH ═══════════ -->
+  <section id="xauth-extended">
+    <h3 id="auth-xauth">5.3 XAUTH (Extended Authentication)</h3>
+    <p>
+      XAuth (draft-ietf-ipsec-isakmp-xauth) adds user-based authentication on top of
+      Phase 1. After the ISAKMP SA is established using PSK or RSA, the gateway
+      challenges the client for a username and password, which is validated against
+      an account database.
+    </p>
+
+    <div class="auth-diagram">
+      <svg viewBox="0 0 520 230" width="520" height="230" xmlns="http://www.w3.org/2000/svg" style="font-family:'IBM Plex Mono',monospace;font-size:10px;">
+        <defs>
+          <marker id="ar6" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto"><polygon points="0 0,6 2.5,0 5" fill="#f5a623"/></marker>
+          <marker id="ar7" markerWidth="6" markerHeight="5" refX="1" refY="2.5" orient="auto"><polygon points="6 0,0 2.5,6 5" fill="#4fc3f7"/></marker>
+        </defs>
+        <text x="100" y="15" text-anchor="middle" fill="#e8f2ff" font-size="10" font-weight="600">VPN Client</text>
+        <text x="380" y="15" text-anchor="middle" fill="#e8f2ff" font-size="10" font-weight="600">VPN Gateway</text>
+        <text x="500" y="15" text-anchor="middle" fill="#7a92ab" font-size="9">Account DB</text>
+        <!-- Phase 1 completed banner -->
+        <rect x="150" y="22" width="220" height="18" rx="3" fill="#0d1f17" stroke="#7ec8a0"/>
+        <text x="260" y="35" text-anchor="middle" fill="#7ec8a0" font-size="9">ISAKMP SA Established (Phase 1)</text>
+        <!-- XAuth challenge -->
+        <line x1="350" y1="55" x2="150" y2="55" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ar7)"/>
+        <text x="250" y="50" text-anchor="middle" fill="#4fc3f7">← XAuth Challenge</text>
+        <!-- User input -->
+        <rect x="20" y="62" width="120" height="18" rx="3" fill="#1e2733" stroke="#2a3848"/>
+        <text x="80" y="75" text-anchor="middle" fill="#c8d6e5">User Input</text>
+        <!-- XAuth response -->
+        <line x1="150" y1="95" x2="350" y2="95" stroke="#f5a623" stroke-width="1.5" marker-end="url(#ar6)"/>
+        <text x="250" y="90" text-anchor="middle" fill="#f5a623">XAuth Response →</text>
+        <!-- User verification -->
+        <line x1="380" y1="110" x2="480" y2="110" stroke="#7ec8a0" stroke-width="1" marker-end="url(#ar6)"/>
+        <text x="430" y="106" text-anchor="middle" fill="#7ec8a0" font-size="8">User Verify</text>
+        <line x1="480" y1="125" x2="380" y2="125" stroke="#7ec8a0" stroke-width="1" marker-end="url(#ar7)"/>
+        <text x="430" y="140" text-anchor="middle" fill="#7ec8a0" font-size="8">Result</text>
+        <!-- XAuth result to client -->
+        <line x1="350" y1="150" x2="150" y2="150" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ar7)"/>
+        <text x="250" y="145" text-anchor="middle" fill="#4fc3f7">← XAuth Result</text>
+        <!-- User output -->
+        <rect x="20" y="158" width="120" height="18" rx="3" fill="#0d1f17" stroke="#7ec8a0"/>
+        <text x="80" y="171" text-anchor="middle" fill="#7ec8a0">User Output</text>
+        <text x="260" y="205" text-anchor="middle" fill="#7ec8a0" font-size="9">Both PSK + XAuth succeed → peer authenticated</text>
+      </svg>
+    </div>
+
+    <div class="note">
+      XAuth requires <code>generate_policy unique</code> and <code>passive on</code>
+      in the remote block. The <code>mode_cfg</code> block must be present and
+      <code>auth_source</code> must be configured.
+    </div>
+  </section>
+
+  <!-- ═══════════ HYBRID AUTH ═══════════ -->
+  <section id="xauth-hybrid">
+    <h3 id="auth-hybrid">5.4 Hybrid Authentication</h3>
+    <p>
+      Hybrid Authentication combines one-sided RSA authentication (the gateway
+      authenticates with a certificate; the client does not) with a subsequent XAuth
+      user credential check. This is the model used by most commercial Cisco-compatible
+      VPN gateways.
+    </p>
+
+    <div class="auth-diagram">
+      <svg viewBox="0 0 520 220" width="520" height="220" xmlns="http://www.w3.org/2000/svg" style="font-family:'IBM Plex Mono',monospace;font-size:10px;">
+        <defs>
+          <marker id="ar8" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto"><polygon points="0 0,6 2.5,0 5" fill="#f5a623"/></marker>
+          <marker id="ar9" markerWidth="6" markerHeight="5" refX="1" refY="2.5" orient="auto"><polygon points="6 0,0 2.5,6 5" fill="#4fc3f7"/></marker>
+        </defs>
+        <text x="100" y="15" text-anchor="middle" fill="#e8f2ff" font-size="10" font-weight="600">VPN Client</text>
+        <text x="380" y="15" text-anchor="middle" fill="#e8f2ff" font-size="10" font-weight="600">VPN Gateway</text>
+        <!-- Phase 1 with gateway-only RSA -->
+        <line x1="150" y1="35" x2="350" y2="35" stroke="#f5a623" stroke-width="1.5" marker-end="url(#ar8)"/>
+        <text x="250" y="30" text-anchor="middle" fill="#f5a623">Initiator Hash Value →</text>
+        <line x1="350" y1="55" x2="150" y2="55" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ar9)"/>
+        <text x="250" y="50" text-anchor="middle" fill="#4fc3f7">← CA ✓ (gateway cert only)</text>
+        <line x1="350" y1="75" x2="150" y2="75" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ar9)"/>
+        <text x="250" y="70" text-anchor="middle" fill="#4fc3f7">← Responder Cert + Signed Hash</text>
+        <!-- ISAKMP SA banner -->
+        <rect x="150" y="83" width="220" height="18" rx="3" fill="#0d1f17" stroke="#7ec8a0"/>
+        <text x="260" y="96" text-anchor="middle" fill="#7ec8a0" font-size="9">ISAKMP SA Established</text>
+        <!-- XAuth -->
+        <line x1="350" y1="116" x2="150" y2="116" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ar9)"/>
+        <text x="250" y="111" text-anchor="middle" fill="#4fc3f7">← XAuth Challenge</text>
+        <line x1="150" y1="136" x2="350" y2="136" stroke="#f5a623" stroke-width="1.5" marker-end="url(#ar8)"/>
+        <text x="250" y="131" text-anchor="middle" fill="#f5a623">XAuth Response (user+pass) →</text>
+        <line x1="350" y1="156" x2="150" y2="156" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ar9)"/>
+        <text x="250" y="151" text-anchor="middle" fill="#4fc3f7">← XAuth Result</text>
+        <text x="260" y="185" text-anchor="middle" fill="#7ec8a0" font-size="9">RSA (gateway-only) + XAuth succeed → peer authenticated</text>
+        <text x="260" y="200" text-anchor="middle" fill="#7a92ab" font-size="8">authentication_method hybrid_rsa_server;</text>
+      </svg>
+    </div>
+
+    <pre><code><span class="kw">authentication_method</span>  <span class="val">hybrid_rsa_server</span>;
+
+<span class="comment"># Gateway must have a certificate; client only needs CA cert</span>
+<span class="kw">certificate_type</span>  <span class="val">x509</span>  <span class="str">"gateway.crt"</span>  <span class="str">"gateway.key"</span>;
+<span class="kw">ca_type</span>           <span class="val">x509</span>  <span class="str">"ca.crt"</span>;</code></pre>
+  </section>
+
+  <!-- ═══════════ 6. LDAP AUTHENTICATION ═══════════ -->
+  <section id="ldap-architecture">
+    <h2>6. LDAP Authentication</h2>
+    <h3>6.1 Architecture</h3>
+    <p>
+      racoon supports two mutually exclusive XAUTH authentication backends,
+      selected at compile time (<a href="#build-ldap">Section 3.4</a> /
+      <a href="#build-radius">3.5</a>) and at runtime via the <code>auth_source</code>
+      directive in racoon.conf. Native LDAP, compiled in via
+      <code>--with-libldap</code>, is the actively supported and recommended
+      authentication backend for this continuation project.
+    </p>
+    <p>
+      racoon's native LDAP support goes beyond simple credential checking: the
+      <code>ldapcfg</code> block serves a dual purpose:
+    </p>
+    <table>
+      <thead><tr><th>#</th><th>Purpose</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td>XAUTH authentication</td>
+          <td>racoon performs an LDAP bind (or search + bind) to validate the
+            roadwarrior's username and password during IKEv1 Phase 1.5 (XAUTH),
+            in addition to the X.509 certificate check in Phase 1 proper. This
+            gives genuine two-factor authentication: something you have
+            (certificate) + something you know (directory password).</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td>Mode Config address assignment</td>
+          <td>racoon reads per-user IP address and netmask attributes from the
+            user's LDAP entry and pushes them to the client during mode_cfg
+            negotiation. This enables deterministic per-user IP assignment,
+            essential for per-user firewall rules, audit logging, and access
+            control policies.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note">
+      The Mode Config address assignment capability is unique to the native LDAP
+      path and cannot be replicated via PAM or RADIUS.
+    </div>
+
+    <h3 id="ldap-ldapcfg">6.2 ldapcfg</h3>
+    <p>
+      The <code>ldapcfg</code> block configures the directory connection and the
+      attribute mapping used for both XAUTH and Mode Config address assignment.
+    </p>
+    <table>
+      <thead><tr><th>Parameter</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">uri</td><td>LDAP server URI (e.g. <code>ldaps://ldap.example.com</code>). Takes precedence over <code>host</code>/<code>port</code>.</td></tr>
+        <tr><td class="param-name">host</td><td>LDAP server hostname or IP address.</td></tr>
+        <tr><td class="param-name">port</td><td>389 (LDAP) or 636 (LDAPS, recommended).</td></tr>
+        <tr><td class="param-name">version</td><td><code>2</code> / <code>3</code> — LDAP protocol version. Default: 3.</td></tr>
+        <tr><td class="param-name">timeout</td><td>Network timeout in seconds for LDAP connections.</td></tr>
+        <tr><td class="param-name">debug</td><td>LDAP library debug level (0 to disable).</td></tr>
+        <tr><td class="param-name">base</td><td>Search base DN, e.g. <code>dc=example,dc=com</code>.</td></tr>
+        <tr><td class="param-name">subtree</td><td><code>on</code>/<code>off</code> — search the full subtree under base rather than one level.</td></tr>
+        <tr><td class="param-name">bind_dn / bind_pw</td><td>Service account credentials racoon uses to bind for the search phase.</td></tr>
+        <tr><td class="param-name">attr_user</td><td>Attribute holding the username (e.g. <code>uid</code>, or <code>sAMAccountName</code> for AD).</td></tr>
+        <tr><td class="param-name">attr_addr</td><td>Attribute holding the per-user IP address to assign via Mode Config.</td></tr>
+        <tr><td class="param-name">attr_mask</td><td>Attribute holding the per-user netmask.</td></tr>
+        <tr><td class="param-name">attr_group</td><td>Attribute used to identify the group name in the directory. Default: <code>cn</code>.</td></tr>
+        <tr><td class="param-name">attr_member</td><td>Attribute used for group membership checks (e.g. <code>uniqueMember</code>, or <code>member</code> for AD).</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="ldap-layout">6.3 Directory Layout</h3>
+    <p>
+      A classic OpenLDAP layout for VPN users places each user entry under the
+      configured <code>base</code> DN with a <code>uid</code> attribute for the
+      username and custom attributes (e.g. <code>CiscoIPAddress</code>,
+      <code>CiscoIPNetmask</code>) for the per-user IP assignment. Group entries
+      use <code>uniqueMember</code> to list member DNs for XAuth group-restricted
+      <code>sainfo</code> blocks (see <a href="#phase2-sainfo">Section 4.1, sainfo</a>).
+    </p>
+
+    <h3 id="ldap-samba">6.4 Samba Active Directory</h3>
+    <p>
+      Samba AD DC exposes a fully RFC 4511-compliant LDAP interface and is a
+      supported backend for racoon's <code>ldapcfg</code>. The attribute mapping
+      from a classic OpenLDAP schema to Samba AD is as follows:
+    </p>
+    <table>
+      <thead><tr><th>OpenLDAP attribute</th><th>Samba AD equivalent</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">uid</td><td>sAMAccountName</td><td>Set <code>attr_user</code> accordingly.</td></tr>
+        <tr><td class="param-name">uniqueMember</td><td>member</td><td>Set <code>attr_member</code> accordingly.</td></tr>
+        <tr><td class="param-name">CiscoIPAddress</td><td>extensionAttribute1 (or any free extensionAttributeN)</td><td>No built-in AD equivalent; use one of the 15 pre-existing extensionAttribute slots rather than extending the AD schema.</td></tr>
+        <tr><td class="param-name">CiscoIPNetmask</td><td>extensionAttribute2 (or any free extensionAttributeN)</td><td>Same rationale as above.</td></tr>
+      </tbody>
+    </table>
+    <p>
+      The <code>extensionAttribute1</code>…<code>extensionAttribute15</code>
+      attributes are present in the default AD schema (originally from Exchange)
+      and accept arbitrary string values. Using them avoids the need to extend the
+      Samba AD schema, which requires loading a schema LDIF into the Schema naming
+      context and is considerably more involved for a homelab setup.
+    </p>
+    <p>
+      The bind DN format changes from OpenLDAP convention to AD's LDAP DN or UPN
+      form. Either works for a simple bind:
+    </p>
+    <table>
+      <thead><tr><th>Format</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td>OpenLDAP</td><td><code>cn=VpnAdmin,dc=example,dc=com</code></td></tr>
+        <tr><td>AD DN</td><td><code>CN=VpnAdmin,CN=Users,DC=example,DC=com</code></td></tr>
+        <tr><td>AD UPN</td><td><code>vpnadmin@example.com</code> (simpler; preferred)</td></tr>
+      </tbody>
+    </table>
+    <div class="warn">
+      Create a dedicated, read-only service account in AD for this purpose.
+      Do not reuse an account with elevated privileges.
+    </div>
+    <p>
+      LDAPS (port 636) is strongly recommended over plain LDAP (port 389) to
+      protect the bind password and user credentials in transit. Samba AD DC
+      supports LDAPS using the same TLS certificate as your internal CA. Set
+      <code>port 636</code> in <code>ldapcfg</code> and ensure racoon is built
+      against an OpenSSL version that trusts your internal CA certificate
+      (configure the CA bundle or add it to the system trust store).
+    </p>
+    <h4>Example ldapcfg Block for Samba AD DC</h4>
+    <pre><code><span class="kw">ldapcfg</span> {
+    <span class="kw">host</span> <span class="str">"ad-dc.example.com"</span>;
+    <span class="kw">port</span> <span class="val">636</span>;                               <span class="comment"># LDAPS; use 389 only for testing</span>
+    <span class="kw">base</span> <span class="str">"dc=example,dc=com"</span>;
+    <span class="kw">subtree</span> <span class="val">on</span>;
+    <span class="kw">bind_dn</span> <span class="str">"vpnadmin@example.com"</span>;         <span class="comment"># AD UPN format</span>
+    <span class="kw">bind_pw</span> <span class="str">"service-account-password"</span>;
+    <span class="kw">attr_user</span> <span class="str">"sAMAccountName"</span>;             <span class="comment"># was: uid</span>
+    <span class="kw">attr_addr</span> <span class="str">"extensionAttribute1"</span>;        <span class="comment"># was: CiscoIPAddress</span>
+    <span class="kw">attr_mask</span> <span class="str">"extensionAttribute2"</span>;        <span class="comment"># was: CiscoIPNetmask</span>
+    <span class="kw">attr_member</span> <span class="str">"member"</span>;                   <span class="comment"># was: uniqueMember</span>
+}</code></pre>
+    <p>And the corresponding racoon.conf XAUTH directive in the remote block:</p>
+    <pre><code><span class="kw">mode_cfg</span> <span class="val">on</span>;
+<span class="kw">auth_source</span> <span class="val">ldap</span>;
+<span class="kw">conf_source</span> <span class="val">ldap</span>;                           <span class="comment"># pull addr/mask from LDAP</span></code></pre>
+
+    <h3 id="ldap-addr">6.5 User Address Assignment</h3>
+    <p>
+      Populate <code>extensionAttribute1</code>/<code>2</code> on each user object
+      in Samba AD using <code>samba-tool</code> or the AD Users and Computers RSAT
+      snap-in:
+    </p>
+    <pre><code>samba-tool user edit jdoe
+<span class="comment"># add: extensionAttribute1: 10.66.100.42</span>
+<span class="comment">#      extensionAttribute2: 255.255.255.0</span></code></pre>
+    <p>Or via <code>ldapmodify</code>:</p>
+    <pre><code>dn: CN=John Doe,CN=Users,DC=example,DC=com
+changetype: modify
+replace: extensionAttribute1
+extensionAttribute1: 10.66.100.42
+-
+replace: extensionAttribute2
+extensionAttribute2: 255.255.255.0</code></pre>
+    <p>
+      With <code>conf_source ldap</code> set (see <a href="#modecfg">mode_cfg
+      block</a>), racoon reads these attributes during Mode Config negotiation
+      and assigns the specified address/netmask to the connecting client instead
+      of allocating from the local pool.
+    </p>
+
+    <h3 id="ldap-troubleshoot">6.6 Troubleshooting LDAP</h3>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely Cause</th><th>Check</th></tr></thead>
+      <tbody>
+        <tr><td>XAUTH always fails</td><td>Wrong bind_dn/bind_pw or base DN</td><td>Test bind manually with <code>ldapsearch -D bind_dn -w bind_pw -b base</code></td></tr>
+        <tr><td>Bind succeeds, address not assigned</td><td>attr_addr/attr_mask not set on user entry, or conf_source not set to ldap</td><td>Verify attribute values with <code>ldapsearch</code>; check <code>conf_source</code> in mode_cfg</td></tr>
+        <tr><td>Group-restricted sainfo never matches</td><td>attr_member mismatch (uniqueMember vs member)</td><td>Confirm attr_member matches the directory schema (OpenLDAP vs Samba AD)</td></tr>
+        <tr><td>TLS handshake failure on port 636</td><td>racoon's OpenSSL does not trust the AD/internal CA</td><td>Add the CA certificate to the system trust store or OpenSSL CA bundle</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════ 7. APPLE CLIENT INTEROPERABILITY ═══════════ -->
+
+  <!-- ═══════════ iOS COMPAT ═══════════ -->
+  <section id="ios-compat">
+    <h2>7. Apple Client Interoperability</h2>
+    <h3 id="apple-profile">7.1 Cisco IPSec Profile</h3>
+    <h4>iOS / macOS Client Compatibility</h4>
+    <p>
+      iOS and macOS provide native IPSec support through the "Cisco IPSec" profile,
+      which uses IKEv1 with Aggressive Mode and XAuth. The racoon server-side
+      configuration must be exactly aligned with the Apple implementation.
+    </p>
+    <pre><code><span class="kw">remote</span> anonymous
+        {
+        <span class="kw">exchange_mode</span>           <span class="val">aggressive</span>, <span class="val">main</span>;
+        <span class="kw">my_identifier</span>           <span class="val">address</span>;
+        <span class="kw">generate_policy</span>         <span class="val">unique</span>;
+        <span class="kw">passive</span>                 <span class="val">on</span>;
+        <span class="kw">nat_traversal</span>           <span class="val">on</span>;
+        <span class="kw">ike_frag</span>                <span class="val">on</span>;
+        <span class="kw">dpd_delay</span>               <span class="val">20</span>;
+        <span class="kw">dpd_retry</span>               <span class="val">5</span>;
+        <span class="kw">dpd_maxfail</span>             <span class="val">3</span>;
+        <span class="kw">proposal_check</span>          <span class="val">claim</span>;
+        <span class="kw">mode_cfg</span>                <span class="val">on</span>;
+
+        <span class="kw">certificate_type</span>        <span class="val">x509</span>
+        <span class="str">"/etc/racoon/certs/gateway.crt"</span>
+        <span class="str">"/etc/racoon/certs/gateway.key"</span>;
+        <span class="kw">ca_type</span>                 <span class="val">x509</span>  <span class="str">"/etc/racoon/certs/ca.crt"</span>;
+        <span class="kw">verify_cert</span>             <span class="val">on</span>;
+
+        <span class="kw">proposal</span> {
+        <span class="kw">encryption_algorithm</span>    <span class="val">aes 256</span>;
+        <span class="kw">hash_algorithm</span>          <span class="val">sha256</span>;
+        <span class="kw">authentication_method</span>   <span class="val">xauth_rsa_server</span>;
+        <span class="kw">dh_group</span>                <span class="val">14</span>;
+        }
+        <span class="kw">proposal</span> {               <span class="comment"># fallback for older iOS</span>
+        <span class="kw">encryption_algorithm</span>    <span class="val">aes 128</span>;
+        <span class="kw">hash_algorithm</span>          <span class="val">sha1</span>;
+        <span class="kw">authentication_method</span>   <span class="val">xauth_rsa_server</span>;
+        <span class="kw">dh_group</span>                <span class="val">2</span>;    <span class="comment"># WARNING: 1024-bit DH — only for legacy iOS compatibility</span>
+        }
+        }
+
+        <span class="kw">sainfo</span> anonymous
+        {
+        <span class="kw">pfs_group</span>               <span class="val">14</span>;
+        <span class="kw">lifetime</span>                <span class="val">time</span> 3600 <span class="val">seconds</span>;
+        <span class="kw">encryption_algorithm</span>    <span class="val">aes 256</span>, <span class="val">aes 128</span>, <span class="val">3des</span>;
+        <span class="kw">authentication_algorithm</span> <span class="val">hmac_sha1</span>;  <span class="comment"># ← see HMAC section!</span>
+        }</code></pre>
+  </section>
+
+  <!-- ═══════════ PKI BASICS ═══════════ -->
+  <section id="pki-overview">
+    <h3 id="apple-certreq">7.2 Certificate Requirements</h3>
+    <h4>Certificates &amp; PKI: Basics</h4>
+    <p>
+      For certificate-based authentication, racoon uses X.509 certificates in PEM or
+      DER format. The certificate chain must be complete and the CA must be trusted
+      by both peers.
+    </p>
+    <pre><code>/etc/racoon/certs/
+├── ca.crt          <span class="comment"># CA certificate (root or intermediate)</span>
+├── gateway.crt     <span class="comment"># Server certificate</span>
+├── gateway.key     <span class="comment"># Server private key (PEM, unencrypted)</span>
+└── client.crt      <span class="comment"># Optional: client cert for verification</span></code></pre>
+
+    <div class="warn">
+      racoon reads private keys without a passphrase. The key file must have
+      restrictive permissions (<code>chmod 600</code>) and must <strong>not</strong> be
+      PKCS#8-encrypted.
+    </div>
+
+    <h4>Certificate Requirements (RFC 4945)</h4>
+    <table>
+      <thead><tr><th>Field</th><th>Requirement</th></tr></thead>
+      <tbody>
+        <tr><td>Subject</td><td>DN or IP/FQDN as Subject Alternative Name</td></tr>
+        <tr><td>Key Usage</td><td>Digital Signature; for CA: Certificate Sign, CRL Sign</td></tr>
+        <tr><td>Extended Key Usage</td><td>TLS Web Server / Client Authentication or IPSec-specific OIDs</td></tr>
+        <tr><td>SubjectAltName</td><td>IP address or FQDN of the gateway; <strong>mandatory for iOS 14+</strong></td></tr>
+        <tr><td>Validity</td><td>Currently valid; racoon checks expiry</td></tr>
+        <tr><td>Signature algorithm</td><td>SHA-2 mandatory for Apple platforms (iOS 13+ / macOS 10.15+)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════ GENERATING RSA CREDENTIALS ═══════════ -->
+  <section id="pki-generate">
+    <h3 id="apple-pkcs12">7.3 PKCS#12 Generation</h3>
+    <h4>Generating RSA Credentials</h4>
+    <p>
+      If not using PSK authentication, RSA credentials must be generated for the VPN
+      gateway and, depending on the auth method, for clients as well. (Hybrid Authentication
+      is the only RSA mode that does not require client certificates.)
+    </p>
+    <pre><code><span class="comment"># Create directory structure</span>
+mkdir certs
+mkdir -p demoCA/newcerts
+touch demoCA/index.txt
+echo "00" > demoCA/serial
+
+<span class="comment"># Generate CA and gateway private keys</span>
+umask 077
+openssl genrsa -out certs/ca.key  4096
+openssl genrsa -out certs/gw.key  4096
+
+<span class="comment"># Self-signed CA certificate (5 years)</span>
+umask 022
+openssl req -days 1825 -x509 -new \
+    -key certs/ca.key \
+    -out certs/ca.crt \
+    -subj "/CN=VPN-CA/O=Example"
+
+<span class="comment"># Gateway certificate signing request</span>
+openssl req -new \
+    -key certs/gw.key \
+    -out certs/gw.csr \
+    -subj "/CN=vpngw.example.com/O=Example"
+
+<span class="comment"># Sign gateway certificate with CA</span>
+openssl ca -days 1825 \
+    -in  certs/gw.csr \
+    -keyfile certs/ca.key \
+    -cert    certs/ca.crt \
+    -out     certs/gw.crt
+
+<span class="comment"># Move to racoon certificate directory</span>
+cp certs/gw.crt  /etc/racoon/certs/gateway.crt
+cp certs/gw.key  /etc/racoon/certs/gateway.key
+cp certs/ca.crt  /etc/racoon/certs/ca.crt
+chmod 600 /etc/racoon/certs/gateway.key</code></pre>
+
+    <div class="note">
+      The CA public certificate (<code>ca.crt</code>) must be distributed to every
+      client connecting to the gateway. For iOS/macOS, it must be installed as a
+      trusted root in the device keychain.
+    </div>
+  </section>
+
+  <!-- ═══════════ PKCS12 ═══════════ -->
+  <section id="pki-pkcs12">
+    <h4>PKCS#12 &amp; OpenSSL 3.x</h4>
+    <p>
+      PKCS#12 files bundle certificate, private key, and optionally the CA certificate
+      into a single encrypted file. They are typically used for import into client systems.
+    </p>
+    <h3>OpenSSL 3.x Breaking Change</h3>
+    <p>
+      OpenSSL 3.0 changed the default PKCS#12 algorithm from <code>PBE-SHA1-3DES</code>
+      (traditional, supported by Apple) to <code>AES-256-CBC</code> with PBKDF2. This
+      causes import failures on Apple Security.framework for older iOS/macOS versions.
+    </p>
+    <pre><code><span class="comment"># OpenSSL 3.x: create PKCS#12 with legacy algorithms (Apple-compatible)</span>
+openssl pkcs12 -export \
+    -in     client.crt \
+    -inkey  client.key \
+    -CAfile ca.crt \
+    -chain \
+    -out    client.p12 \
+    -legacy \
+    -keypbe  PBE-SHA1-3DES \
+    -certpbe PBE-SHA1-3DES \
+    -macalg  sha1
+
+<span class="comment"># Enable legacy provider in openssl.cnf (system-wide):</span>
+<span class="comment"># [openssl_init]</span>
+<span class="comment"># providers = provider_sect</span>
+<span class="comment"># [provider_sect]</span>
+<span class="comment"># default = default_sect</span>
+<span class="comment"># legacy  = legacy_sect</span>
+<span class="comment"># [default_sect]</span>
+<span class="comment"># activate = 1</span>
+<span class="comment"># [legacy_sect]</span>
+<span class="comment"># activate = 1</span>
+
+<span class="comment"># Inspect PKCS#12 content</span>
+openssl pkcs12 -info -in client.p12 -noout -legacy
+
+<span class="comment"># Extract certificate and key</span>
+openssl pkcs12 -in client.p12 -nokeys -clcerts -out client.crt -legacy
+openssl pkcs12 -in client.p12 -nocerts -nodes  -out client.key -legacy</code></pre>
+    <div class="warn">
+      OpenSSL 3.x does not activate the Legacy Provider by default. PKCS#12 creation
+      with <code>PBE-SHA1-3DES</code> fails silently without explicit activation.
+    </div>
+  </section>
+
+  <!-- ═══════════ APPLE SECURITY ═══════════ -->
+  <section id="pki-apple">
+    <h4>Apple Security.framework Compatibility</h4>
+    <table>
+      <thead><tr><th>Requirement</th><th>Details</th></tr></thead>
+      <tbody>
+        <tr><td>Encryption algorithm</td><td><code>PBE-SHA1-3DES</code> for maximum compatibility (iOS ≤ 16, macOS ≤ 13)</td></tr>
+        <tr><td>MAC algorithm</td><td><code>SHA1</code>; SHA256 may fail on older iOS versions</td></tr>
+        <tr><td>Key format</td><td>PKCS#1 RSA (traditional); PKCS#8 may not be accepted</td></tr>
+        <tr><td>Certificate chain</td><td>Embed full chain including intermediate CA in PKCS#12</td></tr>
+        <tr><td>SubjectAltName</td><td>Mandatory for iOS 14+; CommonName alone is insufficient</td></tr>
+        <tr><td>RSA key length</td><td>Minimum 2048 bits; Apple rejects 1024-bit keys</td></tr>
+        <tr><td>Signature algorithm</td><td>SHA-2 mandatory; SHA-1-signed certificates are rejected on iOS 13+ / macOS 10.15+</td></tr>
+      </tbody>
+    </table>
+    <div class="danger">
+      From iOS 13 / macOS 10.15, Apple enforces SHA-2 signatures on certificates.
+      SHA-1-signed certificates are categorically rejected, even if the PKCS#12 MAC
+      still uses SHA-1.
+    </div>
+  </section>
+
+  <!-- ═══════════ mobileconfig DEPLOYMENT ═══════════ -->
+  <section id="apple-mobileconfig">
+    <h3>7.4 iOS mobileconfig: VPN Profile &amp; Password Lifecycle</h3>
+    <p>
+      Apple's Configuration Profile format (<code>.mobileconfig</code>) can deploy
+      a complete "Cisco IPSec" VPN configuration to iOS/macOS devices — server
+      address, XAuth/hybrid authentication, the CA certificate (or PKCS#12
+      identity, see <a href="#apple-pkcs12">7.3</a>), and connect-on-demand rules —
+      without requiring the user to enter settings manually. Profiles can be
+      signed and distributed via MDM, a web link, or email/AirDrop for manual
+      installation.
+    </p>
+    <div class="note">
+      The full <code>com.apple.vpn.managed</code> payload schema is documented in
+      Apple's
+      <a href="https://developer.apple.com/documentation/devicemanagement/vpn" target="_blank">VPN Configuration Profile Reference</a>.
+      Pay particular attention to the <code>IPSec</code> payload's
+      <code>AuthenticationMethod</code> (<code>SharedSecret</code> or
+      <code>Certificate</code>) and <code>XAuthEnabled</code> keys, which must
+      match the <code>authentication_method</code> configured in the racoon
+      <code>remote</code> block (<a href="#phase1-auth">Section 5</a>).
+    </div>
+    <div class="warn">
+      An embedded PKCS#12 identity in a mobileconfig profile is stored
+      obfuscated, not strongly encrypted, on the device. Treat distributed
+      profiles containing client identities as sensitive, and prefer per-user
+      certificates over a shared one when feasible.
+    </div>
+  </section>
+
+  <!-- ═══════════ MOBILECONFIG PASSWORD ═══════════ -->
+  <section id="ios-mobileconfig">
+    <p>
+      When distributing the "Cisco IPSec" VPN configuration to iOS devices via a
+      <code>.mobileconfig</code> profile — whether sent by email, a web link, or an
+      MDM solution — the handling of the XAuth password field has significant
+      operational implications, particularly in environments where AD password policies
+      enforce periodic rotation.
+    </p>
+
+    <h4>Password Field Behaviour</h4>
+    <p>
+      The critical decision is whether to include the <code>XAuthPassword</code> key
+      in the profile payload:
+    </p>
+    <table>
+      <thead><tr><th>Profile contains</th><th>Connection behaviour</th><th>Password rotation</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>XAuthPassword</code> present and non-empty</td>
+          <td>iOS uses the embedded credential silently — the user is never prompted</td>
+          <td class="param-name" style="color: var(--red);">Breaks silently. VPN fails after rotation with no actionable error. Admin must re-push the profile.</td>
+        </tr>
+        <tr>
+          <td><code>XAuthPassword</code> absent or empty string</td>
+          <td>iOS prompts the user on first connection, stores the entered password in the device keychain</td>
+          <td style="color: var(--green);">iOS re-prompts automatically when racoon returns an authentication failure. User enters the new AD password; it is stored in the keychain and used for subsequent connections.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="warn">
+      For any environment using AD password policies with periodic rotation, the
+      <code>XAuthPassword</code> key must be <strong>omitted entirely</strong> from the
+      mobileconfig payload. A provisioned profile cannot be edited by the user;
+      embedding a password that will eventually expire is an operational trap.
+    </div>
+
+    <h3>How iOS Handles Authentication Failure (Keychain Re-prompt)</h3>
+    <p>
+      When the XAuth password stored in the device keychain is rejected by the server,
+      the flow is:
+    </p>
+    <ol style="margin: 0.8rem 0 1rem 1.5rem; line-height: 2.2;">
+      <li>iOS initiates Phase 1 with the stored certificate credential.</li>
+      <li>ISAKMP SA is established successfully.</li>
+      <li>racoon sends XAuth challenge; iOS responds with the cached keychain password.</li>
+      <li>racoon validates against the directory (Samba AD / LDAP) — the bind fails
+        because the AD password has changed.</li>
+      <li>racoon returns <code>ISAKMP_NTYPE_AUTHENTICATION_FAILED</code>.</li>
+      <li>iOS interprets this specific notification as a credential rejection, discards
+        the cached keychain entry, and presents a password prompt to the user.</li>
+      <li>The user enters the new AD password. iOS stores it in the keychain and
+        retries the connection, which succeeds.</li>
+    </ol>
+
+    <div class="note">
+      The re-prompt mechanism depends on racoon returning the correct ISAKMP
+      notification type on LDAP bind failure. Test this explicitly after deployment:
+      connect once with a valid credential, change the test account's LDAP/AD
+      password, attempt reconnection, and verify that iOS presents a password prompt
+      rather than a generic "VPN connection failed" error. If a timeout or a generic
+      Phase 1 failure is returned instead, iOS will not re-prompt.
+    </div>
+
+    <h4>Minimal mobileconfig Payload (XAuth without Embedded Password)</h4>
+    <pre><code><span class="comment">&lt;!-- VPN payload within a .mobileconfig PayloadContent array --&gt;</span>
+        &lt;dict&gt;
+        &lt;key&gt;PayloadType&lt;/key&gt;
+        &lt;string&gt;com.apple.vpn.managed&lt;/string&gt;
+        &lt;key&gt;PayloadIdentifier&lt;/key&gt;
+        &lt;string&gt;com.example.vpn.cisco-ipsec&lt;/string&gt;
+        &lt;key&gt;UserDefinedName&lt;/key&gt;
+        &lt;string&gt;Example Corp VPN&lt;/string&gt;
+        &lt;key&gt;VPNType&lt;/key&gt;
+        &lt;string&gt;IPSec&lt;/string&gt;
+
+        &lt;key&gt;IPSec&lt;/key&gt;
+        &lt;dict&gt;
+        &lt;key&gt;RemoteAddress&lt;/key&gt;
+        &lt;string&gt;vpngw.example.com&lt;/string&gt;
+        &lt;key&gt;AuthenticationMethod&lt;/key&gt;
+        &lt;string&gt;Certificate&lt;/string&gt;             <span class="comment">&lt;!-- RSA Phase 1 --&gt;</span>
+        &lt;key&gt;XAuthEnabled&lt;/key&gt;
+        &lt;integer&gt;1&lt;/integer&gt;
+        &lt;key&gt;XAuthName&lt;/key&gt;
+        &lt;string&gt;jdoe&lt;/string&gt;                    <span class="comment">&lt;!-- username hint; user can edit --&gt;</span>
+        <span class="comment">&lt;!-- XAuthPassword intentionally OMITTED --&gt;</span>
+        <span class="comment">&lt;!-- iOS will prompt and store in keychain  --&gt;</span>
+        &lt;key&gt;PayloadCertificateUUID&lt;/key&gt;
+        &lt;string&gt;[UUID of the client certificate payload]&lt;/string&gt;
+        &lt;/dict&gt;
+        &lt;/dict&gt;</code></pre>
+
+    <h4>MDM Considerations</h4>
+    <p>
+      If distributing profiles via an MDM server, verify that the MDM does not
+      automatically populate <code>XAuthPassword</code> from a directory lookup
+      when generating per-user profiles. Some MDM systems offer this as a
+      convenience feature; it creates the same operational problem as embedding the
+      password manually. The correct MDM configuration omits the password field and
+      relies on the iOS keychain re-prompt mechanism described above.
+    </p>
+    <p>
+      The <code>XAuthName</code> field (username) may be embedded in the profile —
+      it is not a secret and makes the initial prompt slightly more convenient since
+      the user only needs to enter the password, not both fields. Users can also edit
+      this field if needed; the username alone does not enable authentication without
+      the directory password.
+    </p>
+
+    <div class="note">
+      The <code>XAuthName</code> value must match the attribute configured as
+      <code>attr_user</code> in <code>ldapcfg</code>. For Samba AD, this is
+      <code>sAMAccountName</code> (the short login name, e.g. <code>jdoe</code>),
+      not the UPN (<code>jdoe@example.com</code>) or the full DN.
+    </div>
+  </section>
+
+  <!-- ═══════════ HMAC PITFALL ═══════════ -->
+  <section id="ios-hmac">
+    <h3 id="apple-issues">7.5 Common Apple Issues</h3>
+    <h4>iOS: HMAC-SHA256 Pitfall in sainfo</h4>
+    <p>
+      This is one of the most common and hardest to diagnose failures in
+      racoon–iOS connections.
+    </p>
+    <h3>The Problem</h3>
+    <p>
+      iOS expects the ESP authentication HMAC in Phase 2 to use the standard
+      <strong>96-bit truncation</strong> as defined in RFC 2403/2404 (HMAC-MD5/SHA1).
+      When <code>hmac_sha256</code> is configured in <code>sainfo</code>, iOS uses a
+      <strong>128-bit truncation</strong> per RFC 4868, producing an ESP Authentication
+      Trailer that racoon cannot verify.
+    </p>
+    <p>
+      The result: Phase 1 and Phase 2 negotiate successfully, but <strong>no data
+      flows</strong> — ESP packets are silently discarded because the HMAC trailer
+      does not match.
+    </p>
+    <div class="danger">
+      Do <strong>not</strong> include <code>hmac_sha256</code> in <code>sainfo</code>
+      for iOS clients. Use only <code>hmac_sha1</code>. If multiple algorithms are
+      listed, iOS selects <code>hmac_sha256</code> first and then silently fails.
+    </div>
+    <pre><code><span class="comment"># WRONG — iOS picks hmac_sha256, HMAC verification fails silently:</span>
+<span class="kw">sainfo</span> anonymous {
+    <span class="kw">authentication_algorithm</span> <span class="val">hmac_sha256</span>, <span class="val">hmac_sha1</span>;  <span class="comment"># ← BUG</span>
+}
+
+<span class="comment"># CORRECT — only hmac_sha1 for iOS compatibility:</span>
+<span class="kw">sainfo</span> anonymous {
+    <span class="kw">authentication_algorithm</span> <span class="val">hmac_sha1</span>;
+}</code></pre>
+
+    <table>
+      <thead><tr><th>RFC</th><th>Algorithm</th><th>Truncation</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">RFC 2403</td><td>HMAC-MD5-96</td><td>96 bit</td></tr>
+        <tr><td class="param-name">RFC 2404</td><td>HMAC-SHA-1-96</td><td>96 bit</td></tr>
+        <tr><td class="param-name">RFC 4868</td><td>HMAC-SHA-256-128</td><td>128 bit ← iOS expectation</td></tr>
+        <tr><td class="param-name">RFC 4868</td><td>HMAC-SHA-384-192</td><td>192 bit</td></tr>
+        <tr><td class="param-name">RFC 4868</td><td>HMAC-SHA-512-256</td><td>256 bit</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════ NAT-T CONFIG ═══════════ -->
+  <section id="nat-t-racoon">
+    <h4>NAT-T Configuration &amp; Firewall Rules</h4>
+    <pre><code><span class="kw">remote</span> anonymous
+{
+    <span class="kw">nat_traversal</span>  <span class="val">on</span>;     <span class="comment"># on | off | force</span>
+    <span class="kw">dpd_delay</span>      <span class="val">20</span>;    <span class="comment"># DPD keepalive interval (sec)</span>
+    <span class="kw">dpd_retry</span>      <span class="val">5</span>;
+    <span class="kw">dpd_maxfail</span>    <span class="val">3</span>;
+    ...
+}
+
+<span class="kw">timer</span> {
+    <span class="kw">natt_keepalive</span> <span class="val">20</span> seconds;   <span class="comment"># UDP keepalive for NAT tables</span>
+}
+
+<span class="kw">listen</span> {
+    <span class="kw">isakmp</span>      <span class="val">0.0.0.0</span> [<span class="val">500</span>];
+    <span class="kw">isakmp_natt</span> <span class="val">0.0.0.0</span> [<span class="val">4500</span>];   <span class="comment"># required for NAT-T clients</span>
+}</code></pre>
+
+    <h3>Firewall Rules</h3>
+    <pre><code><span class="comment"># iptables: allow IKE and ESP (racoon server)</span>
+iptables -A INPUT  -p udp --dport 500  -j ACCEPT   <span class="comment"># IKE</span>
+iptables -A INPUT  -p udp --dport 4500 -j ACCEPT   <span class="comment"># NAT-T</span>
+iptables -A INPUT  -p 50               -j ACCEPT   <span class="comment"># ESP</span>
+iptables -A INPUT  -p 51               -j ACCEPT   <span class="comment"># AH (rare)</span>
+iptables -A OUTPUT -p udp --dport 500  -j ACCEPT
+iptables -A OUTPUT -p udp --dport 4500 -j ACCEPT
+iptables -A OUTPUT -p 50               -j ACCEPT
+
+<span class="comment"># Allow VPN client pool to reach private network</span>
+iptables -A FORWARD -j ACCEPT -s 192.168.254.0/24 -d 10.1.2.0/24
+iptables -A FORWARD -j ACCEPT -s 10.1.2.0/24 -d 192.168.254.0/24</code></pre>
+
+    <h3>pf (BSD) Equivalent</h3>
+    <pre><code>pass in proto udp from any to self port 500
+pass in proto udp from any to self port 4500
+pass in proto esp from any to self
+pass quick from 192.168.254.0/24 to 10.1.2.0/24
+pass quick from 10.1.2.0/24 to 192.168.254.0/24</code></pre>
+
+    <div class="note">
+      On BSD gateways it may be necessary to use <code>scrub all fragment reassemble</code>
+      (pf) or the <code>keep frags</code> modifier (ipf) to handle VPN-related packet
+      fragments correctly.
+    </div>
+
+    <h3>Kernel Prerequisites</h3>
+    <pre><code><span class="comment"># Linux: verify NAT-T kernel module</span>
+modprobe esp4
+cat /proc/net/xfrm_stat   <span class="comment"># XfrmInError should remain 0</span>
+
+<span class="comment"># Enable IP forwarding (required for gateway function)</span>
+echo 1 > /proc/sys/net/ipv4/ip_forward
+<span class="comment"># Persistent in /etc/sysctl.conf:</span>
+<span class="comment"># net.ipv4.ip_forward = 1</span></code></pre>
+  </section>
+
+  <!-- ═══════════ 8. SECURITY RECOMMENDATIONS ═══════════ -->
+  <section id="sec-ciphers">
+    <h2>8. Security Recommendations</h2>
+
+    <h3>8.1 Recommended Cipher Suites</h3>
+    <p>
+      Use AES-256 or AES-128 for encryption and SHA-256 or stronger for the
+      Phase 1 hash/PRF (see the full tables in
+      <a href="#phase1-crypto">Phase 1 Crypto Suites</a>). Avoid 3DES, CAST-128,
+      Blowfish, and DES for new deployments; never use MD5.
+    </p>
+    <div class="warn">
+      Exception: iOS/macOS clients require <code>hmac_sha1</code> (not
+      <code>hmac_sha256</code>) in <code>sainfo</code>'s
+      <code>authentication_algorithm</code> due to the RFC 4868 truncation
+      mismatch — see <a href="#apple-issues">7.5 Common Apple Issues</a>.
+    </div>
+
+    <h3 id="sec-dh">8.2 Diffie-Hellman Groups</h3>
+    <p>
+      Use DH group 14 (MODP-2048) or higher for both Phase 1 and Phase 2
+      (<code>pfs_group</code>). Groups 1 and 2 are broken/too weak and must not
+      be used. Full group table: <a href="#phase1-crypto">Phase 1 Crypto Suites</a>.
+    </p>
+
+    <h3 id="sec-aggressive">8.3 Aggressive Mode Considerations</h3>
+    <p>
+      Aggressive Mode with pre-shared keys is vulnerable to offline dictionary
+      attacks and was publicly demonstrated to be broken in practice (see the
+      2015 Spiegel/LOGJAM research on the Diffie-Hellman parameters in use at
+      the time). Main Mode with X.509 certificates and strong DH groups
+      (Group 14 / 2048-bit or above) remains cryptographically adequate for
+      most purposes, and racoon supports this configuration.
+    </p>
+    <div class="danger">
+      Aggressive Mode is required for road-warrior scenarios with dynamically
+      addressed clients (iOS/macOS Cisco IPSec, XAuth), since the peer identity
+      cannot be looked up before the PSK is applied. Where this is unavoidable,
+      use long, high-entropy PSKs (≥ 20 characters) or switch to certificate-based
+      authentication, and prefer hybrid/XAuth so the PSK alone does not gate access.
+    </div>
+    <p>
+      IKEv1 itself is a deprecated protocol from the IETF's perspective. For any
+      new deployment where IKEv2 is available on both ends, IKEv2-based stacks
+      (strongSwan, Libreswan) should be preferred — see
+      <a href="#migrate-legacy">Section 10</a>.
+    </p>
+
+    <h3 id="sec-legacy">8.4 Legacy Algorithms</h3>
+    <p>
+      Disable DES, MD5, and DH groups 1/2 wherever the peer allows it. Where a
+      legacy peer mandates them (e.g. an old embedded VPN gateway), isolate that
+      tunnel's <code>remote</code>/<code>sainfo</code> blocks so the weaker
+      proposal is not offered to other, more capable peers.
+    </p>
+    <div class="note">
+      <strong>Honest security assessment:</strong> racoon carries the security
+      posture of a codebase that was last actively developed upstream around
+      2014. There is no active CVE triage programme, no upstream security
+      contact, and no regular release cycle; the original SourceForge project
+      is explicitly marked abandoned. This continuation addresses build-system
+      and OpenSSL compatibility issues and backports fixes from Apple's and
+      FreeBSD's forks, but it does not constitute a security-audited,
+      production-supported release in the way that strongSwan or Libreswan
+      releases are.
+    </div>
+  </section>
+
+  <!-- ═══════════ 9. TROUBLESHOOTING ═══════════ -->
+  <!-- ═══════════ LOGGING ═══════════ -->
+  <section id="debug-logging">
+    <h2>9. Troubleshooting</h2>
+
+    <h3>9.1 Debug Logging</h3>
+    <h4>racoon Log Levels</h4>
+    <pre><code><span class="comment"># In racoon.conf</span>
+<span class="kw">log</span>        <span class="val">debug</span>;   <span class="comment"># error | warning | notify | info | debug | debug2</span>
+<span class="kw">path logfile</span> <span class="str">"/var/log/racoon.log"</span>;</code></pre>
+
+    <table>
+      <thead><tr><th>Level</th><th>Output</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">notify</td><td>Critical errors only</td></tr>
+        <tr><td class="param-name">warning</td><td>Warnings + errors</td></tr>
+        <tr><td class="param-name">info</td><td>SA setup/teardown, negotiation results</td></tr>
+        <tr><td class="param-name">debug</td><td>Complete IKE message exchange</td></tr>
+        <tr><td class="param-name">debug2</td><td>Byte-accurate packet dumps including hex</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="debug-captures">9.2 Packet Captures</h3>
+    <h4>Kernel-Side Diagnostics</h4>
+    <pre><code><span class="comment"># Show active SAs</span>
+setkey -D
+ip xfrm state
+
+<span class="comment"># Show Security Policy Database</span>
+setkey -DP
+ip xfrm policy
+
+<span class="comment"># XFRM statistics</span>
+ip -s xfrm state
+cat /proc/net/xfrm_stat
+
+<span class="comment"># Capture IKE traffic</span>
+tcpdump -i eth0 -n "port 500 or port 4500"
+
+<span class="comment"># Capture and decode IKE with Wireshark</span>
+tcpdump -i eth0 -n -w /tmp/ike.pcap "port 500 or port 4500"</code></pre>
+
+    <div class="note">
+      Packet dumps from racoon are stored in the PCAP format. Wireshark (formerly
+      Ethereal) has built-in support for IKE and IPSec packet decoding and is the
+      recommended tool for analyzing racoon debug traces.
+    </div>
+
+    <h4>racoonctl Runtime Diagnostics</h4>
+    <pre><code><span class="comment"># Show active IKE SAs</span>
+racoonctl show-sa isakmp
+
+<span class="comment"># Show active IPSec SAs (Phase 2)</span>
+racoonctl show-sa esp
+
+<span class="comment"># Flush SAs (force renegotiation)</span>
+racoonctl flush-sa esp
+
+<span class="comment"># Manually initiate VPN connection</span>
+racoonctl vpn-connect 192.168.1.1</code></pre>
+  </section>
+
+  <!-- ═══════════ CHECKLIST ═══════════ -->
+  <section id="debug-checklist">
+    <h3>General Diagnostic Checklist</h3>
+
+    <h4>Phase 1 Failures</h4>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely Cause</th><th>Check</th></tr></thead>
+      <tbody>
+        <tr><td>No response from peer</td><td>Firewall blocks UDP 500/4500</td><td><code>tcpdump port 500</code> on both sides</td></tr>
+        <tr><td>NO-PROPOSAL-CHOSEN</td><td>No matching proposal</td><td>Compare crypto suites on both sides; remember Aggressive Mode locks DH group</td></tr>
+        <tr><td>INVALID-ID-INFORMATION</td><td>Identifier mismatch</td><td>Verify <code>my_identifier</code> / <code>peers_identifier</code></td></tr>
+        <tr><td>Negotiation hangs after ID exchange</td><td>DH group mismatch in Aggressive Mode</td><td>Ensure both sides use identical DH group</td></tr>
+      </tbody>
+    </table>
+
+    <h4>Phase 2 / Data Flow Failures</h4>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely Cause</th><th>Check</th></tr></thead>
+      <tbody>
+        <tr><td>TS-UNACCEPTABLE</td><td>Traffic selector doesn't match SPD</td><td><code>setkey -DP</code>; verify sainfo address ranges</td></tr>
+        <tr><td>Phase 2 OK, no traffic</td><td>HMAC mismatch (iOS), missing SPD, routing</td><td>HMAC algorithm, <code>ip xfrm state</code>, routing table</td></tr>
+        <tr><td>SA immediately renegotiated</td><td>Very short Phase 2 lifetime</td><td>Increase <code>lifetime</code> in sainfo</td></tr>
+        <tr><td>ESP packets arriving, being dropped</td><td>SPI mismatch / SAD desync</td><td><code>setkey -D</code>, <code>cat /proc/net/xfrm_stat</code></td></tr>
+        <tr><td>Tunnel drops after idle period</td><td>DPD / NAT keepalive not configured</td><td>Configure <code>dpd_delay</code> and <code>natt_keepalive</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════ APPLE ISSUES (9.3) ═══════════ -->
+  <section id="debug-apple">
+    <h3>9.3 Apple Client Issues</h3>
+    <p>
+      See <a href="#apple-issues">Section 7.5, Common Apple Issues</a> for the
+      HMAC-SHA256 truncation pitfall and other iOS/macOS-specific failures.
+    </p>
+    <table>
+      <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>iOS rejects PKCS#12</td><td>AES-256-CBC / PBKDF2 used instead of PBE-SHA1-3DES</td><td>Add <code>-legacy -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1</code> (see <a href="#apple-pkcs12">7.3</a>)</td></tr>
+        <tr><td>Phase 2 negotiates, no traffic</td><td><code>hmac_sha256</code> selected by iOS</td><td>Use only <code>hmac_sha1</code> in sainfo for iOS clients</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════ LDAP ISSUES (9.4) ═══════════ -->
+  <section id="debug-ldap">
+    <h3>9.4 LDAP Issues</h3>
+    <p>
+      See <a href="#ldap-troubleshoot">Section 6.6, Troubleshooting LDAP</a> for
+      bind failures, attribute mapping mismatches, and LDAPS/TLS trust issues.
+    </p>
+  </section>
+
+  <!-- ═══════════ CERTIFICATE PROBLEMS (9.5) ═══════════ -->
+  <section id="debug-certs">
+    <h3>9.5 Certificate Problems</h3>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely Cause</th><th>Check</th></tr></thead>
+      <tbody>
+        <tr><td>AUTHENTICATION-FAILED</td><td>Wrong PSK or certificate verify failure</td><td>Check PSK file, CA certificate, certificate expiry</td></tr>
+        <tr><td>CERTIFICATE-UNAVAILABLE</td><td>Certificate not readable</td><td>Check file path and permissions</td></tr>
+      </tbody>
+    </table>
+    <h4>OpenSSL 3.x Specific Issues</h4>
+    <table>
+      <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>EVP_* functions not found</td><td>API migration incomplete</td><td>Port <code>crypto_openssl.c</code> to EVP API</td></tr>
+        <tr><td>Deprecated function warnings</td><td>OpenSSL 1.x low-level API</td><td>Set OPENSSL_API_COMPAT or migrate</td></tr>
+        <tr><td>PKCS#12 import fails</td><td>Legacy provider not active</td><td>Activate legacy section in openssl.cnf</td></tr>
+        <tr><td>DH group not initialized</td><td>DH_new() deprecated</td><td>Use EVP_PKEY_CTX / DH MODP via EVP</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════ 10. MIGRATION NOTES ═══════════ -->
+  <section id="migrate-legacy">
+    <h2>10. Migration Notes</h2>
+
+    <h3>10.1 Legacy ipsec-tools Installations</h3>
+    <p>
+      Configuration file format (<code>racoon.conf</code>, <code>psk.txt</code>,
+      <code>setkey</code> scripts) is unchanged from upstream ipsec-tools;
+      existing configurations can be reused as-is on this continuation. The
+      main adjustments needed when migrating an old installation are
+      packaging-related (init scripts/systemd units, certificate paths) rather
+      than configuration-syntax changes.
+    </p>
+
+    <h3 id="migrate-openssl">10.2 OpenSSL 1.1 → 3.x</h3>
+    <p>
+      The most common breakage when moving a racoon deployment from an OpenSSL
+      1.1.x host to an OpenSSL 3.x host is PKCS#12 generation/import — see
+      <a href="#apple-pkcs12">Section 7.3</a> and
+      <a href="#debug-certs">Section 9.5</a> for the legacy-provider workaround.
+      This continuation's <code>openssl_compat.h/c</code> shim keeps the rest of
+      racoon's EVP usage source-compatible across 1.0.2, 1.1.x, and 3.x.
+    </p>
+
+    <h3 id="migrate-packaging">10.3 Distribution Packaging Changes</h3>
+    <p>
+      ipsec-tools/racoon packages have been dropped from Debian Bookworm+ and
+      Ubuntu 24.04+ repositories. This repository provides Debian and RPM
+      packaging (<a href="#build-packaging">Section 3.7</a>) to fill that gap
+      for administrators who cannot change the peer configuration on the other
+      end of an existing tunnel.
+    </p>
+    <p>
+      Whether to migrate away from racoon entirely is a separate decision — see
+      the comparison below.
+    </p>
+  </section>
+
+  <!-- ═══════════ RFC DIRECTORY ═══════════ -->
+  <section id="rfc-refs">
+    <h2>11. References</h2>
+    <h3>RFCs</h3>
+
+    <h4>Core Documents (IPSec / IKEv1)</h4>
+    <table>
+      <thead><tr><th>RFC</th><th>Title</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc2401" target="_blank">RFC 2401</a></td><td>Security Architecture for the Internet Protocol</td><td>Obsoleted by RFC 4301</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc2402" target="_blank">RFC 2402</a></td><td>IP Authentication Header</td><td>Obsoleted by RFC 4302</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc2406" target="_blank">RFC 2406</a></td><td>IP Encapsulating Security Payload (ESP)</td><td>Obsoleted by RFC 4303</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc2407" target="_blank">RFC 2407</a></td><td>The Internet IP Security Domain of Interpretation for ISAKMP</td><td>Obsoleted by RFC 4306</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc2408" target="_blank">RFC 2408</a></td><td>Internet Security Association and Key Management Protocol (ISAKMP)</td><td>Obsoleted by RFC 4306</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc2409" target="_blank">RFC 2409</a></td><td>The Internet Key Exchange (IKEv1) ← racoon</td><td>Obsoleted by RFC 4306</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc4301" target="_blank">RFC 4301</a></td><td>Security Architecture for the Internet Protocol</td><td>Current</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc4302" target="_blank">RFC 4302</a></td><td>IP Authentication Header</td><td>Current</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc4303" target="_blank">RFC 4303</a></td><td>IP Encapsulating Security Payload (ESP)</td><td>Current</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc7296" target="_blank">RFC 7296</a></td><td>Internet Key Exchange Protocol Version 2 (IKEv2)</td><td>Current</td></tr>
+      </tbody>
+    </table>
+
+    <h4>DH Groups</h4>
+    <table>
+      <thead><tr><th>RFC</th><th>Title</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc2412" target="_blank">RFC 2412</a></td><td>The OAKLEY Key Determination Protocol (DH groups 1, 2, 5)</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc3526" target="_blank">RFC 3526</a></td><td>More Modular Exponential (MODP) DH groups (14–18)</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc5903" target="_blank">RFC 5903</a></td><td>Elliptic Curve Groups for IKE (ECP 256/384/521)</td></tr>
+      </tbody>
+    </table>
+
+    <h4>NAT Traversal</h4>
+    <table>
+      <thead><tr><th>RFC</th><th>Title</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc3947" target="_blank">RFC 3947</a></td><td>Negotiation of NAT-Traversal in the IKE</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc3948" target="_blank">RFC 3948</a></td><td>UDP Encapsulation of IPsec ESP Packets</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc3706" target="_blank">RFC 3706</a></td><td>A Traffic-Based Method of Detecting Dead IKE Peers (DPD)</td></tr>
+      </tbody>
+    </table>
+
+    <h4>Cryptography / HMAC</h4>
+    <table>
+      <thead><tr><th>RFC</th><th>Title</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc2393" target="_blank">RFC 2393</a></td><td>IP Payload Compression Protocol (IPComp)</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc2403" target="_blank">RFC 2403</a></td><td>HMAC-MD5-96 within ESP and AH</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc2404" target="_blank">RFC 2404</a></td><td>HMAC-SHA-1-96 within ESP and AH</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc4868" target="_blank">RFC 4868</a></td><td>Using HMAC-SHA-256/384/512 with ESP and AH (128/192/256-bit truncation)</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc2631" target="_blank">RFC 2631</a></td><td>Diffie-Hellman Key Agreement Method</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc6379" target="_blank">RFC 6379</a></td><td>Suite B Cryptographic Suites for IPsec</td></tr>
+      </tbody>
+    </table>
+
+    <h4>PKI &amp; Certificates</h4>
+    <table>
+      <thead><tr><th>RFC</th><th>Title</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc4945" target="_blank">RFC 4945</a></td><td>The Internet IP Security PKI Profile of IKEv1/ISAKMP, IKEv2 and PKIX</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc5280" target="_blank">RFC 5280</a></td><td>Internet X.509 PKI Certificate and CRL Profile</td></tr>
+        <tr><td class="param-name"><a href="https://www.rfc-editor.org/rfc/rfc7292" target="_blank">RFC 7292</a></td><td>PKCS #12: Personal Information Exchange Syntax</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="hist-refs">Historical Documentation</h3>
+    <table>
+      <thead><tr><th>Resource</th><th>URL</th></tr></thead>
+      <tbody>
+        <tr><td>ipsec-tools racoon man pages</td><td><a href="https://ipsec-tools.sourceforge.net/" target="_blank">ipsec-tools.sourceforge.net</a></td></tr>
+        <tr><td>ipsec-tools project (original SourceForge, abandoned)</td><td><a href="https://ipsec-tools.sourceforge.net/" target="_blank">ipsec-tools.sourceforge.net</a></td></tr>
+        <tr><td>KAME project (original IPsec implementation)</td><td><a href="http://www.kame.net" target="_blank">www.kame.net</a></td></tr>
+        <tr><td>NetBSD CVS repository (src/crypto/dist/ipsec-tools)</td><td>NetBSD CVS</td></tr>
+        <tr><td>OpenSSL 3.0 Migration Guide</td><td><a href="https://www.openssl.org/docs/manmaster/man7/migration_guide.html" target="_blank">openssl.org – migration_guide</a></td></tr>
+        <tr><td>OpenSSL EVP API</td><td><a href="https://www.openssl.org/docs/manmaster/man7/evp.html" target="_blank">openssl.org – evp(7)</a></td></tr>
+        <tr><td>IANA IPsec Identifiers Registry</td><td><a href="https://www.iana.org/assignments/ipsec-registry/" target="_blank">iana.org – ipsec-registry</a></td></tr>
+        <tr><td>Apple VPN Configuration Profile Reference</td><td><a href="https://developer.apple.com/documentation/devicemanagement/vpn" target="_blank">developer.apple.com – devicemanagement/vpn</a></td></tr>
+        <tr><td>Wireshark (IKE/IPSec packet analysis)</td><td><a href="https://www.wireshark.org/" target="_blank">wireshark.org</a></td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="related-projects">Related Projects</h3>
+    <table>
+      <thead><tr><th>Project</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>strongSwan</td><td>Actively developed; GPL; IKEv1 + IKEv2; EAP, MOBIKE — recommended for new IKEv2 deployments.</td></tr>
+        <tr><td>Libreswan</td><td>Actively developed; GPL; IKEv1 + IKEv2; Linux-focused.</td></tr>
+        <tr><td>Openswan</td><td>Ancestor of Libreswan; largely superseded.</td></tr>
+        <tr><td>iked (OpenIKED)</td><td>Portable OpenBSD iked; IKEv2 only; BSD licence.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    <p style="color: var(--accent); font-weight: 600; margin-bottom: 1rem; letter-spacing: 0.05em; text-transform: uppercase; font-size: 0.72rem;">Sources &amp; Acknowledgements</p>
+
+    <p style="margin-bottom: 0.6rem;">
+      <span style="color: var(--text-head);">Primary protocol references:</span>
+      All IKE and IPSec behavior described in this document is derived from the
+      IETF standards listed in the RFC Directory above, in particular
+      RFC 2409 (IKEv1), RFC 2408 (ISAKMP), RFC 4301 (IPSec Architecture),
+      RFC 3947/3948 (NAT-T), and RFC 4868 (HMAC-SHA-2).
+    </p>
+
+    <p style="margin-bottom: 0.6rem;">
+      <span style="color: var(--text-head);">racoon configuration reference:</span>
+      Parameter descriptions and configuration examples are based on the
+      <em>racoon(8)</em> and <em>racoon.conf(5)</em> manual pages distributed
+      with the ipsec-tools package
+      (<a href="https://ipsec-tools.sourceforge.net/" target="_blank">ipsec-tools.sourceforge.net</a>),
+      and on the source code of the
+      <a href="https://github.com/rdratlos/racoon-ipsec-tools" target="_blank">rdratlos/racoon-ipsec-tools</a>
+      modernization project.
+    </p>
+
+    <p style="margin-bottom: 0.6rem;">
+      <span style="color: var(--text-head);">Conceptual structure:</span>
+      The organization of protocol concepts (IKE phases, exchange modes, SA lifecycle,
+      Mode Config, XAuth/Hybrid authentication, NAT-T, Dead Peer Detection) follows
+      the structure established in:
+      <em>Shrew Soft VPN Client Administrator's Guide, Version 2.1.6</em>,
+      Shrew Soft Inc., 2010.
+      Available at <a href="https://www.shrew.net/static/help-2.1.x/vpnhelp.htm" target="_blank">www.shrew.net/static/help-2.1.x/vpnhelp.htm</a>.
+      The Shrew Soft VPN Client is an independent IKEv1 implementation that was
+      designed to interoperate with racoon-based gateways; Shrew Soft Inc. has
+      also contributed patches to the upstream ipsec-tools project.
+    </p>
+
+    <p>
+      <span style="color: var(--text-head);">OpenSSL 3.x migration:</span>
+      OpenSSL API migration guidance is based on the official
+      <a href="https://www.openssl.org/docs/manmaster/man7/migration_guide.html" target="_blank">OpenSSL 3.0 Migration Guide</a>
+      and the EVP API documentation at
+      <a href="https://www.openssl.org/docs/manmaster/man7/evp.html" target="_blank">openssl.org</a>.
+    </p>
+
+    <p style="margin-top: 1.5rem; color: var(--text-dim); font-size: 0.72rem;">
+      racoon IPSec Administrator's Guide · rdratlos/racoon-ipsec-tools · 2026 ·
+      RFC 2409 (IKEv1) · OpenSSL 3.x · iOS/macOS Cisco-IPSec
+    </p>
+  </footer>
+
+</main>
+</div>
+</body>
+</html>
