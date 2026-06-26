@@ -1,0 +1,43 @@
+# Maintainer: Thomas Reim <reimth@etik.com>
+pkgname=ipsec-tools
+pkgver=0.9.0
+pkgrel=1
+pkgdesc="IKEv1 key exchange daemon (racoon) and IPsec utilities — community-maintained Linux continuation"
+arch=('x86_64' 'aarch64')
+url="https://github.com/rdratlos/racoon-ipsec-tools"
+license=('BSD-3-Clause')
+depends=('openssl' 'libldap' 'linux-headers' 'pam' 'krb5')
+makedepends=('autoconf' 'automake' 'libtool' 'flex' 'bison')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/rdratlos/racoon-ipsec-tools/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "racoon-ipsec-tools-$pkgver"
+  autoreconf -fi
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc/racoon \
+    --enable-hybrid \
+    --enable-frag \
+    --enable-natt \
+    --enable-dpd \
+    --enable-adminport \
+    --with-libldap \
+    --with-libpam \
+    --without-readline \
+    --disable-security-context
+  make
+}
+
+check() {
+  cd "racoon-ipsec-tools-$pkgver"
+  make check
+}
+
+package() {
+  cd "racoon-ipsec-tools-$pkgver"
+  make DESTDIR="$pkgdir" install
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 NEWS.md "$pkgdir/usr/share/doc/$pkgname/NEWS.md"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}
