@@ -22,10 +22,10 @@ Provides:     racoon
 PreReq:       %insserv_prereq %fillup_prereq
 Autoreqprov:  on
 Summary:      IPsec Utilities
-Source:       http://prdownloads.sourceforge.net/ipsec-tools/ipsec-tools-%{version}.tar.bz2
+Source:       https://launchpad.net/ipsec-tools/+download/ipsec-tools-%{version}.tar.bz2
 Source1:      racoon.init
 Source2:      sysconfig.racoon
-URL:          http://ipsec-tools.sourceforge.net/
+URL:          https://github.com/rdratlos/racoon-ipsec-tools
 Prefix:       /usr
 BuildRoot:    %{_tmppath}/%{name}-%{version}-build
 
@@ -41,7 +41,7 @@ kernels.  This package builds:
 - racoon, an IKEv1 keying daemon
 
 These sources can be found at the IPsec-Tools home page at:
-http://ipsec-tools.sourceforge.net/
+https://github.com/rdratlos/racoon-ipsec-tools
 
 
 

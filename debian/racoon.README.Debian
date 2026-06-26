@@ -102,7 +102,7 @@ and libcrypt-openssl-rsa-perl.
 Further Information
 -------------------
 Further information about the new Linux KAME/racoon IPSEC can be found
-up at http://ipsec-tools.sourceforge.net, and a HOWTO can be found up at
+up at https://github.com/rdratlos/racoon-ipsec-tools, and a HOWTO can be found up at
 "http://www.ipsec-howto.org/t1.html".
 
  -- Stefan Bauer <stefan.bauer@cubewerk.de>, Thu, 12 Aug 2010 13:16:11 +0200 

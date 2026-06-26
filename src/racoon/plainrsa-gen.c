@@ -76,7 +76,7 @@ usage (char *argv0)
 	fprintf(stderr, "  -i filename   Input source for format conversion\n");
 	fprintf(stderr, "  -h            Help\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, "Report bugs to <ipsec-tools-devel@lists.sourceforge.net>\n");
+	fprintf(stderr, "Report bugs at <https://github.com/rdratlos/racoon-ipsec-tools/issues>\n");
 	exit(1);
 }
 

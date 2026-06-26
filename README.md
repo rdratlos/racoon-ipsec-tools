@@ -168,9 +168,37 @@ racoon remains useful when interoperability with existing IKEv1 deployments is r
 * Release Notes  
 * Historical ipsec-tools documentation
 
+## Verifying Releases
+
+Releases and tags are signed with the maintainer's GPG key.
+
+Key ID: `CF021F8E815F054B370CCF49192BF84543F53D93`
+UID: Thomas Reim <reimth@etik.com>
+Key type: Ed25519
+Keyservers: [keyserver.ubuntu.com](https://keyserver.ubuntu.com) · [keys.openpgp.org](https://keys.openpgp.org)
+
+Fetch and verify the public key:
+
+```bash
+gpg --keyserver keyserver.ubuntu.com --recv-keys CF021F8E815F054B370CCF49192BF84543F53D93
+gpg --fingerprint CF021F8E815F054B370CCF49192BF84543F53D93
+```
+
+The fingerprint must match:
+
+```
+CF02 1F8E 815F 054B 370C  CF49 192B F845 43F5 3D93
+```
+
+Verify a signed tag:
+
+```bash
+git verify-tag v<VERSION>
+```
+
 ## Contributing
 
-Bug reports, portability fixes, interoperability improvements, and documentation contributions are welcome.
+Bug reports, portability fixes, interoperability improvements, and documentation contributions are welcome. Report via GitHub Issues.
 
 Please include:
 
@@ -179,6 +207,12 @@ Please include:
 * OpenSSL version  
 * Relevant configuration excerpts  
 * Log output when reporting issues
+
+## Project Links
+
+* Project:      https://github.com/rdratlos/racoon-ipsec-tools
+* Bugs:         https://github.com/rdratlos/racoon-ipsec-tools/issues
+* Download:     https://launchpad.net/ipsec-tools
 
 ## License
 

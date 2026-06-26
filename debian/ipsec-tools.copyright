@@ -1,7 +1,7 @@
 This is the Debian packaged version of ipsec-tools.
 
 Sources for this package can be found at its homepage at
-http://ipsec-tools.sourceforge.net/ .
+https://github.com/rdratlos/racoon-ipsec-tools .
 
 The code is copyright 1995, 1996, 1997, 1998, and 1999 by the WIDE Project
 and licensed under the BSD license.
