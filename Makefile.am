@@ -4,7 +4,7 @@
 
 SUBDIRS = src test @RPM@
 
-DIST_SUBDIRS = src test rpm
+DIST_SUBDIRS = src test packaging/rpm
 
 EXTRA_DIST = bootstrap README NEWS.md depcomp docs/history/ChangeLog docs/history/ChangeLog.old docs/history/NEWS
 

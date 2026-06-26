@@ -62,7 +62,7 @@ case $host in
 	LIBS="$LIBS -lresolv"
 	INSTALL_OPTS="-o bin -g bin"
 	INCLUDE_GLIBC="include-glibc"
-	RPM="rpm"
+	RPM="packaging/rpm"
 	AC_SUBST(INSTALL_OPTS)
 	AC_SUBST(INCLUDE_GLIBC)
 	AC_SUBST(RPM)
@@ -1021,8 +1021,8 @@ AC_CONFIG_FILES([
   src/racoon/samples/psk.txt
   src/racoon/samples/racoon.conf
   test/Makefile
-  rpm/Makefile
-  rpm/suse/Makefile
-  rpm/suse/ipsec-tools.spec
+  packaging/rpm/Makefile
+  packaging/rpm/suse/Makefile
+  packaging/rpm/suse/ipsec-tools.spec
   ])
 AC_OUTPUT
