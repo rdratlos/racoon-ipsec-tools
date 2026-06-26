@@ -3,7 +3,7 @@ Section: net
 Priority: optional
 Maintainer: Thomas Reim <reimth@etik.com>
 Build-Depends: bison,
-               debhelper-compat (= 13),
+               debhelper-compat (= 11),
                flex,
                libfl-dev,
                libkrb5-dev,
