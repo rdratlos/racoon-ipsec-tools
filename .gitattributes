@@ -1,0 +1,15 @@
+# Merge strategy for debian/changelog:
+# union concatenates both sides instead of producing a
+# conflict marker. This is semantically correct because
+# newer entries always appear at the top and older entries
+# are never modified. Required for clean rebases of
+# Ubuntu LTS branches onto develop.
+debian/changelog  merge=union
+
+# Distro-specific packaging files: the Ubuntu LTS branch
+# always wins on rebase. These files are maintained
+# independently per branch and must never be overwritten
+# by develop during a rebase or merge.
+debian/control    merge=ours
+debian/compat     merge=ours
+debian/rules      merge=ours
