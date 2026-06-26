@@ -92,7 +92,9 @@ override_dh_install:
 	    debian/ipsec-tools/etc/ipsec-tools.conf
 
 override_dh_installsystemd:
-	dh_installsystemd -p ipsec-tools --name=setkey
+	# setkey is a one-shot service that racoon.service pulls in via
+	# Requires=/After=; it must not be independently enabled at boot.
+	dh_installsystemd -p ipsec-tools --name=setkey --no-enable
 	dh_installsystemd --remaining-packages
 
 override_dh_installinit:
