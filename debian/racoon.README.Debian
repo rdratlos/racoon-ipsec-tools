@@ -1,0 +1,110 @@
+Debian README for racoon 
+------------------------
+
+This package requires a 2.6 kernel with IPSEC available, or a 2.4 kernel
+with the new IPSEC backport as in the latest 2.4 kernel source in sid and
+sarge.
+
+Please note that the xfrm_user.o module must be loaded unless statically
+compiled into the kernel so that the /proc/net/pfkey file is available for
+setkey and racoon.
+
+If a suitable kernel is not installed, or /proc/net/pfkey is not available
+racoon will fail to start properly.
+
+You will also have to make sure all required kernel encryption and xfrm 
+modules are loaded, or that they are statically linked if using 'direct' 
+debconf configuration.
+
+racoon-tool
+-----------
+racoon-tool is back.  It is a management script that simplifies looking after
+setkey SPD rules, and basic racoon.conf on a connection oriented basis.  It now functions in transport mode and tunnel mode, with anonymous VPN service, 
+and supports PSK/X509 authentication and IPv6. It should also function on the
+FreeBSD kernel.
+
+Yes, racoon-tool is debian specific, upstream doesn't like it, it does
+have all the features when compared to racoon.conf(5). If you're interested in
+using the latest and greatest feature in racoon, and advanced functionality
+use /etc/racoon/racoon.conf directly. 
+
+X509 Certificates
+-----------------
+
+You will need to place the PEM certificate, PEM private key and the CA cert 
+and CA CRL in /etc/racoon/certs.  Racoon requires the CRL file for X509 
+certificate verification. Hash names for the CRL and the CA cert will
+have to be set up in the directory with:
+
+# ln -s ca-cacert.pem `openssl x509 -hash -noout -in ca-cacert.pem`.0
+# ln -s ca-crl.pem `openssl x509 -hash -noout -in ca-cacert.pem`.r0
+
+Note that the CRL symlink has to use the hash of the ca-cert.  The certificates
+must also have SubjectAltName X509v3 additional attribute set type DNS name,
+and the machines DNS ID.  Peer/remote my_dentifier and peers_identifier must
+be set correctly to the DNS IDs specified in SubjectAltName, and peer/remote 
+verify_identifier, and verify_cert turned on.  Peer/remote 
+authentication_method must be set to rsasig.  See README.certifcate for
+further details.
+
+The ca CRL, cacert and all other certificates whould be installed with
+owner/group root:root, permissions 644:
+
+# chmod 644 *cert.pem *crl.pem
+# chown root:root *cert.pem *crl.pem
+
+and keys:
+
+# chmod 600 *key.pem
+# chown root:root *key.pem
+
+This is important if you want to use privilege separation.
+
+After this is done, configure the key and cert with the certificate_type x509
+racoon.conf or certificate_type: racoon-tool.conf statements.  
+
+iPhone OS / iOS Support
+-----------------------
+Historical Context (L2TP/IPsec with Pre-Shared Keys):
+Older iOS versions and the native "L2TP" VPN type strictly support only Main Mode
+with Pre-Shared Keys (PSK). Since L2TP provides per-user authentication, administrators
+often wish to use a single PSK for all roadwarrior clients. However, racoon traditionally
+requires PSK lookup by IP address or Identity. To support roaming clients where the IP
+is unknown, ipsec-tools introduced a wildcard match in psk.txt. Specifying '*' in the
+ID field allows matching any client identity. This workaround remains necessary ONLY
+if you are configuring legacy L2TP/IPsec with PSKs.
+
+Modern Usage (IKEv2 or IPsec with Certificates):
+Current iOS versions fully support IKEv2 and custom IPsec profiles using X.509
+Client Certificates. When using certificate-based authentication, the wildcard PSK
+hack is NOT required. Racoon validates clients based on their certificate chain and
+Subject DN/Alt Name, providing secure roadwarrior access without the limitations of
+PSK lookup.
+
+If your iPhone connects successfully using certificates, you are utilizing this
+modern, preferred method. The wildcard (*) feature in psk.txt is ignored when
+certificate authentication is active.
+
+Plainrsa to PEM file format converter
+---------------------------------------
+
+You'll find a perl script to convert the OpenBSD key file format to the one
+racoon is using called plainrsa-convert in /usr/share/doc/racoon/examples
+
+Further information can be found here:
+
+http://www.mail-archive.com/misc@openbsd.org/msg59741.html
+
+Keep in mind, that this script requires package libparse-recdescent-perl
+and libcrypt-openssl-rsa-perl.
+
+
+Further Information
+-------------------
+Further information about the new Linux KAME/racoon IPSEC can be found
+up at http://ipsec-tools.sourceforge.net, and a HOWTO can be found up at
+"http://www.ipsec-howto.org/t1.html".
+
+ -- Stefan Bauer <stefan.bauer@cubewerk.de>, Thu, 12 Aug 2010 13:16:11 +0200 
+ -- Ganesan Rajagopal <rganesan@debian.org>, Mon, 21 Apr 2008 13:47:57 +0530
+ -- Matthew Grant <matthewgrant5@gmail.com>, Wed, 13 Jun 2012 15:51:29 +1200

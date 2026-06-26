@@ -1,0 +1,49 @@
+Source: ipsec-tools
+Section: net
+Priority: optional
+Maintainer: ipsec-tools packagers <team+ipsec-tools@tracker.debian.org>
+Uploaders: Noah Meyerhans <noahm@debian.org>,
+           Matt Grant <matt@mattgrant.net.nz>,
+           Chris Hofstaedtler <zeha@debian.org>
+Build-Depends: bison,
+               debhelper-compat (>=10),
+               flex,
+               libfl-dev,
+               libkrb5-dev,
+               libldap2-dev,
+               libpam0g-dev,
+               libssl-dev,
+               linux-headers-generic,
+               fakeroot,
+               po-debconf
+Standards-Version: 4.2.0
+Vcs-Git: https://salsa.debian.org/debian/ipsec-tools.git
+Vcs-Browser: https://salsa.debian.org/debian/ipsec-tools
+Homepage: http://ipsec-tools.sourceforge.net/
+
+Package: ipsec-tools
+Architecture: any
+Depends: ${misc:Depends},
+         ${shlibs:Depends}
+Description: IPsec utilities
+ IPsec (Internet Protocol security) offers end-to-end security for
+ network traffic at the IP layer.
+ .
+ This package is a Linux port of the utilities from the KAME IPsec
+ implementation on BSD.
+
+Package: racoon
+Architecture: any
+Provides: ike-server
+Depends: adduser,
+         debconf (>= 0.2.26) | debconf-2.0,
+         ipsec-tools (= ${binary:Version}),
+         ${misc:Depends},
+         ${perl:Depends},
+         ${shlibs:Depends}
+Description: IPsec Internet Key Exchange daemon
+ IPsec (Internet Protocol security) offers end-to-end security for
+ network traffic at the IP layer.
+ .
+ This package is a Linux port of the IKE server from the KAME IPsec
+ implementation on BSD.

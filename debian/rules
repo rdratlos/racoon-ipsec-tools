@@ -1,0 +1,115 @@
+#!/usr/bin/make -f
+
+export DH_OPTIONS
+
+# These are used for cross-compiling and for saving the configure script
+DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_HOST_ARCH   ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
+DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+CPPFLAGS:=$(shell dpkg-buildflags --get CPPFLAGS)
+CFLAGS:=$(shell dpkg-buildflags --get CFLAGS)
+CXXFLAGS:=$(shell dpkg-buildflags --get CXXFLAGS)
+LDFLAGS:=$(shell dpkg-buildflags --get LDFLAGS)
+
+# Optional code-coverage build (for CI only, NOT for official Debian builds).
+# Trigger with:
+#   dpkg-buildpackage -us -uc -b ENABLE_COVERAGE=1
+# or in CI:
+#   DEB_BUILD_OPTIONS= ENABLE_COVERAGE=1 dpkg-buildpackage -us -uc -b
+ifeq ($(ENABLE_COVERAGE),1)
+COV_FLAGS=--enable-coverage
+else
+COV_FLAGS=
+endif
+
+#NAT-T=--enable-natt
+#
+#ifeq '$(DEB_HOST_ARCH)' 'kfreebsd-amd64'
+#NAT-T=
+#endif
+
+#ifeq '$(DEB_HOST_ARCH)' 'kfreebsd-i386'
+#NAT-T=
+#endif
+
+%:
+	dh $@
+
+patch:
+	quilt push -a
+
+unpatch:
+	quilt pop -a
+
+override_dh_auto_configure:
+	CPPFLAGS="$(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" CFLAGS="$(CFLAGS)" \
+					./configure --verbose \
+					--host=$(DEB_HOST_GNU_TYPE) \
+					--build=$(DEB_BUILD_GNU_TYPE) \
+					--prefix=/usr \
+					--sysconfdir=/etc/racoon \
+					--libdir=/usr/lib/ipsec-tools \
+					--mandir=\$${prefix}/share/man \
+					--infodir=\$${prefix}/share/info \
+					--localstatedir=/var/run \
+					--enable-shared \
+					--disable-static \
+					--enable-frag \
+					--enable-gssapi \
+					--enable-hybrid \
+					--with-libldap \
+					--enable-dpd \
+					--enable-adminport \
+					--with-kernel-headers=/usr/include \
+					--with-libpam \
+					--without-readline \
+					--disable-security-context \
+					--enable-natt \
+					$(COV_FLAGS)
+
+override_dh_clean:
+	dh_testdir
+	dh_auto_clean
+	dh_clean
+	# Remove this after make clean as it upsets git-buildpackage
+	# make clean will invoke configure!!
+	- rm -f config.log
+
+override_dh_install:
+	dh_install
+	mkdir -p debian/racoon/var/lib/racoon
+	install -m 755 debian/racoon-tool.pl \
+	    debian/racoon/usr/sbin/racoon-tool
+	install -D -m 600 src/racoon/samples/psk.txt.sample \
+	    debian/racoon/etc/racoon/psk.txt
+	install -m 644 debian/racoon-tool.conf \
+	    debian/racoon/etc/racoon
+	install -m 644 debian/racoon.conf \
+	    debian/racoon/etc/racoon/racoon.conf
+	mkdir -p debian/ipsec-tools/etc
+	install -m 755 debian/ipsec-tools.conf \
+	    debian/ipsec-tools/etc/ipsec-tools.conf
+
+override_dh_installsystemd:
+	dh_installsystemd -p ipsec-tools --name=setkey
+	dh_installsystemd --remaining-packages
+
+override_dh_installinit:
+	dh_installinit -p ipsec-tools --name=setkey --no-start
+	dh_installinit --remaining-packages
+
+override_dh_installchangelogs:
+	dh_installchangelogs ChangeLog
+
+override_dh_installexamples:
+	dh_installexamples -pracoon -X.in src/racoon/samples
+	dh_installexamples
+
+override_dh_installman:
+	dh_installman
+	dh_installman -pracoon debian/racoon-tool.8 debian/racoon-tool.conf.5
+
+override_dh_makeshlibs:
+	dh_makeshlibs -n
+

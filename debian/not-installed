@@ -1,0 +1,4 @@
+usr/lib/ipsec-tools/libipsec.so
+usr/lib/ipsec-tools/libipsec.la
+usr/lib/ipsec-tools/libracoon.so
+usr/lib/ipsec-tools/libracoon.la
