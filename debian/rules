@@ -36,12 +36,6 @@ endif
 %:
 	dh $@
 
-patch:
-	quilt push -a
-
-unpatch:
-	quilt pop -a
-
 override_dh_auto_configure:
 	CPPFLAGS="$(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" CFLAGS="$(CFLAGS)" \
 					./configure --verbose \
