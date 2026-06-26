@@ -199,7 +199,12 @@
     <li><a href="#build-ldap">3.4 LDAP Support</a></li>
     <li><a href="#build-radius">3.5 RADIUS Support</a></li>
     <li><a href="#build-git">3.6 Building from Git</a></li>
+    <li class="sub"><a href="#build-git-minimal">3.6.1 Minimal Build</a></li>
+    <li class="sub"><a href="#build-git-debian">3.6.2 Debian / Ubuntu</a></li>
+    <li class="sub"><a href="#build-git-hardened">3.6.3 Production Hardening</a></li>
     <li><a href="#build-packaging">3.7 Packaging</a></li>
+    <li class="sub"><a href="#build-packaging-debian">3.7.1 Debian / Ubuntu</a></li>
+    <li class="sub"><a href="#build-packaging-arch">3.7.2 Arch Linux</a></li>
 
     <li class="section-head"><a>4. Configuration Basics</a></li>
     <li><a href="#conf-racoonconf">4.1 racoon.conf</a></li>
@@ -686,6 +691,39 @@ HDR*, IDii, HASH_I             →       <span class="comment"># via UDP 4500</s
     <h3 id="build-deps">3.2 Build Dependencies</h3>
     <p>Build dependencies vary by distribution, but typically include a C compiler toolchain, <code>autoconf</code>/<code>automake</code>/<code>libtool</code>, OpenSSL development headers, and (optionally) OpenLDAP client development headers.</p>
 
+    <p>On Debian and Ubuntu, install the following packages:</p>
+    <pre><code><span class="comment"># Debian / Ubuntu</span>
+sudo apt install \
+  autoconf automake libtool \
+  flex bison libfl-dev \
+  libssl-dev \
+  libkrb5-dev \
+  libldap2-dev \
+  libpam0g-dev \
+  linux-headers-generic \
+  po-debconf</code></pre>
+
+    <p>On Arch Linux, install the following packages:</p>
+    <pre><code><span class="comment"># Arch Linux</span>
+sudo pacman -S \
+  autoconf automake libtool \
+  flex bison \
+  openssl \
+  krb5 \
+  libldap \
+  linux-headers</code></pre>
+
+    <p>On RHEL and Fedora, install the following packages:</p>
+    <pre><code><span class="comment"># RHEL / Fedora</span>
+sudo dnf install \
+  autoconf automake libtool \
+  flex bison \
+  openssl-devel \
+  krb5-devel \
+  openldap-devel \
+  pam-devel \
+  kernel-headers</code></pre>
+
     <h3 id="build-openssl">3.3 OpenSSL 3.x</h3>
     <p>
       This continuation links against OpenSSL 3.x via a compatibility shim
@@ -728,22 +766,119 @@ HDR*, IDii, HASH_I             →       <span class="comment"># via UDP 4500</s
     </p>
 
     <h3 id="build-git">3.6 Building from Git</h3>
-    <pre><code><span class="comment"># Typical build sequence</span>
-autoreconf -fi
-./configure
+
+    <h4 id="build-git-minimal">3.6.1 Minimal Build (development / Arch Linux)</h4>
+    <p>
+      For development builds or distributions where kernel headers are
+      installed system-wide (e.g. Arch Linux), a minimal configure
+      invocation is sufficient:
+    </p>
+    <pre><code>autoreconf -fi
+./configure \
+  --enable-hybrid \
+  --enable-frag \
+  --enable-natt \
+  --enable-dpd \
+  --enable-adminport \
+  --with-libldap \
+  --with-libpam \
+  --without-readline \
+  --disable-security-context
 make
 make check
-sudo make install
+sudo make install</code></pre>
 
-<span class="comment"># With LDAP support</span>
-./configure --enable-hybrid --enable-frag --with-libldap</code></pre>
+    <h4 id="build-git-debian">3.6.2 Debian / Ubuntu Build</h4>
+    <div class="warn">
+      On Debian and Ubuntu, always pass <code>--with-kernel-headers=/usr/include</code>
+      explicitly. Omitting this flag causes configure to search
+      <code>/usr/src/linux/</code> which is typically absent on these distributions,
+      resulting in missing PF_KEY header errors during compilation
+      (<code>linux/pfkeyv2.h</code>, <code>linux/ipsec.h</code>). The
+      <code>linux-headers-generic</code> package installs these headers under
+      <code>/usr/include/linux/</code>, so <code>/usr/include</code> is the correct
+      search root.
+    </div>
+    <pre><code>autoreconf -fi
+./configure \
+  --enable-hybrid \
+  --enable-frag \
+  --enable-natt \
+  --enable-dpd \
+  --enable-adminport \
+  --with-libldap \
+  --with-libpam \
+  --without-readline \
+  --disable-security-context \
+  --with-kernel-headers=/usr/include
+make
+make check
+sudo make install</code></pre>
+
+    <h4 id="build-git-hardened">3.6.3 Production Build with Compiler Hardening</h4>
+    <div class="note">
+      The following flags are used by <code>dpkg-buildpackage</code> on
+      Debian/Ubuntu and represent the recommended hardening baseline for
+      production deployments. They enable stack protection, RELRO,
+      format-string checking, and control-flow integrity.
+    </div>
+    <pre><code>CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=3" \
+LDFLAGS="-Wl,-Bsymbolic-functions -Wl,-z,relro" \
+CFLAGS="-g -O2 \
+        -fstack-protector-strong \
+        -fstack-clash-protection \
+        -fno-omit-frame-pointer \
+        -fcf-protection \
+        -Wformat -Werror=format-security" \
+./configure \
+  --enable-hybrid \
+  --enable-frag \
+  --enable-natt \
+  --enable-dpd \
+  --enable-adminport \
+  --with-libldap \
+  --with-libpam \
+  --without-readline \
+  --disable-security-context \
+  --with-kernel-headers=/usr/include
+make
+make check
+sudo make install</code></pre>
+
+    <table>
+      <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">--enable-hybrid</td><td>Required for XAuth and Hybrid Auth (<a href="#phase1-auth">Section 5</a>)</td></tr>
+        <tr><td class="param-name">--enable-frag</td><td>IKE packet fragmentation (recommended)</td></tr>
+        <tr><td class="param-name">--enable-natt</td><td>NAT Traversal support (<a href="#nat-t">Section 2.6</a>)</td></tr>
+        <tr><td class="param-name">--enable-dpd</td><td>Dead Peer Detection (recommended)</td></tr>
+        <tr><td class="param-name">--enable-adminport</td><td><code>racoonctl</code> admin interface</td></tr>
+        <tr><td class="param-name">--with-libldap</td><td>LDAP authentication backend (<a href="#ldap-architecture">Section 6</a>)</td></tr>
+        <tr><td class="param-name">--with-libpam</td><td>PAM authentication support</td></tr>
+        <tr><td class="param-name">--without-readline</td><td>Avoid unnecessary readline dependency</td></tr>
+        <tr><td class="param-name">--disable-security-context</td><td>Disable LSM/SELinux context support (not needed on standard Linux)</td></tr>
+        <tr><td class="param-name">--with-kernel-headers=PATH</td><td>Kernel header search root; use <code>/usr/include</code> on Debian/Ubuntu and RHEL/Fedora</td></tr>
+        <tr><td class="param-name">--enable-gssapi</td><td>Optional: Kerberos/GSSAPI support</td></tr>
+      </tbody>
+    </table>
 
     <h3 id="build-packaging">3.7 Packaging</h3>
-    <p>
-      Debian/Ubuntu packaging (<code>debian/</code>) and RPM packaging
-      (<code>rpm/</code>) are maintained in this repository for the distributions
-      listed in <a href="#build-distros">3.1</a>.
-    </p>
+
+    <h4 id="build-packaging-debian">3.7.1 Debian / Ubuntu — Building a .deb Package</h4>
+    <p>For a local binary package (unsigned, no source):</p>
+    <pre><code>dpkg-buildpackage -us -uc -b</code></pre>
+    <p>For a signed source package for Launchpad PPA upload:</p>
+    <pre><code>debuild -S -sa
+dput ppa:rdratlos/racoon ../ipsec-tools_&lt;version&gt;_source.changes</code></pre>
+    <div class="note">
+      The <code>debian/</code> directory is maintained directly in this
+      repository. No separate packaging branch or manual copying of
+      <code>debian/</code> is required before building.
+    </div>
+
+    <h4 id="build-packaging-arch">3.7.2 Arch Linux — Building with makepkg</h4>
+    <pre><code>cd packaging/arch
+makepkg -si</code></pre>
   </section>
 
   <!-- ═══════════ 4. CONFIGURATION BASICS ═══════════ -->
