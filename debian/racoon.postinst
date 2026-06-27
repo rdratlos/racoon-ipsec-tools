@@ -27,6 +27,15 @@ case "$1" in
             rm -f /etc/init.d/racoon
             rm -f /etc/rc*.d/*racoon
         fi
+        # Load IPsec kernel modules required for NAT-T UDP encapsulation.
+        # On Ubuntu Noble/Resolute and similar kernels these are compiled as
+        # modules (=m) and not auto-loaded. The || true guards ensure
+        # installation never fails in containers or restricted environments.
+        if command -v modprobe >/dev/null 2>&1; then
+            for mod in esp4 esp6 udp_tunnel xfrm4_tunnel xfrm4_mode_tunnel xfrm4_mode_transport; do
+                modprobe "$mod" 2>/dev/null || true
+            done
+        fi
     ;;
 
     abort-upgrade|abort-remove|abort-deconfigure)

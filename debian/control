@@ -37,6 +37,7 @@ Depends: adduser,
          ${misc:Depends},
          ${perl:Depends},
          ${shlibs:Depends}
+Suggests: linux-image-generic
 Description: IPsec Internet Key Exchange daemon
  IPsec (Internet Protocol security) offers end-to-end security for
  network traffic at the IP layer.
