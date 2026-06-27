@@ -2,6 +2,8 @@
 # Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
 # SPDX-License-Identifier: BSD-3-Clause
 
+ACLOCAL_AMFLAGS = -I m4
+
 SUBDIRS = src test @RPM@
 
 DIST_SUBDIRS = src test packaging/rpm
