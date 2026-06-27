@@ -38,12 +38,19 @@
 #ifndef _THROTTLE_H
 #define _THROTTLE_H
 
+#include <sys/socket.h>
 #include "schedule.h"
 
 struct throttle_entry {
 	struct timeval penalty_ends;
 	TAILQ_ENTRY(throttle_entry) next;
-	char host[];  /* Flexible array member for variable-sized sockaddr using struct sockaddr_storage */
+	/*
+	 * Flexible array member holding a variable-sized sockaddr (up to
+	 * struct sockaddr_storage). _Alignas guarantees the storage is
+	 * suitably aligned for any sockaddr subtype, independent of the
+	 * size/alignment of the preceding members.
+	 */
+	_Alignas(struct sockaddr_storage) char host[];
 };
 
 TAILQ_HEAD(throttle_list, throttle_entry);

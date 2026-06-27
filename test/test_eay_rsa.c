@@ -415,6 +415,34 @@ test_t9_generate(void)
 
 /* CONTRACT */
 static int
+test_t9b_generate_4096(void)
+{
+	TEST_START("T9b generate(4096, RSA_F4)");
+
+	eayRSA *r = eayRSA_generate(4096, RSA_F4);
+	if (!r) TEST_FAIL("eayRSA_generate failed");
+
+	int has_priv = eayRSA_has_private(r);
+	int sz = eayRSA_size(r);
+
+	vchar_t *msg = msg_from_str("T9b freshly generated 4096-bit key message");
+	vchar_t *sig = eayRSA_sign(r, msg);
+	int rc = sig ? eayRSA_verify(r, msg, sig) : -1;
+
+	vfree(msg);
+	if (sig) vfree(sig);
+	eayRSA_free(r);
+
+	if (has_priv != 1) TEST_FAIL("has_private != 1 for generated key");
+	if (sz != 512) TEST_FAIL("size != 512 for generated 4096-bit key");
+	if (rc != 0) TEST_FAIL("sign/verify failed for generated key");
+
+	TEST_PASS();
+	return 0;
+}
+
+/* CONTRACT */
+static int
 test_t10_dup_independent_free(void)
 {
 	TEST_START("T10 dup + independent free (EVP_PKEY refcount)");
@@ -508,6 +536,7 @@ main(int argc, char **argv)
 	ran++; if (test_t7_pem_private_roundtrip() != 0) failed++;
 	ran++; if (test_t8_pem_public_roundtrip() != 0) failed++;
 	ran++; if (test_t9_generate() != 0) failed++;
+	ran++; if (test_t9b_generate_4096() != 0) failed++;
 	ran++; if (test_t10_dup_independent_free() != 0) failed++;
 
 	printf("\n=== REGRESSION TESTS ===\n");

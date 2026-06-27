@@ -3152,7 +3152,7 @@ script_hook(iph1, script)
 		if (script_env_append(&envp, &envc,
 		    "REMOTE_PORT", portstr) != 0) {
 			plog(LLV_ERROR, LOCATION, NULL,
-			    "Cannot set REMOTEL_PORT\n");
+			    "Cannot set REMOTE_PORT\n");
 			goto out;
 		}
 	}
