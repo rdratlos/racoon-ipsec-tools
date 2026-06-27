@@ -1649,10 +1649,6 @@ isakmp_open(struct sockaddr *addr, int udp_encap)
 #ifdef ENABLE_NATT
 		if (udp_encap)
 			option = UDP_ENCAP_ESPINUDP;
-#if defined(ENABLE_NATT_00) || defined(ENABLE_NATT_01)
-		else
-			option = UDP_ENCAP_ESPINUDP;
-#endif
 		if (option == -1)
 			break;
 
@@ -1660,8 +1656,7 @@ isakmp_open(struct sockaddr *addr, int udp_encap)
 			       UDP_ENCAP, &option,
 			       sizeof(option)) < 0) {
 			plog(LLV_WARNING, LOCATION, NULL,
-			     "setsockopt(%s): UDP_ENCAP %s\n",
-			     option == UDP_ENCAP_ESPINUDP ? "UDP_ENCAP_ESPINUDP" : "UDP_ENCAP_ESPINUDP_NON_IKE",
+			     "setsockopt(UDP_ENCAP_ESPINUDP): UDP_ENCAP %s\n",
 			     strerror(errno));
 		} else {
 			plog(LLV_INFO, LOCATION, NULL,
