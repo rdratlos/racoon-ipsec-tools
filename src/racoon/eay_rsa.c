@@ -320,13 +320,16 @@ eayRSA_get_params(const eayRSA *r,
 	 * the caller still frees whatever came back non-NULL. Private outputs
 	 * should be released with BN_clear_free by the caller.
 	 */
+	int failed = 0;
+
 	if (r == NULL || r->pkey == NULL) {
 		return -1;
 	}
 #define GET(field, name) \
 	do { if ((field) != NULL) { \
 		*(field) = NULL; \
-		(void)EVP_PKEY_get_bn_param(r->pkey, (name), (field)); \
+		if (EVP_PKEY_get_bn_param(r->pkey, (name), (field)) <= 0) \
+			failed = 1; \
 	} } while (0)
 
 	GET(n,    OSSL_PKEY_PARAM_RSA_N);
@@ -338,7 +341,7 @@ eayRSA_get_params(const eayRSA *r,
 	GET(dmq1, OSSL_PKEY_PARAM_RSA_EXPONENT2);
 	GET(iqmp, OSSL_PKEY_PARAM_RSA_COEFFICIENT1);
 #undef GET
-	return 0;
+	return failed ? -1 : 0;
 }
 
 /* ===================================================================== */
