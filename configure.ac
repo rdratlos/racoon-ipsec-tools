@@ -272,6 +272,31 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
 AC_MSG_ERROR([OpenSSL version must be 1.1.0 or higher. Aborting.])
 ])
 
+AC_MSG_CHECKING([that OpenSSL headers and libcrypto agree on major version])
+saved_LIBS_for_ssl_check="$LIBS"
+LIBS="$LIBS -lcrypto"
+AC_RUN_IFELSE([AC_LANG_PROGRAM(
+[#include <openssl/opensslv.h>
+#include <openssl/crypto.h>
+],
+[
+	/* OpenSSL_version_num() is the actual linked libcrypto's runtime
+	 * version; OPENSSL_VERSION_NUMBER is what the headers we compiled
+	 * against declare. Comparing the two major-version nibbles catches
+	 * a header/library skew (e.g. building against 3.0 headers while
+	 * linking a 1.1 libcrypto) that a header-only AC_COMPILE_IFELSE
+	 * check (above) cannot detect.
+	 */
+	if ((OpenSSL_version_num() & 0xf0000000L) != (OPENSSL_VERSION_NUMBER & 0xf0000000L))
+		return 1;
+	return 0;
+])],
+[AC_MSG_RESULT([ok])],
+[AC_MSG_RESULT([mismatch])
+AC_MSG_ERROR([OpenSSL headers and the linked libcrypto disagree on major version (header/library mismatch). Check --with-openssl. Aborting.])],
+[AC_MSG_RESULT([skipped (cross-compiling)])])
+LIBS="$saved_LIBS_for_ssl_check"
+
 AC_MSG_CHECKING([OpenSSL version string])
 cat > conftest_sslver.c << 'EOF'
 #include <openssl/opensslv.h>
