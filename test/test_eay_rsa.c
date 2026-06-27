@@ -441,6 +441,50 @@ test_t10_dup_independent_free(void)
 	return 0;
 }
 
+/*
+ * REGRESSION (see code review action item #10): eayRSA_get_params() must
+ * report failure (rc < 0) if any requested-but-unavailable component is
+ * left NULL, instead of silently returning 0. A public-only key has no
+ * private components, so requesting d/p/q/dmp1/dmq1/iqmp on it is the
+ * simplest reproducer: EVP_PKEY_get_bn_param() fails for each of them,
+ * but the current implementation ignores that and reports success
+ * anyway. Callers that trust the rc==0 contract (e.g. plainrsa-gen.c's
+ * mix_b64_pubkey()/print_rsa_key()) then dereference a NULL BIGNUM*
+ * (BN_num_bytes()/BN_bn2hex() on NULL), crashing with a NULL pointer
+ * dereference rather than handling a clean error.
+ */
+static int
+test_t11_get_params_partial_failure(void)
+{
+	TEST_START("T11 get_params must fail when a requested component is unavailable");
+
+	BIGNUM *n = h2bn(K2048_N), *e = h2bn(K2048_E);
+	eayRSA *pub = eayRSA_new_pub(n, e);
+	BN_free(n); BN_free(e);
+	if (!pub) TEST_FAIL("eayRSA_new_pub failed");
+
+	BIGNUM *od = NULL, *op = NULL, *oq = NULL;
+	BIGNUM *odmp1 = NULL, *odmq1 = NULL, *oiqmp = NULL;
+
+	int rc = eayRSA_get_params(pub, NULL, NULL, &od, &op, &oq,
+	                           &odmp1, &odmq1, &oiqmp);
+
+	int any_null = (od == NULL) || (op == NULL) || (oq == NULL) ||
+	               (odmp1 == NULL) || (odmq1 == NULL) || (oiqmp == NULL);
+
+	BN_clear_free(od); BN_clear_free(op); BN_clear_free(oq);
+	BN_clear_free(odmp1); BN_clear_free(odmq1); BN_clear_free(oiqmp);
+	eayRSA_free(pub);
+
+	if (rc == 0 && any_null)
+		TEST_FAIL("eayRSA_get_params() returned 0 (success) but left "
+		          "a requested private component NULL -- callers "
+		          "will NULL-deref (e.g. BN_num_bytes/BN_bn2hex)");
+
+	TEST_PASS();
+	return 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -465,6 +509,9 @@ main(int argc, char **argv)
 	ran++; if (test_t8_pem_public_roundtrip() != 0) failed++;
 	ran++; if (test_t9_generate() != 0) failed++;
 	ran++; if (test_t10_dup_independent_free() != 0) failed++;
+
+	printf("\n=== REGRESSION TESTS ===\n");
+	ran++; if (test_t11_get_params_partial_failure() != 0) failed++;
 
 	printf("\n");
 	printf("========================================================================\n");
