@@ -67,11 +67,31 @@ on building cleanly against current OpenSSL releases and toolchains.
   on install.
 - Added Valgrind test infrastructure with cross-distro suppressions,
   and unit tests covering the OpenSSL 3.0 migration code.
+- Added a configure-time check that catches OpenSSL header/runtime
+  library version mismatches, comparing `OPENSSL_VERSION_NUMBER` from
+  the headers against `OpenSSL_version_num()` from the linked
+  libcrypto; skipped when cross-compiling.
+- Set `ACLOCAL_AMFLAGS` so `autoreconf` finds `m4/` explicitly instead
+  of relying on default search paths.
+- Fixed `.gitignore` patterns for the generated RPM specs, which
+  actually live under `packaging/rpm/` (and `packaging/rpm/suse/`),
+  not `rpm/`; added coverage for compiled `test/test_*` binaries and
+  automake's `*.log`/`*.trs`/`test-suite.log` test-driver output.
 
 ### Packaging
 
 - Bumped the package version to 0.9.0, marking the start of
   continued maintenance of Racoon IPsec Tools upstream for Linux.
+- Reorganized vendor packaging under `packaging/`: moved the RPM
+  specs to `packaging/rpm/` and added an initial Arch Linux package
+  (`packaging/arch`).
+- Added Debian packaging (`debian/`): native 3.0 source format,
+  `debhelper-compat` 13, no quilt, and `dh_installdocs`/
+  `dh_installchangelogs` wiring for `README.md`, the admin guide, and
+  `NEWS.md`; plus Git merge strategies so distro branches rebase
+  cleanly onto `develop`.
+- Fixed minor Debian packaging bugs: a spurious group-removal warning
+  on purge, and `setkey.service` no longer auto-enabling at boot.
 
 ### Bug fixes
 
@@ -106,6 +126,30 @@ on building cleanly against current OpenSSL releases and toolchains.
   links against `-lldap`, not `-llber`; `ldap_set_option()` alone is
   sufficient.
 - Deprecated the `--with-libradius` configure option with a warning.
+- Removed a dead `NATT_00`/`NATT_01` branch in `isakmp_open()`'s NAT-T
+  `setsockopt` handling, left over from when `"00"` was dropped from
+  `natt_versions_default`; it duplicated the `UDP_ENCAP_ESPINUDP`
+  assignment under unreachable conditionals.
+- Fixed `eayRSA_get_params()` to report failure if any requested RSA
+  component could not be fetched (e.g. private fields requested on a
+  public-only key), instead of always returning success and leaving
+  callers to dereference NULL `BIGNUM*` outputs.
+- Added `_Alignas` to `struct throttle_entry`'s flexible array member
+  to make its sockaddr alignment requirement explicit, and fixed a
+  "REMOTEL_PORT" typo in an `isakmp.c` log message (now
+  `REMOTE_PORT`).
+- Loaded the IPsec NAT-T kernel modules (`esp4`, `esp6`,
+  `udp_tunnel`, `xfrm4_tunnel`, `xfrm4_mode_tunnel`,
+  `xfrm4_mode_transport`) from `racoon.postinst` via `modprobe`,
+  fixing `WARNING: setsockopt(UDP_ENCAP_ESPINUDP): UDP_ENCAP
+  Protocol not available` on Ubuntu Noble/Resolute, where they ship
+  as loadable modules instead of being built into the kernel.
+- Removed `debian/racoon.config` and `debian/racoon.templates`, a
+  stale debconf prompt left over from the retired `racoon-tool`
+  config mode that referenced a template deleted since the initial
+  packaging commit; on Ubuntu Bionic's older debconf this blocked
+  `dpkg` indefinitely, hanging the installing SSH session until
+  killed manually.
 
 ### Documentation
 
@@ -115,3 +159,12 @@ on building cleanly against current OpenSSL releases and toolchains.
 - Moved `ChangeLog`, `ChangeLog.old`, and `NEWS` to
   `docs/history/`, keeping this `NEWS.md` as the current,
   human-curated summary of changes per release.
+- Added `CONTRIBUTING.md` with developer setup instructions.
+- Expanded the admin guide's build dependency, configure flag, and
+  packaging instructions.
+- Self-hosted the IBM Plex Mono and Inter fonts used by the admin
+  guide, with matching OFL-1.1 license documentation.
+- Replaced dead SourceForge references with the current GitHub
+  project across `configure.ac`, the RPM specs, `plainrsa-gen`, the
+  FAQ, and the README/Debian metadata, and added a GPG
+  release-verification section to the README.
