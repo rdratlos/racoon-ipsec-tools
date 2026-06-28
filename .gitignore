@@ -31,8 +31,8 @@ Makefile
 **/Makefile
 
 # Generated configure output files
-/rpm/ipsec-tools.spec
-/rpm/suse/ipsec-tools.spec
+/packaging/rpm/ipsec-tools.spec
+/packaging/rpm/suse/ipsec-tools.spec
 /src/racoon/samples/psk.txt
 /src/racoon/samples/racoon.conf
 
@@ -42,6 +42,13 @@ Makefile
 /src/racoon/plainrsa-gen
 /src/racoon/eaytest
 /src/setkey/setkey
+
+# Compiled test binaries and automake test-runner output
+/test/test_*
+!/test/test_*.c
+/test/*.log
+/test/*.trs
+/test/test-suite.log
 
 # Generated include symlinks
 /src/include-glibc/linux
