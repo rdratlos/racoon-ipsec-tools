@@ -3096,7 +3096,9 @@ frag_handler(iph1, msg, remote, local)
 			    "Packet reassembly failed\n");
 			return -1;
 		}
-		return isakmp_main(newmsg, remote, local);
+		int ret = isakmp_main(newmsg, remote, local);
+		vfree(newmsg);
+		return ret;
 	}
 
 	return 0;
