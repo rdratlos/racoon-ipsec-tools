@@ -830,42 +830,42 @@ xauth_ldap_init_conf(void)
 
 	/* set default host */
 	tmplen = strlen(LDAP_DFLT_HOST);
-	xauth_ldap_config.host = vmalloc(tmplen);
+	xauth_ldap_config.host = vmalloc(tmplen + 1);
 	if (xauth_ldap_config.host == NULL)
 		goto out;
 	memcpy(xauth_ldap_config.host->v, LDAP_DFLT_HOST, tmplen);
 
 	/* set default user naming attribute */
 	tmplen = strlen(LDAP_DFLT_USER);
-	xauth_ldap_config.attr_user = vmalloc(tmplen);
+	xauth_ldap_config.attr_user = vmalloc(tmplen + 1);
 	if (xauth_ldap_config.attr_user == NULL)
 		goto out;	
 	memcpy(xauth_ldap_config.attr_user->v, LDAP_DFLT_USER, tmplen);
 
 	/* set default address attribute */
 	tmplen = strlen(LDAP_DFLT_ADDR);
-	xauth_ldap_config.attr_addr = vmalloc(tmplen);
+	xauth_ldap_config.attr_addr = vmalloc(tmplen + 1);
 	if (xauth_ldap_config.attr_addr == NULL)
 		goto out;
 	memcpy(xauth_ldap_config.attr_addr->v, LDAP_DFLT_ADDR, tmplen);
 
 	/* set default netmask attribute */
 	tmplen = strlen(LDAP_DFLT_MASK);
-	xauth_ldap_config.attr_mask = vmalloc(tmplen);
+	xauth_ldap_config.attr_mask = vmalloc(tmplen + 1);
 	if (xauth_ldap_config.attr_mask == NULL)
 		goto out;
 	memcpy(xauth_ldap_config.attr_mask->v, LDAP_DFLT_MASK, tmplen);
 
 	/* set default group naming attribute */
 	tmplen = strlen(LDAP_DFLT_GROUP);
-	xauth_ldap_config.attr_group = vmalloc(tmplen);
+	xauth_ldap_config.attr_group = vmalloc(tmplen + 1);
 	if (xauth_ldap_config.attr_group == NULL)
 		goto out;
 	memcpy(xauth_ldap_config.attr_group->v, LDAP_DFLT_GROUP, tmplen);
 
 	/* set default member attribute */
 	tmplen = strlen(LDAP_DFLT_MEMBER);
-	xauth_ldap_config.attr_member = vmalloc(tmplen);
+	xauth_ldap_config.attr_member = vmalloc(tmplen + 1);
 	if (xauth_ldap_config.attr_member == NULL)
 		goto out;
 	memcpy(xauth_ldap_config.attr_member->v, LDAP_DFLT_MEMBER, tmplen);
