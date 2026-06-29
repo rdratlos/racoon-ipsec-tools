@@ -21,7 +21,10 @@
     --text:      #c8d6e5;
     --text-dim:  #7a92ab;
     --text-head: #e8f2ff;
-    --accent:    #f5a623;
+    --color-brown: #594a41;
+    --color-gold:  #fec10d;
+    --color-olive: #d4cd32;
+    --accent:    var(--color-gold);
     --accent2:   #4fc3f7;
     --green:     #7ec8a0;
     --green-bg:  #0d1f17;
@@ -44,19 +47,19 @@
   }
   nav .nav-logo {
     font-family: var(--mono); font-size: 0.72rem; font-weight: 600;
-    color: var(--accent); letter-spacing: 0.15em; text-transform: uppercase;
+    color: var(--color-brown); letter-spacing: 0.15em; text-transform: uppercase;
     padding: 0 1.5rem 1.5rem; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem;
   }
   nav ul { list-style: none; }
   nav ul li a {
-    display: block; padding: 0.28rem 1.5rem; color: var(--text-dim);
+    display: block; padding: 0.28rem 1.5rem; color: var(--color-brown);
     text-decoration: none; font-size: 0.8rem; transition: color 0.15s, background 0.15s;
     border-left: 2px solid transparent;
   }
-  nav ul li a:hover { color: var(--text-head); background: var(--bg3); border-left-color: var(--accent2); }
+  nav ul li a:hover { color: var(--color-gold); background: var(--bg3); border-left-color: var(--color-gold); }
   nav ul li.section-head a {
     font-family: var(--mono); font-size: 0.68rem; font-weight: 600;
-    color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--color-brown); letter-spacing: 0.1em; text-transform: uppercase;
     margin-top: 1.2rem; cursor: default; pointer-events: none;
   }
   nav ul li.sub a { padding-left: 2.5rem; }
@@ -65,9 +68,9 @@
 
   /* ── Typography ── */
   h1, h2, h3, h4 { font-family: var(--mono); font-weight: 600; color: var(--text-head); line-height: 1.3; }
-  h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+  h1 { font-size: 2rem; margin-bottom: 0.5rem; color: var(--color-brown); }
   h2 {
-    font-size: 1.15rem; color: var(--accent); letter-spacing: 0.05em; text-transform: uppercase;
+    font-size: 1.15rem; color: var(--color-brown); letter-spacing: 0.05em; text-transform: uppercase;
     margin-top: 3.5rem; margin-bottom: 1.2rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);
   }
   h3 { font-size: 1rem; color: var(--accent2); margin-top: 2rem; margin-bottom: 0.8rem; }
@@ -78,6 +81,8 @@
 
   /* ── Header ── */
   .doc-header { border-bottom: 1px solid var(--border); margin-bottom: 2.5rem; padding-bottom: 1.5rem; }
+  .doc-logo { display: block; margin: 0 auto 1rem; }
+  @media (max-width: 600px) { .doc-logo { width: 80px; } }
   .doc-meta { font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim); margin-top: 0.5rem; display: flex; gap: 2rem; flex-wrap: wrap; }
   .doc-meta span { color: var(--accent); }
 
@@ -87,7 +92,7 @@
     border-radius: 4px; padding: 1.2rem 1.4rem; overflow-x: auto; margin: 1.2rem 0;
     font-family: var(--mono); font-size: 0.82rem; line-height: 1.6; color: #b6e9cb;
   }
-  code { font-family: var(--mono); font-size: 0.85em; background: var(--bg3); color: var(--green); padding: 0.1em 0.4em; border-radius: 3px; }
+  code { font-family: var(--mono); font-size: 0.85em; background: rgba(212, 205, 50, 0.15); color: var(--green); padding: 0.1em 0.4em; border-radius: 3px; }
   pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
   .comment { color: #4a7a5a; }
   .kw { color: #7ec8a0; }
@@ -99,10 +104,10 @@
     border-radius: 4px; padding: 1rem 1.2rem; margin: 1.2rem 0;
     font-size: 0.88rem; border-left: 3px solid;
   }
-  .note   { background: #0d1a2e; border-color: var(--accent2); color: #a8d4f0; }
+  .note   { background: #0d1a2e; border-color: var(--color-gold); color: #a8d4f0; }
   .warn   { background: #1f1700; border-color: var(--accent);  color: #f0d090; }
   .danger { background: var(--red-bg); border-color: var(--red); color: #f0a0a0; }
-  .note::before   { content: "ℹ  "; font-weight: 600; color: var(--accent2); }
+  .note::before   { content: "ℹ  "; font-weight: 600; color: var(--color-gold); }
   .warn::before   { content: "⚠  "; font-weight: 600; color: var(--accent); }
   .danger::before { content: "✖  "; font-weight: 600; color: var(--red); }
 
@@ -110,7 +115,7 @@
   table { width: 100%; border-collapse: collapse; margin: 1.2rem 0; font-size: 0.85rem; }
   th {
     font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase;
-    letter-spacing: 0.08em; color: var(--accent); background: var(--bg3);
+    letter-spacing: 0.08em; color: var(--text-head); background: rgba(89, 74, 65, 0.9);
     padding: 0.6rem 0.9rem; text-align: left; border-bottom: 1px solid var(--border);
   }
   td { padding: 0.55rem 0.9rem; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -169,6 +174,17 @@
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
   @media (max-width: 800px) { nav { display: none; } main { padding: 2rem 1.2rem 4rem; } }
+
+  /* ── Logo background-adaptive fills ── */
+  /* SVG elements that use white as "background colour" need to match
+     the actual page background. Assign class="bg-fill" to filled
+     elements (circle, ear inners) and class="bg-stroke" to stroked
+     elements (tail stripes) in the SVG file. */
+  :root {
+    --logo-bg: var(--bg); /* always tracks document background */
+  }
+  .bg-fill   { fill:   var(--logo-bg); }
+  .bg-stroke { stroke: var(--logo-bg); }
 </style>
 </head>
 <body>
@@ -262,6 +278,44 @@
 <main>
 
   <div class="doc-header">
+    <!-- Logo inline so that .bg-fill / .bg-stroke CSS classes take effect -->
+    <svg class="doc-logo" role="img" aria-label="racoon-ipsec-tools logo"
+         width="120" viewBox="0 0 161.925 175.68333"
+         xmlns="http://www.w3.org/2000/svg">
+      <g transform="translate(-24.077084,-60.589584)">
+        <g transform="matrix(0.26458333,0,0,0.26458333,21.695834,60.325001)">
+          <path d="m 401,1 14,24 27,2 -18,20 6,27 -21,-10 -5,-1 -23,14 3,-28 -21,-17 26,-5 4,-6 7,-19 z" style="fill:#594a41"/>
+          <path d="m 607,348 10,1 4,4 v 8 l -8,19 -13,20 -20,26 -26,30 -61,62 -41,33 -51,33 -53,27 -45,17 -51,13 -45,5 -62,1 -54,-3 -38,1 -25,6 -8,4 -11,10 11,-37 14,-34 19,-36 30,-41 18,-18 15,-12 19,-12 29,-12 71,-16 143,-20 27,-8 15,-9 v 19 l -7,17 -11,13 -11,8 -14,7 -21,7 -103,21 -16,5 -9,6 v 5 l 6,5 18,7 15,3 h 42 l 39,-8 35,-13 27,-14 30,-19 54,-43 79,-67 19,-14 9,-5 5,-1 z" style="fill:#594a41"/>
+          <path d="m 252,96 38,47 59,-6 -32,49 v 3 l 24,53 -47,-13 -12,-2 -44,39 -3,-59 -52,-31 56,-22 12,-57 z" style="fill:#fec10d"/>
+          <path d="m 469,232 11,37 2,2 36,11 -33,22 v 40 l -31,-25 -38,13 14,-38 -23,-31 4,-1 35,2 23,-31 z" style="fill:#d4cd32"/>
+          <g class="bg-stroke" fill="none" stroke-width="11" stroke-linejoin="round" stroke-linecap="round">
+            <path d="m 372,486 c 64,-2 108,-52 78,-102"/>
+            <ellipse cx="315" cy="452" rx="74" ry="60" class="bg-fill"/>
+            <ellipse cx="286" cy="508" rx="20" ry="11" class="bg-fill"/>
+            <ellipse cx="344" cy="508" rx="20" ry="11" class="bg-fill"/>
+            <circle  cx="308" cy="360" r="56"          class="bg-fill"/>
+          </g>
+          <path d="m 372,486 c 64,-2 108,-52 78,-102" fill="none" stroke="#594a41" stroke-width="30" stroke-linecap="round"/>
+          <path d="m 372,486 c 64,-2 108,-52 78,-102" fill="none" stroke-width="30" stroke-linecap="butt" stroke-dasharray="11,25" class="bg-stroke"/>
+          <ellipse cx="315" cy="452" rx="74" ry="60" fill="#594a41"/>
+          <ellipse cx="286" cy="508" rx="20" ry="11" fill="#594a41"/>
+          <ellipse cx="344" cy="508" rx="20" ry="11" fill="#594a41"/>
+          <ellipse cx="316" cy="476" rx="13" ry="16"  fill="#594a41"/>
+          <ellipse fill="#ffffff" cx="15.465565" cy="415.97839" rx="6.9562302" ry="10.98974" transform="matrix(0.75181783,-0.65937087,0.62576515,0.78001152,0,0)"/>
+          <ellipse fill="#ffffff" cx="465.00015" cy="68.244789" rx="6.9562302" ry="10.98974" transform="matrix(0.83148813,0.55554252,-0.59147334,0.80632456,0,0)"/>
+          <path d="m 270.25925,298.40326 c 1.8247,0.71735 6.36341,2.3693 8.20003,3.22933 1.84943,0.85405 2.27982,1.54279 2.85214,1.90008 0.56633,0.34447 0.37504,0.0514 0.57407,0.17702 0.18621,0.13162 0.29207,0.42555 0.57822,0.6042 0.27334,0.18462 0.86794,0.30526 1.10369,0.4762 0.23576,0.17094 -0.23326,0.0854 0.31083,0.54944 0.55348,0.4675 2.30798,1.6701 3.00667,2.26494 0.69271,0.58202 0.79086,0.92636 1.17693,1.26907 0.36728,0.33587 0.54074,0.23938 1.07028,0.77265 0.53894,0.5367 1.66457,1.94672 2.14202,2.41847 0.47745,0.47174 0.46815,0.11718 0.72011,0.3898 0.25793,0.28543 0.46791,0.93651 0.79929,1.31252 0.33138,0.37602 0.55611,0.25562 1.15993,0.96492 0.61322,0.71271 2.09579,2.72089 2.48777,3.31051 0.40479,0.58365 0.005,0.16148 -0.0915,0.22211 -0.0837,0.0546 -0.24608,0.0913 -0.4742,0.10409 -0.21872,0.0162 0.36316,-0.20836 -0.86631,-0.0173 -1.21069,0.19785 -4.29678,0.72408 -6.44477,1.18736 -2.148,0.46329 -5.29914,1.40215 -6.4654,1.59489 -1.16625,0.19274 -0.44076,-0.30941 -0.53469,-0.46066 -0.0751,-0.1444 0.27845,0.22905 0.002,-0.41436 -0.26978,-0.66221 -1.15859,-2.63518 -1.6342,-3.52129 -0.47306,-0.86389 -0.49783,-0.88355 -1.20243,-1.7253 -0.69862,-0.82893 -2.47512,-2.73126 -3.02602,-3.29359 -0.56371,-0.55635 0.17419,0.34009 -0.3178,-0.0625 -0.48602,-0.38973 -2.08408,-1.87593 -2.63843,-2.31182 -0.55435,-0.43588 -0.56979,-0.21802 -0.68425,-0.31289 -0.10848,-0.0821 0.62794,0.0583 0.012,-0.20846 -0.62873,-0.26077 -2.95402,-1.18159 -3.73313,-1.38004 -0.76032,-0.1916 -0.63312,0.13139 -0.87578,0.21334 -0.24864,0.0691 -0.42891,0.0674 -0.60154,0.24929 -0.19485,0.18448 -0.36068,0.46467 -0.49749,0.84054 -0.14962,0.38186 -0.31469,0.98157 -0.39,1.42239 -0.0787,0.45023 -0.10278,0.86715 -0.0653,1.23197 0.0213,0.38019 -0.22124,-0.1231 0.23123,1.03128 0.46784,1.1706 1.70492,4.17489 2.55448,5.96331 0.84016,1.785 2.00666,3.6675 2.50017,4.7091 0.49949,1.05443 0.7028,1.13907 0.47199,1.59779 -0.218,0.45275 -0.91606,0.64563 -1.82781,1.13319 -0.92456,0.49355 -2.69591,1.41317 -3.70674,1.82211 -1.01766,0.42773 -1.81485,0.65903 -2.38557,0.70671 -0.58012,0.0442 -0.66732,0.22535 -1.07381,-0.41212 -0.41588,-0.64089 -0.88117,-1.78929 -1.40525,-3.4486 -0.52751,-1.64992 -1.28787,-4.61904 -1.75295,-6.46972 -0.4685,-1.84128 -0.81577,-3.37239 -1.04523,-4.58393 -0.23887,-1.21497 -0.44722,-1.57813 -0.35633,-2.705 0.0781,-1.1209 0.36213,-2.48608 0.86068,-4.06051 0.496,-1.59665 1.49632,-4.05264 2.08795,-5.44421 0.58821,-1.38218 0.84137,-2.31164 1.45241,-2.90866 0.60507,-0.60983 1.34663,-0.54212 2.17967,-0.69651 0.83647,-0.16379 1.9062,-0.41295 2.8263,-0.28025 0.9295,0.13611 0.9209,0.33518 2.7362,1.0491 z" fill="#594a41"/>
+          <path d="m 342.20677,300.72305 c 1.35571,-0.51473 3.88943,-1.56462 5.39722,-2.07085 1.51719,-0.50964 2.73627,-0.81501 3.682,-0.93575 0.93293,-0.12672 1.40118,0.10723 1.95056,0.18397 0.55279,0.0861 1.01417,0.18424 1.37817,0.30716 0.36057,0.11352 0.42884,-0.16673 0.79894,0.41156 0.37951,0.57487 0.85654,1.59313 1.4405,3.05134 0.58053,1.44882 1.57747,4.01246 2.0658,5.67575 0.47209,1.64791 0.91485,2.3381 0.79068,4.27753 -0.12758,1.93003 -1.00578,5.10167 -1.54593,7.33085 -0.53673,2.23857 -1.18965,4.50879 -1.69155,6.05362 -0.5207,1.55167 -0.96892,2.63 -1.37969,3.22646 -0.41675,0.60928 -0.68594,0.36672 -1.07381,0.41212 -0.38444,0.0548 -0.66808,0.0942 -1.25594,-0.11753 -0.57846,-0.21513 -1.79526,-0.86835 -2.23875,-1.12197 -0.43751,-0.26643 -0.26581,-0.35021 -0.40168,-0.46038 -0.12904,-0.0914 -0.24439,-0.14517 -0.40245,-0.14085 -0.14523,0.0103 -0.41857,0.19492 -0.49803,0.18127 -0.0889,-0.0102 0.36651,-0.0163 -9.4e-4,-0.2657 -0.37684,-0.24595 -1.83623,-0.74702 -2.25671,-1.20056 -0.42987,-0.45012 -0.40949,-0.86193 -0.3063,-1.48479 0.0938,-0.61943 0.43447,-1.35001 0.88104,-2.25747 0.42776,-0.90062 1.17499,-2.03457 1.72316,-3.15992 0.56098,-1.11938 1.18253,-2.56941 1.60684,-3.59647 0.41491,-1.02364 0.71113,-1.87638 0.88863,-2.55821 0.19972,-0.67927 0.19533,-1.07142 0.21485,-1.51484 0.0349,-0.45965 0.0211,-0.84838 -0.0354,-1.179 -0.0565,-0.33062 -0.15823,-0.58092 -0.28474,-0.81156 -0.12994,-0.24003 -0.21371,-0.41173 -0.51366,-0.62182 -0.29994,-0.21008 -0.82889,-0.58157 -1.2672,-0.64552 -0.4383,-0.0639 -0.63053,-0.0365 -1.35665,0.24902 -0.72612,0.28557 -2.36882,1.06437 -3.01973,1.43963 -0.65091,0.37525 -0.55345,0.58454 -0.9011,0.82814 -0.34765,0.24359 -0.5852,0.11722 -1.18736,0.65564 -0.60559,0.52903 -1.97978,2.10401 -2.4487,2.54073 -0.46549,0.44611 0.0691,-0.36569 -0.36392,0.11117 -0.42362,0.47344 -1.72606,2.01167 -2.25043,2.73461 -0.53034,0.73576 -0.52263,0.78616 -0.92052,1.6227 -0.39446,0.84593 -1.03207,2.86582 -1.43431,3.42725 -0.42103,0.56827 0.21195,0.23147 -1.0167,-0.045 -1.22267,-0.28927 -4.06793,-1.14792 -6.33041,-1.63338 -2.26249,-0.48546 -6.11833,-0.93372 -7.22911,-1.29564 -1.11419,-0.37131 0.257,-0.55113 0.54482,-0.90065 0.29379,-0.36233 0.808,-0.76233 1.19061,-1.23148 0.37664,-0.45634 0.73099,-1.14933 1.11191,-1.56466 0.37408,-0.43412 0.77559,-0.55898 1.1437,-0.98028 0.3681,-0.42131 0.87875,-1.29889 1.08714,-1.545 0.22121,-0.24014 0.0573,0.24518 0.20507,0.0956 0.14179,-0.13674 0.16818,-0.44432 0.67638,-0.94854 0.49624,-0.47859 1.77491,-1.49736 2.30532,-1.99902 0.51759,-0.50764 0.0982,-0.34434 0.83014,-0.99387 0.72857,-0.65892 2.88786,-2.44516 3.55411,-2.9537 0.66027,-0.49573 0.003,0.21188 0.43399,-0.0941 0.43478,-0.29659 1.341,-1.16916 2.17639,-1.73926 0.83539,-0.5701 1.90827,-1.24793 2.82571,-1.70955 0.93026,-0.45565 1.35571,-0.51472 2.70801,-1.03884 z" fill="#594a41"/>
+          <circle cx="308" cy="360" r="56" fill="#594a41"/>
+          <ellipse cx="303" cy="390" rx="34" ry="26" fill="#ffffff"/>
+          <path d="m 309,310 c -10,20 -10,48 -5,72 9,-24 16,-52 5,-72 z" fill="#ffffff"/>
+          <path d="m 264,330 c -8,12 -8,30 1,40 9,-12 9,-30 -1,-40 z" fill="#ffffff"/>
+          <path d="m 352,332 c 8,12 8,30 -1,40 -9,-12 -9,-30 1,-40 z" fill="#ffffff"/>
+          <circle cx="286" cy="349" r="7" fill="#ffffff"/>
+          <circle cx="330" cy="349" r="7" fill="#ffffff"/>
+          <ellipse cx="301" cy="377" rx="7.5" ry="6" fill="#594a41"/>
+        </g>
+      </g>
+    </svg>
     <h1>racoon IPSec<br>Administrator's Guide</h1>
     <div class="doc-meta">
       <div>Project: <span>rdratlos/racoon-ipsec-tools</span></div>
