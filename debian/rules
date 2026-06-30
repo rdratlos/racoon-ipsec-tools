@@ -85,7 +85,7 @@ override_dh_installsystemd:
 	dh_installsystemd --remaining-packages
 
 override_dh_installchangelogs:
-	dh_installchangelogs --no-trim NEWS.md
+	dh_installchangelogs NEWS.md
 
 override_dh_installexamples:
 	# Glob the contents rather than passing the directory itself, so
