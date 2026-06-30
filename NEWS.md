@@ -150,6 +150,15 @@ on building cleanly against current OpenSSL releases and toolchains.
   packaging commit; on Ubuntu Bionic's older debconf this blocked
   `dpkg` indefinitely, hanging the installing SSH session until
   killed manually.
+- Fixed a per-session memory leak in `frag_handler()`: the `vchar_t*`
+  buffer allocated by `isakmp_frag_reassembly()` was never freed after
+  being passed to `isakmp_main()`, leaking ~3.5 KB per IKE session
+  that uses fragmentation (e.g. every iOS connection, which advertises
+  the FRAGMENTATION Vendor ID).
+- Fixed an off-by-one in `xauth_ldap_init_conf()`: six `vmalloc()`
+  calls allocated `strlen(x)` bytes without room for a NUL terminator,
+  causing `strlen()` in `xauth_group_ldap()` to read one byte past the
+  end of the allocated block (Valgrind: invalid read of size 1).
 
 ### Documentation
 
@@ -168,3 +177,8 @@ on building cleanly against current OpenSSL releases and toolchains.
   project across `configure.ac`, the RPM specs, `plainrsa-gen`, the
   FAQ, and the README/Debian metadata, and added a GPG
   release-verification section to the README.
+- Added the Racoon IPsec Tools project logo to the README and the
+  admin guide, with light/dark variants, inline `<svg>` embedding,
+  and matching CSS custom properties.
+- Updated `CONTRIBUTING.md` to acknowledge the project's use of
+  AI-assisted development tooling.
