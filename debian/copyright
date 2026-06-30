@@ -217,6 +217,15 @@ The upstream sources were obtained from http://www.openssl.org/
  * [including the GNU Public Licence.]
  */
 
+Files: docs/admin-guide/images/*
+Copyright: 2026 Thomas Reim
+License: CC-BY-4.0
+Comment: Logo design (hand, stars, colour palette) is derived
+ from the Nepomuc SecureNet trademark and used with permission
+ of the rights holder, Thomas Reim. The racoon illustration is
+ an original addition for this project. The same logo is embedded
+ inline as SVG in docs/admin-guide/racoon-admin-guide.html.
+
 The admin guide documentation bundles the following fonts:
 
 Files: docs/admin-guide/fonts/*
@@ -311,3 +320,9 @@ License: OFL-1.1
  DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
  OTHER DEALINGS IN THE FONT SOFTWARE.
+
+License: CC-BY-4.0
+ Creative Commons Attribution 4.0 International Public License
+ .
+ The full license text is available at
+ https://creativecommons.org/licenses/by/4.0/legalcode
