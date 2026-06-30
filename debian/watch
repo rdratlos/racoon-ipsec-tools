@@ -1,0 +1,3 @@
+version=3
+
+https://launchpad.net/ipsec-tools/+download ipsec-tools-([0-9.]+)\.tar\.gz debian uupdate

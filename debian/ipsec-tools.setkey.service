@@ -1,0 +1,16 @@
+[Unit]
+Description=option to manually manipulate the IPsec SA/SP database
+DefaultDependencies=no
+Before=sysinit.target
+ConditionPathExists=/etc/ipsec-tools.conf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-/etc/default/setkey
+ExecStart=/bin/bash -c 'shopt -s nullglob; test "${RUN_SETKEY:-yes}" = "yes" || exit 0; for f in /etc/ipsec-tools.conf /etc/ipsec-tools.d/*.conf; do /usr/sbin/setkey -f "$f"; done'
+ExecStop=-/usr/sbin/setkey -F
+ExecStopPost=-/usr/sbin/setkey -FP
+
+[Install]
+WantedBy=sysinit.target

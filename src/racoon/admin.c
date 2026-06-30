@@ -30,6 +30,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include "config.h"
 
@@ -767,8 +771,10 @@ admin_init()
 int
 admin_close()
 {
-	unmonitor_fd(lcconf->sock_admin);
-	close(lcconf->sock_admin);
+	if (lcconf->sock_admin != -1) {
+		unmonitor_fd(lcconf->sock_admin);
+		close(lcconf->sock_admin);
+	}
 	return 0;
 }
 

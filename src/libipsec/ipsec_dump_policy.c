@@ -30,6 +30,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -412,10 +416,23 @@ set_address(buf, len, sa, withports)
 	    serv, sizeof(serv), niflags) != 0)
 		return NULL;
 
-	if (withports)
+	if (withports) {
+		/* Prevent format-truncation warning */
+		size_t host_len = strlen(host);
+		size_t serv_len = strlen(serv);
+		size_t needed = host_len + serv_len + 3;
+
+		if (needed > len) {
+			if (len > serv_len + 3) {
+				host[len - serv_len - 3] = '\0';
+			} else {
+				return NULL;
+			}
+		}
 		snprintf(buf, len, "%s[%s]", host, serv);
-	else
+	} else {
 		snprintf(buf, len, "%s", host);
+	}
 
 	return buf;
 }

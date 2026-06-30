@@ -1,0 +1,97 @@
+This text presents the possibly simplest use case
+of an IPsec/Racoon tunnel between a GNU/Linux system
+and an OpenBSD system, using RSA signatures and automatic
+keying. Observe that Racoon and Isakmpd/ipsecctl are
+still using IKEv1. As of OpenBSD 4.8 there is also
+the new Iked for IKEv2, but this is not cosidered here.
+
+An essential fact to keep in mind is that Racoon
+uses RSA-signatures encoded in the format "plainrsa",
+whereas ipsecctl/isakmpd uses PEM encoded signatures.
+As of recently, the Debian packaging contains a tool
+for conversion between the formats, so the following
+example is readily deployed.
+
+The GNU/Linux side needs two files, one containing
+policies and the other outlining associations.
+Practical tests indicate that Racoon parses the
+following pair into a passive end point of a tunnel.
+
+First off is the policy setting:
+
+    #!/usr/sbin/setkey -f
+    #
+    
+    flush;
+    spdflush;
+    
+    spdadd 192.168.0.33 192.168.0.25 any -P out ipsec
+    	esp/tunnel/192.168.0.33-192.168.0.25/require;
+    
+    spdadd 192.168.0.25 192.168.0.33 any -P in ipsec
+    	esp/tunnel/192.168.0.25-192.168.0.33/require;
+
+Next the association proposals, which are tailored
+to a minimal default setting at the OpenBSD end point.
+
+    #!/usr/sbin/racoon -f
+    #
+    # Address of this GNU/Linux system
+    #
+    #   192.168.0.33
+    #
+    # Required "plainrsa" encoded RSA-keys:
+    #
+    #   /etc/racoon/privkeys/192.168.0.33
+    #   /etc/racoon/pubkeys/192.168.0.25
+    #
+    
+    remote 192.168.0.25 {
+    	exchange_mode main;
+    	certificate_type plain_rsa "/etc/racoon/privkeys/192.168.0.33";
+    	peers_certfile plain_rsa "/etc/racoon/pubkeys/192.168.0.25";
+    	proposal { # Default main mode in OpenBSD
+    		authentication_method rsasig;
+    		dh_group modp1024;
+    		encryption_algorithm aes;
+    		hash_algorithm sha1;
+    	}
+    }
+    
+    sainfo address 192.168.0.33 any address 192.168.0.25 any {
+    	pfs_group modp1024; # Default quick mode in OpenBSD
+    	encryption_algorithm aes;
+    	authentication_algorithm hmac_sha256;
+    	compression_algorithm deflate;
+    }
+    
+    sainfo address 192.168.0.25 any address 192.168.0.33 any {
+    	pfs_group modp1024; # Default quick mode in OpenBSD
+    	encryption_algorithm aes;
+    	authentication_algorithm hmac_sha256;
+    	compression_algorithm deflate;
+    }
+
+Finally the setting at the OpenBSD side: Only one file,
+but "isakmpd -K" is required before the call to ipsecctl.
+
+    #!/sbin/ipsecctl -f
+    #
+    # Required PEM-encoded RSA-keys:
+    #
+    #   /etc/isakmpd/private/local.key
+    #   /etc/isakmpd/pubkeys/ipv4/192.168.0.33
+    #
+    # Address of this OpenBSD system:
+    #
+    #   102.168.0.25
+    #
+    # Activation:
+    #
+    #   # isakmpd -K
+    #   # ipsecctl -f this_file
+    
+    ike esp from 192.168.0.25 to 192.168.0.33 peer 192.168.0.33
+    
+    ike esp from 192.168.0.33 to 192.168.0.25 peer 192.168.0.33
+

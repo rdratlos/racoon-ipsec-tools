@@ -26,6 +26,10 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 /*
  * Copyright (C) 1995, 1996, 1997, 1998, and 1999 WIDE Project.
@@ -289,7 +293,7 @@ main(argc, argv)
 		if (get_supported() < 0) {
 			errx(1, "%s", ipsec_strerror());
 		}
-		if (parse(fname, fp))
+		if (parse_file(fname, fp))
 			exit(1);
 		break;
 	case MODE_STDIN:

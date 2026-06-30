@@ -30,6 +30,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include "config.h"
 
@@ -1645,10 +1649,6 @@ isakmp_open(struct sockaddr *addr, int udp_encap)
 #ifdef ENABLE_NATT
 		if (udp_encap)
 			option = UDP_ENCAP_ESPINUDP;
-#if defined(ENABLE_NATT_00) || defined(ENABLE_NATT_01)
-		else
-			option = UDP_ENCAP_ESPINUDP_NON_IKE;
-#endif
 		if (option == -1)
 			break;
 
@@ -1656,8 +1656,7 @@ isakmp_open(struct sockaddr *addr, int udp_encap)
 			       UDP_ENCAP, &option,
 			       sizeof(option)) < 0) {
 			plog(LLV_WARNING, LOCATION, NULL,
-			     "setsockopt(%s): UDP_ENCAP %s\n",
-			     option == UDP_ENCAP_ESPINUDP ? "UDP_ENCAP_ESPINUDP" : "UDP_ENCAP_ESPINUDP_NON_IKE",
+			     "setsockopt(UDP_ENCAP_ESPINUDP): UDP_ENCAP %s\n",
 			     strerror(errno));
 		} else {
 			plog(LLV_INFO, LOCATION, NULL,
@@ -3097,7 +3096,9 @@ frag_handler(iph1, msg, remote, local)
 			    "Packet reassembly failed\n");
 			return -1;
 		}
-		return isakmp_main(newmsg, remote, local);
+		int ret = isakmp_main(newmsg, remote, local);
+		vfree(newmsg);
+		return ret;
 	}
 
 	return 0;
@@ -3143,17 +3144,17 @@ script_hook(iph1, script)
 	if (iph1->remote != NULL) {
 		GETNAMEINFO(iph1->remote, addrstr, portstr);
 
-		if (script_env_append(&envp, &envc, 
+		if (script_env_append(&envp, &envc,
 		    "REMOTE_ADDR", addrstr) != 0) {
-			plog(LLV_ERROR, LOCATION, NULL, 
+			plog(LLV_ERROR, LOCATION, NULL,
 			    "Cannot set REMOTE_ADDR\n");
 			goto out;
 		}
 
-		if (script_env_append(&envp, &envc, 
+		if (script_env_append(&envp, &envc,
 		    "REMOTE_PORT", portstr) != 0) {
-			plog(LLV_ERROR, LOCATION, NULL, 
-			    "Cannot set REMOTEL_PORT\n");
+			plog(LLV_ERROR, LOCATION, NULL,
+			    "Cannot set REMOTE_PORT\n");
 			goto out;
 		}
 	}
@@ -3168,9 +3169,9 @@ script_hook(iph1, script)
 		}
 	}
 
-	if (privsep_script_exec(iph1->rmconf->script[script]->v, 
-	    script, envp) != 0) 
-		plog(LLV_ERROR, LOCATION, NULL, 
+	if (privsep_script_exec(iph1->rmconf->script[script]->v,
+	    script, envp) != 0)
+		plog(LLV_ERROR, LOCATION, NULL,
 		    "Script %s execution failed\n", script_names[script]);
 
 out:

@@ -1,0 +1,1 @@
+ipsec-tools: unusual-interpreter etc/ipsec-tools.conf #!/usr/sbin/setkey

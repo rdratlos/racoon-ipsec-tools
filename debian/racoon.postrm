@@ -1,0 +1,21 @@
+#! /bin/sh
+# postrm script for racoon 
+#
+# see: dh_installdeb(1)
+
+set -e
+
+if [ "$1" = purge ]; then
+	rm -f /etc/default/racoon
+	# deluser --system also removes the matching system group created by
+	# `adduser --system --group` in postinst, so no separate delgroup call
+	# is needed (and calling one anyway causes a spurious "group does not
+	# exist" warning).
+	if which deluser >/dev/null 2>&1; then
+		deluser --quiet --system racoon > /dev/null || true
+	fi
+fi
+
+#DEBHELPER#
+
+exit 0

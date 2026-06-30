@@ -1,0 +1,46 @@
+Source: ipsec-tools
+Section: net
+Priority: optional
+Maintainer: Thomas Reim <reimth@etik.com>
+Build-Depends: bison,
+               debhelper-compat (= 13),
+               flex,
+               libfl-dev,
+               libkrb5-dev,
+               libldap2-dev,
+               libpam0g-dev,
+               libssl-dev (>= 1.1.0),
+               linux-headers-generic
+Standards-Version: 4.6.2
+Vcs-Git: https://github.com/rdratlos/racoon-ipsec-tools.git
+Vcs-Browser: https://github.com/rdratlos/racoon-ipsec-tools
+Homepage: https://github.com/rdratlos/racoon-ipsec-tools
+
+Package: ipsec-tools
+Architecture: any
+Depends: ${misc:Depends},
+         ${shlibs:Depends}
+Description: IPsec utilities
+ IPsec (Internet Protocol security) offers end-to-end security for
+ network traffic at the IP layer.
+ .
+ This package is a community-maintained continuation of the Linux port
+ of the KAME IPsec utilities, with full OpenSSL 1.1.x and 3.x support.
+
+Package: racoon
+Architecture: any
+Provides: ike-server
+Depends: adduser,
+         debconf (>= 0.2.26) | debconf-2.0,
+         ipsec-tools (= ${binary:Version}),
+         ${misc:Depends},
+         ${perl:Depends},
+         ${shlibs:Depends}
+Suggests: linux-image-generic
+Description: IPsec Internet Key Exchange daemon
+ IPsec (Internet Protocol security) offers end-to-end security for
+ network traffic at the IP layer.
+ .
+ This package is a community-maintained continuation of the Linux port
+ of the KAME IKE daemon (racoon), with full OpenSSL 1.1.x and 3.x
+ support and continued active maintenance.

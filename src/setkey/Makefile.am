@@ -1,3 +1,6 @@
+# Makefile.am — Automake input for racoon-ipsec-tools
+# Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+# SPDX-License-Identifier: BSD-3-Clause
 
 sbin_PROGRAMS = setkey
 
@@ -19,3 +22,8 @@ noinst_HEADERS = vchar.h extern.h
 man8_MANS = setkey.8
 
 EXTRA_DIST = ${man8_MANS} sample-policy01.cf sample-policy02.cf sample.cf
+
+MAINTAINERCLEANFILES = \
+    parse.c \
+    parse.h \
+    token.c

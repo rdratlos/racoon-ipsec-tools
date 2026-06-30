@@ -1,0 +1,5 @@
+Debian README for ipsec-tools 
+------------------------
+
+The setkey init-script now provides a way to use setkey statements
+from different files in /etc/ipsec-tools.d/*.conf

@@ -31,6 +31,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include "config.h"
 
@@ -224,6 +228,9 @@ hexstring	0x{hexdigit}+
 <S_INI>ldapcfg		{ BEGIN S_LDAP; YYDB; return(LDAPCFG); }
 <S_LDAP>{bcl}		{ return(BOC); }
 <S_LDAP>version		{ YYD; return(LDAP_PVER); }
+<S_LDAP>debug		{ YYD; return(LDAP_DEBUG); }
+<S_LDAP>timeout		{ YYD; return(LDAP_TIMEOUT); }
+<S_LDAP>uri		{ YYD; return(LDAP_URI); }
 <S_LDAP>host		{ YYD; return(LDAP_HOST); }
 <S_LDAP>port		{ YYD; return(LDAP_PORT); }
 <S_LDAP>base		{ YYD; return(LDAP_BASE); }

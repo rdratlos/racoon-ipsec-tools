@@ -31,6 +31,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include "config.h"
 
@@ -255,19 +259,19 @@ static int process_rmconf()
 	/* privsep */
 %token PRIVSEP USER GROUP CHROOT
 	/* path */
-%token PATH PATHTYPE
+%token PATH <num> PATHTYPE
 	/* include */
 %token INCLUDE
 	/* PFKEY_BUFFER */
 %token PFKEY_BUFFER
 	/* logging */
-%token LOGGING LOGLEV
+%token LOGGING <num> LOGLEV
 	/* padding */
 %token PADDING PAD_RANDOMIZE PAD_RANDOMIZELEN PAD_MAXLEN PAD_STRICT PAD_EXCLTAIL
 	/* listen */
 %token LISTEN X_ISAKMP X_ISAKMP_NATT X_ADMIN STRICT_ADDRESS ADMINSOCK DISABLED
 	/* ldap config */
-%token LDAPCFG LDAP_HOST LDAP_PORT LDAP_PVER LDAP_BASE LDAP_BIND_DN LDAP_BIND_PW LDAP_SUBTREE
+%token LDAPCFG LDAP_URI LDAP_HOST LDAP_PORT LDAP_PVER LDAP_DEBUG LDAP_TIMEOUT LDAP_BASE LDAP_BIND_DN LDAP_BIND_PW LDAP_SUBTREE
 %token LDAP_ATTR_USER LDAP_ATTR_ADDR LDAP_ATTR_MASK LDAP_ATTR_GROUP LDAP_ATTR_MEMBER
 	/* radius config */
 %token RADCFG RAD_AUTH RAD_ACCT RAD_TIMEOUT RAD_RETRIES
@@ -282,51 +286,47 @@ static int process_rmconf()
 %token RETRY RETRY_COUNTER RETRY_INTERVAL RETRY_PERSEND
 %token RETRY_PHASE1 RETRY_PHASE2 NATT_KA
 	/* algorithm */
-%token ALGORITHM_CLASS ALGORITHMTYPE STRENGTHTYPE
+%token <num> ALGORITHM_CLASS <num> ALGORITHMTYPE <num> STRENGTHTYPE
 	/* sainfo */
 %token SAINFO FROM
 	/* remote */
 %token REMOTE ANONYMOUS CLIENTADDR INHERIT REMOTE_ADDRESS
-%token EXCHANGE_MODE EXCHANGETYPE DOI DOITYPE SITUATION SITUATIONTYPE
-%token CERTIFICATE_TYPE CERTTYPE PEERS_CERTFILE CA_TYPE
+%token EXCHANGE_MODE <num> EXCHANGETYPE DOI <num> DOITYPE SITUATION <num> SITUATIONTYPE
+%token CERTIFICATE_TYPE <num> CERTTYPE PEERS_CERTFILE CA_TYPE
 %token VERIFY_CERT SEND_CERT SEND_CR MATCH_EMPTY_CR
-%token IDENTIFIERTYPE IDENTIFIERQUAL MY_IDENTIFIER 
+%token <num> IDENTIFIERTYPE <num> IDENTIFIERQUAL MY_IDENTIFIER
 %token PEERS_IDENTIFIER VERIFY_IDENTIFIER
-%token DNSSEC CERT_X509 CERT_PLAINRSA
+%token DNSSEC <num> CERT_X509 <num> CERT_PLAINRSA
 %token NONCE_SIZE DH_GROUP KEEPALIVE PASSIVE INITIAL_CONTACT
-%token NAT_TRAVERSAL REMOTE_FORCE_LEVEL
-%token PROPOSAL_CHECK PROPOSAL_CHECK_LEVEL
-%token GENERATE_POLICY GENERATE_LEVEL SUPPORT_PROXY
+%token NAT_TRAVERSAL <num> REMOTE_FORCE_LEVEL
+%token PROPOSAL_CHECK <num> PROPOSAL_CHECK_LEVEL
+%token GENERATE_POLICY <num> GENERATE_LEVEL SUPPORT_PROXY
 %token PROPOSAL
 %token EXEC_PATH EXEC_COMMAND EXEC_SUCCESS EXEC_FAILURE
-%token GSS_ID GSS_ID_ENC GSS_ID_ENCTYPE
+%token GSS_ID GSS_ID_ENC <num> GSS_ID_ENCTYPE
 %token COMPLEX_BUNDLE
 %token DPD DPD_DELAY DPD_RETRY DPD_MAXFAIL
 %token PH1ID
 %token XAUTH_LOGIN WEAK_PHASE1_CHECK
 %token REKEY
 
-%token PREFIX PORT PORTANY UL_PROTO ANY IKE_FRAG ESP_FRAG MODE_CFG
+%token <num> PREFIX <num> PORT PORTANY <num> UL_PROTO ANY IKE_FRAG ESP_FRAG MODE_CFG
 %token PFS_GROUP LIFETIME LIFETYPE_TIME LIFETYPE_BYTE STRENGTH REMOTEID
 
 %token SCRIPT PHASE1_UP PHASE1_DOWN PHASE1_DEAD
 
-%token NUMBER SWITCH BOOLEAN
-%token HEXSTRING QUOTEDSTRING ADDRSTRING ADDRRANGE
+%token <num> NUMBER <num> SWITCH <num> BOOLEAN
+%token <val> HEXSTRING <val> QUOTEDSTRING <val> ADDRSTRING <val> ADDRRANGE
 %token UNITTYPE_BYTE UNITTYPE_KBYTES UNITTYPE_MBYTES UNITTYPE_TBYTES
 %token UNITTYPE_SEC UNITTYPE_MIN UNITTYPE_HOUR
 %token EOS BOC EOC COMMA
 
-%type <num> NUMBER BOOLEAN SWITCH keylength
-%type <num> PATHTYPE IDENTIFIERTYPE IDENTIFIERQUAL LOGLEV GSS_ID_ENCTYPE 
-%type <num> ALGORITHM_CLASS dh_group_num
-%type <num> ALGORITHMTYPE STRENGTHTYPE
-%type <num> PREFIX prefix PORT port ike_port
-%type <num> ul_proto UL_PROTO
-%type <num> EXCHANGETYPE DOITYPE SITUATIONTYPE
-%type <num> CERTTYPE CERT_X509 CERT_PLAINRSA PROPOSAL_CHECK_LEVEL REMOTE_FORCE_LEVEL GENERATE_LEVEL
+%type <num> keylength
+%type <num> dh_group_num
+%type <num> prefix port ike_port
+%type <num> ul_proto
 %type <num> unittype_time unittype_byte
-%type <val> QUOTEDSTRING HEXSTRING ADDRSTRING ADDRRANGE sainfo_id
+%type <val> sainfo_id
 %type <val> identifierstring
 %type <saddr> remote_index ike_addrinfo_port
 %type <alg> algorithm
@@ -696,6 +696,35 @@ ldapcfg_stmt
 			if (($2<2)||($2>3))
 				yyerror("invalid ldap protocol version (2|3)");
 			xauth_ldap_config.pver = $2;
+#endif
+#endif
+		}
+		EOS
+	|	LDAP_DEBUG NUMBER
+		{
+#ifdef ENABLE_HYBRID
+#ifdef HAVE_LIBLDAP
+			xauth_ldap_config.debug = $2;
+#endif
+#endif
+		}
+		EOS
+	|	LDAP_TIMEOUT NUMBER
+		{
+#ifdef ENABLE_HYBRID
+#ifdef HAVE_LIBLDAP
+			xauth_ldap_config.timeout = $2;
+#endif
+#endif
+		}
+		EOS
+	|	LDAP_URI QUOTEDSTRING
+		{
+#ifdef ENABLE_HYBRID
+#ifdef HAVE_LIBLDAP
+			if (xauth_ldap_config.uri != NULL)
+				vfree(xauth_ldap_config.uri);
+			xauth_ldap_config.uri = vdup($2);
 #endif
 #endif
 		}
@@ -2564,7 +2593,7 @@ set_isakmp_proposal(rmconf)
 		plog(LLV_DEBUG2, LOCATION, NULL,
 			"encklen=%d\n", s->encklen);
 
-		memset(types, 0, ARRAYLEN(types) * sizeof(types[0]));
+		memset(types, 0, sizeof(types));
 		types[algclass_isakmp_enc] = s->algclass[algclass_isakmp_enc];
 		types[algclass_isakmp_hash] = s->algclass[algclass_isakmp_hash];
 		types[algclass_isakmp_dh] = s->algclass[algclass_isakmp_dh];

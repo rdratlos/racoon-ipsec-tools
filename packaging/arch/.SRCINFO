@@ -1,0 +1,22 @@
+pkgbase = ipsec-tools
+	pkgdesc = IKEv1 key exchange daemon (racoon) and IPsec utilities — community-maintained Linux continuation
+	pkgver = 0.9.0
+	pkgrel = 1
+	url = https://github.com/rdratlos/racoon-ipsec-tools
+	arch = x86_64
+	arch = aarch64
+	license = BSD-3-Clause
+	makedepends = autoconf
+	makedepends = automake
+	makedepends = libtool
+	makedepends = flex
+	makedepends = bison
+	depends = openssl
+	depends = libldap
+	depends = linux-headers
+	depends = pam
+	depends = krb5
+	source = ipsec-tools-0.9.0.tar.gz::https://github.com/rdratlos/racoon-ipsec-tools/archive/refs/tags/v0.9.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = ipsec-tools

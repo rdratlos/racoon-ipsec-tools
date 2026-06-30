@@ -30,6 +30,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include "config.h"
 
@@ -808,6 +812,9 @@ xauth_ldap_init_conf(void)
 	int error = -1;
 
 	xauth_ldap_config.pver = 3;
+	xauth_ldap_config.debug = 0;
+	xauth_ldap_config.timeout = -1;
+	xauth_ldap_config.uri = NULL;
 	xauth_ldap_config.host = NULL;
 	xauth_ldap_config.port = LDAP_PORT;
 	xauth_ldap_config.base = NULL;
@@ -823,42 +830,42 @@ xauth_ldap_init_conf(void)
 
 	/* set default host */
 	tmplen = strlen(LDAP_DFLT_HOST);
-	xauth_ldap_config.host = vmalloc(tmplen);
+	xauth_ldap_config.host = vmalloc(tmplen + 1);
 	if (xauth_ldap_config.host == NULL)
 		goto out;
 	memcpy(xauth_ldap_config.host->v, LDAP_DFLT_HOST, tmplen);
 
 	/* set default user naming attribute */
 	tmplen = strlen(LDAP_DFLT_USER);
-	xauth_ldap_config.attr_user = vmalloc(tmplen);
+	xauth_ldap_config.attr_user = vmalloc(tmplen + 1);
 	if (xauth_ldap_config.attr_user == NULL)
 		goto out;	
 	memcpy(xauth_ldap_config.attr_user->v, LDAP_DFLT_USER, tmplen);
 
 	/* set default address attribute */
 	tmplen = strlen(LDAP_DFLT_ADDR);
-	xauth_ldap_config.attr_addr = vmalloc(tmplen);
+	xauth_ldap_config.attr_addr = vmalloc(tmplen + 1);
 	if (xauth_ldap_config.attr_addr == NULL)
 		goto out;
 	memcpy(xauth_ldap_config.attr_addr->v, LDAP_DFLT_ADDR, tmplen);
 
 	/* set default netmask attribute */
 	tmplen = strlen(LDAP_DFLT_MASK);
-	xauth_ldap_config.attr_mask = vmalloc(tmplen);
+	xauth_ldap_config.attr_mask = vmalloc(tmplen + 1);
 	if (xauth_ldap_config.attr_mask == NULL)
 		goto out;
 	memcpy(xauth_ldap_config.attr_mask->v, LDAP_DFLT_MASK, tmplen);
 
 	/* set default group naming attribute */
 	tmplen = strlen(LDAP_DFLT_GROUP);
-	xauth_ldap_config.attr_group = vmalloc(tmplen);
+	xauth_ldap_config.attr_group = vmalloc(tmplen + 1);
 	if (xauth_ldap_config.attr_group == NULL)
 		goto out;
 	memcpy(xauth_ldap_config.attr_group->v, LDAP_DFLT_GROUP, tmplen);
 
 	/* set default member attribute */
 	tmplen = strlen(LDAP_DFLT_MEMBER);
-	xauth_ldap_config.attr_member = vmalloc(tmplen);
+	xauth_ldap_config.attr_member = vmalloc(tmplen + 1);
 	if (xauth_ldap_config.attr_member == NULL)
 		goto out;
 	memcpy(xauth_ldap_config.attr_member->v, LDAP_DFLT_MEMBER, tmplen);
@@ -898,18 +905,34 @@ xauth_login_ldap(iph1, usr, pwd)
 	atlist[1] = NULL;
 	atlist[2] = NULL;
 
-	/* build our initialization url */
-	tmplen = strlen("ldap://:") + 17;
-	tmplen += strlen(xauth_ldap_config.host->v);
-	init = racoon_malloc(tmplen);
-	if (init == NULL) {
-		plog(LLV_ERROR, LOCATION, NULL,
-			"unable to alloc ldap init url\n");
-		goto ldap_end;
+	if (xauth_ldap_config.uri != NULL) {
+		tmplen = strlen(xauth_ldap_config.uri->v) + 1;
+		init = racoon_malloc(tmplen);
+		if (init == NULL) {
+			plog(LLV_ERROR, LOCATION, NULL,
+				"unable to alloc ldap init url\n");
+			goto ldap_end;
+		}
+		sprintf(init, "%s", xauth_ldap_config.uri->v);
+	} else {
+		/* build our initialization url */
+		tmplen = strlen("ldap://:") + 17;
+		tmplen += strlen(xauth_ldap_config.host->v);
+		init = racoon_malloc(tmplen);
+		if (init == NULL) {
+			plog(LLV_ERROR, LOCATION, NULL,
+				"unable to alloc ldap init url\n");
+			goto ldap_end;
+		}
+		sprintf(init,"ldap://%s:%d",
+			xauth_ldap_config.host->v,
+			xauth_ldap_config.port );
 	}
-	sprintf(init,"ldap://%s:%d",
-		xauth_ldap_config.host->v,
-		xauth_ldap_config.port );
+
+	/* initialize the debug level */
+	ldap_set_option(NULL, LDAP_OPT_DEBUG_LEVEL, &xauth_ldap_config.debug);
+
+	plog(LLV_DEBUG, LOCATION, NULL, "ldap URI: %s\n", init);
 
 	/* initialize the ldap handle */
 	res = ldap_initialize(&ld, init);
@@ -921,8 +944,28 @@ xauth_login_ldap(iph1, usr, pwd)
 	}
 
 	/* initialize the protocol version */
-	ldap_set_option(ld, LDAP_OPT_PROTOCOL_VERSION,
-		&xauth_ldap_config.pver);
+	if ((res = ldap_set_option(ld, LDAP_OPT_PROTOCOL_VERSION,
+		&xauth_ldap_config.pver)) != LDAP_OPT_SUCCESS) {
+		plog(LLV_ERROR, LOCATION, NULL,
+			"LDAP_OPT_PROTOCOL_VERSION %d failed: %s\n",
+			xauth_ldap_config.pver,
+			ldap_err2string(res));
+		goto ldap_end;
+	}
+
+	if (xauth_ldap_config.timeout > 0) {
+		struct timeval nettimeout;
+		nettimeout.tv_sec = xauth_ldap_config.timeout;
+		nettimeout.tv_usec = 0;
+		if ((res = ldap_set_option(ld, LDAP_OPT_NETWORK_TIMEOUT,
+			(void *)&nettimeout)) != LDAP_OPT_SUCCESS) {
+			plog(LLV_ERROR, LOCATION, NULL,
+				"LDAP_OPT_NETWORK_TIMEOUT %d failed: %s\n",
+				xauth_ldap_config.timeout,
+				ldap_err2string(res));
+			goto ldap_end;
+		}
+	}
 
 	/*
 	 * attempt to bind to the ldap server.
@@ -936,16 +979,18 @@ xauth_login_ldap(iph1, usr, pwd)
 		cred.bv_val = xauth_ldap_config.bind_pw->v;
 		cred.bv_len = strlen( cred.bv_val );
 		res = ldap_sasl_bind_s(ld,
-			xauth_ldap_config.bind_dn->v, NULL, &cred,
+			xauth_ldap_config.bind_dn->v, LDAP_SASL_SIMPLE, &cred,
 			NULL, NULL, NULL);
 	}
 	else
 	{
+		cred.bv_val = NULL;
+		cred.bv_len = 0;
 		res = ldap_sasl_bind_s(ld,
-			NULL, NULL, NULL,
+			NULL, LDAP_SASL_SIMPLE, &cred,
 			NULL, NULL, NULL);
 	}
-	
+
 	if (res!=LDAP_SUCCESS) {
 		plog(LLV_ERROR, LOCATION, NULL,
 			"ldap_sasl_bind_s (search) failed: %s\n",
@@ -1080,7 +1125,7 @@ xauth_login_ldap(iph1, usr, pwd)
 	cred.bv_val = pwd;
 	cred.bv_len = strlen( cred.bv_val );
 	res = ldap_sasl_bind_s(ld,
-		userdn, NULL, &cred,
+		userdn, LDAP_SASL_SIMPLE, &cred,
 		NULL, NULL, NULL);
         if(res==LDAP_SUCCESS)
 		rtn = 0;
@@ -1149,8 +1194,14 @@ xauth_group_ldap(udn, grp)
 	}
 
 	/* initialize the protocol version */
-	ldap_set_option(ld, LDAP_OPT_PROTOCOL_VERSION,
-		&xauth_ldap_config.pver);
+	if ((res = ldap_set_option(ld, LDAP_OPT_PROTOCOL_VERSION,
+		&xauth_ldap_config.pver)) != LDAP_OPT_SUCCESS) {
+		plog(LLV_ERROR, LOCATION, NULL,
+			"LDAP_OPT_PROTOCOL_VERSION %d failed: %s\n",
+			xauth_ldap_config.pver,
+			ldap_err2string(res));
+		goto ldap_group_end;
+	}
 
 	/*
 	 * attempt to bind to the ldap server.
@@ -1164,13 +1215,15 @@ xauth_group_ldap(udn, grp)
 		cred.bv_val = xauth_ldap_config.bind_pw->v;
 		cred.bv_len = strlen( cred.bv_val );
 		res = ldap_sasl_bind_s(ld,
-			xauth_ldap_config.bind_dn->v, NULL, &cred,
+			xauth_ldap_config.bind_dn->v, LDAP_SASL_SIMPLE, &cred,
 			NULL, NULL, NULL);
 	}
 	else
 	{
+		cred.bv_val = NULL;
+		cred.bv_len = 0;
 		res = ldap_sasl_bind_s(ld,
-			NULL, NULL, NULL,
+			NULL, LDAP_SASL_SIMPLE, &cred,
 			NULL, NULL, NULL);
 	}
 

@@ -29,6 +29,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include "config.h"
 
@@ -133,9 +137,9 @@ natt_hash_addr (struct ph1handle *iph1, struct sockaddr *addr)
 	  natt_force = 1;
 
   plog (LLV_INFO, LOCATION, addr, "Hashing %s with algo #%d %s\n",
-	saddr2str(addr), iph1->approval->hashtype, 
+	saddr2str(addr), iph1->approval->hashtype,
 	natt_force?"(NAT-T forced)":"");
-  
+
   if (addr->sa_family == AF_INET) {
     addr_size = sizeof (struct in_addr);	/* IPv4 address */
     addr_ptr = &((struct sockaddr_in *)addr)->sin_addr;
@@ -153,20 +157,20 @@ natt_hash_addr (struct ph1handle *iph1, struct sockaddr *addr)
 
   buf_size = 2 * sizeof (cookie_t);	/* CKY-I + CKY+R */
   buf_size += addr_size + 2;	/* Address + Port */
-  
+
   if ((buf = vmalloc (buf_size)) == NULL)
     return NULL;
 
   ptr = buf->v;
-  
+
   /* Copy-in CKY-I */
   memcpy (ptr, iph1->index.i_ck, sizeof (cookie_t));
   ptr += sizeof (cookie_t);
-  
+
   /* Copy-in CKY-I */
   memcpy (ptr, iph1->index.r_ck, sizeof (cookie_t));
   ptr += sizeof (cookie_t);
-  
+
   /* Copy-in Address (or zeroes if NATT_FORCE) */
   if (natt_force)
     memset (ptr, 0, addr_size);
@@ -183,7 +187,7 @@ natt_hash_addr (struct ph1handle *iph1, struct sockaddr *addr)
   return natd;
 }
 
-int 
+int
 natt_compare_addr_hash (struct ph1handle *iph1, vchar_t *natd_received,
 			int natd_seq)
 {
@@ -223,7 +227,7 @@ natt_compare_addr_hash (struct ph1handle *iph1, vchar_t *natd_received,
 int
 natt_udp_encap (int encmode)
 {
-  return (encmode == IPSECDOI_ATTR_ENC_MODE_UDPTUNNEL_RFC || 
+  return (encmode == IPSECDOI_ATTR_ENC_MODE_UDPTUNNEL_RFC ||
 	  encmode == IPSECDOI_ATTR_ENC_MODE_UDPTRNS_RFC ||
 	  encmode == IPSECDOI_ATTR_ENC_MODE_UDPTUNNEL_DRAFT ||
 	  encmode == IPSECDOI_ATTR_ENC_MODE_UDPTRNS_DRAFT);
@@ -245,8 +249,8 @@ natt_fill_options (struct ph1natt_options *opts, int version)
       opts->payload_nat_oa = ISAKMP_NPTYPE_NATOA_DRAFT;
       opts->mode_udp_tunnel = IPSECDOI_ATTR_ENC_MODE_UDPTUNNEL_DRAFT;
       opts->mode_udp_transport = IPSECDOI_ATTR_ENC_MODE_UDPTRNS_DRAFT;
-      opts->encaps_type = UDP_ENCAP_ESPINUDP_NON_IKE;
-		break;
+      opts->encaps_type = UDP_ENCAP_ESPINUDP;
+      break;
 
     case VENDORID_NATT_02:
     case VENDORID_NATT_02_N:
@@ -279,12 +283,12 @@ natt_fill_options (struct ph1natt_options *opts, int version)
       opts->encaps_type = UDP_ENCAP_ESPINUDP;
 	  break;
     default:
-      plog(LLV_ERROR, LOCATION, NULL, 
+      plog(LLV_ERROR, LOCATION, NULL,
 	   "unsupported NAT-T version: %s\n",
 	   vid_string_by_id(version));
       return -1;
   }
- 
+
   opts->mode_udp_diff = opts->mode_udp_tunnel - IPSECDOI_ATTR_ENC_MODE_TUNNEL;
 
   return 0;
@@ -300,11 +304,11 @@ natt_float_ports (struct ph1handle *iph1)
 		natt_keepalive_add_ph1 (iph1);
 		return;
 	}
-	
+
 	set_port (iph1->local, iph1->natt_options->float_port);
 	set_port (iph1->remote, iph1->natt_options->float_port);
 	iph1->natt_flags |= NAT_PORTS_CHANGED | NAT_ADD_NON_ESP_MARKER;
-	
+
 	natt_keepalive_add_ph1 (iph1);
 }
 
@@ -338,7 +342,7 @@ natt_handle_vendorid (struct ph1handle *iph1, int vid_numeric)
 	  "Allocating memory for natt_options failed!\n");
     return;
   }
-  
+
   if (iph1->natt_options->version < vid_numeric)
     if (natt_fill_options (iph1->natt_options, vid_numeric) == 0)
       iph1->natt_flags |= NAT_ANNOUNCED;
@@ -364,13 +368,13 @@ natt_keepalive_send (struct sched *param)
 
   for (ka = TAILQ_FIRST(&ka_tree); ka; ka = next) {
     next = TAILQ_NEXT(ka, chain);
-    
+
     s = myaddr_getfd(ka->src);
     if (s == -1) {
       natt_keepalive_delete(ka);
       continue;
     }
-    plog (LLV_DEBUG, LOCATION, NULL, "KA: %s\n", 
+    plog (LLV_DEBUG, LOCATION, NULL, "KA: %s\n",
 	  saddr2str_fromto("%s->%s", ka->src, ka->dst));
     len = sendfromto(s, keepalive_packet, sizeof (keepalive_packet),
 		     ka->src, ka->dst, 1);
@@ -378,7 +382,7 @@ natt_keepalive_send (struct sched *param)
       plog(LLV_ERROR, LOCATION, NULL, "KA: sendfromto failed: %s\n",
 	   strerror (errno));
   }
-  
+
   sched_schedule (&sc_natt, lcconf->natt_ka_interval, natt_keepalive_send);
 }
 
@@ -396,7 +400,7 @@ int
 natt_keepalive_add (struct sockaddr *src, struct sockaddr *dst)
 {
   struct natt_ka_addrs *ka = NULL, *new_addr;
-  
+
   TAILQ_FOREACH (ka, &ka_tree, chain) {
     if (cmpsaddr(ka->src, src) == CMPSADDR_MATCH &&
 	cmpsaddr(ka->dst, dst) == CMPSADDR_MATCH) {
@@ -435,7 +439,7 @@ int
 natt_keepalive_add_ph1 (struct ph1handle *iph1)
 {
   int ret = 0;
-  
+
   /* Should only the NATed host send keepalives?
      If yes, add '(iph1->natt_flags & NAT_DETECTED_ME)'
      to the following condition. */
@@ -458,7 +462,7 @@ natt_keepalive_remove (struct sockaddr *src, struct sockaddr *dst)
 
   for (ka = TAILQ_FIRST(&ka_tree); ka; ka = next) {
     next = TAILQ_NEXT(ka, chain);
- 
+
     plog (LLV_DEBUG, LOCATION, NULL, "KA tree dump: %s (in_use=%u)\n",
 	  saddr2str_fromto("%s->%s", src, dst), ka->in_use);
 
@@ -469,8 +473,8 @@ natt_keepalive_remove (struct sockaddr *src, struct sockaddr *dst)
       plog (LLV_DEBUG, LOCATION, NULL, "KA removing this one...\n");
 
       natt_keepalive_delete (ka);
-      /* Should we break here? Every pair of addresses should 
-         be inserted only once, but who knows :-) Lets traverse 
+      /* Should we break here? Every pair of addresses should
+         be inserted only once, but who knows :-) Lets traverse
 	 the whole list... */
     }
   }
@@ -498,7 +502,7 @@ isakmp_plist_append_natt_vids (struct payload_list *plist, vchar_t *vid_natt[MAX
 
 	for (i = 0; i < MAX_NATT_VID_COUNT; i++)
 		vid_natt[i]=NULL;
-	
+
 	/* Puts the olders VIDs last, as some implementations may choose the first
 	 * NATT VID given
 	 */
@@ -548,6 +552,6 @@ isakmp_plist_append_natt_vids (struct payload_list *plist, vchar_t *vid_natt[MAX
 	/* set VID payload for NAT-T */
 	for (i = 0; i < vid_natt_i; i++)
 		plist = isakmp_plist_append(plist, vid_natt[i], ISAKMP_NPTYPE_VID);
-	
+
 	return plist;
 }

@@ -30,6 +30,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include "config.h"
 
@@ -50,6 +54,7 @@
 
 #include <openssl/bio.h>
 #include <openssl/pem.h>
+#include <openssl/err.h>
 
 #include "var.h"
 #include "vmbuf.h"
@@ -63,8 +68,13 @@
 #include "crypto_openssl.h"
 #include "gnuc.h"
 #include "openssl_compat.h"
+#include "eay_rsa.h"
 
 #include "package_version.h"
+#include <openssl/des.h>
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#include <openssl/param_build.h>
+#endif
 
 #define PVDUMP(var) racoon_hexdump((var)->v, (var)->l)
 
@@ -82,12 +92,33 @@ int sha1test __P((int, char **));
 int md5test __P((int, char **));
 int dhtest __P((int, char **));
 int bntest __P((int, char **));
+int compat_test __P((int, char **));
+int eayrsa_test __P((int, char **));
 #ifndef CERTTEST_BROKEN
 static char **getcerts __P((char *));
 int certtest __P((int, char **));
 #endif
 
 /* test */
+
+static void
+check_openssl_errors(const char *test_name)
+{
+	unsigned long err;
+	int count = 0;
+
+	while ((err = ERR_get_error()) != 0) {
+		char buf[256];
+		ERR_error_string_n(err, buf, sizeof(buf));
+		printf("WARNING: Hidden OpenSSL error after %s: %s\n", test_name, buf);
+		count++;
+	}
+
+	if (count > 0) {
+		printf("WARNING: %d OpenSSL error(s) were left in the queue after %s\n",
+		       count, test_name);
+	}
+}
 
 static int
 rsa_verify_with_pubkey(src, sig, pubkey_txt)
@@ -96,15 +127,37 @@ rsa_verify_with_pubkey(src, sig, pubkey_txt)
 {
 	BIO *bio;
 	EVP_PKEY *evp;
+	RSA *rsa;
+	eayRSA *ersa;
+	const BIGNUM *n = NULL, *e = NULL;
 	int error;
 
 	bio = BIO_new_mem_buf(pubkey_txt, strlen(pubkey_txt));
 	evp = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
+	BIO_free(bio);
 	if (! evp) {
 		printf ("PEM_read_PUBKEY(): %s\n", eay_strerror());
 		return -1;
 	}
-	error = eay_check_rsasign(src, sig, EVP_PKEY_get0_RSA(evp));
+	rsa = compat_EVP_PKEY_get1_RSA(evp);
+	if (!rsa || compat_RSA_get0_params(rsa, &n, &e, NULL, NULL, NULL,
+					    NULL, NULL, NULL) < 0) {
+		printf("Failed to extract RSA public key parameters\n");
+		if (rsa)
+			compat_RSA_free(rsa);
+		EVP_PKEY_free(evp);
+		return -1;
+	}
+	ersa = eayRSA_new_pub(n, e);
+	compat_RSA_free(rsa);
+	EVP_PKEY_free(evp);
+	if (!ersa) {
+		printf("eayRSA_new_pub() failed\n");
+		return -1;
+	}
+
+	error = eay_check_rsasign(src, sig, ersa);
+	eayRSA_free(ersa);
 
 	return error;
 }
@@ -164,6 +217,7 @@ rsatest(ac, av)
 	sig = eay_get_x509sign(&src, priv);
 	if (sig == NULL) {
 		printf("sign failed. %s\n", eay_strerror());
+		vfree(priv);
 		return -1;
 	}
 
@@ -173,22 +227,33 @@ rsatest(ac, av)
 	printf("Verification with correct pubkey: ");
 	if (rsa_verify_with_pubkey (&src, sig, pubkey) != 0) {
 		printf ("Failed.\n");
+		vfree(priv);
+		vfree(sig);
 		return -1;
 	}
-	else
+	else {
+		check_openssl_errors("rsatest"); /* Check before wrong pubkey test */
 		printf ("Verified. Good.\n");
+	}
 
 	loglevel_saved = loglevel;
 	loglevel = 0;
 	printf("Verification with wrong pubkey: ");
-	if (rsa_verify_with_pubkey (&src, sig, pubkey_wrong) != 0)
+	if (rsa_verify_with_pubkey (&src, sig, pubkey_wrong) != 0) {
 		printf ("Not verified. Good.\n");
+		ERR_clear_error();
+	}
 	else {
 		printf ("Verified. This is bad...\n");
 		loglevel = loglevel_saved;
+		vfree(priv);
+		vfree(sig);
 		return -1;
 	}
 	loglevel = loglevel_saved;
+
+	vfree(priv);
+	vfree(sig);
 
 	return 0;
 }
@@ -206,12 +271,17 @@ pem_read_buf(buf)
 
 	bio = BIO_new_mem_buf(buf, strlen(buf));
 	error = PEM_read_bio(bio, &nm, &header, &data, &len);
+	BIO_free(bio);
 	if (error == 0)
 		errx(1, "%s", eay_strerror());
 	ret = vmalloc(len);
 	if (ret == NULL)
 		err(1, "vmalloc");
 	memcpy(ret->v, data, len);
+
+	OPENSSL_free(nm);
+	OPENSSL_free(header);
+	OPENSSL_free(data);
 
 	return ret;
 }
@@ -314,7 +384,11 @@ certtest(ac, av)
 
 	printf("exact match: succeed.\n");
 
-	if (dnstr_w1 != NULL) {
+#if defined(ORIG_DN)
+		if (dnstr_w1) {
+#else
+		if (strlen(dnstr_w1) > 0) {
+#endif
 		asn1dn = eay_str2asn1dn(dnstr_w1, strlen(dnstr_w1));
 		if (asn1dn == NULL || asn1dn->l == asn1dn0.l)
 			errx(1, "asn1dn length wrong for wildcard 1\n");
@@ -324,7 +398,11 @@ certtest(ac, av)
 		printf("wildcard 1 match: succeed.\n");
 	}
 
-	if (dnstr_w1 != NULL) {
+#if defined(ORIG_DN)
+		if (dnstr_w2) {
+#else
+		if (strlen(dnstr_w2) > 0) {
+#endif
 		asn1dn = eay_str2asn1dn(dnstr_w2, strlen(dnstr_w2));
 		if (asn1dn == NULL || asn1dn->l == asn1dn0.l)
 			errx(1, "asn1dn length wrong for wildcard 2\n");
@@ -335,7 +413,6 @@ certtest(ac, av)
 	}
 
     }
-	eay_init();
 
 	/* get certs */
 	if (ac > 1) {
@@ -599,9 +676,10 @@ ciphertest_1 (const char *name,
 	      eay_func decrypt)
 {
 	int padlen;
-	vchar_t *buf, *iv, *res1, *res2;
+	int rc = 0;
+	vchar_t *buf, *iv, *res1 = NULL, *res2 = NULL;
 	iv = vmalloc(iv_length);
-	
+
 	printf("Test for cipher %s\n", name);
 	printf("data:\n");
 	PVDUMP(data);
@@ -618,7 +696,8 @@ ciphertest_1 (const char *name,
 	res1 = (encrypt)(buf, key, iv);
 	if (res1 == NULL) {
 		printf("%s encryption failed.\n", name);
-		return -1;
+		rc = -1;
+		goto done;
 	}
 	printf("encrypted:\n");
 	PVDUMP(res1);
@@ -627,23 +706,26 @@ ciphertest_1 (const char *name,
 	res2 = (decrypt)(res1, key, iv);
 	if (res2 == NULL) {
 		printf("%s decryption failed.\n", name);
-		return -1;
+		rc = -1;
+		goto done;
 	}
 	printf("decrypted:\n");
 	PVDUMP(res2);
 
 	if (memcmp(data->v, res2->v, data->l)) {
 		printf("XXXX NG (%s) XXXX\n", name);
-		return -1;
+		rc = -1;
 	}
 	else
 		printf("%s cipher verified.\n", name);
+
+done:
 	vfree(res1);
 	vfree(res2);
 	vfree(buf);
 	vfree(iv);
 
-	return 0;
+	return rc;
 }
 
 int
@@ -654,6 +736,7 @@ ciphertest(ac, av)
 	vchar_t data;
 	vchar_t key;
 	vchar_t iv0;
+	int rc = 0;
 
 	printf("\n**Testing CIPHERS**\n");
 
@@ -664,48 +747,62 @@ ciphertest(ac, av)
 	key.v = str2val("f59bd70f 81b9b9cc 2a32c7fd 229a4b37", 16, &key.l);
 	iv0.v = str2val("26b68c90 9467b4ab 7ec29fa0 0b696b55", 16, &iv0.l);
 
-	if (ciphertest_1 ("DES", 
-			  &data, 8, 
-			  &key, 8, 
-			  &iv0, 8, 
+	/*
+	 * OpenSSL's optimized DES_set_key_unchecked() reads a few bytes
+	 * past the end of the 8-byte DES key it is given; pad the buffer
+	 * so that harmless over-read stays inside allocated memory instead
+	 * of tripping valgrind's "Invalid read" check.
+	 */
+	{
+		void *padded = realloc(key.v, key.l + 16);
+		if (padded == NULL)
+			err(1, "realloc");
+		key.v = padded;
+		memset((char *)key.v + key.l, 0, 16);
+	}
+
+	if (ciphertest_1 ("DES",
+			  &data, 8,
+			  &key, 8,
+			  &iv0, 8,
 			  eay_des_encrypt, eay_des_decrypt) < 0)
-	  return -1;
-	
+	  { rc = -1; goto done; }
+
 	if (ciphertest_1 ("3DES",
 			  &data, 8,
 			  &key, 24,
 			  &iv0, 8,
 			  eay_3des_encrypt, eay_3des_decrypt) < 0)
-	  return -1;
-	
+	  { rc = -1; goto done; }
+
 	if (ciphertest_1 ("AES",
 			  &data, 16,
 			  &key, key.l,
 			  &iv0, 16,
 			  eay_aes_encrypt, eay_aes_decrypt) < 0)
-	  return -1;
+	  { rc = -1; goto done; }
 
 	if (ciphertest_1 ("BLOWFISH",
 			  &data, 8,
 			  &key, key.l,
 			  &iv0, 8,
 			  eay_bf_encrypt, eay_bf_decrypt) < 0)
-	  return -1;
+	  { rc = -1; goto done; }
 
 	if (ciphertest_1 ("CAST",
 			  &data, 8,
 			  &key, key.l,
 			  &iv0, 8,
 			  eay_cast_encrypt, eay_cast_decrypt) < 0)
-	  return -1;
-	
+	  { rc = -1; goto done; }
+
 #if defined(HAVE_OPENSSL_IDEA_H) && ! defined(OPENSSL_NO_IDEA)
 	if (ciphertest_1 ("IDEA",
 			  &data, 8,
 			  &key, key.l,
 			  &iv0, 8,
 			  eay_idea_encrypt, eay_idea_decrypt) < 0)
-	  return -1;
+	  { rc = -1; goto done; }
 #endif
 
 #ifdef HAVE_OPENSSL_RC5_H
@@ -714,7 +811,7 @@ ciphertest(ac, av)
 			  &key, key.l,
 			  &iv0, 8,
 			  eay_rc5_encrypt, eay_rc5_decrypt) < 0)
-	  return -1;
+	  { rc = -1; goto done; }
 #endif
 #if defined(HAVE_OPENSSL_CAMELLIA_H) && ! defined(OPENSSL_NO_CAMELLIA)
 	if (ciphertest_1 ("CAMELLIA",
@@ -722,9 +819,14 @@ ciphertest(ac, av)
 			  &key, key.l,
 			  &iv0, 16,
 			  eay_camellia_encrypt, eay_camellia_decrypt) < 0)
-	  return -1;
+	  { rc = -1; goto done; }
 #endif
-	return 0;
+
+done:
+	free(data.v);
+	free(key.v);
+	free(iv0.v);
+	return rc;
 }
 
 int
@@ -944,6 +1046,8 @@ dhtest(ac, av)
 
 		if (eay_dh_generate(&p1, 2, 96, &pub1, &priv1) < 0) {
 			printf("error\n");
+			free(p1.v);
+			free(p2.v);
 			return -1;
 		}
 		printf("private key for user 1 = \n"); PVDUMP(priv1);
@@ -951,6 +1055,10 @@ dhtest(ac, av)
 
 		if (eay_dh_generate(&p2, 2, 96, &pub2, &priv2) < 0) {
 			printf("error\n");
+			vfree(pub1);
+			vfree(priv1);
+			free(p1.v);
+			free(p2.v);
 			return -1;
 		}
 		printf("private key for user 2 = \n"); PVDUMP(priv2);
@@ -970,6 +1078,14 @@ dhtest(ac, av)
 
 		if (memcmp(gxy1->v, gxy2->v, gxy1->l)) {
 			printf("ERROR: sharing gxy mismatched.\n");
+			vfree(pub1);
+			vfree(pub2);
+			vfree(priv1);
+			vfree(priv2);
+			vfree(gxy1);
+			vfree(gxy2);
+			free(p1.v);
+			free(p2.v);
 			return -1;
 		}
 
@@ -979,6 +1095,8 @@ dhtest(ac, av)
 		vfree(priv2);
 		vfree(gxy1);
 		vfree(gxy2);
+		free(p1.v);
+		free(p2.v);
 	}
 
 	return 0;
@@ -1000,6 +1118,264 @@ bntest(ac, av)
 	return 0;
 }
 
+int
+compat_test(ac, av)
+	int ac;
+	char **av;
+{
+	(void)ac;
+	(void)av;
+	int failed = 0;
+
+	printf("\n**Test for openssl_compat shim functions.**\n");
+
+	/* --- Test compat_DES_is_weak_key --- */
+	{
+		/* The 4 known DES weak keys */
+		DES_cblock weak_keys[4] = {
+			{ 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01 },
+			{ 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE },
+			{ 0x1F, 0x1F, 0x1F, 0x1F, 0x0E, 0x0E, 0x0E, 0x0E },
+			{ 0xE0, 0xE0, 0xE0, 0xE0, 0xF1, 0xF1, 0xF1, 0xF1 },
+		};
+		DES_cblock strong_key = { 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF };
+
+		int i;
+		for (i = 0; i < 4; i++) {
+			if (!compat_DES_is_weak_key(weak_keys[i])) {
+				printf("ERROR: compat_DES_is_weak_key did not detect weak key #%d\n", i);
+				failed++;
+			}
+		}
+		if (compat_DES_is_weak_key(strong_key)) {
+			printf("ERROR: compat_DES_is_weak_key falsely flagged a strong key\n");
+			failed++;
+		}
+		if (compat_DES_is_weak_key(NULL)) {
+			printf("ERROR: compat_DES_is_weak_key(NULL) should return 0\n");
+			failed++;
+		}
+	}
+
+	/* --- Test compat_RSA_get0_params --- */
+	{
+		EVP_PKEY_CTX *ctx = NULL;
+		EVP_PKEY *pkey = NULL;
+		RSA *rsa = NULL;
+		OSSL_PARAM_BLD *bld = NULL;
+		OSSL_PARAM *params = NULL;
+		BIGNUM *n = NULL, *e = NULL;
+		int is_private = 0;
+
+		/* Generate a test RSA keypair */
+		ctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
+		if (!ctx) {
+			printf("ERROR: EVP_PKEY_CTX_new_from_name failed\n");
+			failed++;
+			goto rsa_params_cleanup;
+		}
+		if (EVP_PKEY_keygen_init(ctx) <= 0 || EVP_PKEY_keygen(ctx, &pkey) <= 0) {
+			printf("ERROR: RSA key generation failed\n");
+			failed++;
+			goto rsa_params_cleanup;
+		}
+
+		rsa = compat_EVP_PKEY_get1_RSA(pkey);
+		if (!rsa) {
+			printf("ERROR: compat_EVP_PKEY_get1_RSA failed for generated key\n");
+			failed++;
+			goto rsa_params_cleanup;
+		}
+
+		const BIGNUM *out_n = NULL, *out_e = NULL, *out_d = NULL;
+		const BIGNUM *out_p = NULL, *out_q = NULL;
+		const BIGNUM *out_dmp1 = NULL, *out_dmq1 = NULL, *out_iqmp = NULL;
+
+		if (compat_RSA_get0_params(rsa, &out_n, &out_e, &out_d,
+					      &out_p, &out_q, &out_dmp1, &out_dmq1, &out_iqmp) != 0) {
+			printf("ERROR: compat_RSA_get0_params returned error\n");
+			failed++;
+		} else {
+			if (!out_n || !out_e || !out_d || !out_p || !out_q) {
+				printf("ERROR: RSA params are NULL (private key)\n");
+				failed++;
+			}
+			if (out_dmp1 && out_dmq1 && out_iqmp) {
+				is_private = 1;
+			}
+			if (!is_private) {
+				printf("ERROR: CRT params missing for private key\n");
+				failed++;
+			}
+		}
+
+		/* Test with partial NULL outputs */
+		if (compat_RSA_get0_params(rsa, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL) != 0) {
+			printf("ERROR: compat_RSA_get0_params with all-NULL outputs should succeed\n");
+			failed++;
+		}
+
+		/* Test with NULL rsa */
+		if (compat_RSA_get0_params(NULL, &out_n, &out_e, &out_d,
+					       &out_p, &out_q, &out_dmp1, &out_dmq1, &out_iqmp) != -1) {
+			printf("ERROR: compat_RSA_get0_params(NULL) should return -1\n");
+			failed++;
+		}
+
+		/* Test public-only extraction */
+		RSA *rsa_pub = NULL;
+		BIGNUM *pub_n = NULL, *pub_e = NULL;
+
+		pub_n = BN_dup(out_n);
+		pub_e = BN_dup(out_e);
+		rsa_pub = compat_RSA_new_from_params(pub_n, pub_e, NULL, NULL, NULL, NULL, NULL, NULL);
+		if (!rsa_pub) {
+			printf("ERROR: compat_RSA_new_from_params (pubkey) failed\n");
+			BN_free(pub_n);
+			BN_free(pub_e);
+			failed++;
+		} else {
+			const BIGNUM *pub_out_n = NULL, *pub_out_e = NULL, *pub_out_d = NULL;
+			const BIGNUM *pub_out_p = NULL, *pub_out_q = NULL;
+			const BIGNUM *pub_out_dmp1 = NULL, *pub_out_dmq1 = NULL, *pub_out_iqmp = NULL;
+
+			if (compat_RSA_get0_params(rsa_pub, &pub_out_n, &pub_out_e, &pub_out_d,
+						      &pub_out_p, &pub_out_q,
+						      &pub_out_dmp1, &pub_out_dmq1, &pub_out_iqmp) != 0) {
+				printf("ERROR: compat_RSA_get0_params on pubkey failed\n");
+				failed++;
+			} else {
+				if (!pub_out_n || !pub_out_e) {
+					printf("ERROR: pubkey n or e is NULL\n");
+					failed++;
+				}
+				if (pub_out_d || pub_out_p || pub_out_q) {
+					printf("ERROR: pubkey should have NULL private params\n");
+					failed++;
+				}
+			}
+			compat_RSA_free(rsa_pub);
+		}
+
+	rsa_params_cleanup:
+		if (rsa) compat_RSA_free(rsa);
+		if (pkey) EVP_PKEY_free(pkey);
+		compat_EVP_PKEY_CTX_free(ctx);
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+		if (bld) OSSL_PARAM_BLD_free(bld);
+		if (params) OSSL_PARAM_free(params);
+#endif
+		BN_free(n);
+		BN_free(e);
+	}
+
+	/* --- Test compat_EVP_PKEY_get1_RSA --- */
+	{
+		EVP_PKEY *pkey = NULL;
+		EVP_PKEY_CTX *ctx = NULL;
+
+		ctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
+		if (!ctx) {
+			printf("ERROR: EVP_PKEY_CTX_new_from_name failed\n");
+			failed++;
+			goto rsa_get1_cleanup;
+		}
+		if (EVP_PKEY_keygen_init(ctx) <= 0 || EVP_PKEY_keygen(ctx, &pkey) <= 0) {
+			printf("ERROR: RSA key generation failed\n");
+			failed++;
+			goto rsa_get1_cleanup;
+		}
+
+		/* Test NULL input */
+		if (compat_EVP_PKEY_get1_RSA(NULL) != NULL) {
+			printf("ERROR: compat_EVP_PKEY_get1_RSA(NULL) should return NULL\n");
+			failed++;
+		}
+
+		/* Test reference counting: get1_RSA twice, free both */
+		RSA *rsa1 = compat_EVP_PKEY_get1_RSA(pkey);
+		RSA *rsa2 = compat_EVP_PKEY_get1_RSA(pkey);
+		if (!rsa1 || !rsa2) {
+			printf("ERROR: compat_EVP_PKEY_get1_RSA returned NULL\n");
+			failed++;
+		}
+		compat_RSA_free(rsa1);
+		compat_RSA_free(rsa2);
+
+		/* After freeing both, pkey should still be valid */
+		RSA *rsa3 = compat_EVP_PKEY_get1_RSA(pkey);
+		if (!rsa3) {
+			printf("ERROR: compat_EVP_PKEY_get1_RSA failed after freeing prior refs\n");
+			failed++;
+		}
+		compat_RSA_free(rsa3);
+
+	rsa_get1_cleanup:
+		if (pkey) EVP_PKEY_free(pkey);
+		compat_EVP_PKEY_CTX_free(ctx);
+	}
+
+	if (failed) {
+		printf("ERROR: %d compat_test sub-tests failed\n", failed);
+		return -1;
+	}
+	printf("compat_test: all sub-tests passed\n");
+	return 0;
+}
+
+int
+eayrsa_test(ac, av)
+	int ac;
+	char **av;
+{
+	(void)ac;
+	(void)av;
+	char *text = "this is test of the eayRSA object.";
+	eayRSA *r = NULL;
+	vchar_t src, *sig = NULL;
+	int rc = -1;
+
+	printf("\n**Test for the eayRSA object.**\n");
+
+	r = eayRSA_generate(1024, RSA_F4);
+	if (r == NULL) {
+		printf("ERROR: eayRSA_generate failed. %s\n", eay_strerror());
+		return -1;
+	}
+
+	if (!eayRSA_has_private(r)) {
+		printf("ERROR: generated eayRSA key has no private component\n");
+		goto done;
+	}
+
+	src.v = text;
+	src.l = strlen(text);
+
+	sig = eayRSA_sign(r, &src);
+	if (sig == NULL) {
+		printf("ERROR: eayRSA_sign failed. %s\n", eay_strerror());
+		goto done;
+	}
+	printf("eayRSA signed data.\n");
+	PVDUMP(sig);
+
+	if (eayRSA_verify(r, &src, sig) != 0) {
+		printf("ERROR: eayRSA_verify failed to verify own signature\n");
+		goto done;
+	}
+	printf("eayRSA_verify: Verified. Good.\n");
+
+	rc = 0;
+
+done:
+	if (sig)
+		vfree(sig);
+	if (r)
+		eayRSA_free(r);
+
+	return rc;
+}
+
 struct {
 	char *name;
 	int (*func) __P((int, char **));
@@ -1014,6 +1390,8 @@ struct {
 	{ "cert", certtest, },
 #endif
 	{ "rsa", rsatest, },
+	{ "compat", compat_test, },
+	{ "eayrsa", eayrsa_test, },
 };
 
 int
@@ -1027,6 +1405,9 @@ main(ac, av)
 	f_foreground = 1;
 	ploginit();
 
+	/* Initialize crypto library */
+	eay_init();
+
 	printf ("\nTestsuite of the %s\nlinked with %s\n\n", TOP_PACKAGE_STRING, eay_version());
 
 	if (strcmp(*av, "-h") == 0)
@@ -1039,8 +1420,10 @@ main(ac, av)
 		if ((ac == 0) || (strcmp(*av, func[i].name) == 0)) {
 			if ((func[i].func)(ac, av) != 0) {
 				printf ("\n!!!!! Test '%s' failed. !!!!!\n\n", func[i].name);
+				check_openssl_errors(func[i].name); /* Check for hidden errors */
 				exit(1);
 			}
+			check_openssl_errors(func[i].name); /* Check even on success */
 			if (ac)
 				break;
 		}
@@ -1049,6 +1432,9 @@ main(ac, av)
 		Usage();
 
 	printf ("\n===== All tests passed =====\n\n");
+
+	eay_cleanup();
+
 	exit(0);
 }
 

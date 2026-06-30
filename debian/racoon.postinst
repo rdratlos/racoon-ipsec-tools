@@ -1,0 +1,86 @@
+#! /bin/sh
+# postinst script for racoon
+#
+# see: dh_installdeb(1)
+
+set -e
+
+# summary of how this script can be called:
+#        * <postinst> `configure' <most-recently-configured-version>
+#        * <old-postinst> `abort-upgrade' <new version>
+#        * <conflictor's-postinst> `abort-remove' `in-favour' <package>
+#          <new-version>
+#        * <deconfigured's-postinst> `abort-deconfigure' `in-favour'
+#          <failed-install-package> <version> `removing'
+#          <conflicting-package> <version>
+# for details, see http://www.debian.org/doc/debian-policy/ or
+# the debian-policy package
+#
+
+case "$1" in
+    configure)
+	if ! getent passwd racoon >/dev/null; then
+                adduser --quiet --system --group --no-create-home --home /var/lib/racoon --shell /bin/false racoon
+        fi
+        # Migrate from SysVinit to systemd: remove old init script and rc.d symlinks
+        if [ -n "$2" ]; then
+            rm -f /etc/init.d/racoon
+            rm -f /etc/rc*.d/*racoon
+        fi
+        # Load IPsec kernel modules required for NAT-T UDP encapsulation.
+        # On Ubuntu Noble/Resolute and similar kernels these are compiled as
+        # modules (=m) and not auto-loaded. The || true guards ensure
+        # installation never fails in containers or restricted environments.
+        if command -v modprobe >/dev/null 2>&1; then
+            for mod in esp4 esp6 udp_tunnel xfrm4_tunnel xfrm4_mode_tunnel xfrm4_mode_transport; do
+                modprobe "$mod" 2>/dev/null || true
+            done
+        fi
+    ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+    exit 0	
+    ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+    ;;
+esac
+
+INITCONFFILE=/etc/default/racoon
+
+# We generate several files during the postinst, and we don't want
+#       them to be readable only by root.
+umask 022
+
+# Generate configuration file if it does not exist, using default values.
+[ -r "${INITCONFFILE}" ] || {
+        echo Generating ${INITCONFFILE}... >&2
+        cat >${INITCONFFILE} <<'EOFMAGICNUMBER1234'
+# Defaults for racoon systemd service
+# sourced by racoon.service
+# installed at /etc/default/racoon by the maintainer scripts
+
+#
+# This is a POSIX shell fragment
+#
+
+# Arguments to pass to racoon (e.g., "-d" for debug, "-f /etc/racoon/racoon.conf" for custom config)
+RACOON_ARGS=""
+EOFMAGICNUMBER1234
+}
+
+# Migrate CONFIG_MODE=racoon-tool to direct mode (no-op, tool still shipped).
+if grep -q '^CONFIG_MODE=' "$INITCONFFILE" 2>/dev/null; then
+        sed -i '/^CONFIG_MODE=/d' "$INITCONFFILE"
+fi
+
+# Fix psk.txt permissions
+[ -f /etc/racoon/psk.txt ] && chmod 0600 /etc/racoon/psk.txt
+
+#DEBHELPER#
+
+exit 0
+
+

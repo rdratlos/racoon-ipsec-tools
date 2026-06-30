@@ -36,7 +36,7 @@ A:
 		Enable NAT-Traversal. This needs kernel support, which is
 		available on Linux. On NetBSD, NAT-Traversal kernel support
 		has not been integrated yet, you can get it from here:
-		http://ipsec-tools.sourceforge.net/netbsd_nat-t.diff
+		https://github.com/rdratlos/racoon-ipsec-tools (see Issues)
 		If you live in a country where software patents are legal,
 		using NAT-Traversal might infringe a patent. 
 	--enable-broken-natt:
@@ -98,17 +98,14 @@ A:
 		(maximum debug level)
 	- configuration file you are using
 	- probabaly, tcpdump trace
-	http://orange.kame.net/dev/send-pr.html has the guideline.
+	https://github.com/rdratlos/racoon-ipsec-tools/issues has the guideline.
 
-	If your question is not confidential, send your questions to:
-	<ipsec-tools-devel@lists.sourceforge.net>
-
-	If your question is confidential, send your questions to:
-	<ipsec-tools-core@lists.sourceforge.net>
+	Send your questions to:
+	https://github.com/rdratlos/racoon-ipsec-tools/issues
 
 Q: Other documents to look at?
 
 A:
-	http://www.NetBSD.org/docs/network/ipsec/
+	https://github.com/rdratlos/racoon-ipsec-tools
 	http://www.kame.net/
 	http://www.kame.net/newsletter/

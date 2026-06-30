@@ -28,6 +28,10 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include "config.h"
 
@@ -839,7 +843,7 @@ kernel_sync()
 {
 	caddr_t ref, buf, end;
 	size_t bufsiz;
-	struct if_msghdr *ifm;
+	struct rt_msghdr *rtm;
 	struct interface *ifp;
 
 #define MIBSIZ 6
@@ -862,8 +866,10 @@ kernel_sync()
 
 	if (sysctl(mib, MIBSIZ, buf, &bufsiz, NULL, 0) >= 0) {
 		/* Parse both interfaces and addresses. */
-		for (end = buf + bufsiz; buf < end; buf += ifm->ifm_msglen) {
-			ifm = (struct if_msghdr *) buf;
+		for (end = buf + bufsiz; buf < end; buf += rtm->rtm_msglen) {
+			rtm = (struct rt_msghdr *) buf;
+			if (rtm->rtm_version != RTM_VERSION)
+				continue;
 			kernel_handle_message(buf);
 		}
 	} else {

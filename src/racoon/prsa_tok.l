@@ -32,12 +32,17 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+/*
+ * Modifications Copyright (C) 2024-2026 Thomas Reim
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 /* This file contains a tokeniser for FreeS/WAN-style ipsec.secrets RSA keys. */
 
 #include <string.h>
 #include <openssl/bn.h>
 #include <openssl/rsa.h>
+#include "eay_rsa.h"
 #include "prsa_par.h"
 
 extern int prsalex (void);
