@@ -1,8 +1,41 @@
+ipsec-tools (1:0.9.0ubuntu1~focal1) focal; urgency=medium
+
+  * Rebuild for Ubuntu Focal.
+
+ -- Thomas Reim <reimth@etik.com>  Tue, 30 Jun 2026 19:54:44 +0000
+
 ipsec-tools (1:0.9.0) unstable; urgency=medium
 
   * New upstream release 0.9.0.
 
  -- Thomas Reim <reimth@etik.com>  Tue, 30 Jun 2026 16:17:10 +0000
+
+ipsec-tools (1:0.8.2+20140711-14) unstable; urgency=medium
+
+  * d/p/Use modern OpenSSL for Base64 encoding decoding
+  * d/p/Migrate to OpenSSL 1.1.0
+  * d/p/Replace API functions deprecated in OpenSSL 3.0
+  * d/p/Fix array against NULL comparison bug
+  * d/p/Provide compatibility functions for OpenSSL RSA
+  * d/p/Better handle different sockaddr types
+  * d/p/Add further unit tests for OpenSSL 3.0 migration
+
+ -- Thomas Reim <reimth@gmail.com>  Wed, 15 Oct 2025 22:13:42 +0200
+
+ipsec-tools (1:0.8.2+20140711-13ppa4~focal) focal; urgency=medium
+
+  * PPA build on Fri, 29 Sep 2023
+  * d/p/Fix pointers to packed struct members warnings
+  * Revert Debian patch 'Prepare for support of new gcc9 warnings'
+
+ -- Thomas Reim <reimth@gmail.com>  Wed, 27 Sep 2023 14:13:42 +0200
+
+ipsec-tools (1:0.8.2+20140711-13ppa3~focal) focal; urgency=medium
+
+  * PPA build on Wed, 27 Sep 2023
+  * Rebuild on latest Ubuntu 20.04
+
+ -- Thomas Reim <reimth@gmail.com>  Wed, 27 Sep 2023 14:13:42 +0200
 
 ipsec-tools (1:0.8.2+20140711-13) unstable; urgency=medium
 
