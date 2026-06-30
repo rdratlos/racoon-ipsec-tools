@@ -6,7 +6,12 @@ ACLOCAL_AMFLAGS = -I m4
 
 SUBDIRS = src test @RPM@
 
-DIST_SUBDIRS = src test packaging/rpm
+# DIST_SUBDIRS intentionally omitted: with no override, Automake defaults
+# it to $(SUBDIRS), which already resolves packaging/rpm via the opaque
+# @RPM@ substitution (set by configure.ac only when the directory exists).
+# A literal "packaging/rpm" here would be statically validated by Automake
+# at autoreconf time, breaking builds from the Debian native source
+# tarball where packaging/ is intentionally excluded.
 
 EXTRA_DIST = bootstrap README NEWS.md depcomp docs/history/ChangeLog docs/history/ChangeLog.old docs/history/NEWS packaging/arch
 

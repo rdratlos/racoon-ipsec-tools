@@ -62,7 +62,7 @@ case $host in
 	LIBS="$LIBS -lresolv"
 	INSTALL_OPTS="-o bin -g bin"
 	INCLUDE_GLIBC="include-glibc"
-	RPM="packaging/rpm"
+	AS_IF([test -d "$srcdir/packaging/rpm/suse"], [RPM="packaging/rpm"])
 	AC_SUBST(INSTALL_OPTS)
 	AC_SUBST(INCLUDE_GLIBC)
 	AC_SUBST(RPM)
@@ -1046,8 +1046,21 @@ AC_CONFIG_FILES([
   src/racoon/samples/psk.txt
   src/racoon/samples/racoon.conf
   test/Makefile
+  ])
+
+dnl packaging/rpm is excluded from the Debian/Ubuntu native source
+dnl tarball (see debian/source/local-options). Only wire up its
+dnl Makefile.in inputs via AC_CONFIG_FILES when the directory is
+dnl actually present in the tree at autoreconf time; Automake
+dnl validates AC_CONFIG_FILES targets when configure.ac is processed,
+dnl so this check must happen at m4 expansion time, not ./configure
+dnl runtime.
+m4_if(m4_esyscmd_s([test -d packaging/rpm/suse && echo yes]), [yes], [
+AC_CONFIG_FILES([
   packaging/rpm/Makefile
   packaging/rpm/suse/Makefile
   packaging/rpm/suse/ipsec-tools.spec
   ])
+])
+
 AC_OUTPUT
