@@ -3,6 +3,11 @@ ipsec-tools (1:0.9.1) unstable; urgency=medium
   * New upstream release 0.9.1.
 
  -- Thomas Reim <reimth@etik.com>  Tue, 11 Aug 2026 10:33:27 +0200
+ipsec-tools (1:0.9.0ubuntu1~resolute1) resolute; urgency=medium
+
+  * Rebuild for Ubuntu Resolute.
+
+ -- Thomas Reim <reimth@etik.com>  Tue, 30 Jun 2026 13:38:58 +0000
 
 ipsec-tools (1:0.9.0) unstable; urgency=medium
 
