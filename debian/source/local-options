@@ -1,0 +1,7 @@
+# debian/source/local-options
+tar-ignore=.git
+tar-ignore=.github
+tar-ignore=packaging
+tar-ignore=.gitattributes
+tar-ignore=.gitignore
+tar-ignore=scripts/setup-dev-env.sh
