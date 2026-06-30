@@ -1,3 +1,14 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)"
+            srcset="docs/admin-guide/images/racoon-ipsec-tools-logo-dark.png">
+    <source media="(prefers-color-scheme: light)"
+            srcset="docs/admin-guide/images/racoon-ipsec-tools-logo-light.png">
+    <img src="docs/admin-guide/images/racoon-ipsec-tools-logo-light.png"
+         alt="racoon-ipsec-tools logo" width="160">
+  </picture>
+</p>
+
 # ipsec-tools / racoon
 
 A maintained Linux-focused continuation of the historical ipsec-tools project.
