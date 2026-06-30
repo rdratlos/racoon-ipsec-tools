@@ -96,7 +96,7 @@ override_dh_installinit:
 	dh_installinit --remaining-packages
 
 override_dh_installchangelogs:
-	dh_installchangelogs --no-trim NEWS.md
+	dh_installchangelogs NEWS.md
 
 override_dh_installexamples:
 	dh_installexamples -pracoon -X.in src/racoon/samples
