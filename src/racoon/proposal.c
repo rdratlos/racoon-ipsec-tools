@@ -48,6 +48,7 @@
 
 #include "var.h"
 #include "misc.h"
+#include "kernelpaws.h"
 #include "vmbuf.h"
 #include "plog.h"
 #include "sockmisc.h"
@@ -1059,7 +1060,7 @@ set_proposal_from_policy(iph2, sp_main, sp_sub)
 	 */
 	for (req = sp_main->req; req; req = req->next) {
 		if (req->saidx.mode == IPSEC_MODE_TUNNEL) {
-			encmodesv = pfkey2ipsecdoi_mode(req->saidx.mode);
+			encmodesv = kernelpaws_backend->backend2doi_mode(req->saidx.mode);
 #ifdef ENABLE_NATT
 			if (iph2->ph1 && (iph2->ph1->natt_flags & NAT_DETECTED))
 				encmodesv += iph2->ph1->natt_options->mode_udp_diff;
@@ -1105,7 +1106,7 @@ set_proposal_from_policy(iph2, sp_main, sp_sub)
 		else
 			newpr->spisize = 4;
 		if (lcconf->complex_bundle) {
-			newpr->encmode = pfkey2ipsecdoi_mode(req->saidx.mode);
+			newpr->encmode = kernelpaws_backend->backend2doi_mode(req->saidx.mode);
 #ifdef ENABLE_NATT
 			if (iph2->ph1 && (iph2->ph1->natt_flags & NAT_DETECTED))
 				newpr->encmode += 

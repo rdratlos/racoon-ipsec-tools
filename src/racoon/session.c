@@ -91,6 +91,7 @@
 #include "privsep.h"
 #include "oakley.h"
 #include "pfkey.h"
+#include "kernelpaws.h"
 #include "handler.h"
 #include "localconf.h"
 #include "remoteconf.h"
@@ -194,8 +195,9 @@ session(void)
 	sched_init();
 	init_signal();
 
-	if (pfkey_init() < 0)
-		errx(1, "failed to initialize pfkey socket");
+	kernelpaws_select_backend_pfkeyv2();
+	if (kernelpaws_init() < 0)
+		errx(1, "failed to initialize kernelpaws socket");
 
 	if (isakmp_init() < 0)
 		errx(1, "failed to initialize ISAKMP structures");
@@ -404,7 +406,7 @@ static void reload_conf(){
 	xauth_radius_init_conf(1);
 #endif
 
-	pfkey_reload();
+	kernelpaws_reload();
 
 	save_params();
 	flushlcconf();

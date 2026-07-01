@@ -60,6 +60,7 @@
 
 #include "var.h"
 #include "misc.h"
+#include "kernelpaws.h"
 #include "vmbuf.h"
 #include "plog.h"
 #include "sockmisc.h"

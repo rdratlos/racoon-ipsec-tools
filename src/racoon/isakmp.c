@@ -91,6 +91,7 @@
 #include "handler.h"
 #include "ipsec_doi.h"
 #include "pfkey.h"
+#include "kernelpaws.h"
 #include "crypto_openssl.h"
 #include "policy.h"
 #include "algorithm.h"
@@ -1344,7 +1345,7 @@ isakmp_ph2begin_r(iph1, msg)
 	iph2->status = PHASE2ST_START;
 	iph2->flags = isakmp->flags;
 	iph2->msgid = isakmp->msgid;
-	iph2->seq = pk_getseq();
+	iph2->seq = kernelpaws_backend->getseq();
 	iph2->ivm = oakley_newiv2(iph1, iph2->msgid);
 	if (iph2->ivm == NULL) {
 		delph2(iph2);
@@ -2362,13 +2363,13 @@ isakmp_chkph1there(iph2)
 		plog(LLV_ERROR, LOCATION, iph2->dst,
 			"phase2 negotiation failed "
 			"due to time up waiting for phase1. %s\n",
-			sadbsecas2str(iph2->dst, iph2->src,
+			kernelpaws_backend->secas2str(iph2->dst, iph2->src,
 				iph2->satype, 0, 0));
 		plog(LLV_INFO, LOCATION, NULL,
 			"delete phase 2 handler.\n");
 
 		/* send acquire to kernel as error */
-		pk_sendeacquire(iph2);
+		kernelpaws_backend->sendeacquire(iph2);
 
 		remph2(iph2);
 		delph2(iph2);
@@ -3278,10 +3279,10 @@ purge_remote(iph1)
 	 * Delete all orphaned or binded to the deleting ph1handle phase2 SAs.
 	 * Keep all others phase2 SAs.
 	 */
-	buf = pfkey_dump_sadb(SADB_SATYPE_UNSPEC);
+	buf = kernelpaws_backend->dump_sadb(SADB_SATYPE_UNSPEC);
 	if (buf == NULL) {
 		plog(LLV_DEBUG, LOCATION, NULL,
-			"pfkey_dump_sadb returned nothing.\n");
+			"kernelpaws dump_sadb returned nothing.\n");
 		return;
 	}
 
@@ -3311,7 +3312,7 @@ purge_remote(iph1)
 			msg = next;
 			continue;
 		}
-		pk_fixup_sa_addresses(mhp);
+		kernelpaws_backend->fixup_sa_addresses(mhp);
 		src = PFKEY_ADDR_SADDR(mhp[SADB_EXT_ADDRESS_SRC]);
 		dst = PFKEY_ADDR_SADDR(mhp[SADB_EXT_ADDRESS_DST]);
 
@@ -3335,7 +3336,7 @@ purge_remote(iph1)
 			continue;
 		}
 
-		proto_id = pfkey2ipsecdoi_proto(msg->sadb_msg_satype);
+		proto_id = kernelpaws_backend->backend2doi_proto(msg->sadb_msg_satype);
 		iph2 = getph2bysaidx(src, dst, proto_id, sa->sadb_sa_spi);
 
 		/* Check if there is another valid ISAKMP-SA */
@@ -3624,7 +3625,7 @@ delete_spd(iph2, created)
 	/* End of code from get_proposal_r
 	 */
 
-	if (pk_sendspddelete(iph2) < 0) {
+	if (kernelpaws_backend->sendspddelete(iph2) < 0) {
 		plog(LLV_ERROR, LOCATION, NULL,
 			 "pfkey spddelete(inbound) failed.\n");
 	}else{
@@ -3636,7 +3637,7 @@ delete_spd(iph2, created)
 	/* make forward policy if required */
 	if (tunnel_mode_prop(iph2->approval)) {
 		spidx.dir = IPSEC_DIR_FWD;
-		if (pk_sendspddelete(iph2) < 0) {
+		if (kernelpaws_backend->sendspddelete(iph2) < 0) {
 			plog(LLV_ERROR, LOCATION, NULL,
 				 "pfkey spddelete(forward) failed.\n");
 		}else{
@@ -3657,7 +3658,7 @@ delete_spd(iph2, created)
 	spidx.prefs = spidx.prefd;
 	spidx.prefd = pref;
 
-	if (pk_sendspddelete(iph2) < 0) {
+	if (kernelpaws_backend->sendspddelete(iph2) < 0) {
 		plog(LLV_ERROR, LOCATION, NULL,
 			 "pfkey spddelete(outbound) failed.\n");
 	}else{

@@ -11,7 +11,7 @@ lib_LTLIBRARIES = libracoon.la
 
 adminsockdir=${localstatedir}/racoon
 
-BUILT_SOURCES = cfparse.h prsa_par.h
+BUILT_SOURCES = cfparse.h prsa_par.h policy_parse.h
 AM_CPPFLAGS = -I${srcdir}/../libipsec
 AM_CFLAGS = -D_GNU_SOURCE @GLIBC_BUGS@ -DSYSCONFDIR=\"${sysconfdir}\" \
 	-DADMINPORTDIR=\"${adminsockdir}\" \
@@ -28,6 +28,9 @@ AM_LFLAGS = ${$*_LFLAGS}
 
 prsa_par_YFLAGS = -p prsa
 prsa_tok_LFLAGS = -Pprsa -olex.yy.c
+# api.prefix is set via %define api.prefix {__pol} in policy_parse.y
+# No --api.prefix on command line (Bison <3.7.2 doesn't accept it)
+policy_token_LFLAGS = -P__pol -olex.yy.c
 
 MISSING_ALGOS = \
 	missing/crypto/sha2/sha2.c \
@@ -41,14 +44,19 @@ racoon_SOURCES = \
 	gssapi.c dnssec.c getcertsbyname.c privsep.c \
 	pfkey.c admin.c evt.c ipsec_doi.c oakley.c grabmyaddr.c vendorid.c \
 	policy.c localconf.c remoteconf.c crypto_openssl.c algorithm.c \
+	kernelpaws.c kernelpaws_pfkeyv2.c kernelpaws_xfrm.c \
 	openssl_compat.c eay_rsa.c proposal.c sainfo.c strnames.c \
 	plog.c logger.c schedule.c str2val.c \
 	safefile.c backupsa.c genlist.c rsalist.c \
-	cftoken.l cfparse.y prsa_tok.l prsa_par.y
+	cftoken.l cfparse.y prsa_tok.l prsa_par.y \
+	policy_parse.y policy_token.l \
+	ipsec_strerror.c ipsec_hexdump.c ipsec_get_policylen.c \
+	libipsec_pfkey.c libipsec_pfkey_dump.c \
+	ipsec_dump_policy.c ipsec_strerror.h
 EXTRA_racoon_SOURCES = isakmp_xauth.c isakmp_cfg.c isakmp_unity.c throttle.c \
 	isakmp_frag.c nattraversal.c security.c $(MISSING_ALGOS)
 racoon_LDADD = $(CRYPTOBJS) $(HYBRID_OBJS) $(NATT_OBJS) $(FRAG_OBJS) $(LEXLIB) \
-	 $(SECCTX_OBJS) vmbuf.o sockmisc.o misc.o ../libipsec/libipsec.la
+	 $(SECCTX_OBJS) vmbuf.o sockmisc.o misc.o
 racoon_DEPENDENCIES = \
 	$(CRYPTOBJS) $(HYBRID_OBJS) $(NATT_OBJS) $(FRAG_OBJS) $(SECCTX_OBJS) \
 	vmbuf.o sockmisc.o misc.o
@@ -161,7 +169,10 @@ MAINTAINERCLEANFILES = \
     cfparse.h \
     prsa_tok.c \
     prsa_par.c \
-    prsa_par.h
+    prsa_par.h \
+    policy_parse.c \
+    policy_parse.h \
+    policy_token.c
 
 DEPRECATION_REPORT_DIR = deprecation-report
 DEPRECATION_SCRIPT     = $(top_srcdir)/tools/gen_deprecation_report.py

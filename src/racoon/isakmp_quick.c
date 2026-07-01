@@ -60,6 +60,7 @@
 #include "vmbuf.h"
 #include "schedule.h"
 #include "misc.h"
+#include "kernelpaws.h"
 #include "plog.h"
 #include "debug.h"
 
@@ -120,7 +121,7 @@ quick_timeover(iph2)
 
 	/* If initiator side, send error to kernel by SADB_ACQUIRE. */
 	if (iph2->side == INITIATOR)
-		pk_sendeacquire(iph2);
+		kernelpaws_backend->sendeacquire(iph2);
 
 	remph2(iph2);
 	delph2(iph2);
@@ -160,7 +161,7 @@ quick_i1prep(iph2, msg)
 	}
 
 	/* send getspi message */
-	if (pk_sendgetspi(iph2) < 0)
+	if (kernelpaws_backend->sendgetspi(iph2) < 0)
 		goto end;
 
 	plog(LLV_DEBUG, LOCATION, NULL, "pfkey getspi sent.\n");
@@ -887,14 +888,14 @@ quick_i2send(iph2, msg0)
 
 	/* Do UPDATE for initiator */
 	plog(LLV_DEBUG, LOCATION, NULL, "call pk_sendupdate\n");
-	if (pk_sendupdate(iph2) < 0) {
+	if (kernelpaws_backend->sendupdate(iph2) < 0) {
 		plog(LLV_ERROR, LOCATION, NULL, "pfkey update failed.\n");
 		goto end;
 	}
 	plog(LLV_DEBUG, LOCATION, NULL, "pfkey update sent.\n");
 
 	/* Do ADD for responder */
-	if (pk_sendadd(iph2) < 0) {
+	if (kernelpaws_backend->sendadd(iph2) < 0) {
 		plog(LLV_ERROR, LOCATION, NULL, "pfkey add failed.\n");
 		goto end;
 	}
@@ -1030,14 +1031,14 @@ quick_i3recv(iph2, msg0)
 
 	/* Do UPDATE for initiator */
 	plog(LLV_DEBUG, LOCATION, NULL, "call pk_sendupdate\n");
-	if (pk_sendupdate(iph2) < 0) {
+	if (kernelpaws_backend->sendupdate(iph2) < 0) {
 		plog(LLV_ERROR, LOCATION, NULL, "pfkey update failed.\n");
 		goto end;
 	}
 	plog(LLV_DEBUG, LOCATION, NULL, "pfkey update sent.\n");
 
 	/* Do ADD for responder */
-	if (pk_sendadd(iph2) < 0) {
+	if (kernelpaws_backend->sendadd(iph2) < 0) {
 		plog(LLV_ERROR, LOCATION, NULL, "pfkey add failed.\n");
 		goto end;
 	}
@@ -1449,7 +1450,7 @@ quick_r1prep(iph2, msg)
 	iph2->status = PHASE2ST_GETSPISENT;
 
 	/* send getspi message */
-	if (pk_sendgetspi(iph2) < 0)
+	if (kernelpaws_backend->sendgetspi(iph2) < 0)
 		goto end;
 
 	plog(LLV_DEBUG, LOCATION, NULL, "pfkey getspi sent.\n");
@@ -1984,14 +1985,14 @@ quick_r3prep(iph2, msg0)
 
 	/* Do UPDATE as responder */
 	plog(LLV_DEBUG, LOCATION, NULL, "call pk_sendupdate\n");
-	if (pk_sendupdate(iph2) < 0) {
+	if (kernelpaws_backend->sendupdate(iph2) < 0) {
 		plog(LLV_ERROR, LOCATION, NULL, "pfkey update failed.\n");
 		goto end;
 	}
 	plog(LLV_DEBUG, LOCATION, NULL, "pfkey update sent.\n");
 
 	/* Do ADD for responder */
-	if (pk_sendadd(iph2) < 0) {
+	if (kernelpaws_backend->sendadd(iph2) < 0) {
 		plog(LLV_ERROR, LOCATION, NULL, "pfkey add failed.\n");
 		goto end;
 	}
@@ -2012,7 +2013,7 @@ quick_r3prep(iph2, msg0)
 		/* make inbound policy */
 		iph2->src = dst;
 		iph2->dst = src;
-		if (pk_sendspdupdate2(iph2) < 0) {
+		if (kernelpaws_backend->sendspdupdate2(iph2) < 0) {
 			plog(LLV_ERROR, LOCATION, NULL,
 				"pfkey spdupdate2(inbound) failed.\n");
 			goto end;
@@ -2025,7 +2026,7 @@ quick_r3prep(iph2, msg0)
 		/* make forward policy if required */
 		if (tunnel_mode_prop(iph2->approval)) {
 			spidx->dir = IPSEC_DIR_FWD;
-			if (pk_sendspdupdate2(iph2) < 0) {
+			if (kernelpaws_backend->sendspdupdate2(iph2) < 0) {
 				plog(LLV_ERROR, LOCATION, NULL,
 					"pfkey spdupdate2(forward) failed.\n");
 				goto end;
@@ -2046,7 +2047,7 @@ quick_r3prep(iph2, msg0)
 		spidx->prefs = spidx->prefd;
 		spidx->prefd = pref;
 
-		if (pk_sendspdupdate2(iph2) < 0) {
+		if (kernelpaws_backend->sendspdupdate2(iph2) < 0) {
 			plog(LLV_ERROR, LOCATION, NULL,
 				"pfkey spdupdate2(outbound) failed.\n");
 			goto end;

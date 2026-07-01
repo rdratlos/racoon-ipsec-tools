@@ -67,6 +67,7 @@
 #include "schedule.h"
 #include "str2val.h"
 #include "misc.h"
+#include "kernelpaws.h"
 #include "plog.h"
 #include "debug.h"
 
@@ -1124,7 +1125,7 @@ purge_ipsec_spi(dst0, proto, spi, n)
 	plog(LLV_DEBUG2, LOCATION, NULL, "dst0: %s\n", saddr2str(dst0));
 	plog(LLV_DEBUG2, LOCATION, NULL, "SPI: %08X\n", ntohl(spi[0]));
 
-	buf = pfkey_dump_sadb(ipsecdoi2pfkey_proto(proto));
+	buf = kernelpaws_backend->dump_sadb(kernelpaws_backend->doi2backend_proto(proto));
 	if (buf == NULL) {
 		plog(LLV_DEBUG, LOCATION, NULL,
 			"pfkey_dump_sadb returned nothing.\n");
@@ -1157,7 +1158,7 @@ purge_ipsec_spi(dst0, proto, spi, n)
 			msg = next;
 			continue;
 		}
-		pk_fixup_sa_addresses(mhp);
+		kernelpaws_backend->fixup_sa_addresses(mhp);
 		src = PFKEY_ADDR_SADDR(mhp[SADB_EXT_ADDRESS_SRC]);
 		dst = PFKEY_ADDR_SADDR(mhp[SADB_EXT_ADDRESS_DST]);
 		lt = (struct sadb_lifetime*)mhp[SADB_EXT_LIFETIME_HARD];
@@ -1266,7 +1267,7 @@ isakmp_info_recv_initialcontact(iph1, protectedph2)
 	 * or we can do it the hard way.
 	 */
 	for (i = 0; i < pfkey_nsatypes; i++) {
-		proto_id = pfkey2ipsecdoi_proto(pfkey_satypes[i].ps_satype);
+		proto_id = kernelpaws_backend->backend2doi_proto(pfkey_satypes[i].ps_satype);
 
 		plog(LLV_INFO, LOCATION, NULL,
 		    "purging %s SAs for %s -> %s\n",
@@ -1308,7 +1309,7 @@ isakmp_info_recv_initialcontact(iph1, protectedph2)
 	racoon_free(rem);
 #endif
 
-	buf = pfkey_dump_sadb(SADB_SATYPE_UNSPEC);
+	buf = kernelpaws_backend->dump_sadb(SADB_SATYPE_UNSPEC);
 	if (buf == NULL) {
 		plog(LLV_DEBUG, LOCATION, NULL,
 			"pfkey_dump_sadb returned nothing.\n");
@@ -1338,7 +1339,7 @@ isakmp_info_recv_initialcontact(iph1, protectedph2)
 			continue;
 
 		sa = (struct sadb_sa *)mhp[SADB_EXT_SA];
-		pk_fixup_sa_addresses(mhp);
+		kernelpaws_backend->fixup_sa_addresses(mhp);
 		src = PFKEY_ADDR_SADDR(mhp[SADB_EXT_ADDRESS_SRC]);
 		dst = PFKEY_ADDR_SADDR(mhp[SADB_EXT_ADDRESS_DST]);
 
@@ -1391,7 +1392,7 @@ isakmp_info_recv_initialcontact(iph1, protectedph2)
 		 * continue to process if no relative phase 2 handler
 		 * exists.
 		 */
-		proto_id = pfkey2ipsecdoi_proto(msg->sadb_msg_satype);
+		proto_id = kernelpaws_backend->backend2doi_proto(msg->sadb_msg_satype);
 		iph2 = getph2bysaidx(src, dst, proto_id, sa->sadb_sa_spi);
 		if (iph2 && iph2 != protectedph2) {
 			delete_spd(iph2, 0);

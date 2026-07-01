@@ -64,6 +64,7 @@
 
 #include "var.h"
 #include "misc.h"
+#include "kernelpaws.h"
 #include "vmbuf.h"
 #include "plog.h"
 #include "sockmisc.h"
@@ -241,7 +242,7 @@ admin_process(so2, combuf)
 			u_int p;
 			p = admin2pfkey_proto(com->ac_proto);
 			if (p != -1) {
-				buf = pfkey_dump_sadb(p);
+				buf = kernelpaws_backend->dump_sadb(p);
 				if (buf == NULL)
 					l_ac_errno = ENOMEM;
 			} else
@@ -292,7 +293,7 @@ admin_process(so2, combuf)
 		case ADMIN_PROTO_IPSEC:
 		case ADMIN_PROTO_AH:
 		case ADMIN_PROTO_ESP:
-			pfkey_flush_sadb(com->ac_proto);
+			kernelpaws_backend->flush_sadb(com->ac_proto);
 			break;
 		case ADMIN_PROTO_INTERNAL:
 			/*XXX flushph2();*/
@@ -564,7 +565,7 @@ admin_process(so2, combuf)
 			iph2->side = INITIATOR;
 			iph2->satype = admin2pfkey_proto(com->ac_proto);
 			iph2->spid = sp_out->id;
-			iph2->seq = pk_getseq();
+			iph2->seq = kernelpaws_backend->getseq();
 			iph2->status = PHASE2ST_STATUS2;
 
                         if (sp_out->local && sp_out->remote) {
