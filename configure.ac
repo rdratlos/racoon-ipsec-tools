@@ -4,7 +4,7 @@ dnl Modifications Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools
 dnl SPDX-License-Identifier: BSD-3-Clause
 
 AC_PREREQ(2.69)
-AC_INIT([ipsec-tools], [0.9.0], [https://github.com/rdratlos/racoon-ipsec-tools/issues], [ipsec-tools], [https://github.com/rdratlos/racoon-ipsec-tools])
+AC_INIT([ipsec-tools], [0.9.1], [https://github.com/rdratlos/racoon-ipsec-tools/issues], [ipsec-tools], [https://github.com/rdratlos/racoon-ipsec-tools])
 AC_CONFIG_SRCDIR([configure.ac])
 AC_CONFIG_HEADERS(config.h)
 AC_CONFIG_MACRO_DIRS([m4])
