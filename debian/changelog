@@ -12,6 +12,11 @@ ipsec-tools (1:0.9.0.1) unstable; urgency=high
     GitHub: https://github.com/rdratlos/racoon-ipsec-tools/issues/76
 
  -- Thomas Reim <reimth@etik.com>  Wed, 15 Jul 2026 16:14:18 +0000
+ipsec-tools (1:0.9.0ubuntu1~noble1) noble; urgency=medium
+
+  * Rebuild for Ubuntu Noble.
+
+ -- Thomas Reim <reimth@etik.com>  Wed, 01 Jul 2026 05:31:51 +0000
 
 ipsec-tools (1:0.9.0) unstable; urgency=medium
 
