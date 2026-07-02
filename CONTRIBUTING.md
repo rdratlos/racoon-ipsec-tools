@@ -29,6 +29,29 @@ Please submit changes as GitHub pull requests.
 
 Small, focused commits with clear commit messages are preferred.
 
+## Branch Maintenance
+
+### Tree-separation policy (`main` vs `develop`)
+
+Some paths are intentionally branch-specific:
+
+- `.github/` (CI workflows) lives on `main` only.
+- `.claude/` (Claude Code developer tooling) lives on `develop` only.
+
+**Manual step (not automated):** before merging `main` into `develop`,
+run `git diff --stat` and confirm that **no `.github/` paths appear** in
+the merge. If any do, back them out so `.github/` stays off `develop`.
+
+```bash
+git checkout develop
+git merge --no-commit --no-ff main
+git diff --stat --cached        # inspect: no .github/ paths should appear
+```
+
+There is no automated guard for this direction — the `.claude/`-on-`main`
+guard is enforced in CI, but keeping `.github/` off `develop` is a manual
+review responsibility at merge time.
+
 ## Security
 
 Please do not attach executable files or binary patches (such as ZIP, APK,
