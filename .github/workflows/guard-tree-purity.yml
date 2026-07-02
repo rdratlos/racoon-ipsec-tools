@@ -1,0 +1,74 @@
+# Tree-separation policy guard for `main`.
+#
+# Policy: `.claude/` (Claude Code developer tooling) belongs on `develop`
+# only and must NEVER land on `main`. `.github/` is the mirror rule that
+# lives on `main` only. This workflow enforces the `.claude/` half: any PR
+# into `main`, or any push to `main`, that touches a path under `.claude/`
+# fails the check so it cannot be merged/landed.
+#
+# The guard inspects the *diff* (what the change introduces), not just the
+# final tree, so a PR that adds and then removes a `.claude/` file in the
+# same range is still flagged — the point is that `.claude/` paths have no
+# business appearing in changes aimed at `main`.
+
+name: Guard tree purity
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  no-claude-dir:
+    name: Reject .claude/ paths on main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for diffing)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if any .claude/ path appears in the diff
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          ZERO="0000000000000000000000000000000000000000"
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # Three-dot: paths the PR introduces relative to the merge base.
+            RANGE="${PR_BASE_SHA}...${PR_HEAD_SHA}"
+            echo "Pull request diff range: $RANGE"
+            CHANGED=$(git diff --name-only "$RANGE")
+          elif [ "$PUSH_BEFORE" = "$ZERO" ]; then
+            # Branch/tag creation or force-push with no prior tip we can
+            # diff against: fall back to scanning the whole pushed tree.
+            echo "No usable 'before' SHA; scanning full tree at $PUSH_AFTER"
+            CHANGED=$(git ls-tree -r --name-only "$PUSH_AFTER")
+          else
+            RANGE="${PUSH_BEFORE}..${PUSH_AFTER}"
+            echo "Push diff range: $RANGE"
+            CHANGED=$(git diff --name-only "$RANGE")
+          fi
+
+          OFFENDING=$(printf '%s\n' "$CHANGED" | grep -E '^\.claude/' || true)
+
+          if [ -n "$OFFENDING" ]; then
+            echo "::error::Tree-separation policy violation: .claude/ paths are not allowed on main."
+            echo "Offending paths:"
+            printf '%s\n' "$OFFENDING" | sed 's/^/  - /'
+            echo ""
+            echo ".claude/ is development tooling and belongs on the develop branch only."
+            exit 1
+          fi
+
+          echo "OK: no .claude/ paths in the change. Tree-separation policy satisfied."
