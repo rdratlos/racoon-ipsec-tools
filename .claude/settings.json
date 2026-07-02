@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CMD=$(cat | jq -r '.tool_input.command // empty' 2>/dev/null); if echo \"$CMD\" | grep -qE 'git commit' && ! echo \"$CMD\" | grep -q 'amend'; then MSG=$(git log -1 --pretty=%B); if echo \"$MSG\" | grep -q 'Co-Authored-By'; then NEW_MSG=$(echo \"$MSG\" | sed 's/Co-Authored-By:/Assisted-by:/'); git commit --amend -m \"$NEW_MSG\" --no-verify 2>/dev/null; echo '[Trailer] Replaced Co-Authored-By with Assisted-by' >&2; fi; fi; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
