@@ -63,5 +63,8 @@ extern int kernelpaws_init __P((void));
 extern int kernelpaws_reload __P((void));
 extern int kernelpaws_register_fd __P((void));
 extern void kernelpaws_select_backend_pfkeyv2 __P((void));
+#ifdef HAVE_XFRM
+extern void kernelpaws_select_backend_xfrm __P((void));
+#endif
 
 #endif /* _KERNELPAWS_H */

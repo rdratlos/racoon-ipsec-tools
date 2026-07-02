@@ -44,7 +44,7 @@ racoon_SOURCES = \
 	gssapi.c dnssec.c getcertsbyname.c privsep.c \
 	pfkey.c admin.c evt.c ipsec_doi.c oakley.c grabmyaddr.c vendorid.c \
 	policy.c localconf.c remoteconf.c crypto_openssl.c algorithm.c \
-	kernelpaws.c kernelpaws_pfkeyv2.c kernelpaws_xfrm.c \
+	kernelpaws.c kernelpaws_pfkeyv2.c \
 	openssl_compat.c eay_rsa.c proposal.c sainfo.c strnames.c \
 	plog.c logger.c schedule.c str2val.c \
 	safefile.c backupsa.c genlist.c rsalist.c \
@@ -53,6 +53,10 @@ racoon_SOURCES = \
 	ipsec_strerror.c ipsec_hexdump.c ipsec_get_policylen.c \
 	libipsec_pfkey.c libipsec_pfkey_dump.c \
 	ipsec_dump_policy.c ipsec_strerror.h
+
+if HAVE_XFRM
+racoon_SOURCES += kernelpaws_xfrm.c
+endif
 EXTRA_racoon_SOURCES = isakmp_xauth.c isakmp_cfg.c isakmp_unity.c throttle.c \
 	isakmp_frag.c nattraversal.c security.c $(MISSING_ALGOS)
 racoon_LDADD = $(CRYPTOBJS) $(HYBRID_OBJS) $(NATT_OBJS) $(FRAG_OBJS) $(LEXLIB) \

@@ -44,6 +44,9 @@
 #include "kernelpaws.h"
 
 extern const struct kernelpaws_ops *get_kernelpaws_pfkeyv2_backend __P((void));
+#ifdef HAVE_XFRM
+extern const struct kernelpaws_ops *get_kernelpaws_xfrm_backend __P((void));
+#endif
 
 const struct kernelpaws_ops *kernelpaws_backend = NULL;
 
@@ -76,3 +79,11 @@ kernelpaws_select_backend_pfkeyv2()
 {
 	kernelpaws_backend = get_kernelpaws_pfkeyv2_backend();
 }
+
+#ifdef HAVE_XFRM
+void
+kernelpaws_select_backend_xfrm()
+{
+	kernelpaws_backend = get_kernelpaws_xfrm_backend();
+}
+#endif

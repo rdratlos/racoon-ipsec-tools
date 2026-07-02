@@ -703,6 +703,20 @@ AS_IF([test "x$enable_gssapi" = "xyes"], [
 	LIBS=$saved_LIBS
 ])
 
+# Option --enable-xfrm
+AC_MSG_CHECKING(if --enable-xfrm option is specified)
+AC_ARG_ENABLE(xfrm,
+    [  --enable-xfrm           use XFRM netlink instead of PF_KEYv2 (default=no)],
+    [], [enable_xfrm=no])
+AC_MSG_RESULT($enable_xfrm)
+
+AS_IF([test "x$enable_xfrm" = "xyes"], [
+	AC_DEFINE([HAVE_XFRM], [], [Use XFRM netlink kernel backend])
+	AM_CONDITIONAL([HAVE_XFRM], [true])
+], [
+	AM_CONDITIONAL([HAVE_XFRM], [false])
+])
+
 AC_MSG_CHECKING(if --enable-stats option is specified)
 AC_ARG_ENABLE(stats,
         [  --enable-stats          enable statistics logging function],

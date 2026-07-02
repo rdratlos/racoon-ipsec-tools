@@ -384,7 +384,6 @@ done:
 	return buf;
 }
 
-#ifdef ENABLE_ADMINPORT
 /*
  * flush SADB
  */
@@ -394,9 +393,18 @@ pfkey_flush_sadb(proto)
 {
 	int satype;
 
-	/* convert to SADB_SATYPE */
-	if ((satype = admin2pfkey_proto(proto)) < 0)
+	/* convert ADMIN_PROTO to SADB_SATYPE inline to avoid admin.h dependency */
+	switch (proto) {
+	case SADB_SATYPE_UNSPEC:
+	case SADB_SATYPE_AH:
+	case SADB_SATYPE_ESP:
+		satype = proto;
+		break;
+	default:
+		plog(LLV_ERROR, LOCATION, NULL,
+			"unsupported proto for flush_sadb: %u\n", proto);
 		return;
+	}
 
 	plog(LLV_DEBUG, LOCATION, NULL, "call pfkey_send_flush\n");
 	if (pfkey_send_flush(lcconf->sock_pfkey, satype) < 0) {
@@ -407,7 +415,6 @@ pfkey_flush_sadb(proto)
 
 	return;
 }
-#endif
 
 /*
  * These are the SATYPEs that we manage.  We register to get

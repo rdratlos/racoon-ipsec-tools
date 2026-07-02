@@ -195,7 +195,11 @@ session(void)
 	sched_init();
 	init_signal();
 
+	#ifdef HAVE_XFRM
+	kernelpaws_select_backend_xfrm();
+#else
 	kernelpaws_select_backend_pfkeyv2();
+#endif
 	if (kernelpaws_init() < 0)
 		errx(1, "failed to initialize kernelpaws socket");
 
