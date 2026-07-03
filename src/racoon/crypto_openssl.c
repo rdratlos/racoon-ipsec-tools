@@ -3099,12 +3099,12 @@ eay_init()
 		openssl_default_provider = OSSL_PROVIDER_load(NULL, "default");
 		if (!openssl_default_provider) {
 			plog(LLV_ERROR, LOCATION, NULL,
-			     "Failed to load default provider: %s\n",
+			     "FATAL: Failed to load default provider: %s\n",
 			     eay_strerror());
-		} else {
-			plog(LLV_INFO, LOCATION, NULL,
-			     "Loaded OpenSSL default provider\n");
+			exit(1);
 		}
+		plog(LLV_INFO, LOCATION, NULL,
+		     "Loaded OpenSSL default provider\n");
 	}
 	/* Validate legacy cipher availability at startup for clear diagnostics */
 	validate_legacy_ciphers();
