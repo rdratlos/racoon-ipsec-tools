@@ -2174,15 +2174,15 @@ get_sainfo_r(iph2)
 	if (iph2->ph1->mode_cfg != NULL) {
 		if ((iph2->ph1->mode_cfg->flags & ISAKMP_CFG_ADDR4_EXTERN) ||
 		    (iph2->ph1->mode_cfg->flags & ISAKMP_CFG_ADDR4_LOCAL)){
-			struct sockaddr saddr;
-			saddr.sa_family = AF_INET;
+			struct sockaddr_in saddr;
+			memset(&saddr, 0, sizeof(saddr));
+			saddr.sin_family = AF_INET;
 #ifndef __linux__
-			saddr.sa_len = sizeof(struct sockaddr_in);
+			saddr.sin_len = sizeof(struct sockaddr_in);
 #endif
-			((struct sockaddr_in *)&saddr)->sin_port = IPSEC_PORT_ANY;
-			memcpy(&((struct sockaddr_in *)&saddr)->sin_addr, 
-				&iph2->ph1->mode_cfg->addr4, sizeof(struct in_addr));
-			client = ipsecdoi_sockaddr2id(&saddr, 32, IPSEC_ULPROTO_ANY);
+			saddr.sin_port = IPSEC_PORT_ANY;
+			saddr.sin_addr = iph2->ph1->mode_cfg->addr4;
+			client = ipsecdoi_sockaddr2id((struct sockaddr *)&saddr, 32, IPSEC_ULPROTO_ANY);
 		}
 	}
 
