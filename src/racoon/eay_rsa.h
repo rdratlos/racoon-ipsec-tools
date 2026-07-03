@@ -32,6 +32,15 @@
  */
 typedef struct eay_rsa_st eayRSA;
 
+/*
+ * Ownership cheat-sheet:
+ *  eayRSA_new_*   — copies inputs; caller keeps ownership of BIGNUMs
+ *  eayRSA_dup     — caller owns the result
+ *  eayRSA_get_params — outputs are NEWLY ALLOCATED; caller must free
+ *  eayRSA_free    — releases the eayRSA and underlying EVP_PKEY
+ *  eayRSA_evp_pkey — borrows the EVP_PKEY; do NOT free
+ */
+
 /* --- construction (caller owns the result; release with eayRSA_free) --- */
 
 /* Public key from modulus n and public exponent e. */

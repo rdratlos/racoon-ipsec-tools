@@ -3000,6 +3000,10 @@ eay_dh_compute(prime, g, pub, priv, pub2, key)
 		memset((*key)->v, 0, (*key)->l);
 		memcpy((*key)->v + (prime->l - secret_len), secret, secret_len);
 		error = 0;
+	} else {
+		plog(LLV_ERROR, LOCATION, NULL,
+		     "DH shared secret size mismatch: secret_len=%zu, prime->l=%zu, key->l=%zu\n",
+		     secret_len, (size_t)prime->l, (size_t)(*key)->l);
 	}
 
 end:

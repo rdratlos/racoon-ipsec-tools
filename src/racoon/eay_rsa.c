@@ -242,7 +242,7 @@ eayRSA_generate(int bits, unsigned long e)
 	}
 done:
 	BN_free(eb);      /* caller always owns eb under the normalized convention */
-	EVP_PKEY_CTX_free(ctx);
+	compat_EVP_PKEY_CTX_free(ctx);
 	return eayRSA_wrap(pkey);
 }
 
@@ -349,6 +349,7 @@ eayRSA_get_params(const eayRSA *r,
 		if (dmp1) BN_clear_free(*dmp1); \
 		if (dmq1) BN_clear_free(*dmq1); \
 		if (iqmp) BN_clear_free(*iqmp); \
+		ERR_clear_error(); \
 		return -1; \
 	} } while (0)
 

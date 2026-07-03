@@ -106,7 +106,7 @@ struct my_rsa_st {
 static struct my_rsa_st *rsa_cur;
 
 static void
-rsa_cur_free(struct my_rsa_st *r)
+rsa_cur_reset(struct my_rsa_st *r)
 {
 	if (r == NULL)
 		return;
@@ -120,7 +120,16 @@ rsa_cur_free(struct my_rsa_st *r)
 	BN_clear_free(r->dmp1);
 	BN_clear_free(r->dmq1);
 	BN_clear_free(r->iqmp);
+	/* Zero the struct so the next key starts clean, but do NOT free(). */
 	memset(r, 0, sizeof(*r));
+}
+
+static void
+rsa_cur_free(struct my_rsa_st *r)
+{
+	if (r == NULL)
+		return;
+	rsa_cur_reset(r);
 	free(r);
 }
 
@@ -252,7 +261,7 @@ rsa_statement:
 			rsa_cur = NULL;
 			YYABORT;
 		}
-		memset(rsa_cur, 0, sizeof(struct my_rsa_st));
+		rsa_cur_reset(rsa_cur);
 	}
 	| TAG_PUB BASE64
 	{
