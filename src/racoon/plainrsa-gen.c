@@ -98,6 +98,11 @@ mix_b64_pubkey(const eayRSA *key)
 	}
 	binlen = 1 + BN_num_bytes(e) + BN_num_bytes(n);
 	binbuf = malloc(binlen);
+	if (!binbuf) {
+		BN_free(e);
+		BN_free(n);
+		return NULL;
+	}
 	memset(binbuf, 0, binlen);
 	binbuf[0] = BN_bn2bin(e, (unsigned char *) &binbuf[1]);
 	ret = BN_bn2bin(n, (unsigned char *) (&binbuf[binbuf[0] + 1]));
