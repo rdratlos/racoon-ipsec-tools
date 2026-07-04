@@ -64,7 +64,8 @@ check_PROGRAMS = \
 	test_vmbuf \
 	test_sockmisc \
 	test_genlist \
-	test_eay_rsa
+	test_eay_rsa \
+	test_ipsec_doi_sa
 
 # Test 1: DH MODP Groups
 test_dh_modp_groups_SOURCES  = test_dh_modp_groups.c
@@ -142,6 +143,67 @@ test_genlist_LDFLAGS   = $(AM_LDFLAGS)
 test_eay_rsa_SOURCES  = test_eay_rsa.c
 test_eay_rsa_LDADD    = $(COMMON_LDADD)
 test_eay_rsa_LDFLAGS  = $(AM_LDFLAGS)
+
+# Test 11: ipsec_doi SA transform attribute bounds (ISSUE #37)
+#
+# t2isakmpsa() is static in ipsec_doi.c, so we compile that source here with
+# -DENABLE_UNITTEST to expose the t2isakmpsa_unittest() wrapper.  The rest of
+# ipsec_doi.c has a large dependency closure (oakley/isakmp/remoteconf/...),
+# so the source is built with -ffunction-sections and linked with
+# --gc-sections: the unused functions are discarded, leaving only
+# t2isakmpsa()'s handful of always-built dependencies (vmbuf/plog/logger/
+# strnames/misc).  This keeps the test independent of the configure feature
+# set (frag/hybrid/natt/...).
+#
+# ipsec_doi.c itself is pulled in via ipsec_doi_unittest_src.c (a local
+# wrapper that just #includes it) rather than referenced directly as a
+# _SOURCES entry, so the compiled object and its dependency (.Po) file
+# stay under test/.deps/ instead of $(top_builddir)/src/racoon/.deps/ --
+# some automake versions (e.g. Ubuntu Bionic's 1.15.1) fail to track
+# per-object dependency files for subdir-objects sources that live
+# outside the current top-level directory.
+test_ipsec_doi_sa_SOURCES  = test_ipsec_doi_sa.c ipsec_doi_test_stubs.c \
+	ipsec_doi_unittest_src.c
+test_ipsec_doi_sa_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_ipsec_doi_sa_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_ipsec_doi_sa_LDADD    = \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/strnames.o \
+	$(top_builddir)/src/racoon/misc.o
+test_ipsec_doi_sa_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+
+# Test 12: Vendor ID bounds — vendorid_frag_cap() (#38) and check_vendorid()
+# (#39).  Built only with --enable-frag, since vendorid_frag_cap() lives in
+# isakmp_frag.c (compiled only then).  vendorid.c is compiled with
+# -DENABLE_UNITTEST to expose check_vendorid_unittest(); both racoon sources
+# are built with -ffunction-sections and linked with --gc-sections so their
+# unused remainder is discarded.  ENABLE_FRAG comes from config.h, so it is
+# not passed on the command line (which would redefine it).
+#
+# vendorid.c and isakmp_frag.c are pulled in via local wrapper sources
+# (see the comment on test_ipsec_doi_sa_SOURCES above) so their .Po
+# dependency files stay under test/.deps/.
+if ENABLE_FRAG
+check_PROGRAMS += test_vendorid_bounds
+
+test_vendorid_bounds_SOURCES  = test_vendorid_bounds.c \
+	vendorid_unittest_src.c \
+	isakmp_frag_unittest_src.c
+test_vendorid_bounds_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_vendorid_bounds_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_vendorid_bounds_LDADD    = $(COMMON_LDADD)
+test_vendorid_bounds_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
 
 # Run these tests with 'make check'
 TESTS = $(check_PROGRAMS)
