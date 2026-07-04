@@ -154,7 +154,7 @@ test_eay_rsa_LDFLAGS  = $(AM_LDFLAGS)
 # t2isakmpsa()'s handful of always-built dependencies (vmbuf/plog/logger/
 # strnames/misc).  This keeps the test independent of the configure feature
 # set (frag/hybrid/natt/...).
-test_ipsec_doi_sa_SOURCES  = test_ipsec_doi_sa.c \
+test_ipsec_doi_sa_SOURCES  = test_ipsec_doi_sa.c ipsec_doi_test_stubs.c \
 	$(top_srcdir)/src/racoon/ipsec_doi.c
 test_ipsec_doi_sa_CPPFLAGS = $(AM_CPPFLAGS) \
 	-I$(top_srcdir)/src/libipsec \
