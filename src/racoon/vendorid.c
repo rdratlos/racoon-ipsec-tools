@@ -257,6 +257,20 @@ unknown:
 	return (VENDORID_UNKNOWN);
 }
 
+#ifdef ENABLE_UNITTEST
+/*
+ * Test-only accessor.  check_vendorid() is static; this wrapper is compiled
+ * in only under -DENABLE_UNITTEST (see the test_vendorid_bounds target in
+ * test/Makefile.am) so its Vendor ID length handling can be regression-tested
+ * without changing the production API.
+ */
+int
+check_vendorid_unittest(struct isakmp_gen *gen)
+{
+	return check_vendorid(gen);
+}
+#endif /* ENABLE_UNITTEST */
+
 int
 handle_vendorid(struct ph1handle *iph1, struct isakmp_gen *gen)
 {

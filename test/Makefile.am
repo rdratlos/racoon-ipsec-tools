@@ -170,6 +170,29 @@ test_ipsec_doi_sa_LDADD    = \
 	$(top_builddir)/src/racoon/misc.o
 test_ipsec_doi_sa_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 
+# Test 12: Vendor ID bounds — vendorid_frag_cap() (#38) and check_vendorid()
+# (#39).  Built only with --enable-frag, since vendorid_frag_cap() lives in
+# isakmp_frag.c (compiled only then).  vendorid.c is compiled with
+# -DENABLE_UNITTEST to expose check_vendorid_unittest(); both racoon sources
+# are built with -ffunction-sections and linked with --gc-sections so their
+# unused remainder is discarded.  ENABLE_FRAG comes from config.h, so it is
+# not passed on the command line (which would redefine it).
+if ENABLE_FRAG
+check_PROGRAMS += test_vendorid_bounds
+
+test_vendorid_bounds_SOURCES  = test_vendorid_bounds.c \
+	$(top_srcdir)/src/racoon/vendorid.c \
+	$(top_srcdir)/src/racoon/isakmp_frag.c
+test_vendorid_bounds_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_vendorid_bounds_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_vendorid_bounds_LDADD    = $(COMMON_LDADD)
+test_vendorid_bounds_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Run these tests with 'make check'
 TESTS = $(check_PROGRAMS)
 
