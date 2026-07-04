@@ -64,9 +64,10 @@ cryptographic code paths that unit tests exercise in isolation but cannot
 prove correct end-to-end; the PF_KEY-to-XFRM migration under discussion
 (issue #4) is a kernel-interface replacement that is only safely verifiable
 by observing real kernel SAD/SPD state under real negotiation traffic; and
-distribution packaging spans four Ubuntu releases (Bionic through Noble)
-whose install/upgrade/removal behaviour has already regressed silently more
-than once (see the Bionic build regression fixed alongside this RFC).
+distribution packaging spans five Ubuntu releases (Bionic through Resolute,
+the current LTS) whose install/upgrade/removal behaviour has already
+regressed silently more than once (see the Bionic build regression fixed
+alongside this RFC).
 
 ## 3. Problem Statement
 
@@ -644,7 +645,7 @@ none depends on completing a later milestone first.
 4. **Lifecycle and packaging.** Add `daemon-restart` and
    `package-install-upgrade-remove` scenarios, including systemd unit
    assertions, across the distributions the project packages for
-   (Bionic through Noble at minimum).
+   (Bionic through Resolute at minimum).
 5. **Interoperability breadth.** Add the `mixed-distro` topology, running
    the existing scenarios across mixed-distribution pairs rather than
    same-distribution pairs.
