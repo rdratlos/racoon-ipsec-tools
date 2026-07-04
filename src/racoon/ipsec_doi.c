@@ -426,6 +426,21 @@ t2isakmpsa(trns, sa, vendorid_mask)
 		type = ntohs(d->type) & ~ISAKMP_GEN_MASK;
 		flag = ntohs(d->type) & ISAKMP_GEN_MASK;
 
+		/*
+		 * Bounds-check the attribute before touching it: the fixed
+		 * isakmp_data header must fit in the remaining bytes, and for
+		 * TLV (long-form) attributes the attacker-supplied value length
+		 * must not exceed what is left in the transform.  Without this,
+		 * a crafted length field drives an out-of-bounds read in the
+		 * memcpy() calls below (and in the loop advance).  (CWE-125)
+		 */
+		if (tlen < (int)sizeof(*d) ||
+		    (!flag && ntohs(d->lorv) > tlen - (int)sizeof(*d))) {
+			plog(LLV_ERROR, LOCATION, NULL,
+				"malformed ISAKMP SA attribute (bad length)\n");
+			goto err;
+		}
+
 		plog(LLV_DEBUG, LOCATION, NULL,
 			"type=%s, flag=0x%04x, lorv=%s\n",
 			s_oakley_attr(type), flag,
