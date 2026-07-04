@@ -745,6 +745,22 @@ err:
 	return error;
 }
 
+#ifdef ENABLE_UNITTEST
+/*
+ * Test-only accessor.  t2isakmpsa() is static; this thin wrapper is compiled
+ * in only when this source is built with -DENABLE_UNITTEST (see the
+ * test_ipsec_doi_sa target in test/Makefile.am), so the SA transform
+ * attribute bounds checking can be regression-tested without changing the
+ * production API.
+ */
+int
+t2isakmpsa_unittest(struct isakmp_pl_t *trns, struct isakmpsa *sa,
+    u_int32_t vendorid_mask)
+{
+	return t2isakmpsa(trns, sa, vendorid_mask);
+}
+#endif /* ENABLE_UNITTEST */
+
 /*%%%*/
 /*
  * check phase 2 SA payload and select single proposal.
