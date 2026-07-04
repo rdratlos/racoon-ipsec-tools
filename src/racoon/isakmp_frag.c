@@ -168,6 +168,15 @@ vendorid_frag_cap(gen)
 {
 	int *hp;
 
+	/*
+	 * The capability dword follows the 16-byte MD5 VID hash.  A peer is
+	 * matched as FRAGMENTATION on the hash alone, so a truncated VID that
+	 * omits the capability field would otherwise cause a 4-byte
+	 * out-of-bounds read here.  Require the field to be present.  (CWE-125)
+	 */
+	if (ntohs(gen->len) < sizeof(*gen) + MD5_DIGEST_LENGTH + sizeof(int))
+		return 0;
+
 	hp = (int *)(gen + 1);
 
 	return ntohl(hp[MD5_DIGEST_LENGTH / sizeof(*hp)]);
@@ -366,8 +375,13 @@ isakmp_frag_reassembly(iph1)
 	}
 
 out:
-	item = iph1->frag_chain;		
-	do {
+	/*
+	 * Walk the chain with a while() rather than do/while(): on the
+	 * "No fragment to reassemble" path frag_chain is NULL, and an
+	 * unconditional first iteration would dereference it.  (CWE-476)
+	 */
+	item = iph1->frag_chain;
+	while (item != NULL) {
 		struct isakmp_frag_item *next_item;
 
 		next_item = item->frag_next;
@@ -376,7 +390,7 @@ out:
 		racoon_free(item);
 
 		item = next_item;
-	} while (item != NULL);
+	}
 
 	iph1->frag_chain = NULL;
 

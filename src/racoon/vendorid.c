@@ -130,13 +130,19 @@ vid_string_by_id (int id)
 }
 
 static struct vendor_id *
-lookup_vendor_id_by_hash (const char *hash)
+lookup_vendor_id_by_hash (const char *hash, int hashlen)
 {
 	int i;
-	unsigned char *h = (unsigned char *)hash;
 
 	for (i = 0; i < NUMVENDORIDS; i++)
-		if (strncmp(all_vendor_ids[i].hash->v, hash,
+		/*
+		 * Only compare when the received VID payload is at least as
+		 * long as the known hash; otherwise memcmp() would read past
+		 * the end of the (short/last) payload.  A shorter VID cannot
+		 * be a match anyway.  (CWE-125)
+		 */
+		if (all_vendor_ids[i].hash->l <= hashlen &&
+		    memcmp(all_vendor_ids[i].hash->v, hash,
 			    all_vendor_ids[i].hash->l) == 0)
 			return &all_vendor_ids[i];
 
@@ -226,8 +232,10 @@ check_vendorid(struct isakmp_gen *gen)
 		return (VENDORID_UNKNOWN);
 
 	vidlen = ntohs(gen->len) - sizeof(*gen);
+	if (vidlen <= 0)
+		goto unknown;
 
-	current = lookup_vendor_id_by_hash((char *)(gen + 1));
+	current = lookup_vendor_id_by_hash((char *)(gen + 1), vidlen);
 	if (!current)
 		goto unknown;
 	
@@ -244,7 +252,8 @@ check_vendorid(struct isakmp_gen *gen)
 
 unknown:
 	plog(LLV_DEBUG, LOCATION, NULL, "received unknown Vendor ID\n");
-	plogdump(LLV_DEBUG, (char *)(gen + 1), vidlen);
+	if (vidlen > 0)
+		plogdump(LLV_DEBUG, (char *)(gen + 1), vidlen);
 	return (VENDORID_UNKNOWN);
 }
 

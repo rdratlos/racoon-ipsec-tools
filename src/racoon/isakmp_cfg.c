@@ -362,8 +362,14 @@ isakmp_cfg_reply(iph1, attrpl)
 		type = ntohs(attr->type);
 		alen = ntohs(attr->lorv);
 
-		/* Check that the attribute fit in the packet */
-		if (tlen < alen) {
+		/*
+		 * Check that the attribute fits in the packet.  tlen still
+		 * includes this attribute's 4-byte header, so the value fits
+		 * only if sizeof(*attr) + alen <= tlen; checking alen alone
+		 * left a header-sized over-read in the consumers below.
+		 * (CWE-125)
+		 */
+		if (tlen < sizeof(*attr) + alen) {
 			plog(LLV_ERROR, LOCATION, NULL,
 			     "Short attribute %s\n",
 			     s_isakmp_cfg_type(type));
