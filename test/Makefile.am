@@ -154,8 +154,16 @@ test_eay_rsa_LDFLAGS  = $(AM_LDFLAGS)
 # t2isakmpsa()'s handful of always-built dependencies (vmbuf/plog/logger/
 # strnames/misc).  This keeps the test independent of the configure feature
 # set (frag/hybrid/natt/...).
+#
+# ipsec_doi.c itself is pulled in via ipsec_doi_unittest_src.c (a local
+# wrapper that just #includes it) rather than referenced directly as a
+# _SOURCES entry, so the compiled object and its dependency (.Po) file
+# stay under test/.deps/ instead of $(top_builddir)/src/racoon/.deps/ --
+# some automake versions (e.g. Ubuntu Bionic's 1.15.1) fail to track
+# per-object dependency files for subdir-objects sources that live
+# outside the current top-level directory.
 test_ipsec_doi_sa_SOURCES  = test_ipsec_doi_sa.c ipsec_doi_test_stubs.c \
-	$(top_srcdir)/src/racoon/ipsec_doi.c
+	ipsec_doi_unittest_src.c
 test_ipsec_doi_sa_CPPFLAGS = $(AM_CPPFLAGS) \
 	-I$(top_srcdir)/src/libipsec \
 	-I$(top_srcdir)/src/include-glibc \
@@ -177,12 +185,16 @@ test_ipsec_doi_sa_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 # are built with -ffunction-sections and linked with --gc-sections so their
 # unused remainder is discarded.  ENABLE_FRAG comes from config.h, so it is
 # not passed on the command line (which would redefine it).
+#
+# vendorid.c and isakmp_frag.c are pulled in via local wrapper sources
+# (see the comment on test_ipsec_doi_sa_SOURCES above) so their .Po
+# dependency files stay under test/.deps/.
 if ENABLE_FRAG
 check_PROGRAMS += test_vendorid_bounds
 
 test_vendorid_bounds_SOURCES  = test_vendorid_bounds.c \
-	$(top_srcdir)/src/racoon/vendorid.c \
-	$(top_srcdir)/src/racoon/isakmp_frag.c
+	vendorid_unittest_src.c \
+	isakmp_frag_unittest_src.c
 test_vendorid_bounds_CPPFLAGS = $(AM_CPPFLAGS) \
 	-I$(top_srcdir)/src/libipsec \
 	-I$(top_srcdir)/src/include-glibc \
