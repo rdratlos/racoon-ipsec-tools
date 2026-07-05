@@ -7,10 +7,37 @@ DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
 DEB_HOST_ARCH   ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
 DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 
+# Debian build environment variables (from deb-buildoptions(7)):
+# DEB_BUILD_OPTIONS: controls parallelism, debug symbols, etc.
+#   Examples: "parallel=N", "noopt", "nodde", "debug", "nosystemd"
+export DEB_BUILD_OPTIONS
+
+# DEB_HOST_ARCH: target architecture from dpkg-architecture
+export DEB_HOST_ARCH
+
+# DEB_BUILD_ARCH: build architecture from dpkg-architecture
+DEB_BUILD_ARCH  ?= $(shell dpkg-architecture -qDEB_BUILD_ARCH)
+export DEB_BUILD_ARCH
+
+# DEB_BUILD_GNU_TYPE / DEB_HOST_GNU_TYPE: GNU triplets
+export DEB_BUILD_GNU_TYPE
+export DEB_HOST_GNU_TYPE
+
+# DEB_CONFIGURE_EXTRA_OPTS: allows passing extra configure flags from the
+# environment or command line.  This is the standard Debian mechanism for
+# overriding build options without editing debian/rules.
+DEB_CONFIGURE_EXTRA_OPTS ?=
+
 CPPFLAGS:=$(shell dpkg-buildflags --get CPPFLAGS)
 CFLAGS:=$(shell dpkg-buildflags --get CFLAGS)
 CXXFLAGS:=$(shell dpkg-buildflags --get CXXFLAGS)
 LDFLAGS:=$(shell dpkg-buildflags --get LDFLAGS)
+
+# Kernel backend selection for kernelpaws framework:
+# KERNELPAWS_BACKEND: select the kernel IPsec abstraction backend.
+#   Values: "xfrm" (XFRM netlink, default), "pfkeyv2" (legacy PF_KEYv2)
+#   Set via environment: KERNELPAWS_BACKEND=pfkeyv2 dpkg-buildpackage ...
+KERNELPAWS_BACKEND ?= xfrm
 
 # Optional code-coverage build (for CI only, NOT for official Debian builds).
 # Trigger with:
@@ -23,15 +50,21 @@ else
 COV_FLAGS=
 endif
 
-#NAT-T=--enable-natt
-#
-#ifeq '$(DEB_HOST_ARCH)' 'kfreebsd-amd64'
-#NAT-T=
-#endif
+# kernelpaws backend selection maps to configure flags.
+# --enable-xfrm selects the XFRM netlink backend (HAVE_XFRM defined).
+# Omitting --enable-xfrm falls back to the legacy PF_KEYv2 backend.
+ifeq ($(KERNELPAWS_BACKEND),xfrm)
+KERNELPAWS_FLAGS=--enable-xfrm
+else
+KERNELPAWS_FLAGS=
+endif
 
-#ifeq '$(DEB_HOST_ARCH)' 'kfreebsd-i386'
-#NAT-T=
-#endif
+# Respect DEB_BUILD_OPTIONS=nocheck to skip test suite.
+ifeq ($(filter nocheck,$(DEB_BUILD_OPTIONS)),)
+WITH_TESTS=--enable-tests
+else
+WITH_TESTS=
+endif
 
 %:
 	dh $@
@@ -60,7 +93,10 @@ override_dh_auto_configure:
 					--without-readline \
 					--disable-security-context \
 					--enable-natt \
-					$(COV_FLAGS)
+					$(KERNELPAWS_FLAGS) \
+					$(WITH_TESTS) \
+					$(COV_FLAGS) \
+					$(DEB_CONFIGURE_EXTRA_OPTS)
 
 override_dh_clean:
 	dh_testdir
@@ -96,7 +132,7 @@ override_dh_installinit:
 	dh_installinit --remaining-packages
 
 override_dh_installchangelogs:
-	dh_installchangelogs --no-trim NEWS.md
+	dh_installchangelogs NEWS.md
 
 override_dh_installexamples:
 	dh_installexamples -pracoon -X.in src/racoon/samples

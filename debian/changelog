@@ -1,7 +1,16 @@
-ipsec-tools (1:0.9.0) UNRELEASED; urgency=medium
 ipsec-tools (1:0.9.1) UNRELEASED; urgency=medium
 
   * Development snapshot. Do not upload.
+  * kernelpaws: new kernel abstraction layer for racoon.
+    + Introduced kernelpaws_ops interface for backend abstraction.
+    + XFRM netlink backend (kernelpaws_xfrm.c) for modern Linux kernels.
+    + PF_KEYv2 backend (kernelpaws_pfkeyv2.c) for legacy compatibility.
+    + Backend selected at compile time via --enable-xfrm configure flag.
+    + Debian rules honour KERNELPAWS_BACKEND env variable (default: xfrm).
+    + Debian rules honour DEB_CONFIGURE_EXTRA_OPTS for build overrides.
+    + Debian rules honour DEB_BUILD_OPTIONS=nocheck to skip tests.
+  * debian/rules: add KERNELPAWS_BACKEND, DEB_CONFIGURE_EXTRA_OPTS,
+    DEB_BUILD_ARCH, DEB_BUILD_OPTIONS support.
 
  -- Thomas Reim <reimth@etik.com>  Wed, 01 Jul 2026 08:44:15 +0200
 
