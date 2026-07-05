@@ -13,17 +13,41 @@
 
 A maintained Linux-focused continuation of the historical ipsec-tools project.
 
+## WARNING — Prototype Branch
+
+**This branch (`rfc-002/kernelpaws-prototype`) is a prototype implementation of the kernelpaws XFRM kernel abstraction layer as defined in [RFC 0002](docs/rfcs/0002-kernelpaws-xfrm-abstraction-layer.md), addressing [Issue #4](https://github.com/rdratlos/racoon-ipsec-tools/issues/4).**
+
+**This code is NOT suitable for production use.** The XFRM backend is a stub skeleton — all 18 vtable entries return safe defaults. Only the PF_KEYv2 backend is functional. Use at your own risk in non-production environments only.
+
+| Branch | Purpose | Status |
+| :---- | :---- | :---- |
+| `main` | Stable releases | Production-ready |
+| `rfc-002/kernelpaws-prototype` | Kernelpaws XFRM abstraction prototype | **NOT FOR PRODUCTION** |
+
 ## Overview
 
 ipsec-tools provides:
 
-* `racoon` – IKEv1 key management daemon  
-* `setkey` – PF\_KEY/IPsec Security Association management utility  
+* `racoon` – IKEv1 key management daemon
+* `setkey` – PF\_KEY/IPsec Security Association management utility
 * `libipsec` – user-space IPsec support library
 
 The project implements the Internet Key Exchange version 1 (IKEv1) protocol used to establish and manage IPsec VPN tunnels.
 
 Although IKEv2 has largely superseded IKEv1 for new deployments, IKEv1 remains necessary for interoperability with legacy VPN infrastructure, embedded systems, industrial equipment, and Apple's built-in Cisco IPSec VPN compatibility mode.
+
+## Kernelpaws Prototype (RFC 0002, Issue #4)
+
+This branch implements the **kernelpaws** kernel abstraction layer — a dual-backend architecture that migrates racoon from the legacy PF_KEYv2 API to the modern XFRM netlink API on Linux.
+
+**Prototype scope:**
+
+* Phase 0: libipsec merged into racoon binary — **Complete**
+* Phase 1: PF_KEYv2 backend via `kernelpaws_ops` vtable — **Complete**
+* Phase 2: XFRM netlink backend — **Stub (non-functional)**
+* Phase 3: Cleanup — **Not started**
+
+See [RFC 0002](docs/rfcs/0002-kernelpaws-xfrm-abstraction-layer.md) for the full design specification, migration plan, testing strategy, and risk assessment.
 
 ## Why This Repository Exists
 
@@ -57,12 +81,13 @@ This project intentionally focuses on maintenance and interoperability.
 
 ### Not Planned
 
-* IKEv2 implementation  
-* MOBIKE  
-* EAP authentication  
-* Plugin architecture  
-* Major architectural redesigns  
+* IKEv2 implementation
+* MOBIKE
+* EAP authentication
+* Plugin architecture
 * Feature parity with strongSwan or Libreswan
+
+The kernelpaws abstraction layer on this branch is a controlled architectural change scoped to RFC 0002, not a general redesign.
 
 ## Current Status
 
