@@ -9,6 +9,9 @@ ipsec-tools (1:0.9.1) UNRELEASED; urgency=medium
     + Debian rules honour KERNELPAWS_BACKEND env variable (default: xfrm).
     + Debian rules honour DEB_CONFIGURE_EXTRA_OPTS for build overrides.
     + Debian rules honour DEB_BUILD_OPTIONS=nocheck to skip tests.
+  * libracoon: merge into binaries, no longer installed as shared library.
+    + Avoids ABI management burden for internal library.
+    + Bundles required libipsec symbols for racoonctl.
   * debian/rules: add KERNELPAWS_BACKEND, DEB_CONFIGURE_EXTRA_OPTS,
     DEB_BUILD_ARCH, DEB_BUILD_OPTIONS support.
 

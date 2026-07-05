@@ -7,7 +7,7 @@ noinst_PROGRAMS = eaytest
 include_racoon_HEADERS = racoonctl.h var.h vmbuf.h misc.h gcmalloc.h admin.h \
 	schedule.h sockmisc.h isakmp_var.h isakmp.h isakmp_xauth.h \
 	isakmp_cfg.h isakmp_unity.h ipsec_doi.h evt.h
-lib_LTLIBRARIES = libracoon.la
+noinst_LTLIBRARIES = libracoon.la
 
 adminsockdir=${localstatedir}/racoon
 
@@ -66,9 +66,16 @@ racoon_DEPENDENCIES = \
 	vmbuf.o sockmisc.o misc.o
 
 racoonctl_SOURCES = racoonctl.c str2val.c
-racoonctl_LDADD = libracoon.la ../libipsec/libipsec.la
+racoonctl_LDADD = libracoon.la
 
-libracoon_la_SOURCES = kmpstat.c vmbuf.c sockmisc.c misc.c
+libracoon_la_SOURCES = kmpstat.c vmbuf.c sockmisc.c misc.c libipsec_pfkey_dump.c \
+	$(top_srcdir)/src/libipsec/ipsec_dump_policy.c \
+	$(top_srcdir)/src/libipsec/ipsec_get_policylen.c \
+	$(top_srcdir)/src/libipsec/ipsec_strerror.c \
+	$(top_srcdir)/src/libipsec/key_debug.c \
+	$(top_srcdir)/src/libipsec/pfkey.c \
+	$(top_srcdir)/src/libipsec/policy_parse.y \
+	$(top_srcdir)/src/libipsec/policy_token.l
 libracoon_la_CFLAGS = -DNOUSE_PRIVSEP $(AM_CFLAGS)
 
 plainrsa_gen_SOURCES = plainrsa-gen.c plog.c \
