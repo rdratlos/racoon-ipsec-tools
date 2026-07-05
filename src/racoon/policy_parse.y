@@ -146,8 +146,6 @@ extern int __pollex __P((void));
 %token ME ANY
 %token SLASH HYPHEN
 
-%define api.prefix {__pol}
-
 %%
 policy_spec
 	:	DIR ACTION

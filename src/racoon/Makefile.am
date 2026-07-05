@@ -28,8 +28,7 @@ AM_LFLAGS = ${$*_LFLAGS}
 
 prsa_par_YFLAGS = -p prsa
 prsa_tok_LFLAGS = -Pprsa -olex.yy.c
-# api.prefix is set via %define api.prefix {__pol} in policy_parse.y
-# No --api.prefix on command line (Bison <3.7.2 doesn't accept it)
+policy_parse_YFLAGS = -p __pol
 policy_token_LFLAGS = -P__pol -olex.yy.c
 
 MISSING_ALGOS = \
