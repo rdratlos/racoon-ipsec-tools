@@ -18,6 +18,8 @@
 #   ca_build_chain <cert_path> <out_chain_path>
 #   ca_verify_cert <cert_path>
 #   ca_revoke_cert <cert_path> [reason]
+#   ca_generate_root_crl
+#   ca_generate_intermediate_crl
 #
 # Every function prior to ca_init fails; state (CA_DIR, CA_CONF) is
 # global to the sourcing shell, mirroring a single CA instance per
@@ -212,6 +214,32 @@ ca_revoke_cert() {
 	openssl ca -config "$CA_CONF" -name CA_intermediate \
 		-passin "pass:$CA_KEY_PASSWORD" \
 		-revoke "$cert_path" -crl_reason "$reason" >/dev/null 2>&1 || return 1
+
+	openssl ca -config "$CA_CONF" -name CA_intermediate \
+		-passin "pass:$CA_KEY_PASSWORD" \
+		-gencrl -out "$CA_DIR/intermediate/crl/intermediate.crl.pem" >/dev/null 2>&1 || return 1
+}
+
+# Generate the Root CA CRL. racoon's eay_check_x509cert() always sets
+# X509_V_FLAG_CRL_CHECK_ALL, so a CRL must be available for every issuer in
+# the chain -- including the self-signed root -- not just the intermediate
+# that ca_revoke_cert produces one for. This emits an (empty, unless the
+# root ever revokes the intermediate) CRL signed by the Root CA so callers
+# can assemble a CA store that satisfies CRL_CHECK_ALL.
+ca_generate_root_crl() {
+	_ca_require_init || return 1
+
+	openssl ca -config "$CA_CONF" -name CA_root \
+		-passin "pass:$CA_KEY_PASSWORD" \
+		-gencrl -out "$CA_DIR/root/crl/ca.crl.pem" >/dev/null 2>&1 || return 1
+}
+
+# Generate the Intermediate CA CRL without revoking anything. ca_revoke_cert
+# regenerates the intermediate CRL as a side effect, but tests that exercise
+# the "valid cert, CRL present" path need a (possibly empty) intermediate CRL
+# even when nothing has been revoked.
+ca_generate_intermediate_crl() {
+	_ca_require_init || return 1
 
 	openssl ca -config "$CA_CONF" -name CA_intermediate \
 		-passin "pass:$CA_KEY_PASSWORD" \

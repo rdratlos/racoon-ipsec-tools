@@ -138,6 +138,20 @@ install-exec-local:
 crypto_openssl_test.o: crypto_openssl.c
 	$(COMPILE) -DEAYDEBUG -o crypto_openssl_test.o -c $(srcdir)/crypto_openssl.c
 
+# Non-EAYDEBUG build of crypto_openssl.c for the modern unit-test suite in
+# test/.  eaytest needs the EAYDEBUG variant (mem2x509() reads PEM), but the
+# test/ unit tests exercise the production DER path -- eay_get_x509cert()
+# writes DER, which only round-trips through the non-EAYDEBUG mem2x509().
+# Sharing one non-EAYDEBUG object across the whole test/ suite also keeps its
+# crypto_openssl.c coverage consistent: `make coverage` merges a single line
+# structure instead of mixing EAYDEBUG and non-EAYDEBUG gcda for the same
+# source file (which lcov reports as inconsistent).  Built via all-local so
+# it exists before the test/ programs link against it.
+crypto_openssl_unittest.o: crypto_openssl.c
+	$(COMPILE) -o crypto_openssl_unittest.o -c $(srcdir)/crypto_openssl.c
+
+all-local: crypto_openssl_unittest.o
+
 misc_noplog.o: misc.c
 	$(COMPILE) -DNOUSE_PLOG -o misc_noplog.o -c $(srcdir)/misc.c
 

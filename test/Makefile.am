@@ -26,12 +26,20 @@ AM_CFLAGS = \
 
 AM_LDFLAGS = @EXTRA_CRYPTO@ -lcrypto
 
-# Reuse the same object files that eaytest uses in src/racoon.
-# These are built by src/racoon/Makefile.am as side-effects of the
-# main racoon build.  We reference them by path so automake does not
-# try to rebuild them here.
+# Reuse object files built in src/racoon as side-effects of the main racoon
+# build; we reference them by path so automake does not try to rebuild them
+# here.
+#
+# crypto_openssl_unittest.o is the NON-EAYDEBUG build of crypto_openssl.c
+# (src/racoon/Makefile.am), deliberately used instead of eaytest's
+# crypto_openssl_test.o (-DEAYDEBUG).  Under EAYDEBUG mem2x509() reads PEM
+# while eay_get_x509cert() writes DER, so test_x509_cert's load/parse
+# round-trip needs the production DER path; and building one shared
+# non-EAYDEBUG object across the whole suite keeps crypto_openssl.c coverage
+# consistent for `make coverage` (a single line structure lcov can merge).
+# No test/ unit test depends on the EAYDEBUG PEM behaviour.
 RACOON_OBJS = \
-	$(top_builddir)/src/racoon/crypto_openssl_test.o \
+	$(top_builddir)/src/racoon/crypto_openssl_unittest.o \
 	$(top_builddir)/src/racoon/vmbuf.o \
 	$(top_builddir)/src/racoon/str2val.o \
 	$(top_builddir)/src/racoon/misc_noplog.o \
@@ -65,7 +73,8 @@ check_PROGRAMS = \
 	test_sockmisc \
 	test_genlist \
 	test_eay_rsa \
-	test_ipsec_doi_sa
+	test_ipsec_doi_sa \
+	test_x509_cert
 
 # Test 1: DH MODP Groups
 test_dh_modp_groups_SOURCES  = test_dh_modp_groups.c
@@ -178,6 +187,25 @@ test_ipsec_doi_sa_LDADD    = \
 	$(top_builddir)/src/racoon/misc.o
 test_ipsec_doi_sa_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 
+# Test 13: X.509 certificate functions (ISSUE #52)
+#
+# eay_get_x509cert / eay_check_x509cert / eay_check_x509sign /
+# eay_get_x509asn1subjectname / eay_get_x509asn1issuername /
+# eay_get_x509subjectaltname / eay_get_x509text /
+# eay_get_pkcs1privkey / eay_get_pkcs1pubkey / eay_get_x509sign.
+#
+# Links the shared non-EAYDEBUG crypto_openssl_unittest.o via COMMON_LDADD
+# (see the RACOON_OBJS comment above): eay_get_x509cert() writes DER, which
+# only round-trips through the production (non-EAYDEBUG) mem2x509().
+#
+# Fixtures are real PEM certificates/keys/CRLs produced at run time by
+# gen-x509-fixtures.sh (which drives cert-framework/lib/ca.sh).  The test
+# binary locates that script through X509_FIXTURE_SRCDIR, exported below via
+# AM_TESTS_ENVIRONMENT.
+test_x509_cert_SOURCES = test_x509_cert.c
+test_x509_cert_LDADD    = $(COMMON_LDADD)
+test_x509_cert_LDFLAGS  = $(AM_LDFLAGS)
+
 # Test 12: Vendor ID bounds — vendorid_frag_cap() (#38) and check_vendorid()
 # (#39).  Built only with --enable-frag, since vendorid_frag_cap() lives in
 # isakmp_frag.c (compiled only then).  vendorid.c is compiled with
@@ -224,8 +252,14 @@ CERT_FRAMEWORK_TESTS = \
 # Run these tests with 'make check'
 TESTS = $(check_PROGRAMS) $(CERT_FRAMEWORK_TESTS)
 
+# test_x509_cert locates gen-x509-fixtures.sh (and, through it,
+# cert-framework/lib/ca.sh) via X509_FIXTURE_SRCDIR.  abs_srcdir keeps the
+# path valid no matter which directory the harness runs the binary from.
+AM_TESTS_ENVIRONMENT = X509_FIXTURE_SRCDIR='$(abs_srcdir)'; export X509_FIXTURE_SRCDIR;
+
 # Extra files to distribute
-EXTRA_DIST = README.md valgrind.supp cert-framework unit/cert-framework
+EXTRA_DIST = README.md valgrind.supp cert-framework unit/cert-framework \
+	gen-x509-fixtures.sh
 
 # Clean generated files
 CLEANFILES = *.log *.trs
@@ -242,10 +276,24 @@ clean-local:
 # Custom test targets
 .PHONY: check-valgrind check-verbose check-dh check-rsa check-coverage check-shim check-logger check-quick coverage
 
-# Run with valgrind
+# Run with valgrind.
+#
+# Only the compiled C binaries ($(check_PROGRAMS)) are run under valgrind --
+# NOT $(TESTS), which also contains the cert-framework Bash scripts
+# ($(CERT_FRAMEWORK_TESTS)).  Pointing valgrind at a "#!/usr/bin/env bash"
+# script makes it resolve the shebang and instrument /usr/bin/env itself as
+# the guest program; on distros whose coreutils is the uutils (Rust)
+# reimplementation (e.g. Ubuntu 25.10 "Resolute") that env binary trips
+# valgrind with a flood of spurious "Invalid read" errors and the bogus
+# "coreutils: unknown program 'memcheck-amd64-linux'" line, failing the
+# target on system code we do not own.  Valgrinding a shell script is
+# meaningless anyway -- the cert-framework scripts are covered by the plain
+# "make check" run.  test_x509_cert stays in the list: it is a real ELF
+# binary, and its openssl/bash children (spawned via system()) run natively
+# because --trace-children is off.
 check-valgrind: $(check_PROGRAMS)
 	@echo "Running tests with valgrind..."
-	@for test in $(TESTS); do \
+	@for test in $(check_PROGRAMS); do \
 		echo "Testing $$test..."; \
 		valgrind --suppressions=$(srcdir)/valgrind.supp \
 			--num-callers=40 \
@@ -310,6 +358,8 @@ coverage: $(check_PROGRAMS)
 		echo "Running $$test for coverage..."; \
 		./$$test || exit 1; \
 	done; \
+	echo "Excluding eaytest's EAYDEBUG crypto_openssl build from the report..."; \
+	rm -f "$$SRC_DIR/racoon/crypto_openssl_test.gcda"; \
 	echo "Collecting coverage data..."; \
 	lcov --directory "$$SRC_DIR" --capture \
 		$$LCOV_CAPTURE \
