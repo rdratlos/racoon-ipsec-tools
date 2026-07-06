@@ -32,6 +32,11 @@ fi
 mkdir -p "$outdir" || exit 1
 outdir="$(cd "$outdir" && pwd)" || exit 1
 
+# Keep openssl's issuance chatter off the test console: everything from here
+# on lands in gen.log inside the fixture dir. The C test (test_x509_cert.c)
+# dumps this log to stderr only if generation fails.
+exec >"$outdir/gen.log" 2>&1
+
 # CA working tree lives under the fixture dir; the flat canonical files the
 # C test reads live directly in $outdir.
 ca_workdir="$outdir/ca"

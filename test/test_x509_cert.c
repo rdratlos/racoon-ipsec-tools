@@ -108,13 +108,15 @@ setup_fixtures(void)
 		snprintf(g_fixdir, sizeof(g_fixdir), "%s", dir);
 	}
 
-	/* Keep openssl's issuance chatter out of the test console; the log is
-	 * surfaced only if generation fails. We cd into the fixture dir so it
-	 * appears once (passed as ".") -- interpolating the full path twice
-	 * would trip -Wformat-truncation. */
+	/* The generator redirects its own (noisy) output to <fixdir>/gen.log,
+	 * which we surface only on failure below.  srcdir is passed straight
+	 * through as an unbounded string (not an array) so this single
+	 * interpolation of the fixture-dir array does not trip
+	 * -Wformat-truncation -- and, unlike a cd-based form, a relative srcdir
+	 * such as "." keeps working because the cwd is never changed. */
 	snprintf(cmd, sizeof(cmd),
-		 "cd '%s' && bash '%s/gen-x509-fixtures.sh' . > gen.log 2>&1",
-		 g_fixdir, srcdir);
+		 "bash '%s/gen-x509-fixtures.sh' '%s'",
+		 srcdir, g_fixdir);
 	rc = system(cmd);
 	if (rc != 0) {
 		char logpath[4096];
