@@ -159,24 +159,53 @@ All existing Racoon data structures (`ph2handle`, `secpolicy`, `policyindex`, `s
 | `spd_add` | `pfkey_send_spdadd2()` | `XFRM_MSG_NEWPOLICY` |
 | `spd_delete` | `pfkey_send_spddelete()` | `XFRM_MSG_DELPOLICY` |
 | `spd_update` | `pfkey_send_spdupdate()` | `XFRM_MSG_NEWPOLICY` (with index) |
-| `spd_flush` | `pfkey_send_flush(SADB_X_SPD_FLUSH)` | `XFRM_MSG_FLUSHPOLICY` |
-| `spi_flush` | `pfkey_send_flush(SADB_SATYPE_UNSPEC)` | `XFRM_MSG_FLUSHSAD` |
+| `spd_flush` | `pfkey_send_flush(SADB_X_SPD_FLUSH)` | `XFRM_MSG_FLUSHPOLICY` (no payload) |
+| `spi_flush` | `pfkey_send_flush(SADB_SATYPE_UNSPEC)` | `XFRM_MSG_FLUSHSA` per protocol (AH, ESP, COMP) |
 | `send_eacquire` | `pfkey_send_eacquire()` | `XFRM_MSG_NEWPOLICY` (SKIP action) |
 | `fixup_addresses` | `pfkey_send_update2()` | `XFRM_MSG_UPDSA` + `NETLINK_ROUTE` for local addr changes |
 
 ### XFRM Backend: 3-Socket Model
 
-| Socket | Purpose | Multicast Groups |
-|--------|---------|-----------------|
-| `NL_SEND_FD` | Unicast requests and correlated responses | None |
-| `NL_XFRM_FD` | XFRM multicast notifications | `XFRMNLGRP_MEMBERSHIP` |
-| `NL_ROUTE_FD` | Local address change notifications | `RTMGRP_IPV4_IFADDR`, `RTMGRP_IPV6_IFADDR` |
+| Socket | Protocol | Multicast Groups | Purpose |
+|--------|----------|-----------------|---------|
+| `NL_SEND_FD` | `NETLINK_XFRM` | None | Dedicated send socket for unicast requests. Used exclusively for `sendmsg()` followed by blocking `recvmsg()` to obtain the correlated response. Does NOT join any multicast group; receives only ACK/error replies to own requests. |
+| `NL_XFRM_FD` | `NETLINK_XFRM` | `XFRNLGRP_MEMBERSHIP` | Dedicated notification socket for XFRM multicast events (EXPIRE, POLEXPIRE, DELSA, DELPOLICY, ACQUIRE, MIGRATE, MAP). Used only for non-blocking `recvmsg()` in the `select()` loop. Never used for request/response. |
+| `NL_ROUTE_FD` | `NETLINK_ROUTE` | `RTMGRP_IPV4_IFADDR \| RTMGRP_IPV6_IFADDR` | Dedicated notification socket for local address changes (`RTM_NEWADDR`, `RTM_DELADDR`). Triggers SA address fixup via `fixup_addresses()`. |
 
-All three sockets register via `monitor_fd()` in `init()`.
+All three sockets register via `monitor_fd()` in `init()`. The `select()` loop monitors `NL_XFRM_FD` and `NL_ROUTE_FD`. `NL_SEND_FD` is only read synchronously within a `send_*` call.
+
+**strongSwan comparison**: strongSwan's `kernel_netlink_ipsec` uses the same 3-socket model: `socket_xfrm` (send), `socket` (XFRM notifications), and a shared `kernel_netlink_net` for route notifications. The separation of send and notification sockets is the established pattern to prevent notification messages from interfering with request/response correlation.
 
 ### XFRM Backend: Request/Response Correlation
 
-Single-threaded blocking `recvmsg()` on `NL_SEND_FD` per request. Each `send_*` operation assigns a unique netlink sequence number, sends the request, then blocks on `kernelpaws_xfrm_recv_response()` until the matching response arrives. Must handle `NLMSG_ERROR` responses (negative `err->error` indicates failure). Use `NLM_F_ACK` or `NETLINK_CAP_ACK` to guarantee kernel responses.
+Single-threaded blocking `recvmsg()` on `NL_SEND_FD` per request. The correlation follows the `send_once` pattern:
+
+1. **Sequence number generation**: Use an atomic, monotonically increasing `uint32_t` counter (e.g., `__sync_add_and_fetch(&seq_counter, 1)`). Never reuse sequence numbers; skip 0 if the increment wraps.
+2. **Send**: Set `hdr->nlmsg_seq = seq`, `hdr->nlmsg_pid = 0`, `hdr->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK`. Call `sendmsg(NL_SEND_FD, ...)`.
+3. **Receive**: Block on `recvmsg(NL_SEND_FD, ...)` with a 5-second timeout (`struct timespec {tv_sec=5}`). Discard messages where `hdr->nlmsg_seq != seq` or `hdr->nlmsg_pid != 0`. Process the first matching message.
+4. **Retry**: On `NLMSG_ERROR` with `err->error == -EBUSY`, retry the entire send/receive cycle up to 3 times. On `NLMSG_DONE` (multipart), continue receiving until `NLMSG_ERROR` (ACK).
+5. **Timeout**: If no matching response arrives within 5 seconds after 3 retries, log an error and return -1.
+
+**strongSwan comparison**: strongSwan uses `ref_get_nonzero(&this->seq)` for atomic sequence generation and `send_once(this, in, seq, &hdr, &len)` with a configurable retry loop (`this->retries`). strongSwan's `netlink_send()` retries on `OUT_OF_RES` and `-EBUSY`. Racoon adopts the same `send_once` blocking pattern with atomic sequence numbers and retry on `-EBUSY`.
+
+### XFRM Backend: Error Handling
+
+Distinguish between recoverable and fatal errors. The following table defines the error classification:
+
+| Error | Context | Classification | Action |
+|-------|---------|---------------|--------|
+| `NLMSG_ERROR`, `err->error == 0` | Any request | Success | ACK received; proceed normally |
+| `-EEXIST` | `XFRM_MSG_NEWSA`, `XFRM_MSG_NEWPOLICY` | Recoverable | Treat as success (idempotent); return 0 |
+| `-ENOENT` | `XFRM_MSG_DELSA`, `XFRM_MSG_DELPOLICY` | Recoverable | Treat as success (already gone); return 0 |
+| `-EBUSY` | Any request | Retry | Retry send/receive up to 3 times |
+| `-EINVAL` | Any request | Fatal | Log error, return -1 |
+| `-EPERM` | Any request | Fatal | Log error, return -1 |
+| `-ESRCH` | `XFRM_MSG_DELSA` | Recoverable | Treat as NOT_FOUND; return 0 |
+| `-ENOBUFS` | Notify socket `recvmsg` | Warning | Log warning, drain buffer in tight loop until `EAGAIN` |
+| Timeout | Send socket `recvmsg` | Fatal | Log error, return -1 |
+| `recvmsg` returns 0 | Any socket | Fatal | Kernel closed socket; log and abort |
+
+**strongSwan comparison**: strongSwan's `ignore_retransmit_error()` silences `-EEXIST` for NEWSA/NEWPOLICY and `-ENOENT` for DELSA/DELPOLICY on retries. `netlink_send_ack()` maps `-EEXIST` to `ALREADY_DONE` and `-ESRCH` to `NOT_FOUND`. Racoon adopts the same approach: idempotent CREATE and DELETE operations silently succeed on these errors.
 
 ### XFRM Backend: Notification Handling
 
@@ -192,6 +221,16 @@ XFRM notifications map to PF_KEY equivalents:
 
 Critical: `XFRM_MSG_MIGRATE` only covers peer address changes. Local address changes come from `NETLINK_ROUTE` (`RTM_NEWADDR`/`RTM_DELADDR`).
 
+#### Notification Socket Buffer Management
+
+The notification socket (`NL_XFRM_FD`) can overflow under high event rates. To prevent lost notifications:
+
+1. **Buffer size**: Set `SO_RCVBUF` to 256 KB on socket creation. Try `SO_RCVBUFFORCE` first (requires `CAP_NET_ADMIN`), fall back to `SO_RCVBUF`.
+2. **ENOBUFS drain**: If `recvmsg()` returns `-1` with `errno == ENOBUFS`, log a warning and enter a tight drain loop: continue calling `recvmsg()` until `EAGAIN`/`EWOULDBLOCK`. This ensures the socket buffer is cleared before processing continues.
+3. **Non-blocking**: The notification socket must be non-blocking (`O_NONBLOCK`) to allow the drain loop to work.
+
+**strongSwan comparison**: strongSwan's `set_rcvbuf_size()` configures `SO_RCVBUFFORCE` first, falling back to `SO_RCVBUF`, using a configurable default (`NETLINK_RCVBUF_DEFAULT`). Racoon adopts the same fallback pattern with a fixed 256 KB default.
+
 ### Key Semantic Differences (PF_KEY vs XFRM)
 
 | Aspect | PF_KEY | XFRM |
@@ -201,6 +240,53 @@ Critical: `XFRM_MSG_MIGRATE` only covers peer address changes. Local address cha
 | Policy dump | Not used | Returns all policies (including kernel defaults); cannot isolate "our" policies |
 | Reload strategy | Direct reinstall | Flush + reinstall from internal `secpolicy` list |
 | 64-bit alignment | N/A | `xfrm_user_acquire` and related structs have 32-bit aligned 64-bit fields — must use `memcpy()` |
+
+### XFRM Backend: 64-Bit Field Alignment
+
+Several `xfrm_user_*` structures contain 64-bit fields that are only 32-bit aligned in the kernel's netlink wire format. Direct struct assignment causes bus errors on strict architectures (SPARC, ARM64 with strict alignment).
+
+**Required pattern**: Always use `memcpy()` to populate or read 64-bit fields in netlink payloads:
+
+```c
+/* WRONG - may fault on strict architectures */
+xfrmu->lft.add_time_expires = add_time_expires;
+
+/* CORRECT - safe on all architectures */
+memcpy(&xfrmu->lft.add_time_expires, &add_time_expires, sizeof(add_time_expires));
+```
+
+Affected structures:
+- `xfrm_user_expire` — `add_time_expires` (u64)
+- `xfrm_user_sa_info` — `add_time_expires`, `use_time_expires` (u64)
+- `xfrm_usersa_id` — `reqid` (u32, OK), but embedded in multipart messages
+- `xfrm_user_acquire` — `reqid` (u32), `seq` (u32), `lft` (u64 fields)
+
+**strongSwan comparison**: strongSwan consistently uses `memcpy` for all 64-bit fields in `xfrm_user_*` struct population, both for send and receive paths. Racoon must adopt the same discipline.
+
+### XFRM Flush Semantics
+
+`XFRM_MSG_FLUSHSA` requires a `struct xfrm_usersa_flush` payload with a `proto` field. To flush all SAs, iterate over `{IPPROTO_AH, IPPROTO_ESP, IPPROTO_COMP}` and send `XFRM_MSG_FLUSHSA` for each. `XFRM_MSG_FLUSHPOLICY` requires no payload.
+
+**strongSwan comparison**: strongSwan's `_flush_sas()` iterates over AH, ESP, COMP sending `XFRM_MSG_FLUSHSA` per protocol. `_flush_policies()` sends `XFRM_MSG_FLUSHPOLICY` with no payload. Racoon adopts the same approach.
+
+### Comparative Analysis with strongSwan
+
+| Aspect | strongSwan (`kernel_netlink`) | racoon (kernelpaws) |
+|--------|-------------------------------|---------------------|
+| Socket model | 3 sockets via `netlink_socket_t` shared infrastructure | 3 sockets, direct fd management |
+| Threading | Multi-threaded with mutex/condvar | Single-threaded `select()` loop |
+| Seq numbers | `ref_get_nonzero(&this->seq)` per socket instance | Atomic `uint32_t` counter |
+| Request/response | `send_once()` blocking + retry loop | `send_once()` blocking + retry loop |
+| Error handling | `ignore_retransmit_error()` + `send_ack()` | Error classification table |
+| Buffer management | Configurable `SO_RCVBUF`/`SO_RCVBUFFORCE` | Fixed 256 KB, `SO_RCVBUFFORCE` fallback |
+| SAD authority | Userland cache synchronized with kernel | Kernel is authority; no userland cache |
+| Policy reload | Flush + reinstall from internal list | Flush + reinstall from internal list |
+| NAT-T | `XFRMA_ENCAP`, `XFRM_MSG_MAPPING` notifications | `XFRMA_ENCAP`, `XFRM_MSG_MAPPING` notifications |
+| Mark | `XFRMA_MARK`, `XFRMA_SET_MARK`, `XFRMA_SET_MARK_MASK` | `XFRMA_MARK`, `XFRMA_SET_MARK`, `XFRMA_SET_MARK_MASK` |
+| Alignment | `memcpy()` for all 64-bit `xfrm_user_*` fields | `memcpy()` for all 64-bit `xfrm_user_*` fields |
+| ACK mode | `NLM_F_ACK` on send socket | `NLM_F_ACK` on send socket |
+
+Key divergence: strongSwan maintains a userland SAD cache synchronized with the kernel, enabling fast local lookups. Racoon follows LibreSwan's approach: the kernel is the authoritative SAD; Racoon only tracks what the IKE state machine needs. This simplifies the design but means `XFRM_MSG_GETSA` may be needed for certain queries (deferred to a follow-up).
 
 ### File Structure
 
