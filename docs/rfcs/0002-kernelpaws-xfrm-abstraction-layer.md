@@ -30,12 +30,21 @@ Without this migration, Racoon becomes unusable on Linux kernels that remove PF_
 - Achieve zero memory errors under valgrind for the XFRM backend.
 - Cover all XFRM backend functions with 77 tests (36 unit, 19 integration, 12 failure path, 10 notification) before Phase 2 is considered complete.
 
+## Design Scope
+
+Racoon is an extremely lightweight IPsec implementation — low footprint, fast build, minimal dependencies. The kernelpaws abstraction layer must preserve this characteristic. Design decisions that trade complexity for capabilities (coexistence, userland caches, selective deletion) are explicitly out of scope unless they are the only viable path.
+
+Key consequence: Racoon assumes **exclusive ownership** of the host XFRM tables. Operations such as `spd_flush` and `spi_flush` use blanket `XFRM_MSG_FLUSHPOLICY` and `XFRM_MSG_FLUSHSA`, which affect all SAs and policies on the host — including those installed by other IPsec daemons. This is a deliberate choice to keep the implementation simple and lightweight. StrongSwan follows a different path: it tracks its own entries and performs selective `DELSA`/`DELPOLICY` to allow coexistence. Racoon does not.
+
+Distributions packaging Racoon with the XFRM backend should enforce exclusive deployment (e.g., Debian `Breaks`/`Conflicts` against other XFRM-based IPsec daemons).
+
 ## Non-goals
 
 - IKEv2 support — scope is IKEv1 only.
 - Runtime backend switching — selection is compile-time via `--enable-xfrm`.
 - `XFRM_MSG_GETSA` support — deferred to a follow-up; not needed for the IKEv1 critical path.
 - Independent userland SAD cache — the kernel is the authoritative SAD; Racoon only tracks what the IKE state machine needs.
+- Coexistence with other XFRM-based IPsec daemons — Racoon assumes exclusive ownership of host XFRM tables (see Design Scope).
 - NetBSD/OpenBSD PF_KEY migration — this RFC targets Linux XFRM specifically. NetBSD retains PF_KEYv2.
 
 ## Current Design
@@ -159,9 +168,9 @@ All existing Racoon data structures (`ph2handle`, `secpolicy`, `policyindex`, `s
 | `spd_add` | `pfkey_send_spdadd2()` | `XFRM_MSG_NEWPOLICY` |
 | `spd_delete` | `pfkey_send_spddelete()` | `XFRM_MSG_DELPOLICY` |
 | `spd_update` | `pfkey_send_spdupdate()` | `XFRM_MSG_NEWPOLICY` (with index) |
-| `spd_flush` | `pfkey_send_flush(SADB_X_SPD_FLUSH)` | `XFRM_MSG_FLUSHPOLICY` (no payload) |
-| `spi_flush` | `pfkey_send_flush(SADB_SATYPE_UNSPEC)` | `XFRM_MSG_FLUSHSA` per protocol (AH, ESP, COMP) |
-| `send_eacquire` | `pfkey_send_eacquire()` | `XFRM_MSG_NEWPOLICY` (SKIP action) |
+| `spd_flush` | `pfkey_send_flush(SADB_X_SPD_FLUSH)` | `XFRM_MSG_FLUSHPOLICY` (no payload, host-wide, see Design Scope) |
+| `spi_flush` | `pfkey_send_flush(SADB_SATYPE_UNSPEC)` | `XFRM_MSG_FLUSHSA` per protocol (AH, ESP, COMP, host-wide, see Design Scope) |
+| `send_eacquire` | `pfkey_send_eacquire()` | no direct XFRM equivalent — let larval acquire lapse via `xfrm_acq_expires`; optionally install short-lived `XFRM_POLICY_BLOCK` policy |
 | `fixup_addresses` | `pfkey_send_update2()` | `XFRM_MSG_UPDSA` + `NETLINK_ROUTE` for local addr changes |
 
 ### XFRM Backend: 3-Socket Model
@@ -169,7 +178,7 @@ All existing Racoon data structures (`ph2handle`, `secpolicy`, `policyindex`, `s
 | Socket | Protocol | Multicast Groups | Purpose |
 |--------|----------|-----------------|---------|
 | `NL_SEND_FD` | `NETLINK_XFRM` | None | Dedicated send socket for unicast requests. Used exclusively for `sendmsg()` followed by blocking `recvmsg()` to obtain the correlated response. Does NOT join any multicast group; receives only ACK/error replies to own requests. |
-| `NL_XFRM_FD` | `NETLINK_XFRM` | `XFRNLGRP_MEMBERSHIP` | Dedicated notification socket for XFRM multicast events (EXPIRE, POLEXPIRE, DELSA, DELPOLICY, ACQUIRE, MIGRATE, MAP). Used only for non-blocking `recvmsg()` in the `select()` loop. Never used for request/response. |
+| `NL_XFRM_FD` | `NETLINK_XFRM` | `XFRMNLGRP_EXPIRE | XFRMNLGRP_ACQUIRE | XFRMNLGRP_SA | XFRMNLGRP_POLICY | XFRMNLGRP_MIGRATE | XFRMNLGRP_MAPPING` | Dedicated notification socket for XFRM multicast events (EXPIRE, POLEXPIRE, DELSA, DELPOLICY, ACQUIRE, MIGRATE, MAP). Used only for non-blocking `recvmsg()` in the `select()` loop. Never used for request/response. |
 | `NL_ROUTE_FD` | `NETLINK_ROUTE` | `RTMGRP_IPV4_IFADDR \| RTMGRP_IPV6_IFADDR` | Dedicated notification socket for local address changes (`RTM_NEWADDR`, `RTM_DELADDR`). Triggers SA address fixup via `fixup_addresses()`. |
 
 All three sockets register via `monitor_fd()` in `init()`. The `select()` loop monitors `NL_XFRM_FD` and `NL_ROUTE_FD`. `NL_SEND_FD` is only read synchronously within a `send_*` call.
@@ -183,7 +192,7 @@ Single-threaded blocking `recvmsg()` on `NL_SEND_FD` per request. The correlatio
 1. **Sequence number generation**: Use an atomic, monotonically increasing `uint32_t` counter (e.g., `__sync_add_and_fetch(&seq_counter, 1)`). Never reuse sequence numbers; skip 0 if the increment wraps.
 2. **Send**: Set `hdr->nlmsg_seq = seq`, `hdr->nlmsg_pid = 0`, `hdr->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK`. Call `sendmsg(NL_SEND_FD, ...)`.
 3. **Receive**: Block on `recvmsg(NL_SEND_FD, ...)` with a 5-second timeout (`struct timespec {tv_sec=5}`). Discard messages where `hdr->nlmsg_seq != seq` or `hdr->nlmsg_pid != 0`. Process the first matching message.
-4. **Retry**: On `NLMSG_ERROR` with `err->error == -EBUSY`, retry the entire send/receive cycle up to 3 times. On `NLMSG_DONE` (multipart), continue receiving until `NLMSG_ERROR` (ACK).
+4. **Retry**: On `NLMSG_ERROR` with `err->error == -EBUSY`, retry the entire send/receive cycle up to 3 times. For dump requests (e.g., deferred `XFRM_MSG_GETSA`), continue receiving until `NLMSG_DONE`. For normal requests, the response is a single `NLMSG_ERROR` ACK — there is no `NLMSG_DONE`. Note: `XFRM_MSG_ALLOCSPI` returns a `NEWSA` *data* reply carrying the allocated SPI (not just an ACK); the correlation handler must parse the typed data payload for that message type.
 5. **Timeout**: If no matching response arrives within 5 seconds after 3 retries, log an error and return -1.
 
 **strongSwan comparison**: strongSwan uses `ref_get_nonzero(&this->seq)` for atomic sequence generation and `send_once(this, in, seq, &hdr, &len)` with a configurable retry loop (`this->retries`). strongSwan's `netlink_send()` retries on `OUT_OF_RES` and `-EBUSY`. Racoon adopts the same `send_once` blocking pattern with atomic sequence numbers and retry on `-EBUSY`.
@@ -218,6 +227,7 @@ XFRM notifications map to PF_KEY equivalents:
 | `SADB_X_SPDDELETE` | `XFRM_MSG_DELPOLICY` | Policy delete logic |
 | `SADB_X_ACQUIRE` | `XFRM_MSG_ACQUIRE` | `isakmp_request_acquire()` |
 | `SADB_X_MIGRATE` | `XFRM_MSG_MIGRATE` + `NETLINK_ROUTE` | Address migration |
+| `SADB_X_NAT_T_NEW_MAPPING` | `XFRM_MSG_MAPPING` | NAT-T peer port change |
 
 Critical: `XFRM_MSG_MIGRATE` only covers peer address changes. Local address changes come from `NETLINK_ROUTE` (`RTM_NEWADDR`/`RTM_DELADDR`).
 
@@ -235,10 +245,10 @@ The notification socket (`NL_XFRM_FD`) can overflow under high event rates. To p
 
 | Aspect | PF_KEY | XFRM |
 |--------|--------|------|
-| EXPIRE source | Userland timer driven | Kernel timer driven |
+| EXPIRE source | Kernel timer driven | Kernel timer driven (`hard` flag in `XFRM_MSG_EXPIRE`: soft → rekey, hard → SA gone) |
 | Address migration | Single notification for peer+local | `XFRM_MSG_MIGRATE` (peer only) + `NETLINK_ROUTE` (local) |
 | Policy dump | Not used | Returns all policies (including kernel defaults); cannot isolate "our" policies |
-| Reload strategy | Direct reinstall | Flush + reinstall from internal `secpolicy` list |
+| Reload strategy | Direct reinstall | Flush + reinstall from internal `secpolicy` list (host-wide, see Design Scope) |
 | 64-bit alignment | N/A | `xfrm_user_acquire` and related structs have 32-bit aligned 64-bit fields — must use `memcpy()` |
 
 ### XFRM Backend: 64-Bit Field Alignment
@@ -256,12 +266,27 @@ memcpy(&xfrmu->lft.add_time_expires, &add_time_expires, sizeof(add_time_expires)
 ```
 
 Affected structures:
-- `xfrm_user_expire` — `add_time_expires` (u64)
-- `xfrm_user_sa_info` — `add_time_expires`, `use_time_expires` (u64)
+- `xfrm_user_expire` — u64 lifetime fields in embedded `xfrm_lifetime_cur`
+- `xfrm_usersa_info` — u64 lifetime fields in embedded `xfrm_lifetime_cfg` / `xfrm_lifetime_cur`
 - `xfrm_usersa_id` — `reqid` (u32, OK), but embedded in multipart messages
-- `xfrm_user_acquire` — `reqid` (u32), `seq` (u32), `lft` (u64 fields)
+- `xfrm_user_acquire` — `reqid` (u32), `seq` (u32), u64 fields in embedded `xfrm_lifetime_cur`
 
 **strongSwan comparison**: strongSwan consistently uses `memcpy` for all 64-bit fields in `xfrm_user_*` struct population, both for send and receive paths. Racoon must adopt the same discipline.
+
+### XFRM Backend: Byte Order
+
+Beyond alignment, XFRM netlink attributes use a mix of network byte order and host byte order. Mixing them up produces correct behavior on little-endian x86_64 but fails silently on big-endian architectures (s390x, sparc64).
+
+**Network order (`__be` prefix)** — must use `htons()`/`htonl()`/`be16_to_cpu()`/`be32_to_cpu()`:
+- SPI — `__be32`
+- Selector source/dest ports (`xfrm_selector.sport`/`dport`) — `__be16`
+- Encapsulation ports (`xfrm_encap_tmpl.sport`/`dport`) — `__be16`
+
+**Host order** — no conversion needed:
+- `reqid`, `ifindex`, `mark` / `mask`, `replay_window`, `family`
+- `xfrm_lifetime_cfg` / `xfrm_lifetime_cur` fields (bytes, packets, add_time, use_time, expires) — 64-bit, apply `memcpy()` discipline on strict-alignment arches
+
+Always use the canonical `linux/xfrm.h` struct definitions — never hand-redefine.
 
 ### XFRM Flush Semantics
 
@@ -280,13 +305,17 @@ Affected structures:
 | Error handling | `ignore_retransmit_error()` + `send_ack()` | Error classification table |
 | Buffer management | Configurable `SO_RCVBUF`/`SO_RCVBUFFORCE` | Fixed 256 KB, `SO_RCVBUFFORCE` fallback |
 | SAD authority | Userland cache synchronized with kernel | Kernel is authority; no userland cache |
-| Policy reload | Flush + reinstall from internal list | Flush + reinstall from internal list |
+| Policy reload | Selective DELSA/DELPOLICY (coexistence) | Host-wide FLUSHSA/FLUSHPOLICY (exclusive ownership) |
 | NAT-T | `XFRMA_ENCAP`, `XFRM_MSG_MAPPING` notifications | `XFRMA_ENCAP`, `XFRM_MSG_MAPPING` notifications |
 | Mark | `XFRMA_MARK`, `XFRMA_SET_MARK`, `XFRMA_SET_MARK_MASK` | `XFRMA_MARK`, `XFRMA_SET_MARK`, `XFRMA_SET_MARK_MASK` |
 | Alignment | `memcpy()` for all 64-bit `xfrm_user_*` fields | `memcpy()` for all 64-bit `xfrm_user_*` fields |
 | ACK mode | `NLM_F_ACK` on send socket | `NLM_F_ACK` on send socket |
 
-Key divergence: strongSwan maintains a userland SAD cache synchronized with the kernel, enabling fast local lookups. Racoon follows LibreSwan's approach: the kernel is the authoritative SAD; Racoon only tracks what the IKE state machine needs. This simplifies the design but means `XFRM_MSG_GETSA` may be needed for certain queries (deferred to a follow-up).
+Key divergences:
+
+1. **SAD authority**: strongSwan maintains a userland SAD cache synchronized with the kernel, enabling fast local lookups. Racoon follows LibreSwan's approach: the kernel is the authoritative SAD; Racoon only tracks what the IKE state machine needs. This simplifies the design but means `XFRM_MSG_GETSA` may be needed for certain queries (deferred to a follow-up).
+
+2. **XFRM table ownership**: strongSwan uses `XFRMA_SET_MARK` for mark-based isolation and selective `DELSA`/`DELPOLICY` during reload, allowing coexistence with other XFRM daemons. Racoon uses blanket `FLUSHSA`/`FLUSHPOLICY` and assumes exclusive ownership of host XFRM tables (see Design Scope). This is a deliberate trade-off: simplicity over coexistence, consistent with Racoon's lightweight design philosophy.
 
 ### File Structure
 
@@ -390,7 +419,7 @@ Testing follows a TDD approach with 77 tests across four categories. Each `kerne
 - [ ] RFC 0001 itlab integration suite passes on target CI environment
 - [ ] Incus/LXC container infrastructure available with `CAP_NET_ADMIN` delegation
 - [ ] Minimum kernel version 5.10+ for XFRM netlink stability
-- [ ] `net.ipv4.xfrm_acq_expires=1` sysctl set (prevent acquire storms)
+- [ ] `net.core.xfrm_acq_expires` sysctl set (prevent acquire storms; lives under `net.core.`, not `net.ipv4.`)
 
 ## Risks
 
