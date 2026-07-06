@@ -178,10 +178,12 @@ All existing Racoon data structures (`ph2handle`, `secpolicy`, `policyindex`, `s
 | Socket | Protocol | Multicast Groups | Purpose |
 |--------|----------|-----------------|---------|
 | `NL_SEND_FD` | `NETLINK_XFRM` | None | Dedicated send socket for unicast requests. Used exclusively for `sendmsg()` followed by blocking `recvmsg()` to obtain the correlated response. Does NOT join any multicast group; receives only ACK/error replies to own requests. |
-| `NL_XFRM_FD` | `NETLINK_XFRM` | `XFRMNLGRP_EXPIRE | XFRMNLGRP_ACQUIRE | XFRMNLGRP_SA | XFRMNLGRP_POLICY | XFRMNLGRP_MIGRATE | XFRMNLGRP_MAPPING` | Dedicated notification socket for XFRM multicast events (EXPIRE, POLEXPIRE, DELSA, DELPOLICY, ACQUIRE, MIGRATE, MAP). Used only for non-blocking `recvmsg()` in the `select()` loop. Never used for request/response. |
+| `NL_XFRM_FD` | `NETLINK_XFRM` | `setsockopt()` once per group: `XFRMNLGRP_EXPIRE`, `_ACQUIRE`, `_SA`, `_POLICY`, `_MIGRATE`, `_MAPPING` | Dedicated notification socket for XFRM multicast events (EXPIRE, POLEXPIRE, DELSA, DELPOLICY, ACQUIRE, MIGRATE, MAP). Used only for non-blocking `recvmsg()` in the `select()` loop. Never used for request/response. |
 | `NL_ROUTE_FD` | `NETLINK_ROUTE` | `RTMGRP_IPV4_IFADDR \| RTMGRP_IPV6_IFADDR` | Dedicated notification socket for local address changes (`RTM_NEWADDR`, `RTM_DELADDR`). Triggers SA address fixup via `fixup_addresses()`. |
 
 All three sockets register via `monitor_fd()` in `init()`. The `select()` loop monitors `NL_XFRM_FD` and `NL_ROUTE_FD`. `NL_SEND_FD` is only read synchronously within a `send_*` call.
+
+**Multicast group subscription**: XFRM `XFRMNLGRP_*` values are 1-indexed group numbers (ACQUIRE=1, EXPIRE=2, SA=3, …, MAPPING=8), not bitmask flags. Subscribe via `setsockopt(fd, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &grp, sizeof(grp))` once per group. OR-ing the raw enum values into `sockaddr_nl.nl_groups` produces the wrong subscription (the legacy bitmask requires `1 << (grp - 1)`). This is distinct from the route socket where `RTMGRP_IPV4_IFADDR` and `RTMGRP_IPV6_IFADDR` are already-shifted bitmask macros that can be OR-ed correctly.
 
 **strongSwan comparison**: strongSwan's `kernel_netlink_ipsec` uses the same 3-socket model: `socket_xfrm` (send), `socket` (XFRM notifications), and a shared `kernel_netlink_net` for route notifications. The separation of send and notification sockets is the established pattern to prevent notification messages from interfering with request/response correlation.
 
@@ -307,7 +309,7 @@ Always use the canonical `linux/xfrm.h` struct definitions — never hand-redefi
 | SAD authority | Userland cache synchronized with kernel | Kernel is authority; no userland cache |
 | Policy reload | Selective DELSA/DELPOLICY (coexistence) | Host-wide FLUSHSA/FLUSHPOLICY (exclusive ownership) |
 | NAT-T | `XFRMA_ENCAP`, `XFRM_MSG_MAPPING` notifications | `XFRMA_ENCAP`, `XFRM_MSG_MAPPING` notifications |
-| Mark | `XFRMA_MARK`, `XFRMA_SET_MARK`, `XFRMA_SET_MARK_MASK` | `XFRMA_MARK`, `XFRMA_SET_MARK`, `XFRMA_SET_MARK_MASK` |
+| Mark | `XFRMA_MARK`, `XFRMA_SET_MARK`, `XFRMA_SET_MARK_MASK` (isolation) | `XFRMA_MARK` from config only; not used for coexistence (exclusive XFRM ownership) |
 | Alignment | `memcpy()` for all 64-bit `xfrm_user_*` fields | `memcpy()` for all 64-bit `xfrm_user_*` fields |
 | ACK mode | `NLM_F_ACK` on send socket | `NLM_F_ACK` on send socket |
 
@@ -428,7 +430,7 @@ Testing follows a TDD approach with 77 tests across four categories. Each `kerne
 |------|------------|
 | XFRM behavior varies by kernel version | Pin minimum kernel 5.10+; `requires: vm` tests in Incus VMs with target kernel |
 | PF_KEY synchronous vs XFRM async semantics | Dedicated send socket with blocking `recvmsg` per request |
-| `NLMSG_ERROR` handling | Always check `NLMSG_ERROR`; use `NLM_F_ACK`/`NETLINK_CAP_ACK` |
+| `NLMSG_ERROR` handling | Always check `NLMSG_ERROR`; use `NLM_F_ACK` (per-message) plus `NETLINK_CAP_ACK` (socket option) |
 | 64-bit field alignment on strict architectures | Always use `memcpy()` for 64-bit fields in `xfrm_user_*` structs |
 | Container networking differs from bare metal | Supplement with bare-metal smoke tests before release |
 | Incus unavailable in CI | Fall back to `ip netns` (Linux network namespaces) for container tests; VM tests require dedicated runner |
