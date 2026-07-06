@@ -43,6 +43,7 @@ RACOON_OBJS = \
 	$(top_builddir)/src/racoon/vmbuf.o \
 	$(top_builddir)/src/racoon/str2val.o \
 	$(top_builddir)/src/racoon/misc_noplog.o \
+	$(top_builddir)/src/racoon/strnames.o \
 	$(top_builddir)/src/racoon/openssl_compat.o \
 	$(top_builddir)/src/racoon/plog.o \
 	$(top_builddir)/src/racoon/logger.o \
@@ -74,7 +75,9 @@ check_PROGRAMS = \
 	test_genlist \
 	test_eay_rsa \
 	test_ipsec_doi_sa \
-	test_x509_cert
+	test_x509_cert \
+	test_misc \
+	test_strnames
 
 # Test 1: DH MODP Groups
 test_dh_modp_groups_SOURCES  = test_dh_modp_groups.c
@@ -232,6 +235,19 @@ test_vendorid_bounds_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
 test_vendorid_bounds_LDADD    = $(COMMON_LDADD)
 test_vendorid_bounds_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
+
+# Test 14: misc (close_on_exec, timedelta)
+test_misc_SOURCES  = test_misc.c
+test_misc_LDADD    = $(COMMON_LDADD)
+test_misc_LDFLAGS  = $(AM_LDFLAGS) -lm
+
+# Test 15: strnames (all s_* string/value lookup functions)
+test_strnames_SOURCES  = test_strnames.c
+test_strnames_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc
+test_strnames_LDADD    = $(COMMON_LDADD)
+test_strnames_LDFLAGS  = $(AM_LDFLAGS)
 
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
