@@ -205,11 +205,27 @@ test_vendorid_bounds_LDADD    = $(COMMON_LDADD)
 test_vendorid_bounds_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
+# scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
+# They follow automake's default "simple" test protocol (exit 0 = pass,
+# nonzero = fail), same as the check_PROGRAMS binaries above, so they can
+# sit directly in TESTS. See test/cert-framework/README.md.
+CERT_FRAMEWORK_TESTS = \
+	unit/cert-framework/test_ca_init.sh \
+	unit/cert-framework/test_ca_create_root.sh \
+	unit/cert-framework/test_ca_create_intermediate.sh \
+	unit/cert-framework/test_issue_net2net.sh \
+	unit/cert-framework/test_issue_roadwarrior.sh \
+	unit/cert-framework/test_ca_issue_server.sh \
+	unit/cert-framework/test_chain_validation.sh \
+	unit/cert-framework/test_ca_revoke_cert.sh \
+	unit/cert-framework/test_openssl_compat.sh
+
 # Run these tests with 'make check'
-TESTS = $(check_PROGRAMS)
+TESTS = $(check_PROGRAMS) $(CERT_FRAMEWORK_TESTS)
 
 # Extra files to distribute
-EXTRA_DIST = README.md valgrind.supp
+EXTRA_DIST = README.md valgrind.supp cert-framework unit/cert-framework
 
 # Clean generated files
 CLEANFILES = *.log *.trs
