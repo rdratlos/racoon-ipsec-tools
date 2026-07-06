@@ -25,7 +25,8 @@ assert_contains "$keytext" "Private-Key: (2048 bit" "intermediate key is RSA 204
 certtext="$(openssl x509 -in "$cert" -noout -text)"
 assert_contains "$certtext" "CA:TRUE" "intermediate cert is a CA"
 assert_contains "$certtext" "pathlen:0" "intermediate cert has pathlen:0"
-assert_contains "$certtext" "CN = Nepomuc SecureNet Intermediate CA" "intermediate cert subject CN matches"
+cn="$(cert_dn_field "$cert" subject commonName)"
+assert_eq "Nepomuc SecureNet Intermediate CA" "$cn" "intermediate cert subject CN matches"
 
 issuer="$(openssl x509 -in "$cert" -noout -issuer)"
 root_subject_as_issuer="$(openssl x509 -in "$workdir/root/certs/ca.cert.pem" -noout -subject | sed 's/^subject=/issuer=/')"

@@ -78,3 +78,18 @@ test_summary() {
 mktempdir() {
 	mktemp -d "${TMPDIR:-/tmp}/cert-framework-test.XXXXXX"
 }
+
+# cert_dn_field <cert_path> <subject|issuer> <field>
+#
+# Extracts a single DN attribute (e.g. commonName, organizationName) via
+# openssl's "multiline" nameopt, which spells out full attribute names one
+# per line and has stayed stable across OpenSSL 1.1.x-3.6.x. Plain
+# "-subject"/"-issuer" (and -text's Subject/Issuer line) use whatever
+# nameopt is the current version's default, which has changed between
+# OpenSSL releases (e.g. RDN order/spacing), so tests must not assert on
+# that literal string.
+cert_dn_field() {
+	local cert="$1" which="$2" field="$3"
+	openssl x509 -in "$cert" -noout "-$which" -nameopt multiline,utf8 \
+		| sed -n "s/^ *${field} *= *//p" | head -1
+}
