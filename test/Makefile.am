@@ -288,10 +288,24 @@ clean-local:
 # Custom test targets
 .PHONY: check-valgrind check-verbose check-dh check-rsa check-coverage check-shim check-logger check-quick coverage
 
-# Run with valgrind
+# Run with valgrind.
+#
+# Only the compiled C binaries ($(check_PROGRAMS)) are run under valgrind --
+# NOT $(TESTS), which also contains the cert-framework Bash scripts
+# ($(CERT_FRAMEWORK_TESTS)).  Pointing valgrind at a "#!/usr/bin/env bash"
+# script makes it resolve the shebang and instrument /usr/bin/env itself as
+# the guest program; on distros whose coreutils is the uutils (Rust)
+# reimplementation (e.g. Ubuntu 25.10 "Resolute") that env binary trips
+# valgrind with a flood of spurious "Invalid read" errors and the bogus
+# "coreutils: unknown program 'memcheck-amd64-linux'" line, failing the
+# target on system code we do not own.  Valgrinding a shell script is
+# meaningless anyway -- the cert-framework scripts are covered by the plain
+# "make check" run.  test_x509_cert stays in the list: it is a real ELF
+# binary, and its openssl/bash children (spawned via system()) run natively
+# because --trace-children is off.
 check-valgrind: $(check_PROGRAMS)
 	@echo "Running tests with valgrind..."
-	@for test in $(TESTS); do \
+	@for test in $(check_PROGRAMS); do \
 		echo "Testing $$test..."; \
 		valgrind --suppressions=$(srcdir)/valgrind.supp \
 			--num-callers=40 \
