@@ -373,11 +373,11 @@ Gaps against design spec: `send_delete`, `shutdown`, `spd_flush`, `spi_flush`, `
 
 ## Testing Strategy
 
-Testing follows a TDD approach with 77 tests across four categories. Each `kernelpaws_ops` function must have at least one unit test and one integration test before its XFRM implementation is considered complete. RFC 0001 defines the "itlab" Incus-based integration testing framework in which the end-to-end tests execute.
+Testing follows a TDD approach with 77 tests across four categories. Each `kernelpaws_ops` function must have at least one unit test and one integration test before its XFRM implementation is considered complete. RFC 0001 defines the "itlab" Incus-based integration testing framework in which the end-to-end tests execute, using the Incus hybrid model (system containers by default, VMs for cross-kernel isolation).
 
 ### Prerequisite
 
-**RFC 0001 integration suite must pass before kernelpaws tests can be executed.** The itlab framework provides the container infrastructure, test execution, sanitizer pipeline, and CI integration that kernelpaws E2E tests depend on.
+**RFC 0001 integration suite must pass before kernelpaws tests can be executed.** The itlab framework provides the container and VM infrastructure, test execution, sanitizer pipeline, and CI integration that kernelpaws E2E tests depend on. Tests requiring kernel isolation (e.g., XFRM ABI changes, `xfrm_acq_expires` defaults) run in Incus VMs; all other tests run in fast-starting system containers.
 
 ### Test Categories
 
@@ -417,26 +417,27 @@ Testing follows a TDD approach with 77 tests across four categories. Each `kerne
 ### Pre-Flight Checklist
 
 - [ ] RFC 0001 itlab integration suite passes on target CI environment
-- [ ] Incus/LXC container infrastructure available with `CAP_NET_ADMIN` delegation
+- [ ] Incus infrastructure available with `CAP_NET_ADMIN` delegation (system containers and VMs)
 - [ ] Minimum kernel version 5.10+ for XFRM netlink stability
+- [ ] VM test images available for minimum and latest stable kernels (for `requires: vm` tests)
 - [ ] `net.core.xfrm_acq_expires` sysctl set (prevent acquire storms; lives under `net.core.`, not `net.ipv4.`)
 
 ## Risks
 
 | Risk | Mitigation |
 |------|------------|
-| XFRM behavior varies by kernel version | Pin minimum kernel 5.10+; kernel-version-specific test markers |
+| XFRM behavior varies by kernel version | Pin minimum kernel 5.10+; `requires: vm` tests in Incus VMs with target kernel |
 | PF_KEY synchronous vs XFRM async semantics | Dedicated send socket with blocking `recvmsg` per request |
 | `NLMSG_ERROR` handling | Always check `NLMSG_ERROR`; use `NLM_F_ACK`/`NETLINK_CAP_ACK` |
 | 64-bit field alignment on strict architectures | Always use `memcpy()` for 64-bit fields in `xfrm_user_*` structs |
 | Container networking differs from bare metal | Supplement with bare-metal smoke tests before release |
-| Incus unavailable in CI | Fall back to `ip netns` (Linux network namespaces) |
+| Incus unavailable in CI | Fall back to `ip netns` (Linux network namespaces) for container tests; VM tests require dedicated runner |
 | Replay window / ESN complexity | Encapsulate in XFRM backend; expose simple `replay_window` and `esn` knobs |
 | IPCOMP kernel deprecation | Probe at init time; handle rejection gracefully |
 
 ## Referenced Documents
 
-- RFC 0001: Incus-based Integration Testing Framework ("itlab") — defines container infrastructure, test execution, and CI for end-to-end tests.
+- RFC 0001: Incus-based Integration Testing Framework ("itlab") — defines Incus hybrid infrastructure (containers + VMs), test execution, and CI for end-to-end tests.
 - Branch `rfc-002/kernelpaws-prototype` — working prototype implementation.
 - Branch `prototype/kernelpaws`, `docs/suites/kernelpaws_design_v2.md` — finalized kernelpaws architecture design.
 - Branch `prototype/kernelpaws`, `docs/suites/kernelpaws_testing.md` — detailed 77-test TDD proposal and integration testing annex.
