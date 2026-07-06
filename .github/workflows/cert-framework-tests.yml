@@ -1,0 +1,45 @@
+name: Cert Framework Tests
+
+on:
+  push:
+    paths:
+      - 'test/cert-framework/**'
+      - 'test/unit/cert-framework/**'
+      - '.github/workflows/cert-framework-tests.yml'
+  pull_request:
+    paths:
+      - 'test/cert-framework/**'
+      - 'test/unit/cert-framework/**'
+      - '.github/workflows/cert-framework-tests.yml'
+
+jobs:
+  test:
+    name: openssl-${{ matrix.openssl }}
+    runs-on: ubuntu-latest
+    # Pin a container per target OpenSSL line rather than relying on
+    # whatever the runner's default image ships, so the matrix actually
+    # exercises 1.1.1 and 3.1 as required by issue #50.
+    container:
+      image: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - openssl: "1.1.1"
+            image: debian:bullseye-slim
+            install: apt-get update && apt-get install -y --no-install-recommends bash openssl coreutils gawk grep git ca-certificates
+          - openssl: "3.1"
+            image: fedora:39
+            install: dnf install -y bash openssl coreutils gawk grep git
+    steps:
+      - name: Install dependencies
+        run: ${{ matrix.install }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show OpenSSL version
+        run: openssl version
+
+      - name: Run cert-framework unit tests
+        run: bash test/unit/cert-framework/run_tests.sh
