@@ -1002,6 +1002,57 @@ int test_asn1_dn_comparison()
 	return ret;
 }
 
+int test_asn1_dn_escapes()
+{
+	vchar_t *esc = NULL, *plain = NULL, *special = NULL;
+	vchar_t *bad = NULL, *invalid = NULL, *dangling = NULL;
+	int ret = -1;
+
+	TEST_START("ASN.1 DN RFC 2253 Escapes (hexpair + special char)");
+
+	/*
+	 * RFC 2253 hexpair escape: "\41\42" are the bytes 0x41 'A' and 0x42
+	 * 'B', so "CN=\41\42" must produce the same DN as the plain "CN=AB".
+	 */
+	esc   = eay_str2asn1dn("CN=\\41\\42", -1);
+	plain = eay_str2asn1dn("CN=AB", -1);
+	if (!esc || !plain) TEST_FAIL("hexpair-escaped DN failed to parse");
+	if (eay_cmp_asn1dn(esc, plain) != 0)
+		TEST_FAIL("hexpair escape \\41\\42 does not equal plain AB");
+
+	/*
+	 * Special-character escape: "\," is a literal comma inside the value,
+	 * so "CN=a\,b" is one RDN. The unescaped "CN=a,b" is malformed (the
+	 * trailing "b" has no attribute=value) and must be rejected.
+	 */
+	special = eay_str2asn1dn("CN=a\\,b", -1);
+	if (!special) TEST_FAIL("special-char-escaped DN failed to parse");
+	bad = eay_str2asn1dn("CN=a,b", -1);
+	if (bad) TEST_FAIL("malformed unescaped DN should have been rejected");
+
+	/* Invalid hexpair (non-hex digits) must be rejected. */
+	invalid = eay_str2asn1dn("CN=\\ZZ", -1);
+	if (invalid) TEST_FAIL("invalid hexpair \\ZZ should have been rejected");
+
+	/* A dangling backslash (fewer than two trailing chars) must be
+	 * rejected rather than read past the end of the string. */
+	dangling = eay_str2asn1dn("CN=x\\", -1);
+	if (dangling) TEST_FAIL("dangling trailing backslash should be rejected");
+
+	printf("RFC 2253 escapes handled correctly ");
+	ret = 0;
+
+	if (esc) vfree(esc);
+	if (plain) vfree(plain);
+	if (special) vfree(special);
+	if (bad) vfree(bad);
+	if (invalid) vfree(invalid);
+	if (dangling) vfree(dangling);
+
+	if (ret == 0) TEST_PASS();
+	return ret;
+}
+
 int test_hex_asn1_dn()
 {
 	vchar_t *asn1dn = NULL;
@@ -1584,6 +1635,7 @@ int main(int argc, char **argv)
 	printf("\n=== X.509 / ASN.1 Tests ===\n");
 	total++; if (test_asn1_dn_conversion() != 0) failed++;
 	total++; if (test_asn1_dn_comparison() != 0) failed++;
+	total++; if (test_asn1_dn_escapes() != 0) failed++;
 	total++; if (test_hex_asn1_dn() != 0) failed++;
 
 	printf("\n=== Base64 Tests ===\n");
