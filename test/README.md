@@ -21,8 +21,6 @@ test/
 │                                  using cert-framework fixtures
 ├── gen-x509-fixtures.sh        - Generates real PEM certs/keys/CRLs for
 │                                  test_x509_cert via cert-framework/lib/ca.sh
-├── crypto_openssl_x509_src.c   - Wrapper: compiles crypto_openssl.c WITHOUT
-│                                  -DEAYDEBUG for test_x509_cert (see below)
 ├── rsalist_test_stubs.c        - Stub symbols (lcconf, monitor_fd, privsep_*, ...)
 │                                  needed by tests that link rsalist.o/sockmisc.o
 ├── valgrind.supp               - Valgrind suppressions (OpenSSL provider noise)
@@ -175,11 +173,17 @@ for a hand-run binary). Two additive `ca.sh` helpers were introduced —
 `eay_check_x509cert` always sets `X509_V_FLAG_CRL_CHECK_ALL`, so a CRL must
 exist for every issuer in the chain, root included.
 
-**EAYDEBUG note:** unlike the rest of the suite, this test does **not** link
-`crypto_openssl_test.o` (built with `-DEAYDEBUG`, under which `mem2x509()`
-reads PEM while `eay_get_x509cert()` writes DER — the load/parse round-trip
-would break). It links a non-EAYDEBUG build of `crypto_openssl.c` pulled in
-via `crypto_openssl_x509_src.c`, matching what racoon actually ships.
+**EAYDEBUG note:** the whole modern suite links `crypto_openssl_unittest.o`
+— the **non-EAYDEBUG** build of `crypto_openssl.c` (see
+`src/racoon/Makefile.am`) — rather than `eaytest`'s `crypto_openssl_test.o`
+(built with `-DEAYDEBUG`, under which `mem2x509()` reads PEM while
+`eay_get_x509cert()` writes DER, so `test_x509_cert`'s load/parse round-trip
+would break). No test in `test/` depends on the EAYDEBUG PEM behaviour, and
+sharing one non-EAYDEBUG object keeps `crypto_openssl.c` coverage consistent
+under `make coverage` (a single line structure `lcov` can merge, instead of
+mixing EAYDEBUG and non-EAYDEBUG `.gcda` for the same source file). The
+`coverage` target additionally drops `eaytest`'s `crypto_openssl_test.gcda`
+so the report reflects only the production build.
 
 **Out of scope (follow-up):** encrypted PKCS#1 private keys (the eay loaders
 pass no passphrase callback), the SAN NUL-termination rejection branch (not
