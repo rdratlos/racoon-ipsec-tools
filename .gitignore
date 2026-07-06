@@ -49,6 +49,8 @@ Makefile
 /test/*.log
 /test/*.trs
 /test/test-suite.log
+/test/unit/cert-framework/*.log
+/test/unit/cert-framework/*.trs
 
 # Generated include symlinks
 /src/include-glibc/linux
