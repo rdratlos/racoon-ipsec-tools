@@ -45,6 +45,8 @@ rm -rf "$workdir"
 | `ca_build_chain <cert_path> <out_chain_path>` | Concatenates leaf + intermediate + root into one PEM file. |
 | `ca_verify_cert <cert_path>` | `openssl verify` against the CA chain (and the intermediate's CRL, once one exists). |
 | `ca_revoke_cert <cert_path> [reason]` | Revokes the cert against the Intermediate CA and regenerates its CRL. |
+| `ca_generate_root_crl` | Emits the Root CA CRL (`root/crl/ca.crl.pem`). Needed so a CA store can satisfy racoon's `X509_V_FLAG_CRL_CHECK_ALL`, which requires a CRL for every issuer in the chain — including the self-signed root. |
+| `ca_generate_intermediate_crl` | Emits the Intermediate CA CRL without revoking anything, for the "valid cert, CRL present" path. |
 
 `CA_KEY_PASSWORD` (default `racoon-test-passphrase`) encrypts the Root and
 Intermediate private keys; end-entity keys are left unencrypted for direct

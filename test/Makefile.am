@@ -65,7 +65,8 @@ check_PROGRAMS = \
 	test_sockmisc \
 	test_genlist \
 	test_eay_rsa \
-	test_ipsec_doi_sa
+	test_ipsec_doi_sa \
+	test_x509_cert
 
 # Test 1: DH MODP Groups
 test_dh_modp_groups_SOURCES  = test_dh_modp_groups.c
@@ -178,6 +179,45 @@ test_ipsec_doi_sa_LDADD    = \
 	$(top_builddir)/src/racoon/misc.o
 test_ipsec_doi_sa_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 
+# Test 13: X.509 certificate functions (ISSUE #52)
+#
+# eay_get_x509cert / eay_check_x509cert / eay_check_x509sign /
+# eay_get_x509asn1subjectname / eay_get_x509asn1issuername /
+# eay_get_x509subjectaltname / eay_get_x509text /
+# eay_get_pkcs1privkey / eay_get_pkcs1pubkey / eay_get_x509sign.
+#
+# Unlike the rest of the suite this test does NOT link
+# crypto_openssl_test.o: that object is built with -DEAYDEBUG, under which
+# mem2x509() reads PEM whereas eay_get_x509cert() always writes DER, so the
+# load/parse round-trip these tests exercise only holds in the production
+# (non-EAYDEBUG) build.  crypto_openssl.c is therefore pulled in here via the
+# local wrapper crypto_openssl_x509_src.c (compiled without EAYDEBUG); the
+# same wrapper-include pattern used by ipsec_doi_unittest_src.c keeps its .Po
+# dependency file under test/.deps/ for Ubuntu Bionic automake compatibility.
+#
+# Fixtures are real PEM certificates/keys/CRLs produced at run time by
+# gen-x509-fixtures.sh (which drives cert-framework/lib/ca.sh).  The test
+# binary locates that script through X509_FIXTURE_SRCDIR, exported below via
+# AM_TESTS_ENVIRONMENT.
+test_x509_cert_SOURCES = test_x509_cert.c crypto_openssl_x509_src.c
+test_x509_cert_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc
+test_x509_cert_LDADD = \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/str2val.o \
+	$(top_builddir)/src/racoon/misc_noplog.o \
+	$(top_builddir)/src/racoon/openssl_compat.o \
+	$(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/eay_rsa.o \
+	$(CRYPTOOBJS) \
+	$(top_builddir)/src/libipsec/libipsec.la \
+	@EXTRA_CRYPTO@ \
+	-lcrypto
+test_x509_cert_LDFLAGS = $(AM_LDFLAGS)
+
 # Test 12: Vendor ID bounds — vendorid_frag_cap() (#38) and check_vendorid()
 # (#39).  Built only with --enable-frag, since vendorid_frag_cap() lives in
 # isakmp_frag.c (compiled only then).  vendorid.c is compiled with
@@ -224,8 +264,14 @@ CERT_FRAMEWORK_TESTS = \
 # Run these tests with 'make check'
 TESTS = $(check_PROGRAMS) $(CERT_FRAMEWORK_TESTS)
 
+# test_x509_cert locates gen-x509-fixtures.sh (and, through it,
+# cert-framework/lib/ca.sh) via X509_FIXTURE_SRCDIR.  abs_srcdir keeps the
+# path valid no matter which directory the harness runs the binary from.
+AM_TESTS_ENVIRONMENT = X509_FIXTURE_SRCDIR='$(abs_srcdir)'; export X509_FIXTURE_SRCDIR;
+
 # Extra files to distribute
-EXTRA_DIST = README.md valgrind.supp cert-framework unit/cert-framework
+EXTRA_DIST = README.md valgrind.supp cert-framework unit/cert-framework \
+	gen-x509-fixtures.sh
 
 # Clean generated files
 CLEANFILES = *.log *.trs

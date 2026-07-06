@@ -17,6 +17,12 @@ test/
 ├── test_vmbuf.c                - vmalloc()/vrealloc()/vfree()/vdup()
 ├── test_sockmisc.c             - Pure socket-address utility functions
 ├── test_genlist.c              - Generic linked-list operations
+├── test_x509_cert.c            - X.509 cert load/verify/sign/SAN (ISSUE #52),
+│                                  using cert-framework fixtures
+├── gen-x509-fixtures.sh        - Generates real PEM certs/keys/CRLs for
+│                                  test_x509_cert via cert-framework/lib/ca.sh
+├── crypto_openssl_x509_src.c   - Wrapper: compiles crypto_openssl.c WITHOUT
+│                                  -DEAYDEBUG for test_x509_cert (see below)
 ├── rsalist_test_stubs.c        - Stub symbols (lcconf, monitor_fd, privsep_*, ...)
 │                                  needed by tests that link rsalist.o/sockmisc.o
 ├── valgrind.supp               - Valgrind suppressions (OpenSSL provider noise)
@@ -128,14 +134,58 @@ object used throughout racoon's RSA signing/verification code paths.
 - ✅ Symmetric ciphers (DES, 3DES, AES, Blowfish, CAST, IDEA, RC5, Camellia)
 - ✅ Hash functions (MD5, SHA1, SHA2-256, SHA2-384, SHA2-512)
 - ✅ HMAC functions (HMAC-MD5, HMAC-SHA1, HMAC-SHA2-*)
-- ✅ X.509 certificate parsing
-- ✅ ASN.1 DN conversion
+- ✅ ASN.1 DN conversion (the X.509 helpers that need no real certificate;
+     certificate load/verify/sign are covered by `test_x509_cert.c`)
 - ✅ Base64 encoding/decoding
 - ✅ Random number generation
 - ✅ BIGNUM conversions
 - ✅ Utility functions
 
 **Run:** `./test_crypto_coverage`
+
+### test_x509_cert.c (ISSUE #52, 10 tests)
+
+**Purpose:** Exercise the `crypto_openssl.c` functions that load, parse,
+verify and sign *real* X.509 certificates — everything `test_crypto_coverage.c`
+does **not** touch (it only covers the raw-string ASN.1 DN helpers).
+
+**Covered functions:** `eay_get_x509cert`, `eay_check_x509cert`,
+`eay_check_x509sign`, `eay_get_x509asn1subjectname`,
+`eay_get_x509asn1issuername`, `eay_get_x509subjectaltname`,
+`eay_get_x509text`, `eay_get_pkcs1privkey`, `eay_get_pkcs1pubkey`,
+`eay_get_x509sign`.
+
+**Test coverage highlights:**
+- Load + leading `ISAKMP_CERT_X509SIGN` tag byte, missing-file → NULL
+- Chain + CRL verification (valid), and rejection of a wrong-CA and a
+  **revoked** cert (the CRL path — needs a root CRL too, see below)
+- Subject/issuer names compared structurally via `eay_cmp_asn1dn`
+- Subject Alternative Names: DNS, email, IPv4, IPv6, out-of-range `pos`,
+  and a no-SAN cert
+- RSA sign/verify round-trip with tamper detection, and rejection of a
+  non-RSA (EC) key
+
+**Fixtures:** generated at run time by `gen-x509-fixtures.sh`, which drives
+`cert-framework/lib/ca.sh` (ISSUE #50) to build a real Root → Intermediate →
+End-Entity CA into a throwaway scratch dir. The test binary shells out to it
+via `system()` once at start-up and locates the script through
+`X509_FIXTURE_SRCDIR` (exported by `AM_TESTS_ENVIRONMENT`; defaults to `.`
+for a hand-run binary). Two additive `ca.sh` helpers were introduced —
+`ca_generate_root_crl` / `ca_generate_intermediate_crl` — because
+`eay_check_x509cert` always sets `X509_V_FLAG_CRL_CHECK_ALL`, so a CRL must
+exist for every issuer in the chain, root included.
+
+**EAYDEBUG note:** unlike the rest of the suite, this test does **not** link
+`crypto_openssl_test.o` (built with `-DEAYDEBUG`, under which `mem2x509()`
+reads PEM while `eay_get_x509cert()` writes DER — the load/parse round-trip
+would break). It links a non-EAYDEBUG build of `crypto_openssl.c` pulled in
+via `crypto_openssl_x509_src.c`, matching what racoon actually ships.
+
+**Out of scope (follow-up):** encrypted PKCS#1 private keys (the eay loaders
+pass no passphrase callback), the SAN NUL-termination rejection branch (not
+reachable with a well-formed cert), CRL parsing itself and OCSP.
+
+**Run:** `./test_x509_cert`
 
 ### test_cipher_shim.c
 
