@@ -161,7 +161,30 @@ rekeying, package lifecycle, cross-distribution interoperability). Future RFCs
 may address how results from both harnesses are correlated and presented
 together in CI.
 
-## 12. Security Considerations
+## 12. Container vs VM Selection
+
+Incus unifies system containers and virtual machines under one declarative API.
+The selection criteria are:
+
+- **System containers are the default.** Fast startup, low resource overhead,
+  sufficient for the vast majority of integration tests (IKE negotiation, SA
+  lifecycle, rekeying, NAT-T, IPv6, policy drop, package lifecycle).
+- **VMs are used for cross-kernel testing.** System containers share the host
+  kernel, making it impossible to test XFRM behavior across different kernel
+  versions. Tests that validate kernel-version-specific behavior — such as
+  XFRM netlink ABI changes, `xfrm_acq_expires` defaults, or `xfrm_larval_drop`
+  semantics — must run in Incus VMs with the target kernel.
+- **Test annotations.** Tests requiring kernel isolation are marked
+  (e.g., `requires: vm`). The Lab Provisioning layer selects `type: container`
+  or `type: machine` based on these annotations.
+- **Kernel version matrix.** The minimum supported kernel is 5.10+. The VM
+  test matrix covers the minimum kernel and the latest stable kernel;
+  intermediate versions are covered ad hoc when regressions are reported.
+
+This resolves the container-vs-VM debate: both are needed, Incus provides both,
+and the choice is driven by test requirements, not opinion.
+
+## 13. Security Considerations
 
 - **Elevated privilege.** Incus requires group membership; kernel SPD/SAD
   manipulation requires `CAP_NET_ADMIN` inside instances. CI runners must be
@@ -173,7 +196,7 @@ together in CI.
 - **Secure defaults.** Topologies default to strongest authentication; weak
   configurations must be explicit and scenario-local.
 
-## 13. Alternatives Considered
+## 14. Alternatives Considered
 
 | Alternative | Why rejected |
 | --- | --- |
@@ -182,7 +205,7 @@ together in CI.
 | GitHub Actions + cloud VMs | Violates Local = CI and Portability; CI-only, not runnable locally. |
 | Terraform + libvirt | Heavier than needed; introduces second DSL; slow iteration loop. |
 
-## 14. Decision Log
+## 15. Decision Log
 
 | Decision | Rationale |
 | --- | --- |
@@ -192,13 +215,13 @@ together in CI.
 | In-tree placement | Single consumer today; avoids cross-repo coordination |
 | Containers by default | Fast startup for common case; VMs reserved for kernel isolation |
 
-## 15. RFC Evolution
+## 16. RFC Evolution
 
 RFC status transitions through: **Draft → Accepted → Amended → Superseded → Obsolete**.
 "Accepted" is not terminal — amendments require a follow-up RFC. Superseding
 requires an explicit replacement RFC.
 
-## 16. Acceptance Criteria
+## 17. Acceptance Criteria
 
 - [ ] This RFC is accepted per the project's RFC process.
 - [ ] The layered architecture is reflected in the implementation.
