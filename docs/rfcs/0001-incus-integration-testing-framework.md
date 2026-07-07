@@ -265,7 +265,7 @@ and the choice is driven by test requirements, not opinion.
 | GitHub Actions + cloud VMs | Violates Local = CI and Portability; CI-only, not runnable locally. |
 | Terraform + libvirt | Heavier than needed; introduces second DSL; slow iteration loop. |
 
-## 15. Decision Log
+## 15. Architectural Decisions
 
 | Decision | Rationale |
 | --- | --- |
