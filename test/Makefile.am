@@ -64,7 +64,9 @@ check_PROGRAMS = \
 	test_vmbuf \
 	test_sockmisc \
 	test_genlist \
-	test_eay_rsa
+	test_eay_rsa \
+	test_rsalist \
+	test_plog
 
 # Test 1: DH MODP Groups
 test_dh_modp_groups_SOURCES  = test_dh_modp_groups.c
@@ -142,6 +144,31 @@ test_genlist_LDFLAGS   = $(AM_LDFLAGS)
 test_eay_rsa_SOURCES  = test_eay_rsa.c
 test_eay_rsa_LDADD    = $(COMMON_LDADD)
 test_eay_rsa_LDFLAGS  = $(AM_LDFLAGS)
+
+# Test 11: rsalist (candidate-key scoring/selection and signature
+# verification dispatch used by oakley.c's RSA-signature IKE auth path)
+#
+# Same link approach as test_rsa_comprehensive: rsalist_test_stubs.c stubs
+# out the privsep_*/lcconf/monitor_fd/script_exec/getpsk symbols pulled in
+# transitively via rsalist.o -> sockmisc.o, so privsep.o (and the
+# isakmp_cfg_*/xauth_* symbols it would drag in) never needs to be linked.
+test_rsalist_SOURCES  = test_rsalist.c rsalist_test_stubs.c
+test_rsalist_LDADD    = $(COMMON_LDADD) \
+	$(top_builddir)/src/racoon/rsalist.o \
+	$(top_builddir)/src/racoon/genlist.o \
+	$(top_builddir)/src/racoon/sockmisc.o \
+	$(top_builddir)/src/racoon/prsa_par.o \
+	$(top_builddir)/src/racoon/prsa_tok.o
+test_rsalist_LDFLAGS  = $(AM_LDFLAGS) -lresolv
+
+# Test 12: plog (logging/formatting: plog_common's buffer arithmetic,
+# plogdump's hex-dump sizing, binsanitize, file- and syslog-backed
+# dispatch)
+test_plog_SOURCES  = test_plog.c
+test_plog_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_plog_LDFLAGS  = $(AM_LDFLAGS)
 
 # Run these tests with 'make check'
 TESTS = $(check_PROGRAMS)
