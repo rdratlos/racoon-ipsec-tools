@@ -231,9 +231,15 @@ The selection criteria are:
 - **Test annotations.** Tests requiring kernel isolation are marked
   (e.g., `requires: vm`). The Lab Provisioning layer selects `type: container`
   or `type: machine` based on these annotations.
-- **Kernel version matrix.** The minimum supported kernel is 5.10+. The VM
+- **Kernel version matrix.** The minimum supported kernel is 4.15 (Ubuntu
+  Bionic's GA kernel — the only remaining supported LTS with 32-bit
+  userspace, and the platform most likely to expose the 64-bit field
+  alignment bugs XFRM's netlink ABI invites on strict architectures). The VM
   test matrix covers the minimum kernel and the latest stable kernel;
-  intermediate versions are covered ad hoc when regressions are reported.
+  intermediate versions are covered ad hoc when regressions are reported. A
+  future feature that genuinely requires a newer kernel capability (e.g.,
+  XFRM virtual interfaces, mainlined in 4.19) is gated by a `requires: vm`
+  annotation on that test, not by raising this floor.
 
 This resolves the container-vs-VM debate: both are needed, Incus provides both,
 and the choice is driven by test requirements, not opinion.
