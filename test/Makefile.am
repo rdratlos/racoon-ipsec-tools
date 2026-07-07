@@ -79,7 +79,8 @@ check_PROGRAMS = \
 	test_misc \
 	test_strnames \
 	test_rsalist \
-	test_plog
+	test_plog \
+	test_algorithm
 
 # Test 1: DH MODP Groups
 test_dh_modp_groups_SOURCES  = test_dh_modp_groups.c
@@ -309,6 +310,33 @@ test_nattraversal_natd_LDADD    = $(COMMON_LDADD) \
 	$(top_builddir)/src/racoon/sockmisc.o
 test_nattraversal_natd_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
+
+# Test 19: algorithm.c DOI<->algorithm dispatch tables (issue #34 follow-up).
+# algorithm.o is now pulled into every coverage build via test_nattraversal_natd
+# (COMMON_LDADD there adds it for oakley_dhdef[]'s DH group pointers), which
+# previously counted its ~950 uncovered lines against the suite's coverage
+# percentage. algorithm.c is otherwise self-contained: its pure DOI/type
+# lookups and *_one()/_encrypt()/_decrypt() dispatchers need nothing beyond
+# what COMMON_LDADD already links (crypto_openssl_unittest.o for the
+# underlying eay_* implementations). Only alg_oakley_dhdef_group() needs
+# live data -- the dh_modp* globals declared in oakley.c, populated by
+# oakley_dhinit() -- so oakley.c is pulled in via the same wrapper source
+# and -ffunction-sections/--gc-sections technique as test_nattraversal_natd,
+# to avoid oakley.c's much larger dependency closure elsewhere in the file.
+#
+# Unlike test_nattraversal_natd, algorithm.c has no feature-flag
+# dependency, so this test always builds and always contributes to
+# coverage regardless of --enable-natt/--enable-frag.
+test_algorithm_SOURCES  = test_algorithm.c \
+	oakley_unittest_src.c
+test_algorithm_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc
+test_algorithm_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_algorithm_LDADD    = $(COMMON_LDADD) \
+	$(top_builddir)/src/racoon/algorithm.o
+test_algorithm_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
