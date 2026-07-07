@@ -420,7 +420,7 @@ Testing follows a TDD approach with 77 tests across four categories. Each `kerne
 
 - [ ] RFC 0001 itlab integration suite passes on target CI environment
 - [ ] Incus infrastructure available with `CAP_NET_ADMIN` delegation (system containers and VMs)
-- [ ] Minimum kernel version 5.10+ for XFRM netlink stability
+- [ ] Minimum kernel version 4.15 (Ubuntu Bionic GA) for XFRM netlink stability
 - [ ] VM test images available for minimum and latest stable kernels (for `requires: vm` tests)
 - [ ] `net.core.xfrm_acq_expires` sysctl set (prevent acquire storms; lives under `net.core.`, not `net.ipv4.`)
 
@@ -428,7 +428,7 @@ Testing follows a TDD approach with 77 tests across four categories. Each `kerne
 
 | Risk | Mitigation |
 |------|------------|
-| XFRM behavior varies by kernel version | Pin minimum kernel 5.10+; `requires: vm` tests in Incus VMs with target kernel |
+| XFRM behavior varies by kernel version | Pin minimum kernel 4.15 (Ubuntu Bionic GA — core `XFRM_MSG_*`/`XFRMA_*` surface used here predates 4.15 by years); features needing a newer kernel capability (e.g., XFRM virtual interfaces, 4.19+) are gated per-test via `requires: vm` in Incus VMs with the target kernel, not by raising this floor |
 | PF_KEY synchronous vs XFRM async semantics | Dedicated send socket with blocking `recvmsg` per request |
 | `NLMSG_ERROR` handling | Always check `NLMSG_ERROR`; use `NLM_F_ACK` (per-message) plus `NETLINK_CAP_ACK` (socket option) |
 | 64-bit field alignment on strict architectures | Always use `memcpy()` for 64-bit fields in `xfrm_user_*` structs |
