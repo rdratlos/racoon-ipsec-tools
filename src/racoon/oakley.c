@@ -44,6 +44,7 @@
 
 #include <openssl/pkcs7.h>
 #include <openssl/x509.h>
+#include <openssl/crypto.h>
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -1355,7 +1356,7 @@ oakley_validate_auth(iph1)
 		if (my_hash == NULL)
 			return ISAKMP_INTERNAL_ERROR;
 
-		result = memcmp(my_hash->v, r_hash, my_hash->l);
+		result = CRYPTO_memcmp(my_hash->v, r_hash, my_hash->l);
 		vfree(my_hash);
 
 		if (result) {
@@ -1602,7 +1603,7 @@ oakley_validate_auth(iph1)
 			return ISAKMP_NTYPE_INVALID_HASH_INFORMATION;
 		}
 
-		result = memcmp(my_hash->v, gsshash->v, my_hash->l);
+		result = CRYPTO_memcmp(my_hash->v, gsshash->v, my_hash->l);
 		vfree(my_hash);
 		vfree(gsshash);
 
