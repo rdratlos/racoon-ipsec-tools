@@ -13,10 +13,7 @@ COVERAGE_HI_LIMIT = 70
 AM_CPPFLAGS = \
 	-I$(top_srcdir)/src/racoon \
 	-I$(top_builddir)/src/racoon \
-	-I$(top_srcdir)/src/racoon/missing \
-	-I$(top_srcdir)/src/libipsec \
-	-I$(top_srcdir)/src/include-glibc \
-	-I$(top_builddir)/src/include-glibc
+	-I$(top_srcdir)/src/racoon/missing
 
 # Compiler flags - match src/racoon/Makefile.am
 AM_CFLAGS = \
@@ -278,6 +275,40 @@ test_plog_LDADD    = $(top_builddir)/src/racoon/plog.o \
 	$(top_builddir)/src/racoon/logger.o \
 	$(top_builddir)/src/racoon/misc_noplog.o
 test_plog_LDFLAGS  = $(AM_LDFLAGS)
+
+# Test 18: NAT-D CRYPTO_memcmp regression (issue #34) — natt_compare_addr_hash()
+# in nattraversal.c is the one memcmp()->CRYPTO_memcmp() call site in this
+# hardening pass cheap enough to drive through a real call rather than a
+# synthetic buffer comparison.  Built only with --enable-natt, since
+# nattraversal.c's struct ph1handle fields (natt_flags, natt_options) only
+# exist under ENABLE_NATT.  natt_hash_addr() falls back to MD5 without a
+# negotiated proposal, pulling in oakley_hash() from oakley.c; both sources
+# have a much larger dependency closure than what this test needs, so they
+# are built with -ffunction-sections and linked with --gc-sections (same
+# technique as test_ipsec_doi_sa and test_vendorid_bounds) to discard the
+# unused remainder.  rsalist_test_stubs.c supplies the privsep_* stubs
+# sockmisc.o needs at link time (see the comment on test_rsalist_SOURCES).
+#
+# nattraversal.c and oakley.c are pulled in via local wrapper sources (see
+# the comment on test_ipsec_doi_sa_SOURCES above) so their .Po dependency
+# files stay under test/.deps/.
+if ENABLE_NATT
+check_PROGRAMS += test_nattraversal_natd
+
+test_nattraversal_natd_SOURCES  = test_nattraversal_natd.c \
+	nattraversal_unittest_src.c \
+	oakley_unittest_src.c \
+	rsalist_test_stubs.c
+test_nattraversal_natd_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc
+test_nattraversal_natd_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_nattraversal_natd_LDADD    = $(COMMON_LDADD) \
+	$(top_builddir)/src/racoon/algorithm.o \
+	$(top_builddir)/src/racoon/sockmisc.o
+test_nattraversal_natd_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
 
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.

@@ -842,6 +842,9 @@ AS_IF([test "$enable_natt" = "yes"], [
 		AC_SUBST(NATT_OBJS)
 	])
 ])
+dnl Automake conditional so the NAT-D unit test is built only when
+dnl nattraversal.c (and thus natt_compare_addr_hash()) is part of the build.
+AM_CONDITIONAL([ENABLE_NATT], [test "x$enable_natt" = "xyes"])
 
 # Set up defines for supported NAT-T versions.
 natt_versions_default="02,rfc"
