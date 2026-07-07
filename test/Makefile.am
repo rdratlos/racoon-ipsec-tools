@@ -13,7 +13,10 @@ COVERAGE_HI_LIMIT = 70
 AM_CPPFLAGS = \
 	-I$(top_srcdir)/src/racoon \
 	-I$(top_builddir)/src/racoon \
-	-I$(top_srcdir)/src/racoon/missing
+	-I$(top_srcdir)/src/racoon/missing \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc
 
 # Compiler flags - match src/racoon/Makefile.am
 AM_CFLAGS = \

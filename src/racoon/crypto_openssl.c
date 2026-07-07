@@ -1309,7 +1309,7 @@ eay_pkey_verify(src, sig, pkey)
 		     "Signature verification failed: length mismatch (expected %zu, got %zu)\n",
 		     src->l, recovered->l);
 		ret = -1;
-	} else if (memcmp(recovered->v, src->v, src->l) != 0) {
+	} else if (CRYPTO_memcmp(recovered->v, src->v, src->l) != 0) {
 		plog(LLV_WARNING, LOCATION, NULL,
 		     "Signature verification failed: data mismatch\n");
 		ret = -1;

@@ -41,6 +41,8 @@
 #include <string.h>
 #include <errno.h>
 
+#include <openssl/crypto.h>
+
 #include "var.h"
 #include "misc.h"
 #include "vmbuf.h"
@@ -176,7 +178,7 @@ isakmp_newgroup_r(iph1, msg)
 	plog(LLV_DEBUG, LOCATION, NULL, "original hash\n"));
 	plogdump(LLV_DEBUG, r_hash, ntohs(hash->h.len) - sizeof(*hash)));
 
-	result = memcmp(my_hash->v, r_hash, my_hash->l);
+	result = CRYPTO_memcmp(my_hash->v, r_hash, my_hash->l);
 	vfree(my_hash);
 
 	if (result) {
