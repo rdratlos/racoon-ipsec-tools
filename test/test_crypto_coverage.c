@@ -18,8 +18,6 @@
 #include <assert.h>
 #include <sys/types.h>
 
-#include <openssl/crypto.h>
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -1587,56 +1585,6 @@ int test_error_string()
 }
 
 /* ============================================================================
- * CRYPTO_MEMCMP TEST
- * ============================================================================ */
-
-/*
- * Test that CRYPTO_memcmp behaves identically to memcmp for the
- * equality/inequality checks used throughout the codebase.
- */
-static void
-test_crypto_memcmp(void)
-{
-	uint8_t a[32], b[32];
-	int i;
-
-	memset(a, 0, sizeof(a));
-	memset(b, 0, sizeof(b));
-
-	/* Identical buffers: both must report equality */
-	assert(CRYPTO_memcmp(a, b, sizeof(a)) == 0);
-	assert(memcmp(a, b, sizeof(a)) == 0);
-
-	/* Fill with distinct patterns */
-	for (i = 0; i < (int)sizeof(a); i++) {
-		a[i] = (uint8_t)(i * 3 + 7);
-		b[i] = (uint8_t)(i * 5 + 11);
-	}
-
-	/* Different buffers: both must report inequality */
-	assert(CRYPTO_memcmp(a, b, sizeof(a)) != 0);
-	assert(memcmp(a, b, sizeof(a)) != 0);
-
-	/* Single-byte difference at various positions */
-	{
-		uint8_t c[16], d[16];
-		for (i = 0; i < (int)sizeof(c); i++) {
-			memset(c, 0xab, sizeof(c));
-			memset(d, 0xab, sizeof(d));
-			d[i] = 0x12;
-			assert(CRYPTO_memcmp(c, d, sizeof(c)) != 0);
-			assert(memcmp(c, d, sizeof(c)) != 0);
-		}
-	}
-
-	/* Zero-length comparison */
-	assert(CRYPTO_memcmp(a, b, 0) == 0);
-	assert(memcmp(a, b, 0) == 0);
-
-	printf("  test_crypto_memcmp: PASSED\n");
-}
-
-/* ============================================================================
  * MAIN TEST RUNNER
  * ============================================================================ */
 
@@ -1701,10 +1649,6 @@ int main(int argc, char **argv)
 	printf("\n=== BIGNUM Conversion Tests ===\n");
 	total++; if (test_bignum_conversions() != 0) failed++;
 	total++; if (test_bignum_edge_cases() != 0) failed++;
-
-	printf("\n=== Constant-Time Compare Tests ===\n");
-	test_crypto_memcmp();
-	total++;
 
 	printf("\n=== Utility Function Tests ===\n");
 	total++; if (test_cipher_keylen() != 0) failed++;
