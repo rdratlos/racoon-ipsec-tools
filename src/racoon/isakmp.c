@@ -51,6 +51,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+
+#include <openssl/crypto.h>
 #if TIME_WITH_SYS_TIME
 # include <sys/time.h>
 # include <time.h>
@@ -412,7 +414,7 @@ isakmp_main(msg, remote, local)
 #endif
 
 	/* the initiator's cookie must not be zero */
-	if (memcmp(&isakmp->i_ck, r_ck0, sizeof(cookie_t)) == 0) {
+	if (CRYPTO_memcmp(&isakmp->i_ck, r_ck0, sizeof(cookie_t)) == 0) {
 		plog(LLV_ERROR, LOCATION, remote,
 			"malformed cookie received.\n");
 		return -1;
@@ -463,7 +465,7 @@ isakmp_main(msg, remote, local)
 	iph1 = getph1byindex(index);
 	if (iph1 != NULL) {
 		/* validity check */
-		if (memcmp(&isakmp->r_ck, r_ck0, sizeof(cookie_t)) == 0 &&
+		if (CRYPTO_memcmp(&isakmp->r_ck, r_ck0, sizeof(cookie_t)) == 0 &&
 		    iph1->side == INITIATOR) {
 			plog(LLV_DEBUG, LOCATION, remote,
 				"malformed cookie received or "
@@ -563,7 +565,7 @@ isakmp_main(msg, remote, local)
 			iph1 = getph1byindex0(index);
 			if (iph1 == NULL) {
 				/*it must be the 1st message from a initiator.*/
-				if (memcmp(&isakmp->r_ck, r_ck0,
+				if (CRYPTO_memcmp(&isakmp->r_ck, r_ck0,
 					sizeof(cookie_t)) != 0) {
 
 					plog(LLV_DEBUG, LOCATION, remote,

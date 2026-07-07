@@ -43,6 +43,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+
+#include <openssl/crypto.h>
 #if TIME_WITH_SYS_TIME
 # include <sys/time.h>
 # include <time.h>
@@ -718,7 +720,7 @@ quick_i2recv(iph2, msg0)
 	if (my_hash == NULL)
 		goto end;
 
-	result = memcmp(my_hash->v, r_hash, my_hash->l);
+	result = CRYPTO_memcmp(my_hash->v, r_hash, my_hash->l);
 	vfree(my_hash);
 
 	if (result) {
@@ -1008,7 +1010,7 @@ quick_i3recv(iph2, msg0)
 	if (my_hash == NULL)
 		goto end;
 
-	result = memcmp(my_hash->v, r_hash, my_hash->l);
+	result = CRYPTO_memcmp(my_hash->v, r_hash, my_hash->l);
 	vfree(my_hash);
 
 	if (result) {
@@ -1327,7 +1329,7 @@ quick_r1recv(iph2, msg0)
 	if (my_hash == NULL)
 		goto end;
 
-	result = memcmp(my_hash->v, r_hash, my_hash->l);
+	result = CRYPTO_memcmp(my_hash->v, r_hash, my_hash->l);
 	vfree(my_hash);
 
 	if (result) {
@@ -1806,7 +1808,7 @@ quick_r3recv(iph2, msg0)
 	if (my_hash == NULL)
 		goto end;
 
-	result = memcmp(my_hash->v, r_hash, my_hash->l);
+	result = CRYPTO_memcmp(my_hash->v, r_hash, my_hash->l);
 	vfree(my_hash);
 
 	if (result) {

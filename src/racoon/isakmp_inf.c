@@ -46,6 +46,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+
+#include <openssl/crypto.h>
 #if TIME_WITH_SYS_TIME
 # include <sys/time.h>
 # include <time.h>
@@ -246,7 +248,7 @@ isakmp_info_recv(iph1, msg0)
 			goto end;
 		}
 
-		if (memcmp(p, hash->v, hash->l) != 0) {
+		if (CRYPTO_memcmp(p, hash->v, hash->l) != 0) {
 			plog(LLV_ERROR, LOCATION, NULL,
 			    "ignore information due to hash mismatch\n");
 
@@ -1472,10 +1474,10 @@ isakmp_info_recv_r_u_ack (iph1, ru, msgid)
 	}
 
 	/* accept cookies in original or reversed order */
-	if ((memcmp(ru->i_ck, iph1->index.i_ck, sizeof(cookie_t)) ||
-	     memcmp(ru->r_ck, iph1->index.r_ck, sizeof(cookie_t))) &&
-	    (memcmp(ru->r_ck, iph1->index.i_ck, sizeof(cookie_t)) ||
-	     memcmp(ru->i_ck, iph1->index.r_ck, sizeof(cookie_t)))) {
+	if ((CRYPTO_memcmp(ru->i_ck, iph1->index.i_ck, sizeof(cookie_t)) ||
+	     CRYPTO_memcmp(ru->r_ck, iph1->index.r_ck, sizeof(cookie_t))) &&
+	    (CRYPTO_memcmp(ru->r_ck, iph1->index.i_ck, sizeof(cookie_t)) ||
+	     CRYPTO_memcmp(ru->i_ck, iph1->index.r_ck, sizeof(cookie_t)))) {
 		plog(LLV_ERROR, LOCATION, iph1->remote,
 			 "Cookie mismatch in DPD ACK!.\n");
 		return 0;
