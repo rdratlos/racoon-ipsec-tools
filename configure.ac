@@ -239,8 +239,10 @@ AC_ARG_WITH([readline],
 AC_MSG_RESULT($with_readline)
 
 # Is readline available?
+readline_found=no
 AS_IF([test "$with_readline" != "no"], [
 	PKG_CHECK_MODULES([READLINE], [readline], [
+		readline_found=yes
 		AC_DEFINE([HAVE_READLINE], [], [Is readline available?])
 		RACOON_STRIP_FEATURE_MACROS([READLINE_CFLAGS])
 		LIBS="$LIBS $READLINE_LIBS"
@@ -251,6 +253,7 @@ AS_IF([test "$with_readline" != "no"], [
 #endif])
 		AS_IF([test "$ac_cv_header_readline_readline_h" = "yes"], [
 			AC_CHECK_LIB([readline], [readline], [
+				readline_found=yes
 				AC_DEFINE([HAVE_READLINE], [], [Is readline available?])
 				LIBS="$LIBS -lreadline"
 			], [
@@ -1118,6 +1121,60 @@ esac
 
 include_racoondir=${includedir}/racoon
 AC_SUBST(include_racoondir)
+
+# --- Feature summary (#62 §7.3) ---
+summary_natt="$enable_natt"
+AS_IF([test "$enable_natt" = "yes" -a "$kernel_natt" = "yes"], [summary_natt="yes (kernel)"])
+
+summary_gssapi="no"
+AS_IF([test "$krb5_found" = "yes"], [
+	krb5_version=`$PKG_CONFIG --modversion krb5-gssapi 2>/dev/null`
+	AS_IF([test -z "$krb5_version" -a -n "$KRB5_CONFIG" -a "$KRB5_CONFIG" != "no"], [
+		krb5_version=`$KRB5_CONFIG --version 2>/dev/null | sed -n 's/.*release \([[0-9.]]*\).*/\1/p'`
+	])
+	AS_IF([test -n "$krb5_version"],
+		[summary_gssapi="yes (libkrb5 $krb5_version)"],
+		[summary_gssapi="yes"])
+])
+
+summary_ldap="no"
+AS_IF([test "$ldap_found" = "yes"], [
+	ldap_version=`$PKG_CONFIG --modversion ldap 2>/dev/null`
+	AS_IF([test -n "$ldap_version"],
+		[summary_ldap="yes (OpenLDAP $ldap_version)"],
+		[summary_ldap="yes"])
+])
+
+summary_pam="no"
+AS_IF([test "$pam_found" = "yes"], [summary_pam="yes"])
+
+summary_readline="no"
+AS_IF([test "$readline_found" = "yes"], [summary_readline="yes"])
+
+summary_secctx="$enable_security_context"
+AS_IF([test "$enable_security_context" = "no"], [
+	AS_IF([test "$kernel_secctx" = "no"],
+		[summary_secctx="no (no kernel support)"],
+	      [test "$selinux_support" = "no"],
+		[summary_secctx="no (SELinux not found)"])
+])
+
+cat <<_RACOON_SUMMARY_EOF
+
+*** racoon feature summary ***
+  Shared libraries  : $enable_shared
+  Hybrid auth       : $enable_hybrid
+  DPD               : $enable_dpd
+  NAT-T             : $summary_natt
+  IKE fragmentation : $enable_frag
+  Admin port        : $enable_adminport
+  GSSAPI/Kerberos   : $summary_gssapi
+  LDAP              : $summary_ldap
+  PAM               : $summary_pam
+  Readline          : $summary_readline
+  Security Context  : $summary_secctx
+
+_RACOON_SUMMARY_EOF
 
 AC_CONFIG_FILES([
   Makefile
