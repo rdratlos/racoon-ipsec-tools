@@ -17,7 +17,7 @@ AC_PROG_CC
 AC_PROG_CPP
 AC_CHECK_HEADERS(stdc.h)
 AM_PROG_AR
-LT_INIT([disable-shared])
+LT_INIT
 AC_CHECK_HEADERS(stdio.h stdlib.h string.h float.h)
 AC_PROG_YACC
 AC_PROG_LEX([yywrap])
@@ -367,8 +367,8 @@ AC_CHECK_HEADERS([openssl/camellia.h])
 # Option --enable-adminport
 AC_MSG_CHECKING(if --enable-adminport option is specified)
 AC_ARG_ENABLE(adminport,
-	[  --enable-adminport      enable admin port],
-	[], [enable_adminport=no])
+	[  --enable-adminport      enable admin port @<:@default=yes@:>@],
+	[], [enable_adminport=yes])
 AS_IF([test "$enable_adminport" = "yes"], [
 	AC_DEFINE([ENABLE_ADMINPORT], [], [Enable admin port])
 ])
@@ -453,8 +453,8 @@ AS_IF([test "$libiconv_dir" != "no"], [
 
 AC_MSG_CHECKING([if --enable-hybrid option is specified])
 AC_ARG_ENABLE(hybrid,
-    [  --enable-hybrid	  enable hybrid, both mode-cfg and xauth support],
-    [], [enable_hybrid=no])
+    [  --enable-hybrid	  enable hybrid, both mode-cfg and xauth support @<:@default=yes@:>@],
+    [], [enable_hybrid=yes])
 AC_MSG_RESULT($enable_hybrid)
 
 AS_IF([test "x$enable_hybrid" = "xyes"], [
@@ -472,8 +472,8 @@ AS_IF([test "x$enable_hybrid" = "xyes"], [
 
 AC_MSG_CHECKING([if --enable-frag option is specified])
 AC_ARG_ENABLE(frag,
-    [  --enable-frag           enable IKE fragmentation payload support],
-    [], [enable_frag=no])
+    [  --enable-frag           enable IKE fragmentation payload support @<:@default=yes@:>@],
+    [], [enable_frag=yes])
 AC_MSG_RESULT($enable_frag)
 
 AS_IF([test "x$enable_frag" = "xyes"], [
@@ -732,8 +732,8 @@ AC_MSG_RESULT($enable_stats)
 
 AC_MSG_CHECKING(if --enable-dpd option is specified)
 AC_ARG_ENABLE(dpd,
-        [  --enable-dpd            enable dead peer detection],
-        [], [enable_dpd=no])
+        [  --enable-dpd            enable dead peer detection @<:@default=yes@:>@],
+        [], [enable_dpd=yes])
 AS_IF([test "x$enable_dpd" = "xyes"], [
 	AC_DEFINE([ENABLE_DPD], [], [Enable dead peer detection])
 ])
@@ -843,9 +843,9 @@ AC_MSG_RESULT($kernel_natt)
 
 AC_MSG_CHECKING(whether to support NAT-T)
 AC_ARG_ENABLE(natt,
-	[  --enable-natt           enable NAT-Traversal (yes/no/kernel)],
-        [ AS_IF([test "$enable_natt" = "kernel"], [enable_natt=$kernel_natt]) ],
-	[ enable_natt=no ])
+	[  --enable-natt           enable NAT-Traversal (yes/no/auto/kernel) @<:@default=auto@:>@],
+        [ AS_IF([test "$enable_natt" = "kernel" -o "$enable_natt" = "auto"], [enable_natt=$kernel_natt]) ],
+	[ enable_natt=$kernel_natt ])
 AC_MSG_RESULT($enable_natt)
 
 AS_IF([test "$enable_natt" = "yes"], [
