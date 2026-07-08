@@ -222,24 +222,36 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
 	AC_MSG_RESULT(yes)],
 	[AC_MSG_RESULT(no)])
 
-# Check if readline support is requested
+# Check if readline support is requested (setkey interactive mode only;
+# see issue #62 §5.2 for the licensing/scope rationale behind default=auto)
 AC_MSG_CHECKING(if readline support is requested)
-AC_ARG_WITH(readline,
-	[  --with-readline         support readline input (yes by default)],
-	[with_readline="$withval"], [with_readline="yes"])
+AC_ARG_WITH([readline],
+	[AS_HELP_STRING([--with-readline],
+		[enable readline support for setkey @<:@default=auto@:>@])],
+	[], [with_readline=auto])
 AC_MSG_RESULT($with_readline)
 
 # Is readline available?
 AS_IF([test "$with_readline" != "no"], [
-	AC_CHECK_HEADERS([readline/readline.h], [], [], [#ifdef HAVE_SYS_TYPES_H
+	PKG_CHECK_MODULES([READLINE], [readline], [
+		AC_DEFINE([HAVE_READLINE], [], [Is readline available?])
+		RACOON_STRIP_FEATURE_MACROS([READLINE_CFLAGS])
+		LIBS="$LIBS $READLINE_LIBS"
+		CPPFLAGS_ADD="$READLINE_CFLAGS $CPPFLAGS_ADD"
+	], [
+		AC_CHECK_HEADERS([readline/readline.h], [], [], [#ifdef HAVE_SYS_TYPES_H
 # include <sys/types.h>
 #endif])
-	AS_IF([test "$ac_cv_header_readline_readline_h" = "yes"], [
-		AC_CHECK_LIB(readline, readline, [
-			AC_DEFINE(HAVE_READLINE, [],
-				[Is readline available?])
-			LIBS="$LIBS -lreadline"
-		], [])
+		AS_IF([test "$ac_cv_header_readline_readline_h" = "yes"], [
+			AC_CHECK_LIB([readline], [readline], [
+				AC_DEFINE([HAVE_READLINE], [], [Is readline available?])
+				LIBS="$LIBS -lreadline"
+			], [
+				AC_MSG_NOTICE([Readline not found; setkey will use basic line editing])
+			])
+		], [
+			AC_MSG_NOTICE([Readline not found; setkey will use basic line editing])
+		])
 	])
 ])
 
@@ -536,109 +548,144 @@ AS_IF([test "$libradius_dir" != "no"], [
 ])
 
 AC_MSG_CHECKING(if --with-libpam option is specified)
-AC_ARG_WITH(libpam,
-    [  --with-libpam=DIR    specify libpam path (like/usr/pkg)],
+AC_ARG_WITH([libpam],
+    [AS_HELP_STRING([--with-libpam@<:@=DIR@:>@],
+        [enable PAM authentication, optionally specifying libpam path @<:@default=auto@:>@])],
     [libpam_dir=$withval],
-    [libpam_dir=no])
+    [libpam_dir=auto])
 AC_MSG_RESULT($libpam_dir)
+
 AS_IF([test "$libpam_dir" != "no"], [
-	if test "$libpam_dir" = "yes" ; then
-		  libpam_dir="";
-	fi;
-	AS_IF([test "x$libpam_dir" = "x"], [
-		RACOON_PATH_LIBS([pam_start], [pam])
-	], [
-		AS_IF([test -d "$libpam_dir/lib" -a \
-		    -d "$libpam_dir/include"], [
-			RACOON_PATH_LIBS([pam_start], [pam], ["$libpam_dir/lib"])
-			CPPFLAGS_ADD="$CPPFLAGS_ADD -I$libpam_dir/include"
+	pam_found=no
+	AS_IF([test "$libpam_dir" = "yes" -o "$libpam_dir" = "auto"], [
+		AC_CHECK_LIB([pam], [pam_start], [
+			pam_found=yes
+			LIBS="$LIBS -lpam"
 		], [
-			AC_MSG_ERROR([PAM libs or includes not found. Aborting.])
+			AC_MSG_NOTICE([PAM not found; PAM authentication will not be available])
+		])
+	], [
+		AS_IF([test -d "$libpam_dir/lib" -a -d "$libpam_dir/include"], [
+			RACOON_PATH_LIBS([pam_start], [pam], ["$libpam_dir/lib"], [
+				pam_found=yes
+				CPPFLAGS_ADD="$CPPFLAGS_ADD -I$libpam_dir/include"
+				LIBS="$LIBS -L$libpam_dir/lib ${RPATH_FLAG}$libpam_dir/lib -lpam"
+			], [
+				AC_MSG_ERROR([PAM libs not found under $libpam_dir. Aborting.])
+			])
+		], [
+			AC_MSG_ERROR([PAM libs or includes not found under $libpam_dir. Aborting.])
 		])
 	])
-	AC_DEFINE([HAVE_LIBPAM], [], [Hybrid authentication uses PAM])
-	AS_IF([test "x$libpam_dir" != "x"], [
-		LIBS="$LIBS -L$libpam_dir/lib ${RPATH_FLAG}$libpam_dir/lib -lpam"
-	], [
-		LIBS="$LIBS -lpam"
+	AS_IF([test "$pam_found" = "yes"], [
+		AC_DEFINE([HAVE_LIBPAM], [], [Hybrid authentication uses PAM])
+		AC_CHECK_FUNCS(pam_start)
 	])
-	AC_CHECK_FUNCS(pam_start)
 ])
 
 AC_MSG_CHECKING(if --with-libldap option is specified)
-AC_ARG_WITH(libldap,
-    [AS_HELP_STRING([--with-libldap=DIR], [specify libldap path (like /usr/pkg)])],
+AC_ARG_WITH([libldap],
+    [AS_HELP_STRING([--with-libldap@<:@=DIR@:>@],
+        [enable LDAP authentication, optionally specifying libldap path @<:@default=auto@:>@])],
     [libldap_dir=$withval],
-    [libldap_dir=no])
+    [libldap_dir=auto])
 AC_MSG_RESULT($libldap_dir)
-AS_IF([test "$libldap_dir" != "no"], [
-	if test "$libldap_dir" = "yes" ; then
-		  libldap_dir="";
-	fi;
-	AS_IF([test "x$libldap_dir" = "x"], [
-		RACOON_PATH_LIBS([ldap_init], [ldap])
-	], [
-		AS_IF([test -d "$libldap_dir/lib" -a \
-		    -d "$libldap_dir/include"], [
-			RACOON_PATH_LIBS([ldap_init], [ldap], ["$libldap_dir/lib"])
-			CPPFLAGS_ADD="$CPPFLAGS_ADD -I$libldap_dir/include"
-		], [
-			AC_MSG_ERROR([LDAP libs or includes not found. Aborting.])
-		])
-	])
-	AC_DEFINE([HAVE_LIBLDAP], [1], [Hybrid authentication uses LDAP])
-	AS_IF([test "x$libldap_dir" != "x"], [
-		LIBS="$LIBS -L$libldap_dir/lib ${RPATH_FLAG}$libldap_dir/lib -lldap"
-	], [
-		LIBS="$LIBS -lldap"
-	])
 
-	saved_CFLAGS=$CFLAGS
-	CFLAGS="$CFLAGS -Wall -Werror"
-	saved_CPPFLAGS=$CPPFLAGS
-        CPPFLAGS="$CPPFLAGS $CPPFLAGS_ADD"
-	AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-		#include <ldap.h>
-	]], [[
-		#if LDAP_API_VERSION < 2004
-		#error OpenLDAP version is too old
-		#endif
-	]])],
-	[AC_MSG_RESULT([ok])],
-		[
-			AC_MSG_RESULT(too old)
-			AC_MSG_ERROR([OpenLDAP version must be 2.0 or higher. Aborting.])
+AS_IF([test "$libldap_dir" != "no"], [
+	ldap_found=no
+	AS_IF([test "$libldap_dir" = "yes" -o "$libldap_dir" = "auto"], [
+		PKG_CHECK_MODULES([LDAP], [ldap], [
+			ldap_found=yes
+			RACOON_STRIP_FEATURE_MACROS([LDAP_CFLAGS])
+			LIBS="$LIBS $LDAP_LIBS"
+			CPPFLAGS_ADD="$LDAP_CFLAGS $CPPFLAGS_ADD"
+		], [
+			RACOON_PATH_LIBS([ldap_init], [ldap], [], [
+				ldap_found=yes
+				LIBS="$LIBS -lldap"
+			], [
+				AC_MSG_NOTICE([LDAP not found; LDAP authentication will not be available])
+			])
 		])
-	CFLAGS=$saved_CFLAGS
-	CPPFLAGS=$saved_CPPFLAGS
+	], [
+		AS_IF([test -d "$libldap_dir/lib" -a -d "$libldap_dir/include"], [
+			RACOON_PATH_LIBS([ldap_init], [ldap], ["$libldap_dir/lib"], [
+				ldap_found=yes
+				CPPFLAGS_ADD="$CPPFLAGS_ADD -I$libldap_dir/include"
+				LIBS="$LIBS -L$libldap_dir/lib ${RPATH_FLAG}$libldap_dir/lib -lldap"
+			], [
+				AC_MSG_ERROR([LDAP libs not found under $libldap_dir. Aborting.])
+			])
+		], [
+			AC_MSG_ERROR([LDAP libs or includes not found under $libldap_dir. Aborting.])
+		])
+	])
+	AS_IF([test "$ldap_found" = "yes"], [
+		AC_DEFINE([HAVE_LIBLDAP], [1], [Hybrid authentication uses LDAP])
+
+		saved_CFLAGS=$CFLAGS
+		CFLAGS="$CFLAGS -Wall -Werror"
+		saved_CPPFLAGS=$CPPFLAGS
+		CPPFLAGS="$CPPFLAGS $CPPFLAGS_ADD"
+		AC_MSG_CHECKING([OpenLDAP API version])
+		AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+			#include <ldap.h>
+		]], [[
+			#if LDAP_API_VERSION < 2004
+			#error OpenLDAP version is too old
+			#endif
+		]])],
+		[AC_MSG_RESULT([ok])],
+			[
+				AC_MSG_RESULT(too old)
+				AC_MSG_ERROR([OpenLDAP version must be 2.0 or higher. Aborting.])
+			])
+		CFLAGS=$saved_CFLAGS
+		CPPFLAGS=$saved_CPPFLAGS
+	])
 ])
 
 # Check for Kerberos5 support
 # XXX This must come after all --with-* tests, else the
 # -liconv checks will not work
 AC_MSG_CHECKING(if --enable-gssapi option is specified)
-AC_ARG_ENABLE(gssapi,
-	[  --enable-gssapi         enable GSS-API authentication],
-	[], [enable_gssapi=no])
+AC_ARG_ENABLE([gssapi],
+	[AS_HELP_STRING([--enable-gssapi],
+		[enable GSS-API/Kerberos authentication @<:@default=auto@:>@])],
+	[], [enable_gssapi=auto])
 AC_MSG_RESULT($enable_gssapi)
-AC_PATH_PROG(KRB5_CONFIG,krb5-config,no)
-AS_IF([test "x$enable_gssapi" = "xyes"], [
-	AS_IF([test "$KRB5_CONFIG" != "no"], [
-		krb5_incdir="`$KRB5_CONFIG --cflags gssapi`"
-		krb5_libs="`$KRB5_CONFIG --libs gssapi`"
+
+krb5_found=no
+AS_IF([test "$enable_gssapi" != "no"], [
+	PKG_CHECK_MODULES([KRB5], [krb5-gssapi], [
+		krb5_found=yes
+		RACOON_STRIP_FEATURE_MACROS([KRB5_CFLAGS])
+		krb5_incdir="$KRB5_CFLAGS"
+		krb5_libs="$KRB5_LIBS"
 	], [
-		# No krb5-config; let's make some assumptions based on
-		# the OS.
-		case $host_os in
-		netbsd*)
-			krb5_incdir="-I/usr/include/krb5"
-			krb5_libs="-lgssapi -lkrb5 -lcom_err -lroken -lasn1"
-			;;
-		*)
-			AC_MSG_ERROR([krb5-config not found, but needed for GSSAPI support. Aborting.])
-			;;
-		esac
+		AC_PATH_PROG([KRB5_CONFIG], [krb5-config], [no])
+		AS_IF([test "$KRB5_CONFIG" != "no"], [
+			krb5_incdir="`$KRB5_CONFIG --cflags gssapi`"
+			krb5_libs="`$KRB5_CONFIG --libs gssapi`"
+			krb5_found=yes
+		], [
+			# Neither krb5-gssapi.pc nor krb5-config; fall back to
+			# known paths on platforms without pkg-config coverage.
+			case $host_os in
+			netbsd*)
+				krb5_incdir="-I/usr/include/krb5"
+				krb5_libs="-lgssapi -lkrb5 -lcom_err -lroken -lasn1"
+				krb5_found=yes
+				;;
+			esac
+		])
 	])
+	AS_IF([test "$krb5_found" = "no" -a "$enable_gssapi" = "yes"], [
+		AC_MSG_ERROR([GSSAPI requested (--enable-gssapi) but neither pkg-config krb5-gssapi.pc nor krb5-config was found. Aborting.])
+	])
+])
+
+AS_IF([test "$krb5_found" = "yes"], [
 	LIBS="$LIBS $krb5_libs"
 	CPPFLAGS_ADD="$krb5_incdir $CPPFLAGS_ADD"
 	AC_DEFINE([HAVE_GSSAPI], [], [Enable GSS API])
@@ -719,6 +766,8 @@ AS_IF([test "x$enable_gssapi" = "xyes"], [
 		])
 	CPPFLAGS=$saved_CPPFLAGS
 	LIBS=$saved_LIBS
+], [
+	AC_MSG_NOTICE([GSSAPI not found; Kerberos authentication will not be available])
 ])
 
 AC_MSG_CHECKING(if --enable-stats option is specified)
