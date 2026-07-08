@@ -387,21 +387,15 @@ AC_CHECK_HEADERS([openssl/camellia.h])
 
 
 # Option --enable-adminport
-AC_MSG_CHECKING(if --enable-adminport option is specified)
-AC_ARG_ENABLE(adminport,
-	[  --enable-adminport      enable admin port @<:@default=yes@:>@],
-	[], [enable_adminport=yes])
+RACOON_ARG_ENABLE([adminport],
+	[  --enable-adminport      enable admin port @<:@default=yes@:>@], [yes])
 AS_IF([test "$enable_adminport" = "yes"], [
 	AC_DEFINE([ENABLE_ADMINPORT], [], [Enable admin port])
 ])
-AC_MSG_RESULT($enable_adminport)
 
 # Option RC5
-AC_MSG_CHECKING(if --enable-rc5 option is specified)
-AC_ARG_ENABLE(rc5,
-	[  --enable-rc5		enable RC5 encryption (patented)],
-	[], [enable_rc5=no])
-AC_MSG_RESULT($enable_rc5)
+RACOON_ARG_ENABLE([rc5],
+	[  --enable-rc5		enable RC5 encryption (patented)], [no])
 
 AS_IF([test "$enable_rc5" = "yes"], [
 	AC_CHECK_HEADERS([openssl/rc5.h])
@@ -410,11 +404,8 @@ AS_IF([test "$enable_rc5" = "yes"], [
 ])
 
 # Option IDEA
-AC_MSG_CHECKING(if --enable-idea option is specified)
-AC_ARG_ENABLE(idea,
-	[  --enable-idea	enable IDEA encryption (patented)],
-	[], [enable_idea=no])
-AC_MSG_RESULT($enable_idea)
+RACOON_ARG_ENABLE([idea],
+	[  --enable-idea	enable IDEA encryption (patented)], [no])
 
 AS_IF([test "$enable_idea" = "yes"], [
 	AC_CHECK_HEADERS([openssl/idea.h])
@@ -473,11 +464,8 @@ AS_IF([test "$libiconv_dir" != "no"], [
 	AC_CHECK_FUNCS(iconv_open)
 ])
 
-AC_MSG_CHECKING([if --enable-hybrid option is specified])
-AC_ARG_ENABLE(hybrid,
-    [  --enable-hybrid	  enable hybrid, both mode-cfg and xauth support @<:@default=yes@:>@],
-    [], [enable_hybrid=yes])
-AC_MSG_RESULT($enable_hybrid)
+RACOON_ARG_ENABLE([hybrid],
+    [  --enable-hybrid	  enable hybrid, both mode-cfg and xauth support @<:@default=yes@:>@], [yes])
 
 AS_IF([test "x$enable_hybrid" = "xyes"], [
 	case $host in
@@ -492,11 +480,8 @@ AS_IF([test "x$enable_hybrid" = "xyes"], [
 	AC_DEFINE([ENABLE_HYBRID], [], [Hybrid authentication support])
 ])
 
-AC_MSG_CHECKING([if --enable-frag option is specified])
-AC_ARG_ENABLE(frag,
-    [  --enable-frag           enable IKE fragmentation payload support @<:@default=yes@:>@],
-    [], [enable_frag=yes])
-AC_MSG_RESULT($enable_frag)
+RACOON_ARG_ENABLE([frag],
+    [  --enable-frag           enable IKE fragmentation payload support @<:@default=yes@:>@], [yes])
 
 AS_IF([test "x$enable_frag" = "xyes"], [
 	case $host in
@@ -780,28 +765,20 @@ AS_IF([test "$krb5_found" = "yes"], [
 	AC_MSG_NOTICE([GSSAPI not found; Kerberos authentication will not be available])
 ])
 
-AC_MSG_CHECKING(if --enable-stats option is specified)
-AC_ARG_ENABLE(stats,
-        [  --enable-stats          enable statistics logging function],
-        [], [enable_stats=no])
+RACOON_ARG_ENABLE([stats],
+        [  --enable-stats          enable statistics logging function], [no])
 AS_IF([test "x$enable_stats" = "xyes"], [
 	AC_DEFINE([ENABLE_STATS], [], [Enable statictics])
 ])
-AC_MSG_RESULT($enable_stats)
 
-AC_MSG_CHECKING(if --enable-dpd option is specified)
-AC_ARG_ENABLE(dpd,
-        [  --enable-dpd            enable dead peer detection @<:@default=yes@:>@],
-        [], [enable_dpd=yes])
+RACOON_ARG_ENABLE([dpd],
+        [  --enable-dpd            enable dead peer detection @<:@default=yes@:>@], [yes])
 AS_IF([test "x$enable_dpd" = "xyes"], [
 	AC_DEFINE([ENABLE_DPD], [], [Enable dead peer detection])
 ])
-AC_MSG_RESULT($enable_dpd)
 
-AC_MSG_CHECKING(if --enable-samode-unspec option is specified)
-AC_ARG_ENABLE(samode-unspec,
-        [  --enable-samode-unspec  enable to use unspecified a mode of SA],
-        [], [enable_samode_unspec=no])
+RACOON_ARG_ENABLE([samode-unspec],
+        [  --enable-samode-unspec  enable to use unspecified a mode of SA], [no])
 AS_IF([test "x$enable_samode_unspec" = "xyes"], [
 	case $host_os in
 	*linux*)
@@ -818,7 +795,6 @@ EOC
 	esac
 	AC_DEFINE([ENABLE_SAMODE_UNSPECIFIED], [], [Enable samode-unspec])
 ])
-AC_MSG_RESULT($enable_samode_unspec)
 
 # Checks if IPv6 is requested
 AC_MSG_CHECKING([whether to enable ipv6])
@@ -949,14 +925,11 @@ AS_IF([test "$enable_natt" = "yes"], [
 	AC_MSG_RESULT([none])
 ])
 
-AC_MSG_CHECKING(if --enable-broken-natt option is specified)
-AC_ARG_ENABLE(broken-natt,
-	[  --enable-broken-natt    broken in-kernel NAT-T],
-        [], [enable_broken_natt=no])
+RACOON_ARG_ENABLE([broken-natt],
+	[  --enable-broken-natt    broken in-kernel NAT-T], [no])
 AS_IF([test "x$enable_broken_natt" = "xyes"], [
 	AC_DEFINE([BROKEN_NATT], [], [in-kernel NAT-T is broken])
 ])
-AC_MSG_RESULT($enable_broken_natt)
 
 AC_MSG_CHECKING(whether we support FWD policy)
 case $host in

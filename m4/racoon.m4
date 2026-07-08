@@ -105,6 +105,19 @@ AC_DEFUN([RACOON_CHECK_VA_COPY], [
 	unset saved_CFLAGS saved_CPPFLAGS saved_LDFLAGS
 ])
 
+dnl RACOON_ARG_ENABLE(NAME, HELP-STRING, DEFAULT)
+dnl Every simple --enable-NAME flag in configure.ac repeats the same
+dnl "checking if --enable-NAME is specified" / AC_ARG_ENABLE /
+dnl AC_MSG_RESULT triad by hand. Collapse it into one call; expands
+dnl to the same $enable_NAME shell variable AC_ARG_ENABLE would set.
+dnl Only suitable where ACTION-IF-GIVEN is empty (no extra logic
+dnl needed at parse time) and DEFAULT is a plain literal.
+AC_DEFUN([RACOON_ARG_ENABLE],
+[AC_MSG_CHECKING([if --enable-$1 option is specified])
+AC_ARG_ENABLE([$1], [$2], [], [enable_$1=$3])
+AC_MSG_RESULT([$enable_$1])
+])
+
 dnl RACOON_STRIP_FEATURE_MACROS(VARIABLE)
 dnl Third-party .pc files can emit their own _XOPEN_SOURCE/_DEFAULT_SOURCE
 dnl feature-test-macro defines, pulled in transitively via Requires.private
