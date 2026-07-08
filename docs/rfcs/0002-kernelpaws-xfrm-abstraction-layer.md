@@ -290,6 +290,16 @@ Beyond alignment, XFRM netlink attributes use a mix of network byte order and ho
 
 Always use the canonical `linux/xfrm.h` struct definitions — never hand-redefine.
 
+### Kernel Header Sufficiency Analysis
+
+A thorough analysis of LibreSwan's XFRM header usage (vendored copy from kernel 6.0.0rc5 in `external/linux-xfrm-headers/`) was performed against the kernel 4.15 (Ubuntu Bionic) system headers. Key findings:
+
+- All core XFRM structures (`xfrm_usersa_info`, `xfrm_userpolicy_info`, `xfrm_selector`, `xfrm_id`, `xfrm_algo_aead`, etc.) have been ABI-stable since kernel 2.6.25.
+- The minimum kernel for basic IKEv1 ESP/AH is 2.6.25; kernel 4.15 additionally provides AEAD (2.6.27), auth truncation (2.6.31), ESN (2.6.39), flow marks (3.15), and labeled IPsec (3.0).
+- LibreSwan requires its vendored `xfrm.h` not because kernel 4.15 headers lack basic structures, but because its code unconditionally references kernel 6.8 constants (`XFRMA_SA_DIR`, `XFRM_SA_DIR_IN/OUT`, `XFRM_MODE_IPTFS`, `XFRMA_IPTFS_*`) that are only executed at runtime when the kernel supports those features. Without `#ifdef` guards, compilation fails on any system with pre-6.8 headers.
+- **Racoon does not have this problem.** The kernelpaws XFRM backend can gate 6.8+ features behind both compile-time (`#ifdef`) and runtime checks, avoiding the LibreSwan compile-time dependency entirely.
+- **Conclusion:** Standard system `linux/xfrm.h` from kernel 4.15+ is fully sufficient for the kernelpaws XFRM backend. No vendored headers are needed.
+
 ### XFRM Flush Semantics
 
 `XFRM_MSG_FLUSHSA` requires a `struct xfrm_usersa_flush` payload with a `proto` field. To flush all SAs, iterate over `{IPPROTO_AH, IPPROTO_ESP, IPPROTO_COMP}` and send `XFRM_MSG_FLUSHSA` for each. `XFRM_MSG_FLUSHPOLICY` requires no payload.
@@ -428,7 +438,7 @@ Testing follows a TDD approach with 77 tests across four categories. Each `kerne
 
 | Risk | Mitigation |
 |------|------------|
-| XFRM behavior varies by kernel version | Pin minimum kernel 4.15 (Ubuntu Bionic GA — core `XFRM_MSG_*`/`XFRMA_*` surface used here predates 4.15 by years); features needing a newer kernel capability (e.g., XFRM virtual interfaces, 4.19+) are gated per-test via `requires: vm` in Incus VMs with the target kernel, not by raising this floor |
+| XFRM behavior varies by kernel version | Pin minimum kernel 4.15 (Ubuntu Bionic GA — core `XFRM_MSG_*`/`XFRMA_*` surface used here predates 4.15 by years); confirmed by analysis of LibreSwan's vendored `xfrm.h` that all IKEv1 XFRM structures have been ABI-stable since kernel 2.6.25; features needing a newer kernel capability (e.g., XFRM virtual interfaces, 4.19+) are gated per-test via `requires: vm` in Incus VMs with the target kernel, not by raising this floor |
 | PF_KEY synchronous vs XFRM async semantics | Dedicated send socket with blocking `recvmsg` per request |
 | `NLMSG_ERROR` handling | Always check `NLMSG_ERROR`; use `NLM_F_ACK` (per-message) plus `NETLINK_CAP_ACK` (socket option) |
 | 64-bit field alignment on strict architectures | Always use `memcpy()` for 64-bit fields in `xfrm_user_*` structs |
