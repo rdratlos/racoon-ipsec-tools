@@ -1,0 +1,18 @@
+# NOTE: sysusers.d and tmpfiles.d entries shipped by this package are
+# applied automatically by pacman's own systemd-sysusers.hook and
+# systemd-tmpfiles.hook (see /usr/share/libalpm/hooks/) whenever a
+# transaction installs matching files under usr/lib/sysusers.d/ or
+# usr/lib/tmpfiles.d/. No manual systemd-sysusers/systemd-tmpfiles call
+# is needed here - doing so would just duplicate that work.
+#
+# The racoon system user is also deliberately NOT removed on
+# post_remove: reusing a UID/GID after removal is bad practice, and
+# pacman has no reliable way to know whether files elsewhere on the
+# system still reference it. This matches convention for other
+# sysusers.d-based packages (see e.g. the monero package).
+
+post_install() {
+  echo ':: racoon and setkey systemd units are installed but not enabled by default.'
+  echo ':: Review /etc/racoon/racoon.conf, /etc/racoon/psk.txt, and /etc/ipsec-tools.conf first.'
+  echo ':: Then enable with: systemctl enable --now setkey.service racoon.service'
+}
