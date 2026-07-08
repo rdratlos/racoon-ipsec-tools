@@ -24,6 +24,26 @@ AC_PROG_LEX([yywrap])
 AC_SUBST(LEXLIB)
 AC_PROG_EGREP
 
+# Bootstrap pkg-config detection once, here, so later configure.ac
+# sections can rely on $PKG_CONFIG / PKG_CHECK_MODULES / PKG_CHECK_VAR
+# without each needing to bootstrap it independently:
+#   - dependency auto-detection for GSSAPI/LDAP/Readline (issue #62)
+#   - systemdsystemunitdir/sysusersdir/tmpfilesdir probing (issue #60)
+#
+# This is a build-time (autoreconf) prerequisite, not just a
+# configure-time one: pkg.m4 must be present wherever `autoreconf` is
+# run, normally provided by the pkg-config/pkgconf package's own
+# aclocal macros. See debian/control's Build-Depends for the
+# corresponding new entry.
+#
+# PKG_PROG_PKG_CONFIG itself degrades gracefully at ./configure time:
+# if the pkg-config binary isn't found on the target build host,
+# $PKG_CONFIG is simply left unset, and any later PKG_CHECK_MODULES/
+# PKG_CHECK_VAR call takes its ACTION-IF-NOT-FOUND branch rather than
+# failing configure outright. Nothing in this project currently
+# requires pkg-config to be present at runtime — only to build.
+PKG_PROG_PKG_CONFIG
+
 # Determine correct runtime library path flag
 # -R on Solaris/BSD, -Wl,-rpath, on Linux/GCC
 AC_MSG_CHECKING([for runtime library path flag])
