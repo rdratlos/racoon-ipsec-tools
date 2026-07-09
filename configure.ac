@@ -1007,10 +1007,17 @@ AS_IF([test "$ac_cv_header_selinux_selinux_h" = "yes"], [
 
 AC_MSG_CHECKING(whether to support Security Context)
 AC_ARG_ENABLE(security-context,
-	[  --enable-security-context    enable Security Context(yes/no/kernel)],
+	[  --enable-security-context    enable Security Context (yes/no/auto/kernel) @<:@default=auto@:>@],
 	[AS_IF([test "$enable_security_context" = "kernel"], [
 		enable_security_context=$kernel_secctx])],
-	[enable_security_context=$kernel_secctx])
+	[enable_security_context=auto])
+AS_IF([test "$enable_security_context" = "auto"], [
+	AS_IF([test "$kernel_secctx" = "yes" -a "$selinux_support" = "yes"], [
+		enable_security_context=yes
+	], [
+		enable_security_context=no
+	])
+])
 AC_MSG_RESULT($enable_security_context)
 
 AS_IF([test "$enable_security_context" = "yes"], [
