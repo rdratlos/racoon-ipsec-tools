@@ -105,6 +105,19 @@ AC_DEFUN([RACOON_CHECK_VA_COPY], [
 	unset saved_CFLAGS saved_CPPFLAGS saved_LDFLAGS
 ])
 
+dnl RACOON_STRIP_FEATURE_MACROS(VARIABLE)
+dnl Third-party .pc files can emit their own _XOPEN_SOURCE/_DEFAULT_SOURCE
+dnl feature-test-macro defines, pulled in transitively via Requires.private
+dnl (e.g. readline.pc on Debian/Ubuntu requires tinfo, whose Cflags add
+dnl -D_XOPEN_SOURCE=600). This project pins those macros centrally via
+dnl src/include-glibc/glibc-bugs.h, forced with -include on every compile,
+dnl so a conflicting -D from a pkg-config-detected dependency's Cflags
+dnl causes a macro-redefinition build failure under -Werror. Strip them
+dnl before merging pkg-config Cflags into the project's CPPFLAGS_ADD.
+AC_DEFUN([RACOON_STRIP_FEATURE_MACROS],
+[$1=`echo "$$1" | sed -e 's/-D_XOPEN_SOURCE=[[0-9]]*//g' -e 's/-D_DEFAULT_SOURCE\b//g'`
+])
+
 AC_DEFUN([RACOON_CHECK_BUGGY_GETADDRINFO], [
 	AC_MSG_CHECKING(getaddrinfo bug)
 	saved_CFLAGS=$CFLAGS
