@@ -45,8 +45,7 @@ jobs:
           shell: bash
           memory: 4096
           cpu_count: 2
-          command_timeout: 600
-          command: |
+          run: |
             set -euo pipefail
 
             # ------------------------------------------------------------------
