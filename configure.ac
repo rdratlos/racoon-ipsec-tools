@@ -123,23 +123,30 @@ fi
 
 case "$host_os" in
  *linux*)
+    # Kernel headers are reliably available at /usr/include/linux/ on
+    # every supported distribution (kernel floor is 4.15; see RFC 0002
+    # kernelpaws-xfrm-abstraction-layer). --with-kernel-headers is kept
+    # only as a deprecated escape hatch for non-standard setups (#62 §6.2.4).
+    # See issue #60 for the *post*-XFRM-migration kernel header strategy;
+    # this handles only the current PF_KEY header.
     AC_ARG_WITH(kernel-headers,
-	AS_HELP_STRING([--with-kernel-headers=/lib/modules/<uname>/build/include],
-		       [where your Linux Kernel headers are installed]),
-	    [ KERNEL_INCLUDE="$with_kernel_headers"
-	      CONFIGURE_AMFLAGS="--with-kernel-headers=$with_kernel_headers"
-	      AC_SUBST(CONFIGURE_AMFLAGS) ],
-	    [ KERNEL_INCLUDE="/lib/modules/`uname -r`/build/include" ])
-
-    AC_COMPILE_IFELSE([AC_LANG_PROGRAM([#include "$KERNEL_INCLUDE/linux/pfkeyv2.h"], [])], ,
-	[ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([#include </usr/src/linux/include/linux/pfkeyv2.h>], [])],
-	  KERNEL_INCLUDE=/usr/src/linux/include ,
-	  [ AC_MSG_ERROR([Unable to find linux-2.6 kernel headers. Aborting.]) ] ) ] )
+	AS_HELP_STRING([--with-kernel-headers=DIR],
+		       [DEPRECATED: kernel headers path (auto-detected at /usr/include)]),
+	    [ AC_MSG_WARN([])
+	      AC_MSG_WARN([*** WARNING: --with-kernel-headers is deprecated and will be removed in a future release. ***])
+	      AC_MSG_WARN([***          Kernel headers are now auto-detected at /usr/include. ***])
+	      AC_MSG_WARN([])
+	      KERNEL_INCLUDE="$with_kernel_headers" ],
+	    [ KERNEL_INCLUDE="/usr/include" ])
     AC_SUBST(KERNEL_INCLUDE)
     # We need the configure script to run with correct kernel headers.
     # However we don't want to point to kernel source tree in compile time,
     # i.e. this will be removed from CPPFLAGS at the end of configure.
     CPPFLAGS="-I$KERNEL_INCLUDE $CPPFLAGS"
+
+    AC_CHECK_HEADERS([linux/pfkeyv2.h], [], [
+	AC_MSG_ERROR([Cannot find linux/pfkeyv2.h under $KERNEL_INCLUDE. Install linux-headers-generic (or your distribution's equivalent kernel-header package). Aborting.])
+    ])
 
     AC_CHECK_MEMBERS(struct sadb_x_policy.sadb_x_policy_priority,
 	    [AC_DEFINE(HAVE_PFKEY_POLICY_PRIORITY, [],
