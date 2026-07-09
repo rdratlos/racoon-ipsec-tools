@@ -24,6 +24,21 @@ AC_PROG_LEX([yywrap])
 AC_SUBST(LEXLIB)
 AC_PROG_EGREP
 
+# pkg-config is used below to auto-detect optional dependencies
+# (GSSAPI/LDAP/Readline, issue #62) and systemd unit-install
+# directories (issue #60). What happens next if it's absent is
+# pkgconf-version-dependent and outside this project's control: some
+# versions leave $PKG_CONFIG empty and continue silently (e.g. Ubuntu
+# Bionic's pkg-config 0.29.1 — no message at all, you'd only notice
+# later via a missing config.h define); others abort configure
+# immediately with a bare "pkg-config not found" (pkgconf >= ~2.x,
+# see https://github.com/pkgconf/pkgconf/issues/350). Either way,
+# nothing after this call can intercept or improve that message if it
+# aborts — so say why it matters here, before it's too late to say
+# anything at all.
+AC_MSG_NOTICE([checking for pkg-config (required for optional-dependency and systemd-unit-path detection; install pkgconf or pkg-config if the next check fails)])
+PKG_PROG_PKG_CONFIG
+
 # Determine correct runtime library path flag
 # -R on Solaris/BSD, -Wl,-rpath, on Linux/GCC
 AC_MSG_CHECKING([for runtime library path flag])
