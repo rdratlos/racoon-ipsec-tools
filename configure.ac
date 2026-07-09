@@ -230,7 +230,7 @@ AS_IF([test "$with_readline" != "no"], [
 
 
 AC_MSG_CHECKING(if --with-flex option is specified)
-AC_ARG_WITH(flexdir,
+AC_ARG_WITH(flex,
 	[AS_HELP_STRING([--with-flex], [use directiory (default: no)])],
 	[flexdir="$withval"])
 AC_MSG_RESULT(${flexdir-default})
