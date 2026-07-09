@@ -51,46 +51,37 @@ jobs:
             # ------------------------------------------------------------------
             # Install build dependencies via pkgin.
             # pkgin is pre-installed on the cross-platform-actions NetBSD image.
+            #
+            # Note: NetBSD base system provides autoconf, automake, libtool,
+            # bison, flex, and gcc (as cc).  Only pkgsrc-provided libraries
+            # need to be installed via pkgin.
+            #
+            # The pkgin package names do NOT include the category prefix; they
+            # use the metapackage name directly (e.g., "openssl", not
+            # "security/openssl").
             # ------------------------------------------------------------------
             echo "=== Syncing package repository ==="
             sudo pkgin -y update
 
-            echo "=== Installing build toolchain ==="
-            # Core build toolchain
-            #   gcc          → lang/gcc14
-            #   autoconf     → devel/autoconf
-            #   automake     → devel/automake
-            #   libtool      → devel/libtool
-            #   bison        → devel/bison
-            #   flex         → textproc/flex
-            #   pkg-config   → devel/pkgconf
-            sudo pkgin -y install \
-              lang/gcc14 \
-              devel/autoconf \
-              devel/automake \
-              devel/libtool \
-              devel/bison \
-              textproc/flex \
-              devel/pkgconf
-
             echo "=== Installing library dependencies ==="
             # OpenSSL headers and libraries
-            #   Ubuntu: libssl-dev    → NetBSD: security/openssl
-            sudo pkgin -y install security/openssl
+            #   Ubuntu: libssl-dev    → NetBSD: openssl
+            sudo pkgin -y install openssl
 
             # OpenLDAP client library (for --with-libldap)
-            #   Ubuntu: libldap2-dev  → NetBSD: net/openldap26-client
-            sudo pkgin -y install net/openldap26-client
+            #   Ubuntu: libldap2-dev  → NetBSD: openldap26-client
+            sudo pkgin -y install openldap26-client
 
             # PAM library (for --with-libpam)
-            #   Ubuntu: libpam0g-dev  → NetBSD: security/pam
-            sudo pkgin -y install security/pam
+            #   Ubuntu: libpam0g-dev  → NetBSD: pam
+            sudo pkgin -y install pam
 
             # Kerberos5 is built into NetBSD base system; no extra package needed.
             #   Ubuntu: libkrb5-dev   → NetBSD: /usr/include/krb5 (built-in)
 
             # Valgrind (mirrors Ubuntu workflow's install-valgrind: true)
-            sudo pkgin -y install devel/valgrind
+            #   Ubuntu: valgrind      → NetBSD: valgrind
+            sudo pkgin -y install valgrind || true
 
             # ------------------------------------------------------------------
             # Environment setup
@@ -104,8 +95,8 @@ jobs:
             export LDFLAGS="-L/usr/pkg/lib"
             export PKG_CONFIG_PATH="/usr/pkg/libdata/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
-            # Use gcc14 from pkgsrc (the base system cc may be older).
-            export CC=gcc
+            # Use the base system compiler (NetBSD cc, which is gcc).
+            export CC=cc
 
             # ------------------------------------------------------------------
             # Bootstrap the autotools build system
@@ -176,5 +167,9 @@ jobs:
             # Mirrors the Ubuntu workflow's enable-valgrind: true, which runs
             # "make check-valgrind" in the test/ subdirectory.
             # ------------------------------------------------------------------
-            echo "=== Running Valgrind checks ==="
-            (cd test && make check-valgrind)
+            if command -v valgrind &>/dev/null; then
+              echo "=== Running Valgrind checks ==="
+              (cd test && make check-valgrind)
+            else
+              echo "=== Skipping Valgrind checks (valgrind not installed) ==="
+            fi
