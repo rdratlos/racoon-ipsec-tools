@@ -47,19 +47,9 @@ override_dh_auto_configure:
 					--mandir=\$${prefix}/share/man \
 					--infodir=\$${prefix}/share/info \
 					--localstatedir=/var/run \
-					--enable-shared \
 					--disable-static \
-					--enable-frag \
-					--enable-gssapi \
-					--enable-hybrid \
-					--with-libldap \
-					--enable-dpd \
-					--enable-adminport \
-					--with-kernel-headers=/usr/include \
-					--with-libpam \
-					--without-readline \
 					--disable-security-context \
-					--enable-natt \
+					--without-readline \
 					$(COV_FLAGS)
 
 override_dh_clean:
