@@ -1,0 +1,181 @@
+# NetBSD CI Build & Test for racoon-ipsec-tools.
+# Mirrors the structure and quality of build-test.yml but runs inside a
+# NetBSD 10.x VM via cross-platform-actions/action.
+#
+# Dependency mapping (Ubuntu apt pkg → NetBSD pkgin/pkgsrc):
+#   libssl-dev             → security/openssl
+#   libfl-dev              → textproc/flex       (provides libfl.so)
+#   libkrb5-dev            → security/kerberos5  (NetBSD 10 has this built-in)
+#   libldap2-dev           → net/openldap26-client
+#   libpam0g-dev           → security/pam
+#   linux-headers-generic  → (not applicable; NetBSD kernel headers in /usr/include)
+#   libcrypt-dev           → (built into libc on NetBSD)
+#   autoconf/automake/libtool → devel/autoconf devel/automake devel/libtool
+#   bison/flex             → devel/bison textproc/flex
+#   gcc                    → lang/gcc14
+
+name: NetBSD CI Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  netbsd-build-test:
+    name: 'NetBSD 10 build & test'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build on NetBSD 10
+        uses: cross-platform-actions/action@v0.27.0
+        with:
+          operating_system: netbsd
+          architecture: x86_64
+          # NetBSD 10.0 is the latest stable release available in the action.
+          version: '10.0'
+          shell: bash
+          memory: 4096
+          cpu_count: 2
+          command_timeout: 600
+          command: |
+            set -euo pipefail
+
+            # ------------------------------------------------------------------
+            # Install build dependencies via pkgin.
+            # pkgin is pre-installed on the cross-platform-actions NetBSD image.
+            # ------------------------------------------------------------------
+            echo "=== Syncing package repository ==="
+            pkgin -y update
+
+            echo "=== Installing build toolchain ==="
+            # Core build toolchain
+            #   gcc          → lang/gcc14
+            #   autoconf     → devel/autoconf
+            #   automake     → devel/automake
+            #   libtool      → devel/libtool
+            #   bison        → devel/bison
+            #   flex         → textproc/flex
+            #   pkg-config   → devel/pkgconf
+            pkgin -y install \
+              lang/gcc14 \
+              devel/autoconf \
+              devel/automake \
+              devel/libtool \
+              devel/bison \
+              textproc/flex \
+              devel/pkgconf
+
+            echo "=== Installing library dependencies ==="
+            # OpenSSL headers and libraries
+            #   Ubuntu: libssl-dev    → NetBSD: security/openssl
+            pkgin -y install security/openssl
+
+            # OpenLDAP client library (for --with-libldap)
+            #   Ubuntu: libldap2-dev  → NetBSD: net/openldap26-client
+            pkgin -y install net/openldap26-client
+
+            # PAM library (for --with-libpam)
+            #   Ubuntu: libpam0g-dev  → NetBSD: security/pam
+            pkgin -y install security/pam
+
+            # Kerberos5 is built into NetBSD base system; no extra package needed.
+            #   Ubuntu: libkrb5-dev   → NetBSD: /usr/include/krb5 (built-in)
+
+            # Valgrind (mirrors Ubuntu workflow's install-valgrind: true)
+            pkgin -y install devel/valgrind
+
+            # ------------------------------------------------------------------
+            # Environment setup
+            # ------------------------------------------------------------------
+            # pkgsrc installs headers under /usr/pkg/include and libraries under
+            # /usr/pkg/lib.  .pc files live in /usr/pkg/libdata/pkgconfig.
+            # The configure.ac already prepends -Wl,-rpath,/usr/pkg/lib for
+            # netbsd* hosts (line 58-59), so LDFLAGS only needs -L for
+            # the configure-time library search.
+            export CPPFLAGS="-I/usr/pkg/include"
+            export LDFLAGS="-L/usr/pkg/lib"
+            export PKG_CONFIG_PATH="/usr/pkg/libdata/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+
+            # Use gcc14 from pkgsrc (the base system cc may be older).
+            export CC=gcc
+
+            # ------------------------------------------------------------------
+            # Bootstrap the autotools build system
+            # ------------------------------------------------------------------
+            echo "=== Bootstrapping build system ==="
+            ./bootstrap || autoreconf -fi
+
+            # ------------------------------------------------------------------
+            # Configure
+            # ------------------------------------------------------------------
+            # Match the Ubuntu workflow's configure options as closely as
+            # possible.  NetBSD-specific adaptations:
+            #   - No --host/--build (native build, not cross-compiling)
+            #   - No --with-kernel-headers (Linux-only; configure.ac skips it
+            #     for non-linux hosts)
+            #   - --disable-security-context (SELinux is Linux-only;
+            #     configure.ac only enables it on linux*)
+            #   - --with-libldap=/usr/pkg and --with-libpam=/usr/pkg so
+            #     configure finds the pkgsrc installations
+            #   - Hardening CFLAGS adapted from Ubuntu workflow but omitting
+            #     Linux-specific flags:
+            #     -Wl,-Bsymbolic-functions, -flto, -ffat-lto-objects,
+            #     -Wl,-z,relro, -fcf-protection are all Linux/glibc concepts
+            #   - -Werror=implicit-function-declaration → kept as -Werror
+            #     (configure.ac already appends -Wall -Werror -Wno-unused)
+            #   - _FORTIFY_SOURCE → NetBSD has __WARN_references_from_user_space
+            #     but no _FORTIFY_SOURCE equivalent in base; omit
+            echo "=== Configuring ==="
+            CFLAGS="-g -O2 -Wformat -Werror=format-security -Wno-old-style-definition" \
+            ./configure --verbose \
+              --prefix=/usr \
+              --sysconfdir=/etc/racoon \
+              --libdir=/usr/lib/ipsec-tools \
+              --localstatedir=/var/run \
+              --enable-shared \
+              --disable-static \
+              --enable-frag \
+              --enable-gssapi \
+              --enable-hybrid \
+              --with-libldap=/usr/pkg \
+              --enable-dpd \
+              --enable-adminport \
+              --with-libpam=/usr/pkg \
+              --without-readline \
+              --disable-security-context \
+              --enable-natt
+
+            # ------------------------------------------------------------------
+            # Build
+            # ------------------------------------------------------------------
+            echo "=== Building ==="
+            NCPU=$(sysctl -n hw.ncpu 2>/dev/null || echo 2)
+            make -j"${NCPU}" VERBOSE=1
+
+            # Compile test binaries without running them (same as Ubuntu
+            # workflow's build-command: "make check TESTS=").
+            echo "=== Building test binaries ==="
+            make check TESTS=
+
+            # ------------------------------------------------------------------
+            # Unit tests (same as Ubuntu workflow's test-command)
+            # ------------------------------------------------------------------
+            echo "=== Running unit tests ==="
+            (cd test && make check-verbose)
+
+            # ------------------------------------------------------------------
+            # Valgrind memory checks
+            # Mirrors the Ubuntu workflow's enable-valgrind: true, which runs
+            # "make check-valgrind" in the test/ subdirectory.
+            # ------------------------------------------------------------------
+            echo "=== Running Valgrind checks ==="
+            (cd test && make check-valgrind)
