@@ -114,8 +114,8 @@ dnl Only suitable where ACTION-IF-GIVEN is empty (no extra logic
 dnl needed at parse time) and DEFAULT is a plain literal.
 AC_DEFUN([RACOON_ARG_ENABLE],
 [AC_MSG_CHECKING([if --enable-$1 option is specified])
-AC_ARG_ENABLE([$1], [$2], [], [enable_$1=$3])
-AC_MSG_RESULT([$enable_$1])
+AC_ARG_ENABLE([$1], [$2], [], [AS_TR_SH([enable_$1])=$3])
+AC_MSG_RESULT([$AS_TR_SH([enable_$1])])
 ])
 
 dnl RACOON_STRIP_FEATURE_MACROS(VARIABLE)
