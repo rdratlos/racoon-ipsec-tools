@@ -233,7 +233,7 @@ AC_MSG_CHECKING(if --with-flex option is specified)
 AC_ARG_WITH(flexdir,
 	[AS_HELP_STRING([--with-flex], [use directiory (default: no)])],
 	[flexdir="$withval"])
-AC_MSG_RESULT(${flexdir-dirdefault})
+AC_MSG_RESULT(${flexdir-default})
 
 if test "x$flexdir" != "x"; then
 	LIBS="$LIBS $flexdir/libfl.a"
