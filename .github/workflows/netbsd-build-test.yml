@@ -70,18 +70,22 @@ jobs:
 
             # OpenLDAP client library (for --with-libldap)
             #   Ubuntu: libldap2-dev  → NetBSD: openldap26-client
-            sudo pkgin -y install openldap26-client
+            #sudo pkgin -y install openldap26-client
 
             # PAM library (for --with-libpam)
             #   Ubuntu: libpam0g-dev  → NetBSD: pam
-            sudo pkgin -y install pam
+            #sudo pkgin -y install pam
 
             # Kerberos5 is built into NetBSD base system; no extra package needed.
             #   Ubuntu: libkrb5-dev   → NetBSD: /usr/include/krb5 (built-in)
 
             # Valgrind (mirrors Ubuntu workflow's install-valgrind: true)
             #   Ubuntu: valgrind      → NetBSD: valgrind
+            sudo pkgin avail | grep -i valgrind
             sudo pkgin -y install valgrind || true
+
+            # Autotools
+            sudo pkgin -y install autoconf automake libtool pkgconf gmake m4
 
             # ------------------------------------------------------------------
             # Environment setup
