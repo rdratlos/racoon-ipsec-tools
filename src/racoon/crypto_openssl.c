@@ -36,7 +36,6 @@
  */
 
 #include "config.h"
-#include "missing/crypto/rijndael/rijndael-api-fst.h"
 
 #include <sys/types.h>
 #include <sys/param.h>
@@ -44,6 +43,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+
+#include "missing/crypto/rijndael/rijndael-api-fst.h"
 
 /* get openssl/ssleay version number */
 #include <openssl/opensslv.h>
