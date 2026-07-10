@@ -7,11 +7,9 @@
 #ifdef __linux__
 #include <linux/pfkeyv2.h>
 #else
-/* Undef our own guard so the system <net/pfkeyv2.h> can be loaded
-   without hitting this wrapper again (our directory is on -I). */
-#undef __NET_PFKEYV2_H_
-#include <net/pfkeyv2.h>
-#define __NET_PFKEYV2_H_ 1
+/* Use absolute path to reach the system header, bypassing our own
+   wrapper which shadows it via -I on the include path. */
+#include </usr/include/net/pfkeyv2.h>
 #endif /* __linux__ */
 
 /* Private allocations for authentication algorithms */
