@@ -4,11 +4,7 @@
 #define __NET_PFKEYV2_H_ 1
 
 #include <stdint.h>
-#ifdef __linux__
 #include <linux/pfkeyv2.h>
-#else
-#include <net/pfkeyv2.h>
-#endif
 
 /* Private allocations for authentication algorithms */
 #define SADB_AALG_SHA2_256		SADB_X_AALG_SHA2_256HMAC
