@@ -1,19 +1,11 @@
 # NetBSD CI Build & Test for racoon-ipsec-tools.
-# Mirrors the structure and quality of build-test.yml but runs inside a
-# NetBSD 10.x VM via cross-platform-actions/action.
+# Runs inside a NetBSD 10.x VM via cross-platform-actions/action.
 #
-# Dependency mapping (Ubuntu apt pkg → NetBSD pkgin/pkgsrc):
-#   libssl-dev             → security/openssl
-#   libfl-dev              → textproc/flex       (provides libfl.so)
-#   libkrb5-dev            → security/kerberos5  (NetBSD 10 has this built-in)
-#   libldap2-dev           → net/openldap26-client
-#   libpam0g-dev           → security/pam
-#   linux-headers-generic  → (not applicable; NetBSD kernel headers in /usr/include)
-#   libcrypt-dev           → (built into libc on NetBSD)
-#   autoconf/automake/libtool → devel/autoconf devel/automake devel/libtool
-#   bison/flex             → devel/bison textproc/flex
-#   gcc                    → lang/gcc14
-#   valgrind               → (not used; memory leak assessment is a NetBSD task)
+# Dependencies (installed via pkgin):
+#   autoconf automake libtool pkgconf gmake m4 bison
+#
+# The base system provides:
+#   cc (gcc), flex, krb5 headers, libldap, pam, openssl, libcrypt
 
 name: NetBSD CI Build & Test
 
@@ -29,6 +21,11 @@ on:
         required: false
         default: 'main'
         type: string
+      enable_sanitizer:
+        description: 'Enable ASan/UBSan'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -59,55 +56,29 @@ jobs:
 
             # ------------------------------------------------------------------
             # Install build dependencies via pkgin.
-            # pkgin is pre-installed on the cross-platform-actions NetBSD image.
-            #
-            # Note: NetBSD base system provides autoconf, automake, libtool,
-            # bison, flex, and gcc (as cc).  Only pkgsrc-provided libraries
-            # need to be installed via pkgin.
-            #
-            # The pkgin package names do NOT include the category prefix; they
-            # use the metapackage name directly (e.g., "openssl", not
-            # "security/openssl").
             # ------------------------------------------------------------------
             echo "=== Syncing package repository ==="
             sudo pkgin -y update
 
-            echo "=== Installing library dependencies ==="
-            # OpenSSL headers and libraries
-            #   Ubuntu: libssl-dev    → NetBSD: openssl
-            sudo pkgin -y install openssl
+            echo "=== Installing build dependencies ==="
+            sudo pkgin -y install autoconf automake libtool pkgconf gmake m4 bison
 
-            # OpenLDAP client library (for --with-libldap)
-            #   Ubuntu: libldap2-dev  → NetBSD: openldap26-client
-            # Not installed via pkgsrc; NetBSD base libldap is used.  This
-            # produces a linker warning about libcrypto.so.15 (base) vs
-            # libcrypto.so.3 (pkgsrc openssl) — expected and benign for a
-            # source-build verification CI.  The warning is filtered below.
-            #sudo pkgin -y install openldap26-client
-
-            # PAM library (for --with-libpam)
-            #   Ubuntu: libpam0g-dev  → NetBSD: pam
-            #sudo pkgin -y install pam
-
-            # Kerberos5 is built into NetBSD base system; no extra package needed.
-            #   Ubuntu: libkrb5-dev   → NetBSD: /usr/include/krb5 (built-in)
-
-            # Autotools
-            sudo pkgin -y install autoconf automake libtool pkgconf gmake m4
+            # ------------------------------------------------------------------
+            # Sanitizer flags (opt-in via workflow_dispatch checkbox).
+            # ------------------------------------------------------------------
+            if [ "${{ github.event.inputs.enable_sanitizer }}" = "true" ]; then
+              export SAN_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+              export SAN_LDFLAGS="-fsanitize=address,undefined"
+              echo "=== Sanitizer: ENABLED ==="
+            else
+              export SAN_CFLAGS=""
+              export SAN_LDFLAGS=""
+              echo "=== Sanitizer: disabled ==="
+            fi
 
             # ------------------------------------------------------------------
             # Environment setup
             # ------------------------------------------------------------------
-            # pkgsrc installs headers under /usr/pkg/include and libraries under
-            # /usr/pkg/lib.  .pc files live in /usr/pkg/libdata/pkgconfig.
-            # The configure.ac already prepends -Wl,-rpath,/usr/pkg/lib for
-            # netbsd* hosts (line 58-59), so LDFLAGS only needs -L for
-            # the configure-time library search.
-            export CPPFLAGS="-I/usr/pkg/include"
-            export LDFLAGS="-L/usr/pkg/lib"
-            export PKG_CONFIG_PATH="/usr/pkg/libdata/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-
-            # Use the base system compiler (NetBSD cc, which is gcc).
             export CC=cc
 
             # ------------------------------------------------------------------
@@ -119,25 +90,8 @@ jobs:
             # ------------------------------------------------------------------
             # Configure
             # ------------------------------------------------------------------
-            # Match the Ubuntu workflow's configure options as closely as
-            # possible.  NetBSD-specific adaptations:
-            #   - No --host/--build (native build, not cross-compiling)
-            #   - No --with-kernel-headers (Linux-only; configure.ac skips it
-            #     for non-linux hosts)
-            #   - --disable-security-context (SELinux is Linux-only;
-            #     configure.ac only enables it on linux*)
-            #   - --with-libldap=/usr/pkg and --with-libpam=/usr/pkg so
-            #     configure finds the pkgsrc installations
-            #   - Hardening CFLAGS adapted from Ubuntu workflow but omitting
-            #     Linux-specific flags:
-            #     -Wl,-Bsymbolic-functions, -flto, -ffat-lto-objects,
-            #     -Wl,-z,relro, -fcf-protection are all Linux/glibc concepts
-            #   - -Werror=implicit-function-declaration → kept as -Werror
-            #     (configure.ac already appends -Wall -Werror -Wno-unused)
-            #   - _FORTIFY_SOURCE → NetBSD has __WARN_references_from_user_space
-            #     but no _FORTIFY_SOURCE equivalent in base; omit
-            echo "=== Configuring ==="
-            CFLAGS="-g -O2 -Wformat -Werror=format-security -Wno-old-style-definition" \
+            CFLAGS="-g -O2 -Wformat -Werror=format-security -Wno-old-style-definition ${SAN_CFLAGS}" \
+            LDFLAGS="${SAN_LDFLAGS}" \
             ./configure --verbose \
               --prefix=/usr \
               --sysconfdir=/etc/racoon \
@@ -148,10 +102,8 @@ jobs:
               --enable-frag \
               --enable-gssapi \
               --enable-hybrid \
-              --with-libldap=/usr/pkg \
               --enable-dpd \
               --enable-adminport \
-              --with-libpam=/usr/pkg \
               --without-readline \
               --disable-security-context \
               --enable-natt
@@ -161,22 +113,14 @@ jobs:
             # ------------------------------------------------------------------
             echo "=== Building ==="
             NCPU=$(sysctl -n hw.ncpu 2>/dev/null || echo 2)
-            # Filter the expected benign linker warning: base libldap links against
-            # libcrypto.so.15 while pkgsrc openssl provides libcrypto.so.3.
-            # This is a source-build verification CI, not a runtime package.
-            make -j"${NCPU}" VERBOSE=1 2>&1 |
-              grep -v 'ld: warning: libcrypto.so.15.*may conflict with libcrypto.so.3'
-            [ "${PIPESTATUS[0]}" -eq 0 ]
+            make -j"${NCPU}" VERBOSE=1
 
-            # Compile test binaries without running them (same as Ubuntu
-            # workflow's build-command: "make check TESTS=").
+            # Compile test binaries without running them.
             echo "=== Building test binaries ==="
-            make check TESTS= 2>&1 |
-              grep -v 'ld: warning: libcrypto.so.15.*may conflict with libcrypto.so.3'
-            [ "${PIPESTATUS[0]}" -eq 0 ]
+            make check TESTS=
 
             # ------------------------------------------------------------------
-            # Unit tests (same as Ubuntu workflow's test-command)
+            # Unit tests
             # ------------------------------------------------------------------
             echo "=== Running unit tests ==="
             (cd test && make check-verbose)
