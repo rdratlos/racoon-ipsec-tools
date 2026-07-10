@@ -101,7 +101,23 @@
 #include "package_version.h"
 #include "extern.h"
 
-#define strlcpy(d,s,l) (strncpy(d,s,l), (d)[(l)-1] = '\0')
+#ifndef HAVE_STRLCPY
+static size_t __attribute__((noinline))
+strlcpy(char *dst, const char *src, size_t siz)
+{
+    char *d = dst;
+    const char *s = src;
+    size_t n = siz;
+
+    if (n) {
+        while (--n && (*d++ = *s++) != '\0')
+            ;
+        if (!n)
+            *d = '\0';
+    }
+    return (s - src - 1) + (*s != '\0');
+}
+#endif
 
 static int get_supported(void);
 static void sendkeyshort(u_int);

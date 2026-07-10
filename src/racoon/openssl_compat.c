@@ -9,6 +9,25 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <sys/param.h>
+
+#ifndef HAVE_STRLCPY
+static size_t __attribute__((noinline))
+strlcpy(char *dst, const char *src, size_t siz)
+{
+    char *d = dst;
+    const char *s = src;
+    size_t n = siz;
+
+    if (n) {
+        while (--n && (*d++ = *s++) != '\0')
+            ;
+        if (!n)
+            *d = '\0';
+    }
+    return (s - src - 1) + (*s != '\0');
+}
+#endif
 #include <openssl/bio.h>
 #include <openssl/pem.h>
 #include <openssl/err.h>
@@ -283,8 +302,7 @@ EVP_PKEY_fromdata(EVP_PKEY_CTX *ctx, EVP_PKEY **pkey,
 	if (ctx) {
 		char *algo_name = EVP_PKEY_CTX_get_app_data(ctx);
 		if (algo_name) {
-			strncpy(params->algo, algo_name, sizeof(params->algo) - 1);
-			params->algo[sizeof(params->algo) - 1] = '\0';
+			strlcpy(params->algo, algo_name, sizeof(params->algo));
 			EVP_PKEY_CTX_set_app_data(ctx, NULL);
 			OPENSSL_free(algo_name);
 		}

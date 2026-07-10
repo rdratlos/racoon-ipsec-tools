@@ -34,6 +34,9 @@
 #ifndef _MISC_H
 #define _MISC_H
 
+#include <string.h>
+#include <sys/param.h>
+
 #define BIT2STR(b) bit2str(b, sizeof(b)<<3)
 
 #ifdef HAVE_FUNC_MACRO
@@ -61,7 +64,21 @@ extern void close_on_exec __P((int fd));
 #endif
 
 #ifndef HAVE_STRLCPY
-#define strlcpy(d,s,l) (strncpy(d,s,l), (d)[(l)-1] = '\0')
+static size_t __attribute__((noinline))
+strlcpy(char *dst, const char *src, size_t siz)
+{
+    char *d = dst;
+    const char *s = src;
+    size_t n = siz;
+
+    if (n) {
+        while (--n && (*d++ = *s++) != '\0')
+            ;
+        if (!n)
+            *d = '\0';
+    }
+    return (s - src - 1) + (*s != '\0');
+}
 #endif
 
 #ifndef HAVE_STRLCAT

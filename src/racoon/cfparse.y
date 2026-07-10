@@ -920,9 +920,8 @@ modecfg_stmt
 	|	CFG_DEFAULT_DOMAIN QUOTEDSTRING
 		{
 #ifdef ENABLE_HYBRID
-			strncpy(&isakmp_cfg_config.default_domain[0], 
-			    $2->v, MAXPATHLEN);
-			isakmp_cfg_config.default_domain[MAXPATHLEN] = '\0';
+			strlcpy(&isakmp_cfg_config.default_domain[0], 
+			    $2->v, sizeof(isakmp_cfg_config.default_domain));
 			vfree($2);
 #else
 			yyerror("racoon not configured with --enable-hybrid");
@@ -1125,8 +1124,7 @@ modecfg_stmt
 	|	CFG_MOTD QUOTEDSTRING
 		{
 #ifdef ENABLE_HYBRID
-			strncpy(&isakmp_cfg_config.motd[0], $2->v, MAXPATHLEN);
-			isakmp_cfg_config.motd[MAXPATHLEN] = '\0';
+			strlcpy(&isakmp_cfg_config.motd[0], $2->v, sizeof(isakmp_cfg_config.motd));
 			vfree($2);
 #else
 			yyerror("racoon not configured with --enable-hybrid");
