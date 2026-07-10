@@ -1066,6 +1066,48 @@ AS_IF([test "x$warn_deprecated" = "xyes"],
   [AC_DEFINE([RACOON_WARN_DEPRECATED], [1],
     [Define to surface OpenSSL 3.x deprecation warnings during development])])
 
+# A handful of test/ unit test targets (test_ipsec_doi_sa,
+# test_vendorid_bounds, test_nattraversal_natd, test_algorithm) unit-test
+# one function out of an otherwise huge source file by compiling with
+# -ffunction-sections/-fdata-sections and linking with --gc-sections, which
+# discards everything not actually reachable from the function under test.
+# AddressSanitizer instruments every static/global variable so it can
+# poison redzones around it, which takes that variable's address and so
+# keeps it (and anything it references) reachable -- defeating that
+# dead-code elimination and pulling in undefined references to code these
+# targets never intended to link (see test/Makefile.am for the concrete
+# example). Rather than rewire those targets to satisfy both valgrind and
+# sanitizer builds at once, exclude them from sanitizer builds: their
+# memory-safety coverage is already provided by 'make check-valgrind'.
+#
+# --enable-sanitizers/--disable-sanitizers force the answer; by default
+# (auto) we autodetect -fsanitize= in CC/CFLAGS/LDFLAGS, since that is how
+# sanitizer flags typically arrive (e.g. pkgsrc's MKSANITIZER on NetBSD),
+# not necessarily via a flag this project defines itself.
+AC_ARG_ENABLE([sanitizers],
+  [AS_HELP_STRING([--enable-sanitizers],
+    [assume a sanitizer (ASan/UBSan/etc.) build even if none is autodetected in CC/CFLAGS/LDFLAGS (default: autodetect)])],
+  [sanitizer_build=$enableval],
+  [sanitizer_build=auto])
+
+AS_IF([test "x$sanitizer_build" = "xauto"], [
+  AC_MSG_CHECKING([whether a sanitizer build is in effect])
+  case " $CC $CFLAGS $LDFLAGS " in
+    *" -fsanitize="*) sanitizer_build=yes ;;
+    *)                sanitizer_build=no ;;
+  esac
+  AC_MSG_RESULT([$sanitizer_build])
+], [
+  AC_MSG_CHECKING([if --enable-sanitizers option is specified])
+  AC_MSG_RESULT([$sanitizer_build])
+])
+
+AM_CONDITIONAL([SANITIZER_BUILD], [test "x$sanitizer_build" = "xyes"])
+
+AS_IF([test "x$sanitizer_build" = "xyes"], [
+  AC_MSG_NOTICE([sanitizer build: excluding test_ipsec_doi_sa, test_vendorid_bounds, test_nattraversal_natd, and test_algorithm from 'make check' (see test/Makefile.am); their memory-safety coverage is provided by 'make check-valgrind' instead. UBSan-only checks (signed overflow, misaligned access, etc.) are not covered by valgrind and are the one gap accepted here.])
+])
+
 # Probe GCC diagnostic format capabilities at configure time.
 # Try in order: sarif-file (GCC 13+), json-file (GCC 12+), json (GCC 10+).
 # This is future-proof against removal of deprecated formats.

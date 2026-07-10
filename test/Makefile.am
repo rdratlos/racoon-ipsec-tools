@@ -62,6 +62,10 @@ COMMON_LDADD = \
 	-lcrypto
 
 # Test programs
+#
+# test_ipsec_doi_sa and test_algorithm are added conditionally further
+# down, alongside test_vendorid_bounds/test_nattraversal_natd: see the
+# "SANITIZER_BUILD" comment above test_ipsec_doi_sa's rules below.
 check_PROGRAMS = \
 	test_dh_modp_groups \
 	test_dh_buffer_overflow \
@@ -74,13 +78,11 @@ check_PROGRAMS = \
 	test_sockmisc \
 	test_genlist \
 	test_eay_rsa \
-	test_ipsec_doi_sa \
 	test_x509_cert \
 	test_misc \
 	test_strnames \
 	test_rsalist \
-	test_plog \
-	test_algorithm
+	test_plog
 
 # Test 1: DH MODP Groups
 test_dh_modp_groups_SOURCES  = test_dh_modp_groups.c
@@ -177,6 +179,26 @@ test_eay_rsa_LDFLAGS  = $(AM_LDFLAGS)
 # some automake versions (e.g. Ubuntu Bionic's 1.15.1) fail to track
 # per-object dependency files for subdir-objects sources that live
 # outside the current top-level directory.
+#
+# Excluded from sanitizer builds (SANITIZER_BUILD, set by configure.ac from
+# --enable-sanitizers or autodetected -fsanitize= in CC/CFLAGS/LDFLAGS):
+# AddressSanitizer instruments every static/global variable so it can poison
+# redzones around it, which takes that variable's address and so keeps it
+# (and anything it references) reachable -- defeating the dead-code
+# elimination this target, test_vendorid_bounds, test_nattraversal_natd, and
+# test_algorithm all rely on to avoid linking each source file's full
+# dependency closure.  Concretely: ipsec_doi.c's check_attr_isakmp() et al.
+# are unreachable from t2isakmpsa() and are normally discarded by
+# --gc-sections, but ASan's global registration keeps the check_attributes[]
+# function-pointer table (and thus check_attr_isakmp() et al.) alive, which
+# then needs algorithm.c's alg_oakley_*_ok() -- never linked here -- causing
+# an undefined-reference link failure.  These targets' memory-safety
+# coverage is already provided by 'make check-valgrind'; the one accepted
+# gap is UBSan-only checks (signed overflow, misaligned access, etc.) that
+# valgrind's memcheck does not perform.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_ipsec_doi_sa
+
 test_ipsec_doi_sa_SOURCES  = test_ipsec_doi_sa.c ipsec_doi_test_stubs.c \
 	ipsec_doi_unittest_src.c
 test_ipsec_doi_sa_CPPFLAGS = $(AM_CPPFLAGS) \
@@ -192,6 +214,7 @@ test_ipsec_doi_sa_LDADD    = \
 	$(top_builddir)/src/racoon/strnames.o \
 	$(top_builddir)/src/racoon/misc.o
 test_ipsec_doi_sa_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
 
 # Test 13: X.509 certificate functions (ISSUE #52)
 #
@@ -223,7 +246,11 @@ test_x509_cert_LDFLAGS  = $(AM_LDFLAGS)
 # vendorid.c and isakmp_frag.c are pulled in via local wrapper sources
 # (see the comment on test_ipsec_doi_sa_SOURCES above) so their .Po
 # dependency files stay under test/.deps/.
+#
+# Also excluded from sanitizer builds, same reason as test_ipsec_doi_sa
+# above (relies on --gc-sections dead-code elimination that ASan defeats).
 if ENABLE_FRAG
+if !SANITIZER_BUILD
 check_PROGRAMS += test_vendorid_bounds
 
 test_vendorid_bounds_SOURCES  = test_vendorid_bounds.c \
@@ -237,6 +264,7 @@ test_vendorid_bounds_CPPFLAGS = $(AM_CPPFLAGS) \
 test_vendorid_bounds_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
 test_vendorid_bounds_LDADD    = $(COMMON_LDADD)
 test_vendorid_bounds_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
 endif
 
 # Test 14: misc (close_on_exec, timedelta)
@@ -293,7 +321,11 @@ test_plog_LDFLAGS  = $(AM_LDFLAGS)
 # nattraversal.c and oakley.c are pulled in via local wrapper sources (see
 # the comment on test_ipsec_doi_sa_SOURCES above) so their .Po dependency
 # files stay under test/.deps/.
+#
+# Also excluded from sanitizer builds, same reason as test_ipsec_doi_sa
+# above (relies on --gc-sections dead-code elimination that ASan defeats).
 if ENABLE_NATT
+if !SANITIZER_BUILD
 check_PROGRAMS += test_nattraversal_natd
 
 test_nattraversal_natd_SOURCES  = test_nattraversal_natd.c \
@@ -309,6 +341,7 @@ test_nattraversal_natd_LDADD    = $(COMMON_LDADD) \
 	$(top_builddir)/src/racoon/algorithm.o \
 	$(top_builddir)/src/racoon/sockmisc.o
 test_nattraversal_natd_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
 endif
 
 # Test 19: algorithm.c DOI<->algorithm dispatch tables (issue #34 follow-up).
@@ -326,7 +359,12 @@ endif
 #
 # Unlike test_nattraversal_natd, algorithm.c has no feature-flag
 # dependency, so this test always builds and always contributes to
-# coverage regardless of --enable-natt/--enable-frag.
+# coverage regardless of --enable-natt/--enable-frag -- except in
+# sanitizer builds, excluded for the same --gc-sections-vs-ASan reason as
+# test_ipsec_doi_sa above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_algorithm
+
 test_algorithm_SOURCES  = test_algorithm.c \
 	oakley_unittest_src.c
 test_algorithm_CPPFLAGS = $(AM_CPPFLAGS) \
@@ -337,6 +375,7 @@ test_algorithm_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
 test_algorithm_LDADD    = $(COMMON_LDADD) \
 	$(top_builddir)/src/racoon/algorithm.o
 test_algorithm_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
 
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
