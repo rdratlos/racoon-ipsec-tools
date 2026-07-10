@@ -1016,7 +1016,7 @@ eay_get_pkcs1pubkey(path)
 	/* Get public key - eay */
 	evp = X509_get_pubkey(x509);
 	if (evp == NULL)
-		return NULL;
+		goto end;
 
 	pkeylen = i2d_PublicKey(evp, NULL);
 	if (pkeylen == 0)
@@ -1033,6 +1033,7 @@ eay_get_pkcs1pubkey(path)
 end:
 	if (evp != NULL)
 		EVP_PKEY_free(evp);
+	X509_free(x509);
 	if (error != 0 && pkey != NULL) {
 		vfree(pkey);
 		pkey = NULL;
