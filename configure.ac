@@ -960,6 +960,33 @@ AC_CHECK_TYPE([ipsec_policy_t],
 		#include <netinet6/ipsec.h>
 	      ])
 
+# NetBSD's <netipsec/ipsec.h> dropped the ipsec_policy_t abstraction and
+# declares the userland policy helpers (ipsec_set_policy, ipsec_dump_policy)
+# with const-qualified string arguments, e.g.
+#   char *ipsec_dump_policy(char *, const char *);
+# libpfkey.h's fallback declarations (used whenever ipsec_policy_t itself
+# isn't provided) default to non-const arguments, which conflicts with that
+# prototype and fails the build with -Werror. Detect this so libpfkey.h can
+# match. Scoped to the netipsec/ipsec.h header path (NetBSD/FreeBSD) only;
+# other platforms (notably Linux) are unaffected.
+AS_IF([test "$have_netipsec_ipsec" = yes], [
+    AC_MSG_CHECKING([whether netipsec/ipsec.h uses const string arguments])
+    saved_CFLAGS=$CFLAGS
+    CFLAGS="$CFLAGS -Wall -Werror"
+    AC_COMPILE_IFELSE([AC_LANG_PROGRAM([
+		#include <sys/types.h>
+		#include <sys/param.h>
+		#include <sys/socket.h>
+		#include <netipsec/ipsec.h>
+		char *ipsec_dump_policy(char *, const char *);
+	      ], [])],
+	[AC_DEFINE([HAVE_IPSEC_CONST_STRARG], [],
+		    [ipsec policy helpers take const string arguments])
+	 AC_MSG_RESULT(yes)],
+	[AC_MSG_RESULT(no)])
+    CFLAGS=$saved_CFLAGS
+])
+
 # Check if kernel support is available for Security Context, defaults to no.
 kernel_secctx="no"
 
