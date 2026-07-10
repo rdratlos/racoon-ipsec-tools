@@ -5,11 +5,11 @@
  * Part of rdratlos/racoon-ipsec-tools — https://github.com/rdratlos/racoon-ipsec-tools
  */
 
+#include "config.h"
 #include "openssl_compat.h"
 
 #include <string.h>
 #include <stdio.h>
-#include <sys/param.h>
 
 #ifndef HAVE_STRLCPY
 static size_t __attribute__((noinline))
