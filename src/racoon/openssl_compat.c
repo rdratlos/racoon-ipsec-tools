@@ -15,17 +15,20 @@
 static size_t __attribute__((noinline))
 strlcpy(char *dst, const char *src, size_t siz)
 {
-    char *d = dst;
-    const char *s = src;
+    register char *d = dst;
+    const register char *s = src;
     size_t n = siz;
 
-    if (n) {
-        while (--n && (*d++ = *s++) != '\0')
-            ;
-        if (!n)
-            *d = '\0';
+    if (n != 0) {
+        while (--n != 0) {
+            if ((*d++ = *s++) == '\0')
+                return s - src - 1;
+        }
     }
-    return (s - src - 1) + (*s != '\0');
+
+    if (n == 0 && siz)
+        *d = '\0';
+    return s - src + strlen(s);
 }
 #endif
 #include <openssl/bio.h>
