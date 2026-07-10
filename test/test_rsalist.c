@@ -59,6 +59,9 @@ new_netaddr(const char *ip, unsigned long prefix)
 		return NULL;
 	na->sa.sin.sin_family = AF_INET;
 	na->sa.sin.sin_addr.s_addr = inet_addr(ip);
+#if defined(__NetBSD__) || defined(__FreeBSD__)
+	na->sa.sin.sin_len = sizeof(struct sockaddr_in);
+#endif
 	na->prefix = prefix;
 	return na;
 }
@@ -89,6 +92,9 @@ init_sockaddr_in(struct sockaddr_in *sin, const char *ip, unsigned short port)
 	sin->sin_family = AF_INET;
 	sin->sin_addr.s_addr = inet_addr(ip);
 	sin->sin_port = htons(port);
+#if defined(__NetBSD__) || defined(__FreeBSD__)
+	sin->sin_len = sizeof(struct sockaddr_in);
+#endif
 }
 
 /* ---------------------------------------------------------------------
