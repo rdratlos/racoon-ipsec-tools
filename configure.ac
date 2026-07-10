@@ -97,10 +97,13 @@ AC_CHECK_HEADERS(netinet6/ipsec.h, [], [], [])
 AC_CHECK_HEADERS(netipsec/ipsec.h, [], [], [])
 
 # Use pkg-config style variable detection via AC_CHECK_HEADER replacement
-AS_IF([test -n "$ac_cv_header_net_pfkeyv2_h"], [have_net_pfkey=yes], [have_net_pfkey=no])
-AS_IF([test -n "$ac_cv_header_netinet_ipsec_h"], [have_netinet_ipsec=yes], [have_netinet_ipsec=no])
-AS_IF([test -n "$ac_cv_header_netinet6_ipsec_h"], [have_netinet6_ipsec=yes], [have_netinet6_ipsec=no])
-AS_IF([test -n "$ac_cv_header_netipsec_ipsec_h"], [have_netipsec_ipsec=yes], [have_netipsec_ipsec=no])
+# NOTE: ac_cv_header_*_h is always set to the literal string "yes" or "no" by
+# AC_CHECK_HEADERS, so both values are non-empty. `test -n` would therefore be
+# true in either case; compare against "yes" explicitly.
+AS_IF([test "$ac_cv_header_net_pfkeyv2_h" = yes], [have_net_pfkey=yes], [have_net_pfkey=no])
+AS_IF([test "$ac_cv_header_netinet_ipsec_h" = yes], [have_netinet_ipsec=yes], [have_netinet_ipsec=no])
+AS_IF([test "$ac_cv_header_netinet6_ipsec_h" = yes], [have_netinet6_ipsec=yes], [have_netinet6_ipsec=no])
+AS_IF([test "$ac_cv_header_netipsec_ipsec_h" = yes], [have_netipsec_ipsec=yes], [have_netipsec_ipsec=no])
 
 # FreeBSD >=7 has only <netipsec/ipsec.h>
 # NetBSD has <netinet6/ipsec.h> but not <netinet/ipsec.h>
