@@ -101,26 +101,7 @@
 #include "package_version.h"
 #include "extern.h"
 
-#ifndef HAVE_STRLCPY
-static size_t __attribute__((noinline))
-strlcpy(char *dst, const char *src, size_t siz)
-{
-    register char *d = dst;
-    const register char *s = src;
-    size_t n = siz;
-
-    if (n != 0) {
-        while (--n != 0) {
-            if ((*d++ = *s++) == '\0')
-                return s - src - 1;
-        }
-    }
-
-    if (n == 0 && siz)
-        *d = '\0';
-    return s - src + strlen(s);
-}
-#endif
+#include "strlcpy.h"
 
 static int get_supported(void);
 static void sendkeyshort(u_int);

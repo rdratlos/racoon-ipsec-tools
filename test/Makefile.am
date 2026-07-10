@@ -80,6 +80,7 @@ check_PROGRAMS = \
 	test_eay_rsa \
 	test_x509_cert \
 	test_misc \
+	test_strlcpy \
 	test_strnames \
 	test_rsalist \
 	test_plog
@@ -271,6 +272,11 @@ endif
 test_misc_SOURCES  = test_misc.c
 test_misc_LDADD    = $(COMMON_LDADD)
 test_misc_LDFLAGS  = $(AM_LDFLAGS) -lm
+
+# Test 14b: strlcpy/strlcat fallbacks (src/racoon/missing/)
+test_strlcpy_SOURCES  = test_strlcpy.c
+test_strlcpy_LDADD    =
+test_strlcpy_LDFLAGS  = $(AM_LDFLAGS)
 
 # Test 15: strnames (all s_* string/value lookup functions)
 test_strnames_SOURCES  = test_strnames.c

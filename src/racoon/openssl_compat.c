@@ -11,26 +11,8 @@
 #include <string.h>
 #include <stdio.h>
 
-#ifndef HAVE_STRLCPY
-static size_t __attribute__((noinline))
-strlcpy(char *dst, const char *src, size_t siz)
-{
-    register char *d = dst;
-    const register char *s = src;
-    size_t n = siz;
+#include "missing/strlcpy.h"
 
-    if (n != 0) {
-        while (--n != 0) {
-            if ((*d++ = *s++) == '\0')
-                return s - src - 1;
-        }
-    }
-
-    if (n == 0 && siz)
-        *d = '\0';
-    return s - src + strlen(s);
-}
-#endif
 #include <openssl/bio.h>
 #include <openssl/pem.h>
 #include <openssl/err.h>

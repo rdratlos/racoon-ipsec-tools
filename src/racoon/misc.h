@@ -63,30 +63,8 @@ extern void close_on_exec __P((int fd));
     TAILQ_FOREACH_REVERSE(var, head, headname, field)
 #endif
 
-#ifndef HAVE_STRLCPY
-static size_t __attribute__((noinline))
-strlcpy(char *dst, const char *src, size_t siz)
-{
-    register char *d = dst;
-    const register char *s = src;
-    size_t n = siz;
-
-    if (n != 0) {
-        while (--n != 0) {
-            if ((*d++ = *s++) == '\0')
-                return s - src - 1;
-        }
-    }
-
-    if (n == 0 && siz)
-        *d = '\0';
-    return s - src + strlen(s);
-}
-#endif
-
-#ifndef HAVE_STRLCAT
-#define strlcat(d,s,l) strncat(d,s,(l)-strlen(d)-1)
-#endif
+#include "missing/strlcpy.h"
+#include "missing/strlcat.h"
 
 #define STRDUP_FATAL(x) if (x == NULL) {			\
 	plog(LLV_ERROR, LOCATION, NULL, "strdup failed\n");	\
