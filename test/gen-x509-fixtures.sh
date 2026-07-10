@@ -102,7 +102,7 @@ cat "$root_cert" "$int_cert" "$root_crl" "$int_crl" \
 
 # An unrelated self-signed CA: verifying the roadwarrior cert against this
 # store must fail (issuer not found) -- the "wrong CA" negative path.
-openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
+openssl req -config "$CA_CONF" -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
 	-subj "/C=DE/O=Unrelated Test Authority/CN=Unrelated Root CA" \
 	-keyout "$outdir/wrong-ca.key.pem" \
 	-out "$outdir/wrong-ca.cert.pem" >/dev/null 2>&1 \
@@ -113,7 +113,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
 # OpenSSL lacks the prime256v1 curve.
 if openssl ecparam -name prime256v1 -genkey -noout \
 	-out "$outdir/ec.key.pem" >/dev/null 2>&1; then
-	openssl req -x509 -new -key "$outdir/ec.key.pem" -sha256 -days 3650 \
+	openssl req -config "$CA_CONF" -x509 -new -key "$outdir/ec.key.pem" -sha256 -days 3650 \
 		-subj "/C=DE/O=Nepomuc SecureNet/CN=ec.example.test" \
 		-out "$outdir/ec.cert.pem" >/dev/null 2>&1 \
 		|| die "EC cert generation failed"

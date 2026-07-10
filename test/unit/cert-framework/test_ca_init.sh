@@ -27,7 +27,18 @@ conf_active="$(grep -v '^[[:space:]]*#' "$CA_CONF")"
 assert_not_contains "$conf_active" '$dir' 'rendered config has no $dir variable'
 assert_contains "$conf_active" "$workdir" "rendered config contains absolute workdir path"
 
-perm="$(stat -c '%a' "$workdir/root/private")"
+case "$(uname -s)" in
+    Linux)
+        perm="$(stat -c '%a' "$workdir/root/private")"
+        ;;
+    NetBSD|FreeBSD|OpenBSD|Darwin)
+        perm="$(stat -f '%Lp' "$workdir/root/private")"
+        ;;
+    *)
+        echo "Unsupported platform: $(uname -s)" >&2
+        exit 1
+        ;;
+esac
 assert_eq "700" "$perm" "root private dir is mode 700"
 
 test_summary
