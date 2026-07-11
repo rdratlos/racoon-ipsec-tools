@@ -216,23 +216,19 @@ static struct val2str str_alg_comp[] = {
  */
 
 void
-pfkey_sadump(m)
-	struct sadb_msg *m;
+pfkey_sadump(struct sadb_msg *m)
 {
 	pfkey_sadump1(m, 0);
 }
 
 void
-pfkey_sadump_withports(m)
-	struct sadb_msg *m;
+pfkey_sadump_withports(struct sadb_msg *m)
 {
 	pfkey_sadump1(m, 1);
 }
 
 void
-pfkey_sadump1(m, withports)
-	struct sadb_msg *m;
-	int withports;
+pfkey_sadump1(struct sadb_msg *m, int withports)
 {
 	caddr_t mhp[SADB_EXT_MAX + 1];
 	struct sadb_sa *m_sa;
@@ -467,23 +463,19 @@ pfkey_sadump1(m, withports)
 }
 
 void
-pfkey_spdump(m)
-	struct sadb_msg *m;
+pfkey_spdump(struct sadb_msg *m)
 {
 	pfkey_spdump1(m, 0);
 }
 
 void
-pfkey_spdump_withports(m)
-	struct sadb_msg *m;
+pfkey_spdump_withports(struct sadb_msg *m)
 {
 	pfkey_spdump1(m, 1);
 }
 
 static void
-pfkey_spdump1(m, withports)
-	struct sadb_msg *m;
-	int withports;
+pfkey_spdump1(struct sadb_msg *m, int withports)
 {
 	char pbuf[NI_MAXSERV];
 	caddr_t mhp[SADB_EXT_MAX + 1];
@@ -653,8 +645,7 @@ pfkey_spdump1(m, withports)
  * set "ipaddress" to buffer.
  */
 static char *
-str_ipaddr(sa)
-	struct sockaddr *sa;
+str_ipaddr(struct sockaddr *sa)
 {
 	static char buf[NI_MAXHOST];
 	const int niflag = NI_NUMERICHOST;
@@ -672,8 +663,7 @@ str_ipaddr(sa)
  * set "port" to buffer.
  */
 static char *
-str_ipport(sa)
-	struct sockaddr *sa;
+str_ipport(struct sockaddr *sa)
 {
 	static char buf[NI_MAXHOST];
 	const int niflag = NI_NUMERICSERV;
@@ -692,8 +682,7 @@ str_ipport(sa)
  * set "/prefix[port number]" to buffer.
  */
 static char *
-str_prefport(family, pref, port, ulp)
-	u_int family, pref, port, ulp;
+str_prefport(u_int family, u_int pref, u_int port, u_int ulp)
 {
 	static char buf[256];
 	char prefbuf[128];
@@ -737,8 +726,7 @@ str_prefport(family, pref, port, ulp)
 }
 
 static void
-str_upperspec(ulp, p1, p2)
-	u_int ulp, p1, p2;
+str_upperspec(u_int ulp, u_int p1, u_int p2)
 {
 	struct protoent *ent;
 
@@ -767,8 +755,7 @@ str_upperspec(ulp, p1, p2)
  * set "Mon Day Time Year" to buffer
  */
 static char *
-str_time(t)
-	time_t t;
+str_time(time_t t)
 {
 	static char buf[128];
 
@@ -789,9 +776,7 @@ str_time(t)
 }
 
 static void
-str_lifetime_byte(x, str)
-	struct sadb_lifetime *x;
-	char *str;
+str_lifetime_byte(struct sadb_lifetime *x, char *str)
 {
 	double y;
 	char *unit;
