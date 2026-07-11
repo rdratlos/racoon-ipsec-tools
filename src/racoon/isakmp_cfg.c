@@ -1716,10 +1716,10 @@ isakmp_cfg_accounting_system(port, raddr, usr, inout)
 	switch (inout) {
 	case ISAKMP_CFG_LOGIN:
 		ut.ut_type = USER_PROCESS;
-strlcpy(ut.ut_user, usr, sizeof ut.ut_user);
+		strlcpy(ut.ut_user, usr, sizeof ut.ut_user);
 
 		GETNAMEINFO_NULL(raddr, addr);
-strlcpy(ut.ut_host, addr, sizeof ut.ut_host);
+		strlcpy(ut.ut_host, addr, sizeof ut.ut_host);
 
 		plog(LLV_INFO, LOCATION, NULL,
 			"Accounting : '%s' logging on '%s' from %s.\n",
