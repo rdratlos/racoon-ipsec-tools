@@ -110,10 +110,8 @@ extern struct payload_list *isakmp_plist_append_full __P((
 	struct payload_list *plist, vchar_t *payload,
 	u_int8_t payload_type, u_int8_t free));
 
-static inline struct payload_list *isakmp_plist_append(plist, payload, payload_type)
-	struct payload_list *plist;
-	vchar_t *payload;
-	u_int8_t payload_type;
+static inline struct payload_list *isakmp_plist_append(
+	struct payload_list *plist, vchar_t *payload, u_int8_t payload_type)
 {
 	return isakmp_plist_append_full(plist, payload, payload_type, 0);
 }
