@@ -17,12 +17,27 @@ AC_PROG_CC
 AC_PROG_CPP
 AC_CHECK_HEADERS(stdc.h)
 AM_PROG_AR
-LT_INIT([disable-shared])
+LT_INIT
 AC_CHECK_HEADERS(stdio.h stdlib.h string.h float.h)
 AC_PROG_YACC
 AC_PROG_LEX([yywrap])
 AC_SUBST(LEXLIB)
 AC_PROG_EGREP
+
+# pkg-config is used below to auto-detect optional dependencies
+# (GSSAPI/LDAP/Readline, issue #62) and systemd unit-install
+# directories (issue #60). What happens next if it's absent is
+# pkgconf-version-dependent and outside this project's control: some
+# versions leave $PKG_CONFIG empty and continue silently (e.g. Ubuntu
+# Bionic's pkg-config 0.29.1 — no message at all, you'd only notice
+# later via a missing config.h define); others abort configure
+# immediately with a bare "pkg-config not found" (pkgconf >= ~2.x,
+# see https://github.com/pkgconf/pkgconf/issues/350). Either way,
+# nothing after this call can intercept or improve that message if it
+# aborts — so say why it matters here, before it's too late to say
+# anything at all.
+AC_MSG_NOTICE([checking for pkg-config (required for optional-dependency and systemd-unit-path detection; install pkgconf or pkg-config if the next check fails)])
+PKG_PROG_PKG_CONFIG
 
 # Determine correct runtime library path flag
 # -R on Solaris/BSD, -Wl,-rpath, on Linux/GCC
@@ -108,23 +123,30 @@ fi
 
 case "$host_os" in
  *linux*)
+    # Kernel headers are reliably available at /usr/include/linux/ on
+    # every supported distribution (kernel floor is 4.15; see RFC 0002
+    # kernelpaws-xfrm-abstraction-layer). --with-kernel-headers is kept
+    # only as a deprecated escape hatch for non-standard setups (#62 §6.2.4).
+    # See issue #60 for the *post*-XFRM-migration kernel header strategy;
+    # this handles only the current PF_KEY header.
     AC_ARG_WITH(kernel-headers,
-	AS_HELP_STRING([--with-kernel-headers=/lib/modules/<uname>/build/include],
-		       [where your Linux Kernel headers are installed]),
-	    [ KERNEL_INCLUDE="$with_kernel_headers"
-	      CONFIGURE_AMFLAGS="--with-kernel-headers=$with_kernel_headers"
-	      AC_SUBST(CONFIGURE_AMFLAGS) ],
-	    [ KERNEL_INCLUDE="/lib/modules/`uname -r`/build/include" ])
-
-    AC_COMPILE_IFELSE([AC_LANG_PROGRAM([#include "$KERNEL_INCLUDE/linux/pfkeyv2.h"], [])], ,
-	[ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([#include </usr/src/linux/include/linux/pfkeyv2.h>], [])],
-	  KERNEL_INCLUDE=/usr/src/linux/include ,
-	  [ AC_MSG_ERROR([Unable to find linux-2.6 kernel headers. Aborting.]) ] ) ] )
+	AS_HELP_STRING([--with-kernel-headers=DIR],
+		       [DEPRECATED: kernel headers path (auto-detected at /usr/include)]),
+	    [ AC_MSG_WARN([])
+	      AC_MSG_WARN([*** WARNING: --with-kernel-headers is deprecated and will be removed in a future release. ***])
+	      AC_MSG_WARN([***          Kernel headers are now auto-detected at /usr/include. ***])
+	      AC_MSG_WARN([])
+	      KERNEL_INCLUDE="$with_kernel_headers" ],
+	    [ KERNEL_INCLUDE="/usr/include" ])
     AC_SUBST(KERNEL_INCLUDE)
     # We need the configure script to run with correct kernel headers.
     # However we don't want to point to kernel source tree in compile time,
     # i.e. this will be removed from CPPFLAGS at the end of configure.
     CPPFLAGS="-I$KERNEL_INCLUDE $CPPFLAGS"
+
+    AC_CHECK_HEADERS([linux/pfkeyv2.h], [], [
+	AC_MSG_ERROR([Cannot find linux/pfkeyv2.h under $KERNEL_INCLUDE. Install linux-headers-generic (or your distribution's equivalent kernel-header package). Aborting.])
+    ])
 
     AC_CHECK_MEMBERS(struct sadb_x_policy.sadb_x_policy_priority,
 	    [AC_DEFINE(HAVE_PFKEY_POLICY_PRIORITY, [],
@@ -207,24 +229,39 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
 	AC_MSG_RESULT(yes)],
 	[AC_MSG_RESULT(no)])
 
-# Check if readline support is requested
+# Check if readline support is requested (setkey interactive mode only;
+# see issue #62 §5.2 for the licensing/scope rationale behind default=auto)
 AC_MSG_CHECKING(if readline support is requested)
-AC_ARG_WITH(readline,
-	[  --with-readline         support readline input (yes by default)],
-	[with_readline="$withval"], [with_readline="yes"])
+AC_ARG_WITH([readline],
+	[AS_HELP_STRING([--with-readline],
+		[enable readline support for setkey @<:@default=auto@:>@])],
+	[], [with_readline=auto])
 AC_MSG_RESULT($with_readline)
 
 # Is readline available?
+readline_found=no
 AS_IF([test "$with_readline" != "no"], [
-	AC_CHECK_HEADERS([readline/readline.h], [], [], [#ifdef HAVE_SYS_TYPES_H
+	PKG_CHECK_MODULES([READLINE], [readline], [
+		readline_found=yes
+		AC_DEFINE([HAVE_READLINE], [], [Is readline available?])
+		RACOON_STRIP_FEATURE_MACROS([READLINE_CFLAGS])
+		LIBS="$LIBS $READLINE_LIBS"
+		CPPFLAGS_ADD="$READLINE_CFLAGS $CPPFLAGS_ADD"
+	], [
+		AC_CHECK_HEADERS([readline/readline.h], [], [], [#ifdef HAVE_SYS_TYPES_H
 # include <sys/types.h>
 #endif])
-	AS_IF([test "$ac_cv_header_readline_readline_h" = "yes"], [
-		AC_CHECK_LIB(readline, readline, [
-			AC_DEFINE(HAVE_READLINE, [],
-				[Is readline available?])
-			LIBS="$LIBS -lreadline"
-		], [])
+		AS_IF([test "$ac_cv_header_readline_readline_h" = "yes"], [
+			AC_CHECK_LIB([readline], [readline], [
+				readline_found=yes
+				AC_DEFINE([HAVE_READLINE], [], [Is readline available?])
+				LIBS="$LIBS -lreadline"
+			], [
+				AC_MSG_NOTICE([Readline not found; setkey will use basic line editing])
+			])
+		], [
+			AC_MSG_NOTICE([Readline not found; setkey will use basic line editing])
+		])
 	])
 ])
 
@@ -350,21 +387,15 @@ AC_CHECK_HEADERS([openssl/camellia.h])
 
 
 # Option --enable-adminport
-AC_MSG_CHECKING(if --enable-adminport option is specified)
-AC_ARG_ENABLE(adminport,
-	[  --enable-adminport      enable admin port],
-	[], [enable_adminport=no])
+RACOON_ARG_ENABLE([adminport],
+	[  --enable-adminport      enable admin port @<:@default=yes@:>@], [yes])
 AS_IF([test "$enable_adminport" = "yes"], [
 	AC_DEFINE([ENABLE_ADMINPORT], [], [Enable admin port])
 ])
-AC_MSG_RESULT($enable_adminport)
 
 # Option RC5
-AC_MSG_CHECKING(if --enable-rc5 option is specified)
-AC_ARG_ENABLE(rc5,
-	[  --enable-rc5		enable RC5 encryption (patented)],
-	[], [enable_rc5=no])
-AC_MSG_RESULT($enable_rc5)
+RACOON_ARG_ENABLE([rc5],
+	[  --enable-rc5		enable RC5 encryption (patented)], [no])
 
 AS_IF([test "$enable_rc5" = "yes"], [
 	AC_CHECK_HEADERS([openssl/rc5.h])
@@ -373,11 +404,8 @@ AS_IF([test "$enable_rc5" = "yes"], [
 ])
 
 # Option IDEA
-AC_MSG_CHECKING(if --enable-idea option is specified)
-AC_ARG_ENABLE(idea,
-	[  --enable-idea	enable IDEA encryption (patented)],
-	[], [enable_idea=no])
-AC_MSG_RESULT($enable_idea)
+RACOON_ARG_ENABLE([idea],
+	[  --enable-idea	enable IDEA encryption (patented)], [no])
 
 AS_IF([test "$enable_idea" = "yes"], [
 	AC_CHECK_HEADERS([openssl/idea.h])
@@ -436,11 +464,8 @@ AS_IF([test "$libiconv_dir" != "no"], [
 	AC_CHECK_FUNCS(iconv_open)
 ])
 
-AC_MSG_CHECKING([if --enable-hybrid option is specified])
-AC_ARG_ENABLE(hybrid,
-    [  --enable-hybrid	  enable hybrid, both mode-cfg and xauth support],
-    [], [enable_hybrid=no])
-AC_MSG_RESULT($enable_hybrid)
+RACOON_ARG_ENABLE([hybrid],
+    [  --enable-hybrid	  enable hybrid, both mode-cfg and xauth support @<:@default=yes@:>@], [yes])
 
 AS_IF([test "x$enable_hybrid" = "xyes"], [
 	case $host in
@@ -455,11 +480,8 @@ AS_IF([test "x$enable_hybrid" = "xyes"], [
 	AC_DEFINE([ENABLE_HYBRID], [], [Hybrid authentication support])
 ])
 
-AC_MSG_CHECKING([if --enable-frag option is specified])
-AC_ARG_ENABLE(frag,
-    [  --enable-frag           enable IKE fragmentation payload support],
-    [], [enable_frag=no])
-AC_MSG_RESULT($enable_frag)
+RACOON_ARG_ENABLE([frag],
+    [  --enable-frag           enable IKE fragmentation payload support @<:@default=yes@:>@], [yes])
 
 AS_IF([test "x$enable_frag" = "xyes"], [
 	case $host in
@@ -521,109 +543,144 @@ AS_IF([test "$libradius_dir" != "no"], [
 ])
 
 AC_MSG_CHECKING(if --with-libpam option is specified)
-AC_ARG_WITH(libpam,
-    [  --with-libpam=DIR    specify libpam path (like/usr/pkg)],
+AC_ARG_WITH([libpam],
+    [AS_HELP_STRING([--with-libpam@<:@=DIR@:>@],
+        [enable PAM authentication, optionally specifying libpam path @<:@default=auto@:>@])],
     [libpam_dir=$withval],
-    [libpam_dir=no])
+    [libpam_dir=auto])
 AC_MSG_RESULT($libpam_dir)
+
 AS_IF([test "$libpam_dir" != "no"], [
-	if test "$libpam_dir" = "yes" ; then
-		  libpam_dir="";
-	fi;
-	AS_IF([test "x$libpam_dir" = "x"], [
-		RACOON_PATH_LIBS([pam_start], [pam])
-	], [
-		AS_IF([test -d "$libpam_dir/lib" -a \
-		    -d "$libpam_dir/include"], [
-			RACOON_PATH_LIBS([pam_start], [pam], ["$libpam_dir/lib"])
-			CPPFLAGS_ADD="$CPPFLAGS_ADD -I$libpam_dir/include"
+	pam_found=no
+	AS_IF([test "$libpam_dir" = "yes" -o "$libpam_dir" = "auto"], [
+		AC_CHECK_LIB([pam], [pam_start], [
+			pam_found=yes
+			LIBS="$LIBS -lpam"
 		], [
-			AC_MSG_ERROR([PAM libs or includes not found. Aborting.])
+			AC_MSG_NOTICE([PAM not found; PAM authentication will not be available])
+		])
+	], [
+		AS_IF([test -d "$libpam_dir/lib" -a -d "$libpam_dir/include"], [
+			RACOON_PATH_LIBS([pam_start], [pam], ["$libpam_dir/lib"], [
+				pam_found=yes
+				CPPFLAGS_ADD="$CPPFLAGS_ADD -I$libpam_dir/include"
+				LIBS="$LIBS -L$libpam_dir/lib ${RPATH_FLAG}$libpam_dir/lib -lpam"
+			], [
+				AC_MSG_ERROR([PAM libs not found under $libpam_dir. Aborting.])
+			])
+		], [
+			AC_MSG_ERROR([PAM libs or includes not found under $libpam_dir. Aborting.])
 		])
 	])
-	AC_DEFINE([HAVE_LIBPAM], [], [Hybrid authentication uses PAM])
-	AS_IF([test "x$libpam_dir" != "x"], [
-		LIBS="$LIBS -L$libpam_dir/lib ${RPATH_FLAG}$libpam_dir/lib -lpam"
-	], [
-		LIBS="$LIBS -lpam"
+	AS_IF([test "$pam_found" = "yes"], [
+		AC_DEFINE([HAVE_LIBPAM], [], [Hybrid authentication uses PAM])
+		AC_CHECK_FUNCS(pam_start)
 	])
-	AC_CHECK_FUNCS(pam_start)
 ])
 
 AC_MSG_CHECKING(if --with-libldap option is specified)
-AC_ARG_WITH(libldap,
-    [AS_HELP_STRING([--with-libldap=DIR], [specify libldap path (like /usr/pkg)])],
+AC_ARG_WITH([libldap],
+    [AS_HELP_STRING([--with-libldap@<:@=DIR@:>@],
+        [enable LDAP authentication, optionally specifying libldap path @<:@default=auto@:>@])],
     [libldap_dir=$withval],
-    [libldap_dir=no])
+    [libldap_dir=auto])
 AC_MSG_RESULT($libldap_dir)
-AS_IF([test "$libldap_dir" != "no"], [
-	if test "$libldap_dir" = "yes" ; then
-		  libldap_dir="";
-	fi;
-	AS_IF([test "x$libldap_dir" = "x"], [
-		RACOON_PATH_LIBS([ldap_init], [ldap])
-	], [
-		AS_IF([test -d "$libldap_dir/lib" -a \
-		    -d "$libldap_dir/include"], [
-			RACOON_PATH_LIBS([ldap_init], [ldap], ["$libldap_dir/lib"])
-			CPPFLAGS_ADD="$CPPFLAGS_ADD -I$libldap_dir/include"
-		], [
-			AC_MSG_ERROR([LDAP libs or includes not found. Aborting.])
-		])
-	])
-	AC_DEFINE([HAVE_LIBLDAP], [1], [Hybrid authentication uses LDAP])
-	AS_IF([test "x$libldap_dir" != "x"], [
-		LIBS="$LIBS -L$libldap_dir/lib ${RPATH_FLAG}$libldap_dir/lib -lldap"
-	], [
-		LIBS="$LIBS -lldap"
-	])
 
-	saved_CFLAGS=$CFLAGS
-	CFLAGS="$CFLAGS -Wall -Werror"
-	saved_CPPFLAGS=$CPPFLAGS
-        CPPFLAGS="$CPPFLAGS $CPPFLAGS_ADD"
-	AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-		#include <ldap.h>
-	]], [[
-		#if LDAP_API_VERSION < 2004
-		#error OpenLDAP version is too old
-		#endif
-	]])],
-	[AC_MSG_RESULT([ok])],
-		[
-			AC_MSG_RESULT(too old)
-			AC_MSG_ERROR([OpenLDAP version must be 2.0 or higher. Aborting.])
+AS_IF([test "$libldap_dir" != "no"], [
+	ldap_found=no
+	AS_IF([test "$libldap_dir" = "yes" -o "$libldap_dir" = "auto"], [
+		PKG_CHECK_MODULES([LDAP], [ldap], [
+			ldap_found=yes
+			RACOON_STRIP_FEATURE_MACROS([LDAP_CFLAGS])
+			LIBS="$LIBS $LDAP_LIBS"
+			CPPFLAGS_ADD="$LDAP_CFLAGS $CPPFLAGS_ADD"
+		], [
+			RACOON_PATH_LIBS([ldap_init], [ldap], [], [
+				ldap_found=yes
+				LIBS="$LIBS -lldap"
+			], [
+				AC_MSG_NOTICE([LDAP not found; LDAP authentication will not be available])
+			])
 		])
-	CFLAGS=$saved_CFLAGS
-	CPPFLAGS=$saved_CPPFLAGS
+	], [
+		AS_IF([test -d "$libldap_dir/lib" -a -d "$libldap_dir/include"], [
+			RACOON_PATH_LIBS([ldap_init], [ldap], ["$libldap_dir/lib"], [
+				ldap_found=yes
+				CPPFLAGS_ADD="$CPPFLAGS_ADD -I$libldap_dir/include"
+				LIBS="$LIBS -L$libldap_dir/lib ${RPATH_FLAG}$libldap_dir/lib -lldap"
+			], [
+				AC_MSG_ERROR([LDAP libs not found under $libldap_dir. Aborting.])
+			])
+		], [
+			AC_MSG_ERROR([LDAP libs or includes not found under $libldap_dir. Aborting.])
+		])
+	])
+	AS_IF([test "$ldap_found" = "yes"], [
+		AC_DEFINE([HAVE_LIBLDAP], [1], [Hybrid authentication uses LDAP])
+
+		saved_CFLAGS=$CFLAGS
+		CFLAGS="$CFLAGS -Wall -Werror"
+		saved_CPPFLAGS=$CPPFLAGS
+		CPPFLAGS="$CPPFLAGS $CPPFLAGS_ADD"
+		AC_MSG_CHECKING([OpenLDAP API version])
+		AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+			#include <ldap.h>
+		]], [[
+			#if LDAP_API_VERSION < 2004
+			#error OpenLDAP version is too old
+			#endif
+		]])],
+		[AC_MSG_RESULT([ok])],
+			[
+				AC_MSG_RESULT(too old)
+				AC_MSG_ERROR([OpenLDAP version must be 2.0 or higher. Aborting.])
+			])
+		CFLAGS=$saved_CFLAGS
+		CPPFLAGS=$saved_CPPFLAGS
+	])
 ])
 
 # Check for Kerberos5 support
 # XXX This must come after all --with-* tests, else the
 # -liconv checks will not work
 AC_MSG_CHECKING(if --enable-gssapi option is specified)
-AC_ARG_ENABLE(gssapi,
-	[  --enable-gssapi         enable GSS-API authentication],
-	[], [enable_gssapi=no])
+AC_ARG_ENABLE([gssapi],
+	[AS_HELP_STRING([--enable-gssapi],
+		[enable GSS-API/Kerberos authentication @<:@default=auto@:>@])],
+	[], [enable_gssapi=auto])
 AC_MSG_RESULT($enable_gssapi)
-AC_PATH_PROG(KRB5_CONFIG,krb5-config,no)
-AS_IF([test "x$enable_gssapi" = "xyes"], [
-	AS_IF([test "$KRB5_CONFIG" != "no"], [
-		krb5_incdir="`$KRB5_CONFIG --cflags gssapi`"
-		krb5_libs="`$KRB5_CONFIG --libs gssapi`"
+
+krb5_found=no
+AS_IF([test "$enable_gssapi" != "no"], [
+	PKG_CHECK_MODULES([KRB5], [krb5-gssapi], [
+		krb5_found=yes
+		RACOON_STRIP_FEATURE_MACROS([KRB5_CFLAGS])
+		krb5_incdir="$KRB5_CFLAGS"
+		krb5_libs="$KRB5_LIBS"
 	], [
-		# No krb5-config; let's make some assumptions based on
-		# the OS.
-		case $host_os in
-		netbsd*)
-			krb5_incdir="-I/usr/include/krb5"
-			krb5_libs="-lgssapi -lkrb5 -lcom_err -lroken -lasn1"
-			;;
-		*)
-			AC_MSG_ERROR([krb5-config not found, but needed for GSSAPI support. Aborting.])
-			;;
-		esac
+		AC_PATH_PROG([KRB5_CONFIG], [krb5-config], [no])
+		AS_IF([test "$KRB5_CONFIG" != "no"], [
+			krb5_incdir="`$KRB5_CONFIG --cflags gssapi`"
+			krb5_libs="`$KRB5_CONFIG --libs gssapi`"
+			krb5_found=yes
+		], [
+			# Neither krb5-gssapi.pc nor krb5-config; fall back to
+			# known paths on platforms without pkg-config coverage.
+			case $host_os in
+			netbsd*)
+				krb5_incdir="-I/usr/include/krb5"
+				krb5_libs="-lgssapi -lkrb5 -lcom_err -lroken -lasn1"
+				krb5_found=yes
+				;;
+			esac
+		])
 	])
+	AS_IF([test "$krb5_found" = "no" -a "$enable_gssapi" = "yes"], [
+		AC_MSG_ERROR([GSSAPI requested (--enable-gssapi) but neither pkg-config krb5-gssapi.pc nor krb5-config was found. Aborting.])
+	])
+])
+
+AS_IF([test "$krb5_found" = "yes"], [
 	LIBS="$LIBS $krb5_libs"
 	CPPFLAGS_ADD="$krb5_incdir $CPPFLAGS_ADD"
 	AC_DEFINE([HAVE_GSSAPI], [], [Enable GSS API])
@@ -704,30 +761,24 @@ AS_IF([test "x$enable_gssapi" = "xyes"], [
 		])
 	CPPFLAGS=$saved_CPPFLAGS
 	LIBS=$saved_LIBS
+], [
+	AC_MSG_NOTICE([GSSAPI not found; Kerberos authentication will not be available])
 ])
 
-AC_MSG_CHECKING(if --enable-stats option is specified)
-AC_ARG_ENABLE(stats,
-        [  --enable-stats          enable statistics logging function],
-        [], [enable_stats=no])
+RACOON_ARG_ENABLE([stats],
+        [  --enable-stats          enable statistics logging function], [no])
 AS_IF([test "x$enable_stats" = "xyes"], [
 	AC_DEFINE([ENABLE_STATS], [], [Enable statictics])
 ])
-AC_MSG_RESULT($enable_stats)
 
-AC_MSG_CHECKING(if --enable-dpd option is specified)
-AC_ARG_ENABLE(dpd,
-        [  --enable-dpd            enable dead peer detection],
-        [], [enable_dpd=no])
+RACOON_ARG_ENABLE([dpd],
+        [  --enable-dpd            enable dead peer detection @<:@default=yes@:>@], [yes])
 AS_IF([test "x$enable_dpd" = "xyes"], [
 	AC_DEFINE([ENABLE_DPD], [], [Enable dead peer detection])
 ])
-AC_MSG_RESULT($enable_dpd)
 
-AC_MSG_CHECKING(if --enable-samode-unspec option is specified)
-AC_ARG_ENABLE(samode-unspec,
-        [  --enable-samode-unspec  enable to use unspecified a mode of SA],
-        [], [enable_samode_unspec=no])
+RACOON_ARG_ENABLE([samode-unspec],
+        [  --enable-samode-unspec  enable to use unspecified a mode of SA], [no])
 AS_IF([test "x$enable_samode_unspec" = "xyes"], [
 	case $host_os in
 	*linux*)
@@ -744,7 +795,6 @@ EOC
 	esac
 	AC_DEFINE([ENABLE_SAMODE_UNSPECIFIED], [], [Enable samode-unspec])
 ])
-AC_MSG_RESULT($enable_samode_unspec)
 
 # Checks if IPv6 is requested
 AC_MSG_CHECKING([whether to enable ipv6])
@@ -828,9 +878,9 @@ AC_MSG_RESULT($kernel_natt)
 
 AC_MSG_CHECKING(whether to support NAT-T)
 AC_ARG_ENABLE(natt,
-	[  --enable-natt           enable NAT-Traversal (yes/no/kernel)],
-        [ AS_IF([test "$enable_natt" = "kernel"], [enable_natt=$kernel_natt]) ],
-	[ enable_natt=no ])
+	[  --enable-natt           enable NAT-Traversal (yes/no/auto/kernel) @<:@default=auto@:>@],
+        [ AS_IF([test "$enable_natt" = "kernel" -o "$enable_natt" = "auto"], [enable_natt=$kernel_natt]) ],
+	[ enable_natt=$kernel_natt ])
 AC_MSG_RESULT($enable_natt)
 
 AS_IF([test "$enable_natt" = "yes"], [
@@ -875,14 +925,11 @@ AS_IF([test "$enable_natt" = "yes"], [
 	AC_MSG_RESULT([none])
 ])
 
-AC_MSG_CHECKING(if --enable-broken-natt option is specified)
-AC_ARG_ENABLE(broken-natt,
-	[  --enable-broken-natt    broken in-kernel NAT-T],
-        [], [enable_broken_natt=no])
+RACOON_ARG_ENABLE([broken-natt],
+	[  --enable-broken-natt    broken in-kernel NAT-T], [no])
 AS_IF([test "x$enable_broken_natt" = "xyes"], [
 	AC_DEFINE([BROKEN_NATT], [], [in-kernel NAT-T is broken])
 ])
-AC_MSG_RESULT($enable_broken_natt)
 
 AC_MSG_CHECKING(whether we support FWD policy)
 case $host in
@@ -936,10 +983,17 @@ AS_IF([test "$ac_cv_header_selinux_selinux_h" = "yes"], [
 
 AC_MSG_CHECKING(whether to support Security Context)
 AC_ARG_ENABLE(security-context,
-	[  --enable-security-context    enable Security Context(yes/no/kernel)],
+	[  --enable-security-context    enable Security Context (yes/no/auto/kernel) @<:@default=auto@:>@],
 	[AS_IF([test "$enable_security_context" = "kernel"], [
 		enable_security_context=$kernel_secctx])],
-	[enable_security_context=$kernel_secctx])
+	[enable_security_context=auto])
+AS_IF([test "$enable_security_context" = "auto"], [
+	AS_IF([test "$kernel_secctx" = "yes" -a "$selinux_support" = "yes"], [
+		enable_security_context=yes
+	], [
+		enable_security_context=no
+	])
+])
 AC_MSG_RESULT($enable_security_context)
 
 AS_IF([test "$enable_security_context" = "yes"], [
@@ -1040,6 +1094,60 @@ esac
 
 include_racoondir=${includedir}/racoon
 AC_SUBST(include_racoondir)
+
+# --- Feature summary (#62 §7.3) ---
+summary_natt="$enable_natt"
+AS_IF([test "$enable_natt" = "yes" -a "$kernel_natt" = "yes"], [summary_natt="yes (kernel)"])
+
+summary_gssapi="no"
+AS_IF([test "$krb5_found" = "yes"], [
+	krb5_version=`$PKG_CONFIG --modversion krb5-gssapi 2>/dev/null`
+	AS_IF([test -z "$krb5_version" -a -n "$KRB5_CONFIG" -a "$KRB5_CONFIG" != "no"], [
+		krb5_version=`$KRB5_CONFIG --version 2>/dev/null | sed -n 's/.*release \([[0-9.]]*\).*/\1/p'`
+	])
+	AS_IF([test -n "$krb5_version"],
+		[summary_gssapi="yes (libkrb5 $krb5_version)"],
+		[summary_gssapi="yes"])
+])
+
+summary_ldap="no"
+AS_IF([test "$ldap_found" = "yes"], [
+	ldap_version=`$PKG_CONFIG --modversion ldap 2>/dev/null`
+	AS_IF([test -n "$ldap_version"],
+		[summary_ldap="yes (OpenLDAP $ldap_version)"],
+		[summary_ldap="yes"])
+])
+
+summary_pam="no"
+AS_IF([test "$pam_found" = "yes"], [summary_pam="yes"])
+
+summary_readline="no"
+AS_IF([test "$readline_found" = "yes"], [summary_readline="yes"])
+
+summary_secctx="$enable_security_context"
+AS_IF([test "$enable_security_context" = "no"], [
+	AS_IF([test "$kernel_secctx" = "no"],
+		[summary_secctx="no (no kernel support)"],
+	      [test "$selinux_support" = "no"],
+		[summary_secctx="no (SELinux not found)"])
+])
+
+cat <<_RACOON_SUMMARY_EOF
+
+*** racoon feature summary ***
+  Shared libraries  : $enable_shared
+  Hybrid auth       : $enable_hybrid
+  DPD               : $enable_dpd
+  NAT-T             : $summary_natt
+  IKE fragmentation : $enable_frag
+  Admin port        : $enable_adminport
+  GSSAPI/Kerberos   : $summary_gssapi
+  LDAP              : $summary_ldap
+  PAM               : $summary_pam
+  Readline          : $summary_readline
+  Security Context  : $summary_secctx
+
+_RACOON_SUMMARY_EOF
 
 AC_CONFIG_FILES([
   Makefile

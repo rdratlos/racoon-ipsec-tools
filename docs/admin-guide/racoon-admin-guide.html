@@ -792,10 +792,18 @@ sudo dnf install \
     <h3 id="build-ldap">3.4 LDAP Support</h3>
     <p>
       LDAP support, used for XAUTH authentication and per-user Mode Config address
-      assignment (<a href="#ldap-architecture">Section 6</a>), is enabled at compile
-      time with:
+      assignment (<a href="#ldap-architecture">Section 6</a>), is auto-detected at
+      compile time: a plain <code>./configure</code> enables it automatically when
+      OpenLDAP development headers (<code>libldap2-dev</code> on Debian/Ubuntu) are
+      present, no flag required.
     </p>
-    <pre><code>./configure --with-libldap</code></pre>
+    <pre><code>./configure</code></pre>
+    <p>
+      To force LDAP on (failing configure if the headers are missing) or point at a
+      non-standard install location, pass <code>--with-libldap</code> or
+      <code>--with-libldap=DIR</code> explicitly. To disable LDAP even when the
+      headers are present, pass <code>--with-libldap=no</code>.
+    </p>
 
     <h3 id="build-radius">3.5 RADIUS Support</h3>
     <p>
@@ -823,51 +831,52 @@ sudo dnf install \
 
     <h4 id="build-git-minimal">3.6.1 Minimal Build (development / Arch Linux)</h4>
     <p>
-      For development builds or distributions where kernel headers are
-      installed system-wide (e.g. Arch Linux), a minimal configure
-      invocation is sufficient:
+      <code>configure</code> uses a dependency-discovery model: core IPsec features
+      (Hybrid Auth, IKE fragmentation, NAT-T, DPD, Admin Port) are enabled by
+      default, shared libraries are built by default, and optional external
+      dependencies (GSSAPI, LDAP, PAM, Readline) are auto-detected from whatever
+      <code>-dev</code> packages are installed &mdash; no flags are required to
+      obtain a feature-complete build:
+    </p>
+    <pre><code>autoreconf -fi
+./configure
+make
+make check
+sudo make install</code></pre>
+    <p>
+      <code>./configure --help</code> lists every <code>--enable-*</code>/<code>--with-*</code>
+      flag and its default; see the flag reference table below for the ones you're
+      likely to want to override.
+    </p>
+
+    <h4 id="build-git-debian">3.6.2 Debian / Ubuntu Build</h4>
+    <p>
+      Kernel headers are auto-detected at <code>/usr/include</code> (populated by
+      the <code>linux-headers-generic</code> package) &mdash; no
+      <code>--with-kernel-headers</code> flag is needed on Debian or Ubuntu.
+      <code>debian/rules</code> passes two flags that diverge from the compiled-in
+      defaults for packaging-policy reasons, shown here for a from-source build:
     </p>
     <pre><code>autoreconf -fi
 ./configure \
-  --enable-hybrid \
-  --enable-frag \
-  --enable-natt \
-  --enable-dpd \
-  --enable-adminport \
-  --with-libldap \
-  --with-libpam \
   --without-readline \
   --disable-security-context
 make
 make check
 sudo make install</code></pre>
-
-    <h4 id="build-git-debian">3.6.2 Debian / Ubuntu Build</h4>
-    <div class="warn">
-      On Debian and Ubuntu, always pass <code>--with-kernel-headers=/usr/include</code>
-      explicitly. Omitting this flag causes configure to search
-      <code>/usr/src/linux/</code> which is typically absent on these distributions,
-      resulting in missing PF_KEY header errors during compilation
-      (<code>linux/pfkeyv2.h</code>, <code>linux/ipsec.h</code>). The
-      <code>linux-headers-generic</code> package installs these headers under
-      <code>/usr/include/linux/</code>, so <code>/usr/include</code> is the correct
-      search root.
-    </div>
-    <pre><code>autoreconf -fi
-./configure \
-  --enable-hybrid \
-  --enable-frag \
-  --enable-natt \
-  --enable-dpd \
-  --enable-adminport \
-  --with-libldap \
-  --with-libpam \
-  --without-readline \
-  --disable-security-context \
-  --with-kernel-headers=/usr/include
-make
-make check
-sudo make install</code></pre>
+    <p>
+      <code>--without-readline</code> avoids a GPL-3/BSD-3-Clause licensing
+      interaction (Debian policy since 2010; readline only affects
+      <code>setkey</code>'s interactive line editing, see
+      <a href="#build-git-hardened">3.6.3</a>'s flag table). <code>--disable-security-context</code>
+      makes explicit what auto-detection would otherwise decide implicitly: Security
+      Context support auto-enables only when <em>both</em> kernel PF_KEY
+      <code>SADB_X_EXT_SEC_CTX</code> support and <code>libselinux</code> are
+      detected, which is not the case on a standard Debian/Ubuntu install &mdash;
+      but passing the flag explicitly keeps the build reproducible even if
+      <code>libselinux1-dev</code> happens to be present as a transitive dependency
+      of something else in the build environment.
+    </p>
 
     <h4 id="build-git-hardened">3.6.3 Production Build with Compiler Hardening</h4>
     <div class="note">
@@ -885,16 +894,8 @@ CFLAGS="-g -O2 \
         -fcf-protection \
         -Wformat -Werror=format-security" \
 ./configure \
-  --enable-hybrid \
-  --enable-frag \
-  --enable-natt \
-  --enable-dpd \
-  --enable-adminport \
-  --with-libldap \
-  --with-libpam \
   --without-readline \
-  --disable-security-context \
-  --with-kernel-headers=/usr/include
+  --disable-security-context
 make
 make check
 sudo make install</code></pre>
@@ -902,17 +903,19 @@ sudo make install</code></pre>
     <table>
       <thead><tr><th>Flag</th><th>Description</th></tr></thead>
       <tbody>
-        <tr><td class="param-name">--enable-hybrid</td><td>Required for XAuth and Hybrid Auth (<a href="#phase1-auth">Section 5</a>)</td></tr>
-        <tr><td class="param-name">--enable-frag</td><td>IKE packet fragmentation (recommended)</td></tr>
-        <tr><td class="param-name">--enable-natt</td><td>NAT Traversal support (<a href="#nat-t">Section 2.6</a>)</td></tr>
-        <tr><td class="param-name">--enable-dpd</td><td>Dead Peer Detection (recommended)</td></tr>
-        <tr><td class="param-name">--enable-adminport</td><td><code>racoonctl</code> admin interface</td></tr>
-        <tr><td class="param-name">--with-libldap</td><td>LDAP authentication backend (<a href="#ldap-architecture">Section 6</a>)</td></tr>
-        <tr><td class="param-name">--with-libpam</td><td>PAM authentication support</td></tr>
-        <tr><td class="param-name">--without-readline</td><td>Avoid unnecessary readline dependency</td></tr>
-        <tr><td class="param-name">--disable-security-context</td><td>Disable LSM/SELinux context support (not needed on standard Linux)</td></tr>
-        <tr><td class="param-name">--with-kernel-headers=PATH</td><td>Kernel header search root; use <code>/usr/include</code> on Debian/Ubuntu and RHEL/Fedora</td></tr>
-        <tr><td class="param-name">--enable-gssapi</td><td>Optional: Kerberos/GSSAPI support</td></tr>
+        <tr><td class="param-name">--disable-hybrid</td><td>Disable XAuth / Hybrid Auth (<a href="#phase1-auth">Section 5</a>) &mdash; enabled by default</td></tr>
+        <tr><td class="param-name">--disable-frag</td><td>Disable IKE packet fragmentation &mdash; enabled by default</td></tr>
+        <tr><td class="param-name">--disable-natt</td><td>Disable NAT Traversal support (<a href="#nat-t">Section 2.6</a>) &mdash; enabled by default when kernel NAT-T support is detected</td></tr>
+        <tr><td class="param-name">--disable-dpd</td><td>Disable Dead Peer Detection &mdash; enabled by default</td></tr>
+        <tr><td class="param-name">--disable-adminport</td><td>Disable the <code>racoonctl</code> admin interface &mdash; enabled by default</td></tr>
+        <tr><td class="param-name">--disable-shared</td><td>Build only the static <code>libipsec.a</code>; shared <code>libipsec.so</code> is built by default</td></tr>
+        <tr><td class="param-name">--with-libldap[=DIR]</td><td>Force-enable the LDAP authentication backend (<a href="#ldap-architecture">Section 6</a>), or point at a non-standard install path; auto-detected by default when OpenLDAP headers are present</td></tr>
+        <tr><td class="param-name">--with-libpam[=DIR]</td><td>Force-enable PAM authentication, or point at a non-standard install path; auto-detected by default when PAM headers are present</td></tr>
+        <tr><td class="param-name">--enable-gssapi</td><td>Force-enable Kerberos/GSSAPI support; auto-detected by default via pkg-config (<code>krb5-gssapi.pc</code>) or <code>krb5-config</code></td></tr>
+        <tr><td class="param-name">--without-readline</td><td>Disable readline support in <code>setkey</code>'s interactive mode (GPL-3 licensing; recommended for Debian/Ubuntu packaging). Auto-detected and enabled by default otherwise</td></tr>
+        <tr><td class="param-name">--enable-security-context</td><td>Force-enable LSM/SELinux context support even without both kernel and <code>libselinux</code> detected (fails if either is actually missing); auto-detected by default</td></tr>
+        <tr><td class="param-name">--disable-security-context</td><td>Force-disable LSM/SELinux context support even if both kernel and <code>libselinux</code> are detected; recommended for reproducible builds on non-SELinux systems (<a href="#build-git-debian">3.6.2</a>)</td></tr>
+        <tr><td class="param-name">--with-kernel-headers=PATH</td><td>DEPRECATED: override the kernel header search root (auto-detected at <code>/usr/include</code> by default); prints a deprecation warning</td></tr>
       </tbody>
     </table>
 
@@ -1788,9 +1791,9 @@ HDR*, HASH(3)                                →</code></pre>
       racoon supports two mutually exclusive XAUTH authentication backends,
       selected at compile time (<a href="#build-ldap">Section 3.4</a> /
       <a href="#build-radius">3.5</a>) and at runtime via the <code>auth_source</code>
-      directive in racoon.conf. Native LDAP, compiled in via
-      <code>--with-libldap</code>, is the actively supported and recommended
-      authentication backend for this continuation project.
+      directive in racoon.conf. Native LDAP, auto-detected at configure time (or
+      forced on with <code>--with-libldap</code>), is the actively supported and
+      recommended authentication backend for this continuation project.
     </p>
     <p>
       racoon's native LDAP support goes beyond simple credential checking: the

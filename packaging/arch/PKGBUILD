@@ -7,7 +7,7 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/rdratlos/racoon-ipsec-tools"
 license=('BSD-3-Clause')
 depends=('openssl' 'libldap' 'linux-headers' 'pam' 'krb5')
-makedepends=('autoconf' 'automake' 'libtool' 'flex' 'bison')
+makedepends=('autoconf' 'automake' 'libtool' 'flex' 'bison' 'pkgconf')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/rdratlos/racoon-ipsec-tools/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 
