@@ -96,19 +96,7 @@ jobs:
               --prefix=/usr \
               --sysconfdir=/etc/racoon \
               --libdir=/usr/lib/ipsec-tools \
-              --localstatedir=/var/run \
-              --enable-shared \
-              --disable-static \
-              --enable-frag \
-              --enable-gssapi \
-              --enable-hybrid \
-              --with-libldap \
-              --enable-dpd \
-              --enable-adminport \
-              --with-libpam \
-              --without-readline \
-              --disable-security-context \
-              --enable-natt
+              --localstatedir=/var/run
 
             # ------------------------------------------------------------------
             # Build
