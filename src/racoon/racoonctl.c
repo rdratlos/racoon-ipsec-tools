@@ -758,6 +758,21 @@ f_logoutusr(ac, av)
 
 	return buf;
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * Test-only accessor. f_logoutusr() is static; this thin wrapper is
+ * compiled in only when this source is built with -DENABLE_UNITTEST
+ * (see the test_racoonctl_logoutusr target in test/Makefile.am), so
+ * the ADMIN_LOGOUT_USER request-buffer sizing (issue #68) can be
+ * regression-tested without changing the production API.
+ */
+vchar_t *
+f_logoutusr_unittest(int ac, char **av)
+{
+	return f_logoutusr(ac, av);
+}
+#endif /* ENABLE_UNITTEST */
 #endif /* ENABLE_HYBRID */
 
 static vchar_t *

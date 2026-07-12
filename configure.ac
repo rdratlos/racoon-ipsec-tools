@@ -482,6 +482,9 @@ AS_IF([test "x$enable_hybrid" = "xyes"], [
 	AC_SUBST(HYBRID_OBJS)
 	AC_DEFINE([ENABLE_HYBRID], [], [Hybrid authentication support])
 ])
+dnl Automake conditional so the racoonctl f_logoutusr() unit test (#68) is
+dnl built only when f_logoutusr() itself is part of the build.
+AM_CONDITIONAL([ENABLE_HYBRID], [test "x$enable_hybrid" = "xyes"])
 
 RACOON_ARG_ENABLE([frag],
     [  --enable-frag           enable IKE fragmentation payload support @<:@default=yes@:>@], [yes])
