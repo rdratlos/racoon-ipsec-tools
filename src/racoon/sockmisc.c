@@ -673,14 +673,13 @@ newsaddr(len)
 		goto out;
 	}
 
-#ifdef __linux__
-	if (len == sizeof (struct sockaddr_in6))
+if (len == sizeof (struct sockaddr_in6))
 		new->sa_family = AF_INET6;
 	else
 		new->sa_family = AF_INET;
-#else
-	/* initial */
-	new->sa_len = len;
+
+#if !defined(__linux__)
+	new->sa_len = (u_char)len;
 #endif
 out:
 	return new;

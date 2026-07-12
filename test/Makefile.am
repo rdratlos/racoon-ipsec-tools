@@ -62,6 +62,10 @@ COMMON_LDADD = \
 	-lcrypto
 
 # Test programs
+#
+# test_ipsec_doi_sa and test_algorithm are added conditionally further
+# down, alongside test_vendorid_bounds/test_nattraversal_natd: see the
+# "SANITIZER_BUILD" comment above test_ipsec_doi_sa's rules below.
 check_PROGRAMS = \
 	test_dh_modp_groups \
 	test_dh_buffer_overflow \
@@ -74,13 +78,12 @@ check_PROGRAMS = \
 	test_sockmisc \
 	test_genlist \
 	test_eay_rsa \
-	test_ipsec_doi_sa \
 	test_x509_cert \
 	test_misc \
+	test_strlcpy \
 	test_strnames \
 	test_rsalist \
-	test_plog \
-	test_algorithm
+	test_plog
 
 # Test 1: DH MODP Groups
 test_dh_modp_groups_SOURCES  = test_dh_modp_groups.c
@@ -177,6 +180,26 @@ test_eay_rsa_LDFLAGS  = $(AM_LDFLAGS)
 # some automake versions (e.g. Ubuntu Bionic's 1.15.1) fail to track
 # per-object dependency files for subdir-objects sources that live
 # outside the current top-level directory.
+#
+# Excluded from sanitizer builds (SANITIZER_BUILD, set by configure.ac from
+# --enable-sanitizers or autodetected -fsanitize= in CC/CFLAGS/LDFLAGS):
+# AddressSanitizer instruments every static/global variable so it can poison
+# redzones around it, which takes that variable's address and so keeps it
+# (and anything it references) reachable -- defeating the dead-code
+# elimination this target, test_vendorid_bounds, test_nattraversal_natd, and
+# test_algorithm all rely on to avoid linking each source file's full
+# dependency closure.  Concretely: ipsec_doi.c's check_attr_isakmp() et al.
+# are unreachable from t2isakmpsa() and are normally discarded by
+# --gc-sections, but ASan's global registration keeps the check_attributes[]
+# function-pointer table (and thus check_attr_isakmp() et al.) alive, which
+# then needs algorithm.c's alg_oakley_*_ok() -- never linked here -- causing
+# an undefined-reference link failure.  These targets' memory-safety
+# coverage is already provided by 'make check-valgrind'; the one accepted
+# gap is UBSan-only checks (signed overflow, misaligned access, etc.) that
+# valgrind's memcheck does not perform.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_ipsec_doi_sa
+
 test_ipsec_doi_sa_SOURCES  = test_ipsec_doi_sa.c ipsec_doi_test_stubs.c \
 	ipsec_doi_unittest_src.c
 test_ipsec_doi_sa_CPPFLAGS = $(AM_CPPFLAGS) \
@@ -192,6 +215,7 @@ test_ipsec_doi_sa_LDADD    = \
 	$(top_builddir)/src/racoon/strnames.o \
 	$(top_builddir)/src/racoon/misc.o
 test_ipsec_doi_sa_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
 
 # Test 13: X.509 certificate functions (ISSUE #52)
 #
@@ -223,7 +247,11 @@ test_x509_cert_LDFLAGS  = $(AM_LDFLAGS)
 # vendorid.c and isakmp_frag.c are pulled in via local wrapper sources
 # (see the comment on test_ipsec_doi_sa_SOURCES above) so their .Po
 # dependency files stay under test/.deps/.
+#
+# Also excluded from sanitizer builds, same reason as test_ipsec_doi_sa
+# above (relies on --gc-sections dead-code elimination that ASan defeats).
 if ENABLE_FRAG
+if !SANITIZER_BUILD
 check_PROGRAMS += test_vendorid_bounds
 
 test_vendorid_bounds_SOURCES  = test_vendorid_bounds.c \
@@ -238,11 +266,70 @@ test_vendorid_bounds_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
 test_vendorid_bounds_LDADD    = $(COMMON_LDADD)
 test_vendorid_bounds_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
+endif
+
+# Test: racoonctl f_logoutusr() request-buffer sizing (#68) — a 1-byte heap
+# overflow in the ADMIN_LOGOUT_USER request buffer: make_request() allocated
+# exactly `userlen` payload bytes but the pre-fix code copied `userlen + 1`
+# (username + NUL) into it. Built only with --enable-hybrid, since
+# f_logoutusr() lives in racoonctl.c behind #ifdef ENABLE_HYBRID.
+# ENABLE_HYBRID comes from config.h, so it is not passed on the command
+# line (which would redefine it).
+#
+# racoonctl.c is pulled in via a local wrapper source (see the comment on
+# test_ipsec_doi_sa_SOURCES above) so its .Po dependency file stays under
+# test/.deps/; unlike the other wrapped sources, racoonctl.c defines its
+# own main(), so the wrapper renames it out of the way first.
+#
+# Also excluded from sanitizer builds, same reason as test_ipsec_doi_sa
+# above (relies on --gc-sections dead-code elimination that ASan defeats).
+if ENABLE_HYBRID
+if !SANITIZER_BUILD
+check_PROGRAMS += test_racoonctl_logoutusr
+
+test_racoonctl_logoutusr_SOURCES  = test_racoonctl_logoutusr.c \
+	racoonctl_unittest_src.c \
+	racoonctl_unittest_stubs.c
+test_racoonctl_logoutusr_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_racoonctl_logoutusr_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+# f_logoutusr()/make_request()'s own logic only needs vmalloc()/vfree()
+# (vmbuf.o), strlcpy() (header-only), and errx() (libc) -- deliberately
+# NOT $(COMMON_LDADD): racoonctl.c defines its own global `char *pname`
+# (a tentative definition of the single `extern char *pname` declared
+# in plog.h), which collides at link time with plog.c's own `pname` if
+# plog.o is pulled in directly on the link line (as COMMON_LDADD does
+# for the crypto-heavy tests). The real racoonctl binary avoids this
+# because it links plog.o only via libracoon.la's archive, pulled in
+# on demand; nothing f_logoutusr() needs actually demands it.
+#
+# vmbuf.o itself is reused pre-built from src/racoon/ (not compiled
+# with -ffunction-sections there), so --gc-sections cannot cherry-pick
+# vmalloc()/vfree() out of it in isolation -- the whole object comes in
+# as a unit, including vdup()'s plog(LLV_ERROR, LOCATION, ...) call
+# (never reached from f_logoutusr()'s call graph, but still needs to
+# resolve at link time). misc_noplog.o supplies the real
+# debug_location() LOCATION expands to; racoonctl_unittest_stubs.c
+# supplies bare-minimum stand-ins for loglevel/_plog() so plog.o itself
+# is never linked.
+test_racoonctl_logoutusr_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_racoonctl_logoutusr_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+endif
 
 # Test 14: misc (close_on_exec, timedelta)
 test_misc_SOURCES  = test_misc.c
 test_misc_LDADD    = $(COMMON_LDADD)
 test_misc_LDFLAGS  = $(AM_LDFLAGS) -lm
+
+# Test 14b: strlcpy/strlcat fallbacks (src/racoon/missing/)
+test_strlcpy_SOURCES  = test_strlcpy.c
+test_strlcpy_LDADD    =
+test_strlcpy_LDFLAGS  = $(AM_LDFLAGS)
 
 # Test 15: strnames (all s_* string/value lookup functions)
 test_strnames_SOURCES  = test_strnames.c
@@ -293,7 +380,11 @@ test_plog_LDFLAGS  = $(AM_LDFLAGS)
 # nattraversal.c and oakley.c are pulled in via local wrapper sources (see
 # the comment on test_ipsec_doi_sa_SOURCES above) so their .Po dependency
 # files stay under test/.deps/.
+#
+# Also excluded from sanitizer builds, same reason as test_ipsec_doi_sa
+# above (relies on --gc-sections dead-code elimination that ASan defeats).
 if ENABLE_NATT
+if !SANITIZER_BUILD
 check_PROGRAMS += test_nattraversal_natd
 
 test_nattraversal_natd_SOURCES  = test_nattraversal_natd.c \
@@ -309,6 +400,7 @@ test_nattraversal_natd_LDADD    = $(COMMON_LDADD) \
 	$(top_builddir)/src/racoon/algorithm.o \
 	$(top_builddir)/src/racoon/sockmisc.o
 test_nattraversal_natd_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
 endif
 
 # Test 19: algorithm.c DOI<->algorithm dispatch tables (issue #34 follow-up).
@@ -326,7 +418,12 @@ endif
 #
 # Unlike test_nattraversal_natd, algorithm.c has no feature-flag
 # dependency, so this test always builds and always contributes to
-# coverage regardless of --enable-natt/--enable-frag.
+# coverage regardless of --enable-natt/--enable-frag -- except in
+# sanitizer builds, excluded for the same --gc-sections-vs-ASan reason as
+# test_ipsec_doi_sa above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_algorithm
+
 test_algorithm_SOURCES  = test_algorithm.c \
 	oakley_unittest_src.c
 test_algorithm_CPPFLAGS = $(AM_CPPFLAGS) \
@@ -337,6 +434,7 @@ test_algorithm_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
 test_algorithm_LDADD    = $(COMMON_LDADD) \
 	$(top_builddir)/src/racoon/algorithm.o
 test_algorithm_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
 
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.

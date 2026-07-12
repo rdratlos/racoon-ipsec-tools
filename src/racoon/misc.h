@@ -34,6 +34,9 @@
 #ifndef _MISC_H
 #define _MISC_H
 
+#include <string.h>
+#include <sys/param.h>
+
 #define BIT2STR(b) bit2str(b, sizeof(b)<<3)
 
 #ifdef HAVE_FUNC_MACRO
@@ -60,13 +63,8 @@ extern void close_on_exec __P((int fd));
     TAILQ_FOREACH_REVERSE(var, head, headname, field)
 #endif
 
-#ifndef HAVE_STRLCPY
-#define strlcpy(d,s,l) (strncpy(d,s,l), (d)[(l)-1] = '\0')
-#endif
-
-#ifndef HAVE_STRLCAT
-#define strlcat(d,s,l) strncat(d,s,(l)-strlen(d)-1)
-#endif
+#include "missing/strlcpy.h"
+#include "missing/strlcat.h"
 
 #define STRDUP_FATAL(x) if (x == NULL) {			\
 	plog(LLV_ERROR, LOCATION, NULL, "strdup failed\n");	\

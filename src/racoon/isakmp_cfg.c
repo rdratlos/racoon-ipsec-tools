@@ -1716,10 +1716,10 @@ isakmp_cfg_accounting_system(port, raddr, usr, inout)
 	switch (inout) {
 	case ISAKMP_CFG_LOGIN:
 		ut.ut_type = USER_PROCESS;
-		strncpy(ut.ut_user, usr, sizeof ut.ut_user);
+		strlcpy(ut.ut_user, usr, sizeof ut.ut_user);
 
 		GETNAMEINFO_NULL(raddr, addr);
-		strncpy(ut.ut_host, addr, sizeof ut.ut_host);
+		strlcpy(ut.ut_host, addr, sizeof ut.ut_host);
 
 		plog(LLV_INFO, LOCATION, NULL,
 			"Accounting : '%s' logging on '%s' from %s.\n",
@@ -2055,9 +2055,9 @@ isakmp_cfg_setenv(iph1, envp, envc)
 
 	/* Deault domain */
 	if(iph1->mode_cfg->flags & ISAKMP_CFG_GOT_DEFAULT_DOMAIN) 
-		strncpy(defdom, 
+		strlcpy(defdom, 
 		    iph1->mode_cfg->default_domain, 
-		    MAXPATHLEN + 1);
+		    sizeof(defdom));
 	else
 		defdom[0] = '\0';
 	

@@ -4,7 +4,7 @@
 
 sbin_PROGRAMS = setkey
 
-AM_CFLAGS = -I${top_srcdir}/src/libipsec @GLIBC_BUGS@
+AM_CFLAGS = -I${top_srcdir}/src/libipsec -I${top_srcdir}/src/racoon/missing @GLIBC_BUGS@
 AM_YFLAGS = -d
 
 BUILT_SOURCES = parse.h

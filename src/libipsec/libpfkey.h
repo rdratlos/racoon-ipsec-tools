@@ -62,9 +62,12 @@ struct sadb_alg;
 
 #ifndef HAVE_IPSEC_POLICY_T
 typedef caddr_t ipsec_policy_t;
-#define __ipsec_const
-#else
+#endif
+
+#if defined(HAVE_IPSEC_POLICY_T) || defined(HAVE_IPSEC_CONST_STRARG)
 #define __ipsec_const const
+#else
+#define __ipsec_const
 #endif
 
 struct pfkey_send_sa_args {

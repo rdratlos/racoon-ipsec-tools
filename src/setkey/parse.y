@@ -119,19 +119,23 @@ static int setkeymsg_add(unsigned int, unsigned int,
 
 %token EOT SLASH BLCL ELCL
 %token ADD UPDATE GET GETSPI DELETE DELETEALL FLUSH DUMP EXIT
-%token <num> PR_ESP <num> PR_AH <num> PR_IPCOMP <num> PR_ESPUDP <num> PR_TCP
+%token <num> PR_ESP PR_AH PR_IPCOMP PR_ESPUDP PR_TCP
 %token F_PROTOCOL F_AUTH F_ENC F_REPLAY F_COMP F_RAWCPI
-%token F_MODE <num> MODE F_REQID
-%token F_EXT <num> EXTENSION NOCYCLICSEQ
-%token <num> ALG_AUTH <num> ALG_AUTH_NOKEY
-%token <num> ALG_ENC <num> ALG_ENC_NOKEY <num> ALG_ENC_DESDERIV <num> ALG_ENC_DES32IV <num> ALG_ENC_OLD
+%token F_MODE
+%token <num> MODE F_REQID
+%token F_EXT
+%token <num> EXTENSION NOCYCLICSEQ
+%token <num> ALG_AUTH ALG_AUTH_NOKEY
+%token <num> ALG_ENC ALG_ENC_NOKEY ALG_ENC_DESDERIV ALG_ENC_DES32IV ALG_ENC_OLD
 %token <num> ALG_COMP
 %token F_LIFETIME_HARD F_LIFETIME_SOFT
 %token F_LIFEBYTE_HARD F_LIFEBYTE_SOFT
-%token <ulnum> DECSTRING <val> QUOTEDSTRING <val> HEXSTRING <val> STRING ANY
+%token <ulnum> DECSTRING
+%token <val> QUOTEDSTRING HEXSTRING STRING ANY
 	/* SPD management */
 %token SPDADD SPDUPDATE SPDDELETE SPDDUMP SPDFLUSH
-%token F_POLICY <val> PL_REQUESTS
+%token F_POLICY
+%token <val> PL_REQUESTS
 %token <val> F_AIFLAGS
 %token TAGGED
 %token SECURITY_CTX

@@ -10,6 +10,9 @@
  *
  * File: test/test_misc.c
  * Coverage: src/racoon/misc.c
+ *
+ * strlcpy()/strlcat() coverage lives in test/test_strlcpy.c, alongside
+ * the shared fallback implementations in src/racoon/missing/.
  */
 
 #include <stdio.h>
@@ -19,6 +22,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <math.h>
+#include <sys/param.h>
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"

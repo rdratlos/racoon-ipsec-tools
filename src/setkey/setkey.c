@@ -101,7 +101,7 @@
 #include "package_version.h"
 #include "extern.h"
 
-#define strlcpy(d,s,l) (strncpy(d,s,l), (d)[(l)-1] = '\0')
+#include "strlcpy.h"
 
 static int get_supported(void);
 static void sendkeyshort(u_int);

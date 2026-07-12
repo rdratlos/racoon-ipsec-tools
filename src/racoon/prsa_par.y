@@ -181,12 +181,15 @@ prsawrap()
 	struct netaddr *naddr;
 }
 
-%token COLON <bn> HEX
+%token COLON
+%token <bn> HEX
 %token OBRACE EBRACE
 %token TAG_RSA TAG_PUB TAG_PSK
-%token MODULUS PUBLIC_EXPONENT PRIVATE_EXPONENT 
+%token MODULUS PUBLIC_EXPONENT PRIVATE_EXPONENT
 %token PRIME1 PRIME2 EXPONENT1 EXPONENT2 COEFFICIENT
-%token <chr> ADDR4 <chr> ADDR6 ADDRANY SLASH <num> NUMBER <chr> BASE64
+%token <chr> ADDR4 ADDR6 ADDRANY SLASH
+%token <num> NUMBER
+%token <chr> BASE64
 
 %type <rsa>	rsa_statement
 %type <num>	prefix

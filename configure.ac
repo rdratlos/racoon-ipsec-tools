@@ -97,10 +97,13 @@ AC_CHECK_HEADERS(netinet6/ipsec.h, [], [], [])
 AC_CHECK_HEADERS(netipsec/ipsec.h, [], [], [])
 
 # Use pkg-config style variable detection via AC_CHECK_HEADER replacement
-AS_IF([test -n "$ac_cv_header_net_pfkeyv2_h"], [have_net_pfkey=yes], [have_net_pfkey=no])
-AS_IF([test -n "$ac_cv_header_netinet_ipsec_h"], [have_netinet_ipsec=yes], [have_netinet_ipsec=no])
-AS_IF([test -n "$ac_cv_header_netinet6_ipsec_h"], [have_netinet6_ipsec=yes], [have_netinet6_ipsec=no])
-AS_IF([test -n "$ac_cv_header_netipsec_ipsec_h"], [have_netipsec_ipsec=yes], [have_netipsec_ipsec=no])
+# NOTE: ac_cv_header_*_h is always set to the literal string "yes" or "no" by
+# AC_CHECK_HEADERS, so both values are non-empty. `test -n` would therefore be
+# true in either case; compare against "yes" explicitly.
+AS_IF([test "$ac_cv_header_net_pfkeyv2_h" = yes], [have_net_pfkey=yes], [have_net_pfkey=no])
+AS_IF([test "$ac_cv_header_netinet_ipsec_h" = yes], [have_netinet_ipsec=yes], [have_netinet_ipsec=no])
+AS_IF([test "$ac_cv_header_netinet6_ipsec_h" = yes], [have_netinet6_ipsec=yes], [have_netinet6_ipsec=no])
+AS_IF([test "$ac_cv_header_netipsec_ipsec_h" = yes], [have_netipsec_ipsec=yes], [have_netipsec_ipsec=no])
 
 # FreeBSD >=7 has only <netipsec/ipsec.h>
 # NetBSD has <netinet6/ipsec.h> but not <netinet/ipsec.h>
@@ -479,6 +482,9 @@ AS_IF([test "x$enable_hybrid" = "xyes"], [
 	AC_SUBST(HYBRID_OBJS)
 	AC_DEFINE([ENABLE_HYBRID], [], [Hybrid authentication support])
 ])
+dnl Automake conditional so the racoonctl f_logoutusr() unit test (#68) is
+dnl built only when f_logoutusr() itself is part of the build.
+AM_CONDITIONAL([ENABLE_HYBRID], [test "x$enable_hybrid" = "xyes"])
 
 RACOON_ARG_ENABLE([frag],
     [  --enable-frag           enable IKE fragmentation payload support @<:@default=yes@:>@], [yes])
@@ -957,6 +963,33 @@ AC_CHECK_TYPE([ipsec_policy_t],
 		#include <netinet6/ipsec.h>
 	      ])
 
+# NetBSD's <netipsec/ipsec.h> dropped the ipsec_policy_t abstraction and
+# declares the userland policy helpers (ipsec_set_policy, ipsec_dump_policy)
+# with const-qualified string arguments, e.g.
+#   char *ipsec_dump_policy(char *, const char *);
+# libpfkey.h's fallback declarations (used whenever ipsec_policy_t itself
+# isn't provided) default to non-const arguments, which conflicts with that
+# prototype and fails the build with -Werror. Detect this so libpfkey.h can
+# match. Scoped to the netipsec/ipsec.h header path (NetBSD/FreeBSD) only;
+# other platforms (notably Linux) are unaffected.
+AS_IF([test "$have_netipsec_ipsec" = yes], [
+    AC_MSG_CHECKING([whether netipsec/ipsec.h uses const string arguments])
+    saved_CFLAGS=$CFLAGS
+    CFLAGS="$CFLAGS -Wall -Werror"
+    AC_COMPILE_IFELSE([AC_LANG_PROGRAM([
+		#include <sys/types.h>
+		#include <sys/param.h>
+		#include <sys/socket.h>
+		#include <netipsec/ipsec.h>
+		char *ipsec_dump_policy(char *, const char *);
+	      ], [])],
+	[AC_DEFINE([HAVE_IPSEC_CONST_STRARG], [],
+		    [ipsec policy helpers take const string arguments])
+	 AC_MSG_RESULT(yes)],
+	[AC_MSG_RESULT(no)])
+    CFLAGS=$saved_CFLAGS
+])
+
 # Check if kernel support is available for Security Context, defaults to no.
 kernel_secctx="no"
 
@@ -1035,6 +1068,48 @@ AC_MSG_RESULT([$warn_deprecated])
 AS_IF([test "x$warn_deprecated" = "xyes"],
   [AC_DEFINE([RACOON_WARN_DEPRECATED], [1],
     [Define to surface OpenSSL 3.x deprecation warnings during development])])
+
+# A handful of test/ unit test targets (test_ipsec_doi_sa,
+# test_vendorid_bounds, test_nattraversal_natd, test_algorithm) unit-test
+# one function out of an otherwise huge source file by compiling with
+# -ffunction-sections/-fdata-sections and linking with --gc-sections, which
+# discards everything not actually reachable from the function under test.
+# AddressSanitizer instruments every static/global variable so it can
+# poison redzones around it, which takes that variable's address and so
+# keeps it (and anything it references) reachable -- defeating that
+# dead-code elimination and pulling in undefined references to code these
+# targets never intended to link (see test/Makefile.am for the concrete
+# example). Rather than rewire those targets to satisfy both valgrind and
+# sanitizer builds at once, exclude them from sanitizer builds: their
+# memory-safety coverage is already provided by 'make check-valgrind'.
+#
+# --enable-sanitizers/--disable-sanitizers force the answer; by default
+# (auto) we autodetect -fsanitize= in CC/CFLAGS/LDFLAGS, since that is how
+# sanitizer flags typically arrive (e.g. pkgsrc's MKSANITIZER on NetBSD),
+# not necessarily via a flag this project defines itself.
+AC_ARG_ENABLE([sanitizers],
+  [AS_HELP_STRING([--enable-sanitizers],
+    [assume a sanitizer (ASan/UBSan/etc.) build even if none is autodetected in CC/CFLAGS/LDFLAGS (default: autodetect)])],
+  [sanitizer_build=$enableval],
+  [sanitizer_build=auto])
+
+AS_IF([test "x$sanitizer_build" = "xauto"], [
+  AC_MSG_CHECKING([whether a sanitizer build is in effect])
+  case " $CC $CFLAGS $LDFLAGS " in
+    *" -fsanitize="*) sanitizer_build=yes ;;
+    *)                sanitizer_build=no ;;
+  esac
+  AC_MSG_RESULT([$sanitizer_build])
+], [
+  AC_MSG_CHECKING([if --enable-sanitizers option is specified])
+  AC_MSG_RESULT([$sanitizer_build])
+])
+
+AM_CONDITIONAL([SANITIZER_BUILD], [test "x$sanitizer_build" = "xyes"])
+
+AS_IF([test "x$sanitizer_build" = "xyes"], [
+  AC_MSG_NOTICE([sanitizer build: excluding test_ipsec_doi_sa, test_vendorid_bounds, test_nattraversal_natd, and test_algorithm from 'make check' (see test/Makefile.am); their memory-safety coverage is provided by 'make check-valgrind' instead. UBSan-only checks (signed overflow, misaligned access, etc.) are not covered by valgrind and are the one gap accepted here.])
+])
 
 # Probe GCC diagnostic format capabilities at configure time.
 # Try in order: sarif-file (GCC 13+), json-file (GCC 12+), json (GCC 10+).

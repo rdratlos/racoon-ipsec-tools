@@ -43,6 +43,9 @@ static void make_inet4(struct sockaddr_in *sin, const char *ip, uint16_t port)
     sin->sin_family = AF_INET;
     sin->sin_port = htons(port);
     inet_pton(AF_INET, ip, &sin->sin_addr);
+#if defined(__NetBSD__) || defined(__FreeBSD__)
+    sin->sin_len = sizeof(*sin);
+#endif
 }
 
 /* Helper: build IPv6 sockaddr */
@@ -52,6 +55,9 @@ static void make_inet6(struct sockaddr_in6 *sin6, const char *ip, uint16_t port)
     sin6->sin6_family = AF_INET6;
     sin6->sin6_port = htons(port);
     inet_pton(AF_INET6, ip, &sin6->sin6_addr);
+#if defined(__NetBSD__) || defined(__FreeBSD__)
+    sin6->sin6_len = sizeof(*sin6);
+#endif
 }
 
 /* --- cmpsaddr tests --- */

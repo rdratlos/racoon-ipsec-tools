@@ -267,8 +267,7 @@ xauth_attr_reply(iph1, attr, id)
 		plog(LLV_DEBUG, LOCATION, NULL, 
 		    "Got username \"%s\", password \"%s\"\n", usr, pwd);
 #endif
-		strncpy(iph1->mode_cfg->login, usr, LOGINLEN);
-		iph1->mode_cfg->login[LOGINLEN] = '\0';
+		strlcpy(iph1->mode_cfg->login, usr, sizeof(iph1->mode_cfg->login));
 
 		res = -1;
 		if ((port = isakmp_cfg_getport(iph1)) == -1) {

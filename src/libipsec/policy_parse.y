@@ -398,11 +398,11 @@ parse_sockaddr(addrbuf, portbuf)
 		return NULL;
 	}
 
-	strncpy(addr, addrbuf->buf, addrbuf->len);
+	memcpy(addr, addrbuf->buf, addrbuf->len);
 	addr[addrbuf->len] = '\0';
 
 	if (portbuf) {
-		strncpy(serv, portbuf->buf, portbuf->len);
+		memcpy(serv, portbuf->buf, portbuf->len);
 		serv[portbuf->len] = '\0';
 	}
 
