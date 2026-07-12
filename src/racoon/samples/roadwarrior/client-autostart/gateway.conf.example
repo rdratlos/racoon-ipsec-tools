@@ -1,0 +1,38 @@
+# Example of the file resolve-gateway.sh generates as /etc/racoon/gateway.conf.
+# Not meant to be installed as-is -- it is regenerated automatically the
+# first time resolve-gateway.sh runs. Kept here only so a fresh install
+# has *something* to fall back on if the very first boot happens without
+# connectivity (see README.md, "First boot without a network").
+#
+# Replace 203.0.113.1 with the gateway's currently known IP before
+# copying this file to /etc/racoon/gateway.conf for that bootstrap case.
+
+remote 203.0.113.1
+{
+    exchange_mode           main;
+    my_identifier            asn1dn;
+    peers_identifier         asn1dn;
+    verify_identifier        on;
+
+    certificate_type         x509 "client.crt" "client.key";
+    ca_type                  x509 "ca.crt";
+
+    passive                  off;   # this side always initiates
+    ike_frag                 on;
+    nat_traversal             on;
+    dpd_delay                20;
+    dpd_retry                 5;
+    dpd_maxfail                3;
+    proposal_check            claim;
+    lifetime                  time 8 hours;
+
+    script "/etc/racoon/phase1-up.sh"   phase1_up;
+    script "/etc/racoon/phase1-down.sh" phase1_down;
+
+    proposal {
+        encryption_algorithm   aes 256;
+        hash_algorithm         sha256;
+        authentication_method  rsasig;
+        dh_group                14;
+    }
+}

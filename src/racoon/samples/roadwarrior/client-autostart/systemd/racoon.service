@@ -1,0 +1,21 @@
+[Unit]
+Description=racoon IKE daemon (roadwarrior client, on-demand)
+Documentation=man:racoon(8) man:racoon.conf(5)
+Wants=racoon-gw-resolve.service
+After=racoon-gw-resolve.service
+# Deliberately NOT "After=network-online.target"/"Requires=...": racoon
+# only binds sockets at start, it does not need connectivity to do
+# that. Starting it unconditionally at boot means the SPD trap
+# policies (loaded by racoon-gw-resolve.service) are in place even
+# before WLAN comes up, so the very first SSSD/autofs packet after
+# connectivity returns can trigger the tunnel.
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/racoon -F -f /etc/racoon/racoon.conf
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
