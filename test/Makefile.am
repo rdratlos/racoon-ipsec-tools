@@ -268,6 +268,59 @@ test_vendorid_bounds_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 endif
 
+# Test: racoonctl f_logoutusr() request-buffer sizing (#68) — a 1-byte heap
+# overflow in the ADMIN_LOGOUT_USER request buffer: make_request() allocated
+# exactly `userlen` payload bytes but the pre-fix code copied `userlen + 1`
+# (username + NUL) into it. Built only with --enable-hybrid, since
+# f_logoutusr() lives in racoonctl.c behind #ifdef ENABLE_HYBRID.
+# ENABLE_HYBRID comes from config.h, so it is not passed on the command
+# line (which would redefine it).
+#
+# racoonctl.c is pulled in via a local wrapper source (see the comment on
+# test_ipsec_doi_sa_SOURCES above) so its .Po dependency file stays under
+# test/.deps/; unlike the other wrapped sources, racoonctl.c defines its
+# own main(), so the wrapper renames it out of the way first.
+#
+# Also excluded from sanitizer builds, same reason as test_ipsec_doi_sa
+# above (relies on --gc-sections dead-code elimination that ASan defeats).
+if ENABLE_HYBRID
+if !SANITIZER_BUILD
+check_PROGRAMS += test_racoonctl_logoutusr
+
+test_racoonctl_logoutusr_SOURCES  = test_racoonctl_logoutusr.c \
+	racoonctl_unittest_src.c \
+	racoonctl_unittest_stubs.c
+test_racoonctl_logoutusr_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_racoonctl_logoutusr_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+# f_logoutusr()/make_request()'s own logic only needs vmalloc()/vfree()
+# (vmbuf.o), strlcpy() (header-only), and errx() (libc) -- deliberately
+# NOT $(COMMON_LDADD): racoonctl.c defines its own global `char *pname`
+# (a tentative definition of the single `extern char *pname` declared
+# in plog.h), which collides at link time with plog.c's own `pname` if
+# plog.o is pulled in directly on the link line (as COMMON_LDADD does
+# for the crypto-heavy tests). The real racoonctl binary avoids this
+# because it links plog.o only via libracoon.la's archive, pulled in
+# on demand; nothing f_logoutusr() needs actually demands it.
+#
+# vmbuf.o itself is reused pre-built from src/racoon/ (not compiled
+# with -ffunction-sections there), so --gc-sections cannot cherry-pick
+# vmalloc()/vfree() out of it in isolation -- the whole object comes in
+# as a unit, including vdup()'s plog(LLV_ERROR, LOCATION, ...) call
+# (never reached from f_logoutusr()'s call graph, but still needs to
+# resolve at link time). misc_noplog.o supplies the real
+# debug_location() LOCATION expands to; racoonctl_unittest_stubs.c
+# supplies bare-minimum stand-ins for loglevel/_plog() so plog.o itself
+# is never linked.
+test_racoonctl_logoutusr_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_racoonctl_logoutusr_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+endif
+
 # Test 14: misc (close_on_exec, timedelta)
 test_misc_SOURCES  = test_misc.c
 test_misc_LDADD    = $(COMMON_LDADD)
