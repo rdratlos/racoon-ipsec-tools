@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodically re-check the racoon VPN gateway's Dynamic DNS address
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

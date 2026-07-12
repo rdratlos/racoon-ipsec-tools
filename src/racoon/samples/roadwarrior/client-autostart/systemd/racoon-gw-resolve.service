@@ -1,0 +1,12 @@
+[Unit]
+Description=Resolve racoon VPN gateway (Dynamic DNS) and refresh SPD trap policies
+Before=racoon.service
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/etc/racoon/resolve-gateway.sh
+
+[Install]
+WantedBy=multi-user.target

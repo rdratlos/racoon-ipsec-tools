@@ -1,0 +1,19 @@
+#!/bin/sh
+#
+# NetworkManager dispatcher hook: /etc/NetworkManager/dispatcher.d/90-racoon-vpn
+# Must be owned by root, mode 0755.
+#
+# As soon as an interface comes up or gets a new DHCP lease (e.g. WLAN
+# reconnects), re-resolve the racoon VPN gateway and refresh the SPD
+# trap policies with the current local address -- without this, the
+# trap policies installed at boot would still carry the *old*
+# WLAN/DHCP address and Phase 1 negotiation would fail after roaming.
+
+IFACE="$1"
+ACTION="$2"
+
+case "$ACTION" in
+    up|dhcp4-change|dhcp6-change)
+        systemctl --no-block start racoon-gw-resolve.service
+        ;;
+esac
