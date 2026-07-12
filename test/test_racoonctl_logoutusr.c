@@ -6,25 +6,32 @@
  */
 
 /*
- * Regression test for issue #68: f_logoutusr() (racoonctl.c) built its
- * ADMIN_LOGOUT_USER request buffer with make_request(..., userlen) --
- * exactly `userlen` payload bytes past the struct admin_com header --
- * then copied `userlen + 1` bytes into it (the username plus its NUL
- * terminator), a 1-byte heap buffer overflow that fired on every
- * non-empty invocation.
+ * Regression test for issues #68 and #71, both in f_logoutusr()'s
+ * (racoonctl.c) construction of the ADMIN_LOGOUT_USER request buffer:
  *
- * Fixed by switching the copy to
- *   strlcpy(buf->v + sizeof(struct admin_com), user,
- *           buf->l - sizeof(struct admin_com))
- * which binds the copy to the buffer's actual allocated capacity.
+ *   #68  make_request(..., userlen) allocated exactly `userlen` payload
+ *        bytes past the struct admin_com header, but the copy wrote
+ *        `userlen + 1` bytes (username + NUL) into it -- a 1-byte heap
+ *        buffer overflow on every non-empty invocation.
+ *
+ *   #71  The #68 fix switched the copy to
+ *          strlcpy(buf->v + sizeof(struct admin_com), user,
+ *                  buf->l - sizeof(struct admin_com))
+ *        which stopped the overflow but, since make_request()'s sizing
+ *        was left unchanged (still exactly `userlen`) and strlcpy()'s
+ *        size argument counts the NUL, silently truncated the last
+ *        character of every username instead. Fixed by requesting
+ *        `userlen + 1` bytes from make_request(), giving strlcpy() the
+ *        byte it needs without leaving the buffer undersized.
  *
  * Each username buffer below is allocated to the exact size make_request()
- * would produce, so a 1-byte overflow is an invalid heap write under
- * valgrind (the repo's `make check-valgrind`) regardless of what happens
- * to sit in the adjacent heap chunk. The correctness assertions (the
- * daemon-bound username must round-trip unchanged) additionally catch a
- * plain `make check` regression if a future change to either
- * make_request()'s sizing or this copy reintroduces truncation.
+ * should produce, so a reintroduced #68-style overflow is an invalid heap
+ * write under valgrind (the repo's `make check-valgrind`) regardless of
+ * what happens to sit in the adjacent heap chunk. The correctness
+ * assertions (the daemon-bound username must round-trip unchanged) catch
+ * a reintroduced #71-style truncation under a plain `make check`, since
+ * that regression is valgrind-clean (it never reads or writes out of
+ * bounds -- it just uses fewer of the in-bounds bytes than it should).
  *
  * f_logoutusr() is static; f_logoutusr_unittest() is a thin -DENABLE_UNITTEST
  * wrapper in racoonctl.c. racoonctl.c is pulled in via a local wrapper
@@ -58,20 +65,18 @@ extern vchar_t *f_logoutusr_unittest(int ac, char **av);
  * Drives f_logoutusr_unittest() with a single username argument and
  * checks:
  *   1. the returned buffer is exactly sizeof(struct admin_com) + strlen(user)
- *      bytes -- the same size make_request() itself would produce, so this
+ *      + 1 bytes -- the +1 is the NUL terminator strlcpy() needs (#71); this
  *      also pins down the size assertion against a future make_request()
  *      change;
  *   2. the payload written past the header round-trips the full username,
- *      not a truncated prefix;
+ *      not a truncated prefix (#71);
  *   3. the payload is NUL-terminated within the allocated buffer.
  *
  * A pre-#68-fix build overflows the vmalloc'd buffer by one byte while
- * copying (invalid write under valgrind, though the in-bounds bytes
- * happen to still hold the full username since strncpy's bound was
- * userlen+1). A build that "fixes" the overflow by shrinking the strlcpy
- * bound to fit the undersized buffer without also enlarging the buffer
- * itself stays memory-safe but truncates the last character of the
- * username -- caught here by the round-trip check, not by valgrind.
+ * copying (invalid write under valgrind, caught by check 1 mismatching
+ * expect_len against the pre-#71 sizing regardless). A build with #68's
+ * fix but not #71's stays memory-safe but truncates the last character of
+ * the username -- caught by check 2, not by valgrind.
  */
 static int
 check_logoutusr(const char *user)
@@ -80,7 +85,7 @@ check_logoutusr(const char *user)
 	char *av[1];
 	vchar_t *buf;
 	size_t userlen = strlen(user);
-	size_t expect_len = sizeof(struct admin_com) + userlen;
+	size_t expect_len = sizeof(struct admin_com) + userlen + 1;
 	char *payload;
 
 	snprintf(label, sizeof(label), "logout-user \"%s\" (len %zu)", user, userlen);
@@ -125,7 +130,7 @@ main(void)
 	char maxlen_user[32]; /* LOGINLEN (31) + NUL, see isakmp_cfg.h */
 	size_t i;
 
-	printf("\n=== racoonctl f_logoutusr() request-buffer test (issue #68) ===\n");
+	printf("\n=== racoonctl f_logoutusr() request-buffer test (issues #68, #71) ===\n");
 
 	if (check_logoutusr("x") != 0)		/* 1 char: smallest realistic case */
 		failed++;

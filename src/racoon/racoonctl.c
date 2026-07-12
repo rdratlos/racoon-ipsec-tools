@@ -750,7 +750,13 @@ f_logoutusr(ac, av)
 	if ((user == NULL) || (userlen > LOGINLEN))
 		errx(1, "bad login (too long?)");
 
-	buf = make_request(ADMIN_LOGOUT_USER, 0, userlen);
+	/*
+	 * +1 for the NUL terminator strlcpy() below needs: buf->l is
+	 * sizeof(admin_com) + this length, and strlcpy()'s size argument
+	 * counts the NUL, so requesting exactly userlen here would leave
+	 * only userlen-1 bytes for the username itself (#71).
+	 */
+	buf = make_request(ADMIN_LOGOUT_USER, 0, userlen + 1);
 	if (buf == NULL)
 		return NULL;
 
