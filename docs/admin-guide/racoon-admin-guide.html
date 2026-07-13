@@ -1478,7 +1478,7 @@ HDR*, HASH(3)                                →</code></pre>
     <span class="kw">lifetime</span>                     <span class="val">time</span> 3600 <span class="val">seconds</span>;
     <span class="kw">encryption_algorithm</span>         <span class="val">aes 256</span>, <span class="val">aes 128</span>, <span class="val">3des</span>;
     <span class="kw">authentication_algorithm</span>     <span class="val">hmac_sha1</span>;
-    <span class="kw">compression_algorithm</span>        <span class="val">none</span>;
+    <span class="kw">compression_algorithm</span>        <span class="val">deflate</span>;
 }
 
 <span class="comment"># XAuth group-restricted: only vpn-admin users may access 10.1.3.x</span>
@@ -1488,6 +1488,7 @@ HDR*, HASH(3)                                →</code></pre>
     <span class="kw">lifetime</span>                     <span class="val">time</span> 3600 <span class="val">seconds</span>;
     <span class="kw">encryption_algorithm</span>         <span class="val">aes 256</span>;
     <span class="kw">authentication_algorithm</span>     <span class="val">hmac_sha1</span>;
+    <span class="kw">compression_algorithm</span>        <span class="val">deflate</span>;
 }</code></pre>
 
     <h3>sainfo Parameters</h3>
@@ -1516,8 +1517,8 @@ HDR*, HASH(3)                                →</code></pre>
         </tr>
         <tr>
           <td class="param-name">compression_algorithm</td>
-          <td><code>deflate</code>, <code>none</code></td>
-          <td>IP Payload Compression (RFC 3173). Rarely beneficial with encrypted data.</td>
+          <td><code>deflate</code>, <code>lzs</code></td>
+          <td>IP Payload Compression (RFC 3173). Mandatory in every <code>sainfo</code> block &mdash; racoon rejects the block at parse time if it is missing. There is no <code>none</code>/off value; <code>deflate</code> is the common choice and is rarely beneficial with already-encrypted data.</td>
         </tr>
         <tr>
           <td class="param-name">remoteid number;</td>

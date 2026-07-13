@@ -179,6 +179,15 @@ isakmp`, and `journalctl -u racoon -u racoon-gw-resolve`. Phase 1/2
 failures are also logged by `phase1-up.sh`/`phase1-down.sh` via
 `logger` (visible in `journalctl -t racoon-phase1-up`).
 
+### racoon.conf fails to parse: "compression_algorithm none" rejected
+
+`sainfo`'s `compression_algorithm` (RFC 3173 IP Payload Compression) is
+mandatory in every `sainfo` block, and its only valid values are
+`deflate` and `lzs` -- there is no `none`/off value (a previous
+revision of `docs/admin-guide/racoon-admin-guide.html` incorrectly
+listed `none` as valid; fixed there too). This sample uses `deflate`
+throughout.
+
 ### SPD looks correct, but nothing ever negotiates ("send error")
 
 Symptom: `setkey -DP` shows the three `require` trap policies, but no
