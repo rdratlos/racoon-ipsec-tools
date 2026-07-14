@@ -83,7 +83,9 @@ check_PROGRAMS = \
 	test_strlcpy \
 	test_strnames \
 	test_rsalist \
-	test_plog
+	test_plog \
+	test_grabmyaddr_netlink \
+	test_script_hook_leak
 
 # Test 1: DH MODP Groups
 test_dh_modp_groups_SOURCES  = test_dh_modp_groups.c
@@ -435,6 +437,76 @@ test_algorithm_LDADD    = $(COMMON_LDADD) \
 	$(top_builddir)/src/racoon/algorithm.o
 test_algorithm_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
+
+# Test 20: grabmyaddr.c Linux netlink route-attribute parsing (issue #73) —
+# netlink_process_route() computed the RTM_NEWROUTE/RTM_DELROUTE attribute
+# payload length with IFA_PAYLOAD(h) (sized for struct ifaddrmsg, 8 bytes)
+# instead of RTM_PAYLOAD(h) (sized for struct rtmsg, 12 bytes), so
+# parse_rtattr() walked 4 bytes past the real attribute data.
+#
+# netlink_parse_route_attrs() is static in grabmyaddr.c, so grabmyaddr.c is
+# compiled here with -DENABLE_UNITTEST to expose the thin wrapper
+# netlink_parse_route_attrs_unittest() (see the ENABLE_UNITTEST block next
+# to netlink_process_route() in grabmyaddr.c), the same technique as
+# test_ipsec_doi_sa's t2isakmpsa_unittest(). Built with
+# -ffunction-sections/--gc-sections so the rest of grabmyaddr.c's address
+# bookkeeping (which the two functions under test never call) is discarded
+# rather than needing to be stubbed or linked.
+#
+# Linux-only (USE_NETLINK in grabmyaddr.c is gated on __linux__), which
+# matches this fork's target platform.
+test_grabmyaddr_netlink_SOURCES  = test_grabmyaddr_netlink.c \
+	grabmyaddr_unittest_src.c
+test_grabmyaddr_netlink_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_grabmyaddr_netlink_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_grabmyaddr_netlink_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/misc_noplog.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/sockmisc.o
+test_grabmyaddr_netlink_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections -lresolv
+
+# Test 21: isakmp.c script_hook() REMOTE_ID leak (issue #72) —
+# ipsecdoi_id2str()'s racoon_malloc()'d return value was passed straight
+# into script_env_append() without ever being captured/freed.
+#
+# script_hook() and script_env_append() are non-static, so no
+# -DENABLE_UNITTEST wrapper is needed for visibility; isakmp.c is still
+# compiled locally here (isakmp_unittest_src.c) with
+# -ffunction-sections/--gc-sections, the same isolation technique used
+# above, so its large ISAKMP-state-machine dependency closure is discarded
+# down to just what script_hook()'s REMOTE_ID path calls.
+# isakmp_script_hook_test_stubs.c substitutes test doubles for
+# ipsecdoi_id2str(), privsep_script_exec() and isakmp_cfg_setenv() (the
+# last only reachable under --enable-hybrid, this project's default) --
+# see that file's header comment. script_names[] is also stubbed there:
+# script_hook()'s failed-exec error path references it by name even though
+# the stubbed privsep_script_exec() never takes that branch.
+#
+# -Wl,--wrap=free lets test_script_hook_leak.c's __wrap_free() observe
+# every free() this binary makes, so the leak is detected deterministically
+# under a plain `make check`, without depending on valgrind -- confirmed
+# additionally live with `make check-valgrind`, the method that originally
+# caught this bug.
+test_script_hook_leak_SOURCES  = test_script_hook_leak.c \
+	isakmp_unittest_src.c \
+	isakmp_script_hook_test_stubs.c
+test_script_hook_leak_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_script_hook_leak_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_script_hook_leak_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/misc_noplog.o \
+	$(top_builddir)/src/racoon/vmbuf.o
+test_script_hook_leak_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
+	-Wl,--wrap=free
 
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
