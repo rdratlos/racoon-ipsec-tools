@@ -8,6 +8,7 @@ url="https://github.com/rdratlos/racoon-ipsec-tools"
 license=('BSD-3-Clause')
 depends=('openssl' 'libldap' 'linux-headers' 'pam' 'krb5')
 makedepends=('autoconf' 'automake' 'libtool' 'flex' 'bison')
+options=(debug)
 install=ipsec-tools.install
 backup=('etc/racoon/racoon.conf'
         'etc/racoon/psk.txt'
@@ -62,8 +63,8 @@ package() {
   rm -rf "$pkgdir/var/run"
 
   # config, ported from debian/ - see PACKAGING_NOTES.md
-  install -dm755 "$pkgdir/etc/racoon/certs" \
-                 "$pkgdir/etc/racoon/scripts" \
+  install -dm700 "$pkgdir/etc/racoon/certs"
+  install -dm755 "$pkgdir/etc/racoon/scripts" \
                  "$pkgdir/etc/ipsec-tools.d"
   install -Dm644 debian/racoon.conf "$pkgdir/etc/racoon/racoon.conf"
   install -Dm600 src/racoon/samples/psk.txt.sample "$pkgdir/etc/racoon/psk.txt"
