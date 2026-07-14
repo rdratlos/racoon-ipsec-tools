@@ -16,7 +16,8 @@ logger -t racoon-phase1-up \
 
 STATE_FILE="/var/lib/racoon/gw-resolve.state"
 EXPECTED="${REMOTE_ADDR:-}/${LOCAL_ADDR:-}"
-ACTUAL=$(cat "$STATE_FILE" 2>/dev/null || true)
+# state file is "gateway/local/iface" -- compare only the address part
+ACTUAL=$(cut -d/ -f1,2 "$STATE_FILE" 2>/dev/null || true)
 
 if [ -n "${LOCAL_ADDR:-}" ] && [ "$EXPECTED" != "$ACTUAL" ]; then
     logger -t racoon-phase1-up \

@@ -57,19 +57,40 @@ if [ -z "${GATEWAY_IP:-}" ]; then
     exit 0
 fi
 
-LOCAL_IP=$(ip -4 route get "$GATEWAY_IP" 2>/dev/null \
-    | awk '{for (i = 1; i <= NF; i++) if ($i == "src") print $(i + 1)}')
-if [ -z "${LOCAL_IP:-}" ]; then
+ROUTE_INFO=$(ip -4 route get "$GATEWAY_IP" 2>/dev/null)
+LOCAL_IP=$(echo "$ROUTE_INFO" | awk '{for (i = 1; i <= NF; i++) if ($i == "src") print $(i + 1)}')
+IFACE=$(echo "$ROUTE_INFO" | awk '{for (i = 1; i <= NF; i++) if ($i == "dev") print $(i + 1)}')
+if [ -z "${LOCAL_IP:-}" ] || [ -z "${IFACE:-}" ]; then
     log "no route to $GATEWAY_IP yet, keeping last known config"
     exit 0
 fi
 
-NEW_STATE="${GATEWAY_IP}/${LOCAL_IP}"
+NEW_STATE="${GATEWAY_IP}/${LOCAL_IP}/${IFACE}"
 OLD_STATE=$(cat "$STATE_FILE" 2>/dev/null || true)
 ADDR_CHANGED=1
 [ "$NEW_STATE" = "$OLD_STATE" ] && ADDR_CHANGED=0
 
-# --- SPD trap policies: always reinstalled, unconditionally ---------
+# --- routes + SPD trap policies: always reinstalled, unconditionally
+#
+# Without an explicit route to each protected network via $IFACE,
+# strict reverse-path filtering (net.ipv4.conf.*.rp_filter=1, common
+# distro default) drops decrypted inbound packets as a "martian
+# source": the kernel can find no route that would send a reply back
+# to e.g. 10.66.0.6 out the interface it arrived on, so it silently
+# discards the packet *after* successful IPsec decapsulation -- ESP
+# byte counters in "setkey -D"/"ip -s xfrm state" increase normally,
+# XfrmIn* counters in /proc/net/xfrm_stat stay at 0 (decapsulation
+# itself is fine), but the packet never reaches the socket. Confirm
+# with "sysctl -w net.ipv4.conf.all.log_martians=1" and watch
+# "journalctl -k" for "martian source" while pinging.
+#
+# "ip route replace" (not "add") so re-running this after the
+# interface name changed (a different WLAN adapter, roaming) cleanly
+# updates rather than erroring out on a duplicate route.
+for net in $NETWORKS; do
+    ip route replace "$net" dev "$IFACE"
+done
+
 umask 077
 {
     echo "#!/usr/sbin/setkey -f"
@@ -83,7 +104,7 @@ umask 077
 mv "$SPD_CONF.new" "$SPD_CONF"
 
 setkey -f "$SPD_CONF"
-log "gateway=$GATEWAY_IP local=$LOCAL_IP -- SPD trap policies (re)installed"
+log "gateway=$GATEWAY_IP local=$LOCAL_IP dev=$IFACE -- routes + SPD trap policies (re)installed"
 
 if [ "$ADDR_CHANGED" -eq 0 ]; then
     exit 0   # address unchanged -- no need to touch racoon/Phase 1

@@ -45,18 +45,22 @@ be written into the config once and forgotten.
 `resolve-gateway.sh` is the bridge:
 
 1. resolves `nepomuc.selfhost.eu` to its current IP,
-2. asks the kernel routing table for the local source address that
-   would be used to reach it (`ip route get`),
-3. regenerates `/etc/racoon/spd.conf` (the three `require` trap
-   policies) with the current literals and reloads it via `setkey -f`
-   -- **unconditionally, on every run**. This is deliberately
+2. asks the kernel routing table for the local source address *and*
+   outbound interface that would be used to reach it (`ip route get`),
+3. installs an explicit route to each of the three protected networks
+   via that interface (`ip route replace <net> dev <iface>`) and
+   regenerates `/etc/racoon/spd.conf` (the three `require` trap
+   policies) with the current literals, reloading it via `setkey -f`
+   -- **unconditionally, on every run**. Both steps are deliberately
    self-healing: if anything external flushed the SPD in between (a
    racoon restart, a manual `setkey -F` while debugging, a crash), the
    kernel would otherwise silently sit there with an *empty* SPD --
    `setkey -DP`/`ip xfrm policy` would show none of the three networks,
    racoon would have a perfectly good SA but nothing would ever route
    traffic into it, and no script would notice because the
-   gateway/local address hadn't changed,
+   gateway/local address hadn't changed. The explicit routes matter for
+   a second, unrelated reason -- see "Phase 2 works, ESP counters
+   increase, but no reply ever reaches the application" below,
 4. only if the gateway's or the local address actually *changed* since
    the last run, additionally regenerates `/etc/racoon/gateway.conf`
    (the `remote { ... }` block), reloads racoon, and asks it to start
@@ -265,3 +269,45 @@ unconditional-SPD-reinstall behaviour described above exists to
 prevent -- make sure you're running the current version of this
 script, not an older copy that skipped `setkey -f` when the
 gateway/local address hadn't changed.
+
+### ESP counters increase both ways, but a reply never reaches the application
+
+Symptom: `setkey -D`/`ip -s xfrm state` show `state=mature` SAs in
+*both* directions with growing, non-zero byte counters -- the tunnel
+is genuinely up and passing traffic -- and the ICMP echo reply from a
+protected host is even visible in Wireshark/tcpdump, yet `ping` itself
+never prints a reply and hangs/times out. `/proc/net/xfrm_stat` is
+clean (`XfrmInError` and friends stay at 0): IPsec decapsulation itself
+succeeded, so this is not an SPD/SA problem.
+
+This is Linux's **strict reverse-path filtering**
+(`net.ipv4.conf.*.rp_filter`, `1` on many distro defaults) rejecting
+the decapsulated packet *after* IPsec processing but *before* socket
+delivery: with no explicit route to the protected network (e.g.
+`10.66.0.0/24`) via the interface the ESP packet arrived/was decrypted
+on, the kernel cannot verify that a reply to that source address would
+symmetrically leave via the same interface, treats it as a spoofed
+("martian") source, and silently drops it. This never shows up in the
+XFRM counters because it happens one layer up, in generic IPv4 input
+processing.
+
+Confirm:
+```sh
+sysctl -w net.ipv4.conf.all.log_martians=1
+journalctl -k -f          # watch for "IPv4: martian source ..." while pinging
+```
+
+Fix: an explicit route to each protected network via the interface
+used to reach the gateway satisfies the symmetric-routing check
+without weakening `rp_filter` globally:
+```sh
+ip route replace 192.168.66.0/24 dev <iface>
+ip route replace 192.168.83.0/24 dev <iface>
+ip route replace 10.66.0.0/24    dev <iface>
+```
+`resolve-gateway.sh` does exactly this now (`ip route replace <net>
+dev "$IFACE"`, alongside the SPD trap policies, unconditionally on
+every run so it survives interface changes across WLAN roaming too).
+If you're running an older copy of the script that predates this,
+update it -- adding the routes by hand works as an immediate
+workaround but won't survive the next roam/reboot.
