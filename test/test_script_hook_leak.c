@@ -117,6 +117,14 @@ make_ph1handle_with_script(void)
 	return iph1;
 }
 
+static void
+free_ph1handle_with_script(struct ph1handle *iph1)
+{
+	vfree(iph1->rmconf->script[SCRIPT_PHASE1_UP]);
+	racoon_free(iph1->rmconf);
+	racoon_free(iph1);
+}
+
 static int failures = 0;
 
 #define CHECK(cond, msg) \
@@ -148,7 +156,9 @@ test_leak_normal_id(void)
 	    "the configured phase1_up script is invoked");
 	CHECK(id2str_result_freed,
 	    "the REMOTE_ID string returned by ipsecdoi_id2str() must be freed "
-	    "by script_hook() (fails today -- issue #72)");
+	    "by script_hook() (regression test for issue #72)");
+
+	free_ph1handle_with_script(iph1);
 }
 
 static void
@@ -171,6 +181,7 @@ test_null_id2str_result_does_not_crash(void)
 		struct ph1handle *iph1 = make_ph1handle_with_script();
 		test_stub_id2str_return_null = 1;
 		script_hook(iph1, SCRIPT_PHASE1_UP);
+		free_ph1handle_with_script(iph1);
 		_exit(0);
 	}
 
@@ -184,7 +195,7 @@ test_null_id2str_result_does_not_crash(void)
 		    "FAIL: script_hook() must not crash when ipsecdoi_id2str() "
 		    "returns NULL (its documented OOM path) -- child killed by "
 		    "signal %d (script_env_append()'s strlen(NULL) is undefined "
-		    "behaviour -- discovered while testing issue #72) (%s:%d)\n",
+		    "behaviour -- issue #72) (%s:%d)\n",
 		    WTERMSIG(status), __FILE__, __LINE__);
 		failures++;
 	} else if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {

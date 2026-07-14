@@ -107,7 +107,7 @@ test_sentinel_attr_not_parsed(void)
 	CHECK(rta[RTA_DST] != NULL, "RTA_DST is parsed from the real attribute data");
 	CHECK(rta[SENTINEL_RTA_TYPE] == NULL,
 	    "the 4-byte trap past nlmsg_len must NOT be parsed as a real attribute "
-	    "(fails today: IFA_PAYLOAD(h) over-counts by 4 bytes, RTM_PAYLOAD(h) would not)");
+	    "(regression test for issue #73: IFA_PAYLOAD(h) over-counted by 4 bytes)");
 }
 
 static void

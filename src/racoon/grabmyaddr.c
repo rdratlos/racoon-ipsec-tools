@@ -494,7 +494,7 @@ static void
 netlink_parse_route_attrs(struct nlmsghdr *h, struct rtmsg *rtm,
     struct rtattr *rta[RTA_MAX+1])
 {
-	parse_rtattr(rta, IFA_MAX, RTM_RTA(rtm), IFA_PAYLOAD(h));
+	parse_rtattr(rta, RTA_MAX, RTM_RTA(rtm), RTM_PAYLOAD(h));
 }
 
 #ifdef ENABLE_UNITTEST
