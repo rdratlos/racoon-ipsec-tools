@@ -47,12 +47,22 @@ be written into the config once and forgotten.
 1. resolves `nepomuc.selfhost.eu` to its current IP,
 2. asks the kernel routing table for the local source address that
    would be used to reach it (`ip route get`),
-3. if either value changed since the last run, regenerates
-   `/etc/racoon/gateway.conf` (the `remote { ... }` block) and
-   `/etc/racoon/spd.conf` (the three `require` trap policies) with the
-   current literals, reloads racoon, and asks it to start Phase 1
-   immediately (best effort -- see below),
-4. otherwise does nothing, so a live tunnel is never disturbed.
+3. regenerates `/etc/racoon/spd.conf` (the three `require` trap
+   policies) with the current literals and reloads it via `setkey -f`
+   -- **unconditionally, on every run**. This is deliberately
+   self-healing: if anything external flushed the SPD in between (a
+   racoon restart, a manual `setkey -F` while debugging, a crash), the
+   kernel would otherwise silently sit there with an *empty* SPD --
+   `setkey -DP`/`ip xfrm policy` would show none of the three networks,
+   racoon would have a perfectly good SA but nothing would ever route
+   traffic into it, and no script would notice because the
+   gateway/local address hadn't changed,
+4. only if the gateway's or the local address actually *changed* since
+   the last run, additionally regenerates `/etc/racoon/gateway.conf`
+   (the `remote { ... }` block), reloads racoon, and asks it to start
+   Phase 1 immediately (best effort -- see below). This part *is*
+   skipped when nothing changed, so a live tunnel's Phase 1 isn't
+   bounced every time the timer merely re-confirms the same addresses.
 
 It is run:
 
@@ -178,3 +188,80 @@ See `docs/admin-guide/racoon-admin-guide.html`, section 9
 isakmp`, and `journalctl -u racoon -u racoon-gw-resolve`. Phase 1/2
 failures are also logged by `phase1-up.sh`/`phase1-down.sh` via
 `logger` (visible in `journalctl -t racoon-phase1-up`).
+
+### racoon.conf fails to parse: "compression_algorithm none" rejected
+
+`sainfo`'s `compression_algorithm` (RFC 3173 IP Payload Compression) is
+mandatory in every `sainfo` block, and its only valid values are
+`deflate` and `lzs` -- there is no `none`/off value (a previous
+revision of `docs/admin-guide/racoon-admin-guide.html` incorrectly
+listed `none` as valid; fixed there too). This sample uses `deflate`
+throughout.
+
+### SPD looks correct, but nothing ever negotiates ("send error")
+
+Symptom: `setkey -DP` shows the three `require` trap policies, but no
+traffic (ping, autofs mount, SSSD lookup) triggers a negotiation, and a
+manual `racoonctl es isakmp inet <local-ip> <gateway-ip>` (or
+`racoonctl vc <gateway-ip>`) immediately logs:
+
+```
+ERROR: phase1 negotiation failed due to send error. <cookie>:0000000000000000
+```
+
+This means racoon *is* being triggered (by the kernel ACQUIRE or by
+racoonctl) but fails at the very first step, before sending a single
+packet on the wire. Root cause: an explicit `listen { isakmp 0.0.0.0
+[500]; isakmp_natt 0.0.0.0 [4500]; }` block (as shown in the admin
+guide's generic NAT-T example) binds racoon to the *literal* address
+`0.0.0.0` rather than to the machine's real addresses. racoon looks up
+which socket to send from by an exact address comparison
+(`grabmyaddr.c: myaddr_getfd()` -> `sockmisc.c: cmpsaddr()`, a plain
+`memcmp` with no 0.0.0.0 wildcard special-case) against the specific
+local address it negotiated with -- `0.0.0.0` never equals a real
+interface address, so the lookup fails every single time and every
+negotiation dies immediately.
+
+Fix: remove the `listen { ... }` block entirely (see the comment in
+`racoon.conf` in this directory). With no `listen` directive, racoon
+enumerates the machine's real addresses itself and opens both an
+isakmp and an isakmp_natt socket bound to each one -- and keeps that
+list live across WLAN/DHCP roaming via a netlink route-change
+subscription, no script required. If you deliberately need to restrict
+racoon to specific interfaces, use their concrete addresses (not
+`0.0.0.0`) in the `listen` block, and be aware that address then has
+to be kept in sync manually the same way `gateway.conf`/`spd.conf` are.
+
+### Phase 1/2 succeed, but no traffic reaches the internal networks
+
+Symptom: `racoonctl show-sa isakmp`/`ip xfrm state` show an established
+SA, but pings/SSSD/autofs toward the protected networks time out, and
+there are no leftover VPN-specific routes to blame (`ip route show
+table all` / `ip rule show` are clean -- worth checking regardless if
+migrating from another VPN client such as WireGuard, since a leftover
+`wg-quick` policy-routing table/rule for the same networks would
+black-hole traffic before it ever reaches the IPsec layer).
+
+Don't stop at `setkey -DP`/`setkey -D` -- they only show what racoon
+itself thinks it configured. Check what the *kernel* actually holds:
+
+```sh
+ip -s xfrm policy   # SPD, with packet/byte counters
+ip -s xfrm state    # SAD, with packet/byte counters
+cat /proc/net/xfrm_stat   # XfrmOutPolError, XfrmOutNoStates, ...
+```
+
+If `ip xfrm policy` shows only entries like `socket ... action allow`
+(src/dst `0.0.0.0/0`, `ptype main`) and none of the three `require`
+tunnel policies for `192.168.66.0/24`/`192.168.83.0/24`/`10.66.0.0/24`,
+the SPD trap policies were never installed or got flushed later --
+the `socket` entries are unrelated, harmless bypass policies racoon
+installs for its own IKE sockets (port 500/4500 must not be
+IPsec-protected themselves) and always exist independently of
+`spd.conf`. Re-run `/etc/racoon/resolve-gateway.sh` by hand and check
+its exit status and `journalctl -t racoon-gw-resolve`, then re-check
+`ip -s xfrm policy`. This is exactly the failure mode the
+unconditional-SPD-reinstall behaviour described above exists to
+prevent -- make sure you're running the current version of this
+script, not an older copy that skipped `setkey -f` when the
+gateway/local address hadn't changed.
