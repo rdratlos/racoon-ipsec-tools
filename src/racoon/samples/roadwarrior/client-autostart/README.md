@@ -47,12 +47,22 @@ be written into the config once and forgotten.
 1. resolves `nepomuc.selfhost.eu` to its current IP,
 2. asks the kernel routing table for the local source address that
    would be used to reach it (`ip route get`),
-3. if either value changed since the last run, regenerates
-   `/etc/racoon/gateway.conf` (the `remote { ... }` block) and
-   `/etc/racoon/spd.conf` (the three `require` trap policies) with the
-   current literals, reloads racoon, and asks it to start Phase 1
-   immediately (best effort -- see below),
-4. otherwise does nothing, so a live tunnel is never disturbed.
+3. regenerates `/etc/racoon/spd.conf` (the three `require` trap
+   policies) with the current literals and reloads it via `setkey -f`
+   -- **unconditionally, on every run**. This is deliberately
+   self-healing: if anything external flushed the SPD in between (a
+   racoon restart, a manual `setkey -F` while debugging, a crash), the
+   kernel would otherwise silently sit there with an *empty* SPD --
+   `setkey -DP`/`ip xfrm policy` would show none of the three networks,
+   racoon would have a perfectly good SA but nothing would ever route
+   traffic into it, and no script would notice because the
+   gateway/local address hadn't changed,
+4. only if the gateway's or the local address actually *changed* since
+   the last run, additionally regenerates `/etc/racoon/gateway.conf`
+   (the `remote { ... }` block), reloads racoon, and asks it to start
+   Phase 1 immediately (best effort -- see below). This part *is*
+   skipped when nothing changed, so a live tunnel's Phase 1 isn't
+   bounced every time the timer merely re-confirms the same addresses.
 
 It is run:
 
@@ -221,3 +231,37 @@ subscription, no script required. If you deliberately need to restrict
 racoon to specific interfaces, use their concrete addresses (not
 `0.0.0.0`) in the `listen` block, and be aware that address then has
 to be kept in sync manually the same way `gateway.conf`/`spd.conf` are.
+
+### Phase 1/2 succeed, but no traffic reaches the internal networks
+
+Symptom: `racoonctl show-sa isakmp`/`ip xfrm state` show an established
+SA, but pings/SSSD/autofs toward the protected networks time out, and
+there are no leftover VPN-specific routes to blame (`ip route show
+table all` / `ip rule show` are clean -- worth checking regardless if
+migrating from another VPN client such as WireGuard, since a leftover
+`wg-quick` policy-routing table/rule for the same networks would
+black-hole traffic before it ever reaches the IPsec layer).
+
+Don't stop at `setkey -DP`/`setkey -D` -- they only show what racoon
+itself thinks it configured. Check what the *kernel* actually holds:
+
+```sh
+ip -s xfrm policy   # SPD, with packet/byte counters
+ip -s xfrm state    # SAD, with packet/byte counters
+cat /proc/net/xfrm_stat   # XfrmOutPolError, XfrmOutNoStates, ...
+```
+
+If `ip xfrm policy` shows only entries like `socket ... action allow`
+(src/dst `0.0.0.0/0`, `ptype main`) and none of the three `require`
+tunnel policies for `192.168.66.0/24`/`192.168.83.0/24`/`10.66.0.0/24`,
+the SPD trap policies were never installed or got flushed later --
+the `socket` entries are unrelated, harmless bypass policies racoon
+installs for its own IKE sockets (port 500/4500 must not be
+IPsec-protected themselves) and always exist independently of
+`spd.conf`. Re-run `/etc/racoon/resolve-gateway.sh` by hand and check
+its exit status and `journalctl -t racoon-gw-resolve`, then re-check
+`ip -s xfrm policy`. This is exactly the failure mode the
+unconditional-SPD-reinstall behaviour described above exists to
+prevent -- make sure you're running the current version of this
+script, not an older copy that skipped `setkey -f` when the
+gateway/local address hadn't changed.
