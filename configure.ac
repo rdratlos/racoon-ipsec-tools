@@ -1119,7 +1119,7 @@ AS_IF([test "x$sanitizer_build" = "xauto"], [
 AM_CONDITIONAL([SANITIZER_BUILD], [test "x$sanitizer_build" = "xyes"])
 
 AS_IF([test "x$sanitizer_build" = "xyes"], [
-  AC_MSG_NOTICE([sanitizer build: excluding test_ipsec_doi_sa, test_vendorid_bounds, test_nattraversal_natd, and test_algorithm from 'make check' (see test/Makefile.am); their memory-safety coverage is provided by 'make check-valgrind' instead. UBSan-only checks (signed overflow, misaligned access, etc.) are not covered by valgrind and are the one gap accepted here.])
+  AC_MSG_NOTICE([sanitizer build: excluding test_ipsec_doi_sa, test_vendorid_bounds, test_nattraversal_natd, test_algorithm, and test_script_hook_leak from 'make check' (see test/Makefile.am); their memory-safety coverage is provided by 'make check-valgrind' instead. UBSan-only checks (signed overflow, misaligned access, etc.) are not covered by valgrind and are the one gap accepted here.])
 ])
 
 # Probe GCC diagnostic format capabilities at configure time.

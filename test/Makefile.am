@@ -64,8 +64,9 @@ COMMON_LDADD = \
 # Test programs
 #
 # test_ipsec_doi_sa and test_algorithm are added conditionally further
-# down, alongside test_vendorid_bounds/test_nattraversal_natd: see the
-# "SANITIZER_BUILD" comment above test_ipsec_doi_sa's rules below.
+# down, alongside test_vendorid_bounds/test_nattraversal_natd/
+# test_script_hook_leak: see the "SANITIZER_BUILD" comment above
+# test_ipsec_doi_sa's rules below.
 check_PROGRAMS = \
 	test_dh_modp_groups \
 	test_dh_buffer_overflow \
@@ -83,8 +84,7 @@ check_PROGRAMS = \
 	test_strlcpy \
 	test_strnames \
 	test_rsalist \
-	test_plog \
-	test_script_hook_leak
+	test_plog
 
 # Test 1: DH MODP Groups
 test_dh_modp_groups_SOURCES  = test_dh_modp_groups.c
@@ -500,6 +500,19 @@ endif
 # under a plain `make check`, without depending on valgrind -- confirmed
 # additionally live with `make check-valgrind`, the method that originally
 # caught this bug.
+#
+# Also excluded from sanitizer builds, same reason as test_ipsec_doi_sa
+# above (relies on --gc-sections dead-code elimination that ASan defeats):
+# isakmp.c's static ph1exchange[]/ph2exchange[] state-machine dispatch
+# tables reference quick_*/ident_*/agg_*/base_* handlers from
+# isakmp_quick.c/isakmp_ident.c/isakmp_agg.c/isakmp_base.c (never linked
+# here) that script_hook() itself never calls; under ASan those tables'
+# global-variable instrumentation keeps them (and so those undefined
+# references) alive despite --gc-sections. This target's memory-safety
+# coverage is already provided by 'make check-valgrind'.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_script_hook_leak
+
 test_script_hook_leak_SOURCES  = test_script_hook_leak.c \
 	isakmp_unittest_src.c \
 	isakmp_script_hook_test_stubs.c
@@ -515,6 +528,7 @@ test_script_hook_leak_LDADD    = $(top_builddir)/src/racoon/plog.o \
 	$(top_builddir)/src/racoon/vmbuf.o
 test_script_hook_leak_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
 	-Wl,--wrap=free
+endif
 
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
