@@ -54,6 +54,17 @@ esac
 AC_MSG_RESULT([$RPATH_FLAG])
 AC_SUBST(RPATH_FLAG)
 
+# grabmyaddr.c's netlink-based address/route monitoring (USE_NETLINK) is
+# gated on __linux__ and only builds against <linux/rtnetlink.h>; on other
+# platforms (NetBSD, ...) it falls back to the routing-socket (USE_ROUTE)
+# path instead. test/test_grabmyaddr_netlink.c exercises the netlink path
+# directly and needs the same headers, so gate it the same way rather than
+# assuming they exist everywhere.
+AC_CHECK_HEADERS([linux/netlink.h linux/rtnetlink.h])
+AM_CONDITIONAL([HAVE_LINUX_NETLINK],
+  [test "x$ac_cv_header_linux_netlink_h" = "xyes" -a \
+        "x$ac_cv_header_linux_rtnetlink_h" = "xyes"])
+
 AC_ARG_ENABLE([coverage],
   [AS_HELP_STRING([--enable-coverage],
     [enable coverage instrumentation (gcov) @<:@default=no@:>@])],

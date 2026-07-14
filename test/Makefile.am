@@ -84,7 +84,6 @@ check_PROGRAMS = \
 	test_strnames \
 	test_rsalist \
 	test_plog \
-	test_grabmyaddr_netlink \
 	test_script_hook_leak
 
 # Test 1: DH MODP Groups
@@ -453,8 +452,16 @@ endif
 # bookkeeping (which the two functions under test never call) is discarded
 # rather than needing to be stubbed or linked.
 #
-# Linux-only (USE_NETLINK in grabmyaddr.c is gated on __linux__), which
-# matches this fork's target platform.
+# Linux-only (USE_NETLINK in grabmyaddr.c is gated on __linux__, and
+# test_grabmyaddr_netlink.c includes <linux/rtnetlink.h> directly to build
+# the same message shapes). On platforms without those headers (NetBSD,
+# ...) grabmyaddr.c itself falls back to the routing-socket (USE_ROUTE)
+# path instead, so HAVE_LINUX_NETLINK (configure.ac, via
+# AC_CHECK_HEADERS([linux/netlink.h linux/rtnetlink.h])) gates this test
+# out of the build there rather than failing to compile.
+if HAVE_LINUX_NETLINK
+check_PROGRAMS += test_grabmyaddr_netlink
+
 test_grabmyaddr_netlink_SOURCES  = test_grabmyaddr_netlink.c \
 	grabmyaddr_unittest_src.c
 test_grabmyaddr_netlink_CPPFLAGS = $(AM_CPPFLAGS) \
@@ -469,6 +476,7 @@ test_grabmyaddr_netlink_LDADD    = $(top_builddir)/src/racoon/plog.o \
 	$(top_builddir)/src/racoon/vmbuf.o \
 	$(top_builddir)/src/racoon/sockmisc.o
 test_grabmyaddr_netlink_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections -lresolv
+endif
 
 # Test 21: isakmp.c script_hook() REMOTE_ID leak (issue #72) —
 # ipsecdoi_id2str()'s racoon_malloc()'d return value was passed straight
