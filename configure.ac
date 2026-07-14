@@ -54,6 +54,17 @@ esac
 AC_MSG_RESULT([$RPATH_FLAG])
 AC_SUBST(RPATH_FLAG)
 
+# grabmyaddr.c's netlink-based address/route monitoring (USE_NETLINK) is
+# gated on __linux__ and only builds against <linux/rtnetlink.h>; on other
+# platforms (NetBSD, ...) it falls back to the routing-socket (USE_ROUTE)
+# path instead. test/test_grabmyaddr_netlink.c exercises the netlink path
+# directly and needs the same headers, so gate it the same way rather than
+# assuming they exist everywhere.
+AC_CHECK_HEADERS([linux/netlink.h linux/rtnetlink.h])
+AM_CONDITIONAL([HAVE_LINUX_NETLINK],
+  [test "x$ac_cv_header_linux_netlink_h" = "xyes" -a \
+        "x$ac_cv_header_linux_rtnetlink_h" = "xyes"])
+
 AC_ARG_ENABLE([coverage],
   [AS_HELP_STRING([--enable-coverage],
     [enable coverage instrumentation (gcov) @<:@default=no@:>@])],
@@ -1108,7 +1119,7 @@ AS_IF([test "x$sanitizer_build" = "xauto"], [
 AM_CONDITIONAL([SANITIZER_BUILD], [test "x$sanitizer_build" = "xyes"])
 
 AS_IF([test "x$sanitizer_build" = "xyes"], [
-  AC_MSG_NOTICE([sanitizer build: excluding test_ipsec_doi_sa, test_vendorid_bounds, test_nattraversal_natd, and test_algorithm from 'make check' (see test/Makefile.am); their memory-safety coverage is provided by 'make check-valgrind' instead. UBSan-only checks (signed overflow, misaligned access, etc.) are not covered by valgrind and are the one gap accepted here.])
+  AC_MSG_NOTICE([sanitizer build: excluding test_ipsec_doi_sa, test_vendorid_bounds, test_nattraversal_natd, test_algorithm, and test_script_hook_leak from 'make check' (see test/Makefile.am); their memory-safety coverage is provided by 'make check-valgrind' instead. UBSan-only checks (signed overflow, misaligned access, etc.) are not covered by valgrind and are the one gap accepted here.])
 ])
 
 # Probe GCC diagnostic format capabilities at configure time.

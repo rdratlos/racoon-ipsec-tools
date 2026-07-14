@@ -483,6 +483,36 @@ netlink_route_is_local(int family, const unsigned char *addr, size_t addr_len)
 		req.r.rtm_type == RTN_LOCAL;
 }
 
+/*
+ * Parse the route attributes of an RTM_NEWROUTE/RTM_DELROUTE message into
+ * rta[]. Factored out of netlink_process_route() so it can be exercised in
+ * isolation by test/test_grabmyaddr_netlink.c (see the ENABLE_UNITTEST
+ * wrapper below) without pulling in netlink_process_route()'s address
+ * bookkeeping side effects.
+ */
+static void
+netlink_parse_route_attrs(struct nlmsghdr *h, struct rtmsg *rtm,
+    struct rtattr *rta[RTA_MAX+1])
+{
+	parse_rtattr(rta, RTA_MAX, RTM_RTA(rtm), RTM_PAYLOAD(h));
+}
+
+#ifdef ENABLE_UNITTEST
+/*
+ * Test-only accessor. netlink_parse_route_attrs() is static; this thin
+ * wrapper is compiled in only when this source is built with
+ * -DENABLE_UNITTEST (see the test_grabmyaddr_netlink target in
+ * test/Makefile.am), so the route-attribute parsing bounds can be
+ * regression-tested without changing the production API.
+ */
+void
+netlink_parse_route_attrs_unittest(struct nlmsghdr *h, struct rtmsg *rtm,
+    struct rtattr *rta[RTA_MAX+1])
+{
+	netlink_parse_route_attrs(h, rtm, rta);
+}
+#endif /* ENABLE_UNITTEST */
+
 static int
 netlink_process_route(struct nlmsghdr *h)
 {
@@ -501,7 +531,7 @@ netlink_process_route(struct nlmsghdr *h)
 	    rtm->rtm_table != RT_TABLE_LOCAL)
 		return 0;
 
-	parse_rtattr(rta, IFA_MAX, RTM_RTA(rtm), IFA_PAYLOAD(h));
+	netlink_parse_route_attrs(h, rtm, rta);
 	if (rta[RTA_DST] == NULL)
  		return 0;
 

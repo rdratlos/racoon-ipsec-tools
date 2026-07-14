@@ -3163,12 +3163,19 @@ script_hook(iph1, script)
 
 	/* Peer identity. */
 	if (iph1->id_p != NULL) {
-		if (script_env_append(&envp, &envc, "REMOTE_ID",
-				      ipsecdoi_id2str(iph1->id_p)) != 0) {
+		char *idstr = ipsecdoi_id2str(iph1->id_p);
+		if (idstr == NULL) {
 			plog(LLV_ERROR, LOCATION, NULL,
-			     "Cannot set REMOTE_ID\n");
+			     "Cannot allocate memory for REMOTE_ID\n");
 			goto out;
 		}
+		if (script_env_append(&envp, &envc, "REMOTE_ID", idstr) != 0) {
+			plog(LLV_ERROR, LOCATION, NULL,
+			     "Cannot set REMOTE_ID\n");
+			racoon_free(idstr);
+			goto out;
+		}
+		racoon_free(idstr);
 	}
 
 	if (privsep_script_exec(iph1->rmconf->script[script]->v,
