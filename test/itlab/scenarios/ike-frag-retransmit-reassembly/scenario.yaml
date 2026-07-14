@@ -1,0 +1,136 @@
+# itlab scenario: IKE phase 1 fragment reassembly under last-fragment
+# retransmission (regression test for the CVE-2016-10396 follow-up defect).
+#
+# STATUS: descriptor only. RFC 0001 (docs/rfcs/0001-...md) defines the itlab
+# architecture but is a Draft and its scenario/topology schema is deferred to a
+# future RFC (Appendix A.5). This file is a declarative specification written
+# against RFC 0001's layered model (topology + scenario + fault + verification)
+# so it is ready to execute once the itlab engine reaches Milestone 1-2 of the
+# roadmap (Appendix A.4). The single-fault packet-drop capability it needs is
+# the minimal, scenario-declared fault injection explicitly kept in scope by
+# RFC 0001 sections 5 and 9 (not the deferred general-purpose netem work).
+#
+# Until then, the fragment-reassembly logic this scenario exercises end-to-end
+# is covered deterministically at the unit level by test/test_isakmp_frag.c,
+# which fails against the pre-fix code and passes against the fix.
+
+name: ike-frag-retransmit-reassembly
+description: >
+  A road-warrior initiator negotiates IKE phase 1 with fragmentation enabled.
+  The lab drops the responder's first transmission of the *last* fragment,
+  forcing a retransmission of the tail fragment (and, in the full-retransmit
+  variant, of a middle fragment after the tail). Correct code reassembles and
+  completes phase 1; the pre-fix code stalls until "phase1 negotiation failed
+  due to time up" with "Repeated last fragment index mismatch" in the log.
+
+# ------------------------------------------------------------------ #
+#  Topology (Network Topology layer)                                 #
+# ------------------------------------------------------------------ #
+topology:
+  name: road-warrior-psk
+  instances:
+    - name: responder
+      role: racoon-server
+      type: container            # shared-kernel container is sufficient
+    - name: initiator
+      role: racoon-client
+      type: container
+  networks:
+    - name: transit
+      members: [responder, initiator]
+
+# ------------------------------------------------------------------ #
+#  Daemon configuration (Configuring state)                          #
+# ------------------------------------------------------------------ #
+config:
+  common:
+    exchange_mode: main
+    authentication: pre_shared_key   # test-only PSK fixture
+    ike_frag: on                     # the setting under test; MUST stay on
+  # The scenario is parameterised over the DH group to document the payload
+  # size at which fragmentation is actually triggered (see matrix below).
+  parameters:
+    dh_group: ["${dh_group}"]
+
+# ------------------------------------------------------------------ #
+#  Fault injection (Test Execution layer, RFC 0001 sec.5/sec.9)      #
+# ------------------------------------------------------------------ #
+# Minimal, scenario-declared single-fault capability: drop selected IKE
+# fragment datagrams on egress from the responder exactly once, so the peer's
+# retransmission timer resends them. Implementation is left to the Execution
+# layer (e.g. an nftables/iptables counter+drop rule, or a userspace UDP relay
+# in the harness that replays the tail fragment). No steady-state impairment.
+faults:
+  - id: drop-first-tail-fragment
+    when: "responder emits the ISAKMP_NPTYPE_FRAG datagram with ISAKMP_FRAG_LAST set"
+    action: drop
+    count: 1
+  # Full-retransmit variant: additionally delay one middle fragment so that,
+  # after the peer retransmits the whole set, a non-tail fragment is processed
+  # AFTER the tail -- the exact ordering the pre-fix completion check missed.
+  - id: delay-one-middle-fragment
+    variant: full-retransmit
+    when: "responder emits the ISAKMP_NPTYPE_FRAG datagram with index == 1"
+    action: delay
+    once: true
+
+# ------------------------------------------------------------------ #
+#  Steps (Running state)                                             #
+# ------------------------------------------------------------------ #
+steps:
+  - initiator: start racoon
+  - responder: start racoon
+  - initiator: trigger phase 1 (ping a policy-protected address)
+  - wait: phase 1 established OR timeout(45s)
+
+# ------------------------------------------------------------------ #
+#  Verification (Verification layer)                                 #
+# ------------------------------------------------------------------ #
+verify:
+  # Pass condition: phase 1 (and a phase 2 SA) actually come up despite the
+  # dropped/retransmitted last fragment.
+  - assert: isakmp_sa_established
+    on: [initiator, responder]
+    within: 45s
+  - assert: ipsec_sa_installed          # /proc/net/xfrm_stat / SAD non-empty
+    on: [initiator, responder]
+  # Regression guard: the buggy failure signature must NOT appear.
+  - assert_log_absent:
+      on: responder
+      pattern: "Repeated last fragment index mismatch"
+  - assert_log_absent:
+      on: responder
+      pattern: "phase1 negotiation failed due to time up"
+  # Positive guard: fragmentation must genuinely have occurred, otherwise the
+  # scenario proves nothing (this is why small DH groups + PSK hid the bug).
+  - assert_log_present:
+      on: responder
+      pattern: "fragment .* completed .* payload"
+
+# ------------------------------------------------------------------ #
+#  Parameter matrix                                                  #
+# ------------------------------------------------------------------ #
+# Run the scenario for two DH groups to document the fragmentation threshold.
+# ISAKMP_FRAG_MAXLEN = 552 bytes (src/racoon/isakmp_frag.h).
+#
+#   dh_group 14 (MODP-2048): KE payload  = 256 bytes.
+#       A KE-bearing main-mode message stays under 552 B, so with PSK the
+#       exchange does NOT fragment on the KE alone -- fragmentation is only
+#       reached once a large payload (e.g. a certificate chain) is present.
+#       This is why the defect stayed invisible for PSK + small-group setups.
+#
+#   dh_group 16 (MODP-4096): KE payload  = 512 bytes.
+#       The KE-bearing message already exceeds 552 B on its own, so
+#       fragmentation is triggered during the DH exchange itself, with no
+#       certificates required. Modern configs that raised the DH group for
+#       forward-secrecy reasons are exactly the ones that started tripping
+#       this bug.
+matrix:
+  dh_group: [14, 16]
+  variant: [tail-retransmit, full-retransmit]
+expect:
+  # dh_group 14 with PSK-only may not fragment; the runner treats "no
+  # fragmentation observed" as SKIP (documented), not PASS/FAIL, and the
+  # cert-augmented profile is used to force fragmentation for group 14.
+  "14": { fragmentation: conditional, augment: certificate-chain }
+  "16": { fragmentation: always }

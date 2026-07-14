@@ -512,7 +512,7 @@ AS_IF([test "x$enable_frag" = "xyes"], [
 	AC_SUBST(FRAG_OBJS)
 	AC_DEFINE([ENABLE_FRAG], [], [IKE fragmentation support])
 ])
-dnl Automake conditional so the fragmentation unit test is built only when
+dnl Automake conditional so the fragmentation unit tests are built only when
 dnl isakmp_frag.c (and thus vendorid_frag_cap()) is part of the build.
 AM_CONDITIONAL([ENABLE_FRAG], [test "x$enable_frag" = "xyes"])
 
