@@ -4,35 +4,35 @@
 # racoon's static, numeric-only configuration.
 #
 # racoon rejects hostnames in "remote" blocks (str2saddr() resolves with
-# AI_NUMERICHOST) and setkey rejects them in tunnel-mode SPD endpoints
-# (policy_parse.y, same restriction) -- both need literal IPs. Neither
-# the VPN gateway's public address (Dynamic DNS) nor this laptop's own
-# address (WLAN/DHCP roaming) is stable, so both are resolved here and
-# baked into two generated files:
+# AI_NUMERICHOST) -- needs a literal IP. Neither the VPN gateway's
+# public address (Dynamic DNS) nor this laptop's own address
+# (WLAN/DHCP roaming) is stable, so both are resolved here and baked
+# into a generated file:
 #
-#   /etc/racoon/gateway.conf  -- the "remote <ip> { ... }" block
-#   /etc/racoon/spd.conf      -- setkey trap ("require") policies for
-#                                 the protected internal networks
+#   /etc/racoon/gateway.conf  -- the "remote <ip> { ... }" block,
+#                                 including mode_cfg/xauth_login and
+#                                 the phase1-up/phase1-down script hooks
+#
+# Unlike a pure static-subnet policy setup, this gateway assigns each
+# client a mode_cfg pool address (e.g. 192.168.66.5) that isn't known
+# until Phase 1 + Mode Config actually completes -- so there is no
+# fixed selector to pre-install a kernel ACQUIRE trap policy for. This
+# script instead *actively* initiates Phase 1 itself (the "priming"
+# call at the bottom); the SPD for the three protected networks is
+# built by phase1-up.sh once the assigned pool address is known. See
+# README.md for the full picture.
 #
 # Run at boot, on every NetworkManager interface-up event, and on a
 # timer (to catch a Dynamic DNS change even while the laptop stays on
 # the same network).
 #
-# The SPD trap policies are reinstalled on *every* run, unconditionally
-# -- this is deliberately self-healing: if anything external flushed
-# the SPD (a racoon restart, a manual "setkey -F" while debugging, a
-# crash), the next scheduled/triggered run puts the policies back
-# without anyone noticing they were gone. A stale "nothing changed, so
-# skip setkey" optimization keyed only on gateway/local IP would miss
-# exactly that case -- the addresses haven't changed, but the kernel's
-# SPD is still empty. "setkey -f" flush-then-readd is cheap and does
-# not require a fresh Phase 1 (an already-negotiated SA is looked up by
-# the kernel again as soon as a matching policy exists).
-#
-# gateway.conf regeneration, racoon's config reload and the priming
-# "establish-sa" call, however, only happen when the gateway's or the
-# local address actually changed -- no need to bounce Phase 1 every 10
-# minutes just because the timer fired.
+# The explicit routes (for reverse-path filtering, see below) are
+# reinstalled on *every* run, unconditionally -- self-healing against
+# anything that flushed them (network manager churn, a manual "ip
+# route" while debugging). gateway.conf regeneration, racoon's config
+# reload and the priming "establish-sa" call, however, only happen when
+# the gateway's or the local address actually changed -- no need to
+# bounce Phase 1 every 10 minutes just because the timer fired.
 
 set -eu
 
@@ -43,13 +43,19 @@ RACOON_DIR="/etc/racoon"
 STATE_DIR="/var/lib/racoon"
 STATE_FILE="$STATE_DIR/gw-resolve.state"
 GATEWAY_CONF="$RACOON_DIR/gateway.conf"
-SPD_CONF="$RACOON_DIR/spd.conf"
+XAUTH_LOGIN_FILE="$RACOON_DIR/xauth-login"   # one line: the XAuth/LDAP username
 
 log() {
     logger -t racoon-gw-resolve "$*" 2>/dev/null || echo "racoon-gw-resolve: $*" >&2
 }
 
 mkdir -p "$STATE_DIR"
+
+if [ ! -r "$XAUTH_LOGIN_FILE" ]; then
+    log "missing $XAUTH_LOGIN_FILE (one line: the vpnuser LDAP login) -- cannot build gateway.conf"
+    exit 0
+fi
+XAUTH_LOGIN=$(head -n1 "$XAUTH_LOGIN_FILE")
 
 GATEWAY_IP=$(getent ahostsv4 "$GATEWAY_FQDN" 2>/dev/null | awk '{print $1; exit}') || true
 if [ -z "${GATEWAY_IP:-}" ]; then
@@ -70,15 +76,15 @@ OLD_STATE=$(cat "$STATE_FILE" 2>/dev/null || true)
 ADDR_CHANGED=1
 [ "$NEW_STATE" = "$OLD_STATE" ] && ADDR_CHANGED=0
 
-# --- routes + SPD trap policies: always reinstalled, unconditionally
+# --- explicit routes to the protected networks: always reinstalled --
 #
-# Without an explicit route to each protected network via $IFACE,
-# strict reverse-path filtering (net.ipv4.conf.*.rp_filter=1, common
-# distro default) drops decrypted inbound packets as a "martian
-# source": the kernel can find no route that would send a reply back
-# to e.g. 10.66.0.6 out the interface it arrived on, so it silently
-# discards the packet *after* successful IPsec decapsulation -- ESP
-# byte counters in "setkey -D"/"ip -s xfrm state" increase normally,
+# Without a route to each protected network via $IFACE, strict
+# reverse-path filtering (net.ipv4.conf.*.rp_filter=1, common distro
+# default) drops decrypted inbound packets as a "martian source": the
+# kernel can find no route that would send a reply back to e.g.
+# 10.66.0.6 out the interface it arrived on, so it silently discards
+# the packet *after* successful IPsec decapsulation -- ESP byte
+# counters in "setkey -D"/"ip -s xfrm state" increase normally,
 # XfrmIn* counters in /proc/net/xfrm_stat stay at 0 (decapsulation
 # itself is fine), but the packet never reaches the socket. Confirm
 # with "sysctl -w net.ipv4.conf.all.log_martians=1" and watch
@@ -90,21 +96,7 @@ ADDR_CHANGED=1
 for net in $NETWORKS; do
     ip route replace "$net" dev "$IFACE"
 done
-
-umask 077
-{
-    echo "#!/usr/sbin/setkey -f"
-    echo "# Generated by resolve-gateway.sh on $(date -Is) -- do not edit by hand"
-    echo "spdflush;"
-    for net in $NETWORKS; do
-        echo "spdadd 0.0.0.0/0 $net any -P out ipsec esp/tunnel/${LOCAL_IP}-${GATEWAY_IP}/require;"
-        echo "spdadd $net 0.0.0.0/0 any -P in  ipsec esp/tunnel/${GATEWAY_IP}-${LOCAL_IP}/require;"
-    done
-} > "$SPD_CONF.new"
-mv "$SPD_CONF.new" "$SPD_CONF"
-
-setkey -f "$SPD_CONF"
-log "gateway=$GATEWAY_IP local=$LOCAL_IP dev=$IFACE -- routes + SPD trap policies (re)installed"
+log "gateway=$GATEWAY_IP local=$LOCAL_IP dev=$IFACE -- routes to protected networks (re)installed"
 
 if [ "$ADDR_CHANGED" -eq 0 ]; then
     exit 0   # address unchanged -- no need to touch racoon/Phase 1
@@ -113,6 +105,16 @@ fi
 log "gateway=$GATEWAY_IP local=$LOCAL_IP (was: ${OLD_STATE:-none}) -- address changed, refreshing gateway.conf"
 
 # --- remote block: only rewritten/reloaded when the address changed -
+#
+# Mirrors vpngateway.racoon.conf's "remote anonymous" block as closely
+# as a single named client can: exchange_mode main, asn1dn identities,
+# xauth_rsa_client/dh_group 14 (the gateway also offers dh_group 16,
+# but 14 is the proposal shared with the iPhone/Mac Cisco IPSec
+# clients this gateway is tuned for -- see README.md), mode_cfg on to
+# pull the pool address, xauth_login for the XAuth username (the
+# password itself lives in /etc/racoon/psk.txt, keyed by that same
+# login -- see racoon.conf(5) "xauth_login" and README.md).
+umask 077
 {
     echo "# Generated by resolve-gateway.sh on $(date -Is) -- do not edit by hand"
     echo "remote $GATEWAY_IP"
@@ -121,6 +123,7 @@ log "gateway=$GATEWAY_IP local=$LOCAL_IP (was: ${OLD_STATE:-none}) -- address ch
     echo "    my_identifier            asn1dn;"
     echo "    peers_identifier         asn1dn;"
     echo "    verify_identifier        on;"
+    echo "    verify_cert              on;"
     echo ""
     echo "    certificate_type         x509 \"client.crt\" \"client.key\";"
     echo "    ca_type                  x509 \"ca.crt\";"
@@ -128,11 +131,14 @@ log "gateway=$GATEWAY_IP local=$LOCAL_IP (was: ${OLD_STATE:-none}) -- address ch
     echo "    passive                  off;"
     echo "    ike_frag                 on;"
     echo "    nat_traversal             on;"
-    echo "    dpd_delay                20;"
+    echo "    dpd_delay                30;"
     echo "    dpd_retry                 5;"
     echo "    dpd_maxfail                3;"
     echo "    proposal_check             claim;"
-    echo "    lifetime                   time 8 hours;"
+    echo "    lifetime                   time 24 hour;"
+    echo ""
+    echo "    mode_cfg                   on;"
+    echo "    xauth_login                \"${XAUTH_LOGIN}\";"
     echo ""
     echo "    script \"/etc/racoon/phase1-up.sh\"   phase1_up;"
     echo "    script \"/etc/racoon/phase1-down.sh\" phase1_down;"
@@ -140,7 +146,7 @@ log "gateway=$GATEWAY_IP local=$LOCAL_IP (was: ${OLD_STATE:-none}) -- address ch
     echo "    proposal {"
     echo "        encryption_algorithm    aes 256;"
     echo "        hash_algorithm          sha256;"
-    echo "        authentication_method   rsasig;"
+    echo "        authentication_method   xauth_rsa_client;"
     echo "        dh_group                 14;"
     echo "    }"
     echo "}"
@@ -153,13 +159,20 @@ echo "$NEW_STATE" > "$STATE_FILE"
 if pidof racoon >/dev/null 2>&1 && command -v racoonctl >/dev/null 2>&1; then
     racoonctl reload-config >/dev/null 2>&1 || kill -HUP "$(pidof racoon)" 2>/dev/null || true
 
-    # Best-effort: ask racoon to start Phase 1 right away instead of
-    # waiting for the first real SSSD/autofs packet to trigger the
-    # kernel ACQUIRE. Deliberately NOT "racoonctl vc": that shortcut
-    # blocks waiting for a mode_cfg completion event we never send in
-    # this (non-mode_cfg) setup and would hang. The low-level
+    # Best-effort: ask racoon to start Phase 1 (+ Mode Config, +
+    # phase1-up.sh's SPD install) right away instead of waiting for
+    # something else to trigger it -- with mode_cfg there is no SPD
+    # trap to fall back on, so this active call is the primary
+    # connect mechanism, not just a nice-to-have. Deliberately NOT
+    # "racoonctl vc": that shortcut blocks waiting for the mode_cfg
+    # completion event, which is fine in principle here (we *do* use
+    # mode_cfg), but it also requires "-u <user>" for the XAuth prompt
+    # and would hang this unattended script waiting on a password
+    # that's already supplied via xauth_login/psk.txt. The low-level
     # "establish-sa" without "-w" fires the request and returns
-    # immediately.
+    # immediately; the rest of the exchange (Mode Config, XAuth using
+    # the configured login/psk.txt password) proceeds inside racoon on
+    # its own.
     racoonctl es isakmp inet "$LOCAL_IP" "$GATEWAY_IP" >/dev/null 2>&1 || true
 fi
 

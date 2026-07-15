@@ -4,8 +4,11 @@
 # has *something* to fall back on if the very first boot happens without
 # connectivity (see README.md, "First boot without a network").
 #
-# Replace 203.0.113.1 with the gateway's currently known IP before
-# copying this file to /etc/racoon/gateway.conf for that bootstrap case.
+# Replace 203.0.113.1 with the gateway's currently known IP, and
+# CHANGEME with the actual XAuth/LDAP login (matching
+# /etc/racoon/xauth-login and the corresponding entry in
+# /etc/racoon/psk.txt), before copying this file to
+# /etc/racoon/gateway.conf for that bootstrap case.
 
 remote 203.0.113.1
 {
@@ -13,6 +16,7 @@ remote 203.0.113.1
     my_identifier            asn1dn;
     peers_identifier         asn1dn;
     verify_identifier        on;
+    verify_cert              on;
 
     certificate_type         x509 "client.crt" "client.key";
     ca_type                  x509 "ca.crt";
@@ -20,11 +24,14 @@ remote 203.0.113.1
     passive                  off;   # this side always initiates
     ike_frag                 on;
     nat_traversal             on;
-    dpd_delay                20;
+    dpd_delay                30;
     dpd_retry                 5;
     dpd_maxfail                3;
     proposal_check            claim;
-    lifetime                  time 8 hours;
+    lifetime                  time 24 hour;
+
+    mode_cfg                   on;
+    xauth_login                "CHANGEME";
 
     script "/etc/racoon/phase1-up.sh"   phase1_up;
     script "/etc/racoon/phase1-down.sh" phase1_down;
@@ -32,7 +39,7 @@ remote 203.0.113.1
     proposal {
         encryption_algorithm   aes 256;
         hash_algorithm         sha256;
-        authentication_method  rsasig;
+        authentication_method  xauth_rsa_client;
         dh_group                14;
     }
 }
