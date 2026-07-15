@@ -157,10 +157,11 @@ struct isakmp_cfg_state {
 	struct unity_netentry 
 	    *split_include; 		/* UNITY_SPLIT_INCLUDE */
 	int include_count;		/* Number of SPLIT_INCLUDES */
-	struct unity_netentry 
+struct unity_netentry 
 	    *split_local;		/* UNITY_LOCAL_LAN */
 	int local_count;		/* Number of SPLIT_LOCAL */
-	struct xauth_state xauth;	/* Xauth state, if revelant */		
+	char			*split_dns;		/* UNITY_SPLITDNS_NAME */
+	struct xauth_state xauth;	/* Xauth state, if revelant */
 	struct isakmp_ivm *ivm;		/* XXX Use iph1's ivm? */
 	u_int32_t last_msgid;           /* Last message-ID */
 };
@@ -181,6 +182,7 @@ struct isakmp_cfg_state {
 #define ISAKMP_CFG_GOT_DEFAULT_DOMAIN	0x1000	/* Client got default domain */
 #define ISAKMP_CFG_GOT_SPLIT_INCLUDE	0x2000	/* Client got a split network config */
 #define ISAKMP_CFG_GOT_SPLIT_LOCAL	0x4000	/* Client got a split LAN config */
+#define ISAKMP_CFG_GOT_SPLIT_DNS	0x8000	/* Client got split DNS domains */
 
 struct isakmp_pl_attr;
 struct ph1handle;
