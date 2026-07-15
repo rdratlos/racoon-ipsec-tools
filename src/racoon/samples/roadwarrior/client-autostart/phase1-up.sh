@@ -88,4 +88,13 @@ mv "$SPD_CONF.new" "$SPD_CONF"
 setkey -f "$SPD_CONF"
 logger -t racoon-phase1-up "SPD installed for internal=${INTERNAL_ADDR4} via tunnel ${LOCAL}-${REMOTE}"
 
+# Remember the assigned pool address so resolve-gateway.sh can
+# pre-install a best-guess trap policy for it *before* the next Phase 1
+# even starts -- see resolve-gateway.sh's "best-guess trap" section for
+# why this makes genuine kernel-ACQUIRE-triggered on-demand reconnects
+# work in practice, not just proactive priming.
+mkdir -p /var/lib/racoon
+echo "$INTERNAL_ADDR4" > /var/lib/racoon/internal-addr4.new
+mv /var/lib/racoon/internal-addr4.new /var/lib/racoon/internal-addr4
+
 exit 0

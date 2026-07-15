@@ -63,40 +63,63 @@ this gateway from the start.
 
 ## How the auto-connect actually works now
 
-Because the client's usable Phase 2 selector (the mode_cfg pool
-address) doesn't exist until after Phase 1 completes, this sample no
-longer relies on a kernel `ACQUIRE`-triggered trap policy to start the
-tunnel. Instead:
+The client's usable Phase 2 selector is the mode_cfg pool address
+(`INTERNAL_ADDR4`, e.g. `192.168.66.20`), which doesn't exist until
+*after* Phase 1 + XAuth + Mode Config complete -- so there is no
+selector to pre-install a kernel `ACQUIRE` trap policy for with
+absolute certainty ahead of time. This sample closes that gap two
+ways, both driven by `resolve-gateway.sh`:
 
-1. `resolve-gateway.sh` **actively initiates Phase 1** itself (a
-   `racoonctl es isakmp` "establish-sa" admin call) whenever it detects
-   the gateway's Dynamic DNS address or this laptop's own address has
-   changed -- at boot, on every NetworkManager interface-up event, and
-   on a periodic timer. This is the primary connect mechanism now, not
-   a nice-to-have.
-2. racoon runs Phase 1 (RSA cert auth) then, because `mode_cfg on;` is
-   set, an XAuth exchange (username from `xauth_login`, password
+1. **Active priming.** Whenever it detects the gateway's Dynamic DNS
+   address or this laptop's own address has changed -- at boot, on
+   every NetworkManager interface-up event, or on a periodic timer --
+   it actively kicks off Phase 1 itself (a `racoonctl es isakmp`
+   "establish-sa" admin call), rather than waiting for something to
+   try to use the tunnel. This alone already satisfies "reconnect
+   automatically, ready by the time of a connection attempt".
+2. **Best-guess kernel trap.** On *every* run, unconditionally, it also
+   pre-installs an SPD `require` trap policy using the pool address
+   from the *last successful session* (cached by `phase1-up.sh` in
+   `/var/lib/racoon/internal-addr4`), plus a matching local alias
+   address and source route -- based on the observation that this
+   gateway's pool assignment for a single dedicated login is sticky in
+   practice (the same address, `192.168.66.20`, came back across
+   repeated test connections). If the guess is right, the very first
+   real packet toward a protected network triggers a genuine kernel
+   `ACQUIRE` with a selector the gateway actually accepts -- true
+   on-demand reconnect, exactly the original goal, no proactive step
+   needed. If the guess is stale (or there's no cached address yet,
+   e.g. the very first connection ever), the trap still forces Phase 1
+   to start; the triggering packet itself is lost, but
+   `phase1-up.sh` corrects the address/routes/SPD once Mode Config
+   completes, and the application's own retry (ping repeats, SSSD/autofs
+   have their own retry logic) succeeds against the now-correct SPD.
+
+Once Phase 1 is up (by whichever of the two paths above), the rest
+follows the same sequence either way:
+
+3. racoon runs Phase 1 (RSA cert auth), then, because `mode_cfg on;`
+   is set, an XAuth exchange (username from `xauth_login`, password
    looked up in `psk.txt` by that same login -- see "Credentials"
-   below) followed by the Mode Config Pull exchange, which assigns this
-   session's pool address (`INTERNAL_ADDR4`).
-3. Once that completes, racoon calls the `phase1_up` script hook
-   (`phase1-up.sh`), which is where the SPD entries for the three
-   protected networks actually get installed, using `INTERNAL_ADDR4` as
-   the tunnel's inner source selector and the just-negotiated
-   `LOCAL_ADDR`/`REMOTE_ADDR` as the outer tunnel endpoints.
-4. Phase 2 (Quick Mode) then proceeds normally, triggered by the SPD
-   entries `phase1-up.sh` just installed matching the first real
-   packet (or immediately, since racoon can also initiate Quick Mode
-   right after Mode Config for policies it just created).
+   below), then the Mode Config Pull exchange, which assigns (or
+   re-confirms) this session's pool address (`INTERNAL_ADDR4`).
+4. racoon calls the `phase1_up` script hook (`phase1-up.sh`), which
+   configures `INTERNAL_ADDR4` as a real local address, points the
+   three networks' routes at it as source, and (re)installs the SPD
+   `require` policies -- this supersedes the best-guess trap from step
+   2 with the now-confirmed-correct one.
+5. Phase 2 (Quick Mode) proceeds, triggered by the SPD entries
+   `phase1-up.sh` just installed matching the first real packet (or
+   immediately, since racoon can also initiate Quick Mode right after
+   Mode Config for policies it just created).
 
 racoon's `remote` block still needs a *literal* peer IP (`str2saddr()`
 in `src/racoon/sockmisc.c` resolves with `AI_NUMERICHOST`, hostnames
 are rejected at parse time), so `resolve-gateway.sh` still resolves
 `nepomuc.selfhost.eu` and rewrites `/etc/racoon/gateway.conf` (the
-`remote { ... }` block) whenever the resolved address changes, exactly
-as before.
+`remote { ... }` block) whenever the resolved address changes.
 
-It is run:
+`resolve-gateway.sh` is run:
 
 - once at boot, before `racoon.service` starts (`racoon-gw-resolve.service`),
 - immediately whenever an interface comes up or gets a new DHCP lease
@@ -106,11 +129,13 @@ It is run:
   the *gateway's* Dynamic DNS address changes while the laptop itself
   stays on the same network.
 
-Separately, and on *every* run regardless of whether the address
-changed, it also installs an explicit route to each protected network
-via the current outbound interface (`ip route replace <net> dev
-<iface>`) -- this is unrelated to Phase 1/mode_cfg and exists purely to
-satisfy strict reverse-path filtering; see Troubleshooting.
+The reverse-path-filter route and the best-guess trap (steps above) are
+reinstalled on *every* one of those runs, unconditionally -- both are
+cheap and self-healing against anything that flushed them. Rewriting
+`gateway.conf` and the active priming call, in contrast, only happen
+when the gateway's or the local address actually changed -- no need to
+bounce Phase 1 every 10 minutes just because the timer merely
+re-confirmed the same addresses.
 
 `racoon.service` itself starts unconditionally at boot
 (`After=racoon-gw-resolve.service`, deliberately **not**
@@ -139,9 +164,9 @@ neither of which this sample can populate for you:
 |---|---|---|
 | `racoon.conf` | `/etc/racoon/racoon.conf` | Static part: timer, `include "gateway.conf"`, `sainfo anonymous` |
 | `gateway.conf.example` | (reference only) | What `resolve-gateway.sh` generates as `gateway.conf`; copy it manually only for the first-boot-without-network case below |
-| `resolve-gateway.sh` | `/etc/racoon/resolve-gateway.sh` (mode 0700, root) | Generates `gateway.conf`, installs the reverse-path routes, primes Phase 1 |
-| `phase1-up.sh` | `/etc/racoon/` (mode 0700, root) | Installs the SPD for the three networks once `INTERNAL_ADDR4` is assigned |
-| `phase1-down.sh` | `/etc/racoon/` (mode 0700, root) | Diagnostic hook only (`script ... phase1_down;`) |
+| `resolve-gateway.sh` | `/etc/racoon/resolve-gateway.sh` (mode 0700, root) | Generates `gateway.conf`, installs the reverse-path routes and the best-guess ACQUIRE trap, primes Phase 1 |
+| `phase1-up.sh` | `/etc/racoon/` (mode 0700, root) | Installs the SPD for the three networks once `INTERNAL_ADDR4` is assigned; caches it to `/var/lib/racoon/internal-addr4` for next time's best-guess trap |
+| `phase1-down.sh` | `/etc/racoon/` (mode 0700, root) | Removes the `INTERNAL_ADDR4` alias address; otherwise diagnostic hook only (`script ... phase1_down;`) |
 | `systemd/racoon.service` | `/etc/systemd/system/racoon.service` | Starts racoon; no packaged systemd unit ships for Arch, see `packaging/arch/PKGBUILD` |
 | `systemd/racoon-gw-resolve.service` | `/etc/systemd/system/racoon-gw-resolve.service` | Runs `resolve-gateway.sh` |
 | `systemd/racoon-gw-resolve.timer` | `/etc/systemd/system/racoon-gw-resolve.timer` | Periodic Dynamic-DNS re-check |
@@ -384,3 +409,24 @@ routes get overwritten by the next `phase1-up.sh` run regardless, so
 they're left as-is). Check `ip addr show dev <iface>` for the
 `/32 INTERNAL_ADDR4` and `ip route show <net>` for a `src` matching it
 to confirm.
+
+### The first ping/mount attempt after boot is lost, but a retry works
+
+This is expected, not a bug, if `/var/lib/racoon/internal-addr4` didn't
+exist yet or held a now-wrong address (see "How the auto-connect
+actually works now"): the best-guess trap `resolve-gateway.sh`
+pre-installs can only be as good as the last session's assigned pool
+address. When the guess is wrong, the triggering packet is lost (no SA
+exists for the wrong selector, and by the time the correct one is
+negotiated the original packet is long gone), but Phase 1 still starts
+because *some* trap matched, and `phase1-up.sh` corrects the
+address/routes/SPD moments later using the real, gateway-confirmed
+`INTERNAL_ADDR4`. Confirm the sequence in the logs:
+`journalctl -t racoon-gw-resolve` shows the (possibly wrong) guess
+being installed, `journalctl -u racoon` shows Phase 1/XAuth/Mode
+Config, and `journalctl -t racoon-phase1-up` shows the corrected
+address. If this happens on *every* connection rather than
+occasionally, the gateway's pool assignment for this login likely
+isn't sticky after all -- the mechanism still works as a Phase-1
+trigger, just never as a single-shot on-demand connect; the active
+priming call remains the reliable primary path either way.
