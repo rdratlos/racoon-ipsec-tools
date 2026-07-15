@@ -10,9 +10,23 @@
 # This is different from src/racoon/samples/roadwarrior/client/phase1-up.sh
 # (the shipped mode_cfg sample): that one does a full-tunnel default
 # route + /etc/resolv.conf rewrite. This one is a split-tunnel for a
-# named, fixed set of networks and leaves routing/DNS otherwise alone
-# -- it does NOT bring up an alias interface or touch the default
-# route.
+# named, fixed set of networks and leaves the default route/DNS alone
+# -- but it still needs the pool address to actually be usable as a
+# *source* address, for the same reason the full-tunnel sample brings
+# up an alias interface: our SPD "out" selector below requires the
+# packet's source to be exactly INTERNAL_ADDR4/32 (that's what the
+# gateway expects to see proposed in Quick Mode for this client
+# identity). Without configuring INTERNAL_ADDR4 as a real local address
+# and steering the three routes to prefer it as source, ordinary
+# application traffic (ping, SSSD, autofs) keeps using the laptop's
+# real WLAN address as source, which never matches the policy -- no
+# ACQUIRE, no Quick Mode, and the packet falls through to the plain
+# on-link route resolve-gateway.sh installed for reverse-path-filter
+# purposes, then dies as an ARP timeout for a host that was never
+# really on the WLAN segment. (Symptom actually seen: Phase 1 + Mode
+# Config completed and stayed up via DPD, but no ping ever got
+# through -- "ip route" showed the three protected networks as plain
+# on-link routes with no matching local source address.)
 #
 # Why this can't happen earlier (e.g. once, at boot, like the old
 # static-subnet revision of this sample did): the pool address is
@@ -33,6 +47,23 @@ if [ -z "${INTERNAL_ADDR4:-}" ] || [ -z "${LOCAL_ADDR:-}" ] || [ -z "${REMOTE_AD
         "no mode_cfg pool address assigned -- not installing SPD (is mode_cfg accepted on the gateway for this login?)"
     exit 0
 fi
+
+IFACE=$(ip -4 route get "$REMOTE_ADDR" 2>/dev/null \
+    | awk '{for (i = 1; i <= NF; i++) if ($i == "dev") print $(i + 1)}')
+if [ -z "${IFACE:-}" ]; then
+    logger -t racoon-phase1-up "cannot determine outbound interface for $REMOTE_ADDR -- not installing SPD"
+    exit 0
+fi
+
+# Make INTERNAL_ADDR4 a real local address and the preferred source for
+# the three protected networks, so ordinary application traffic
+# actually proposes/matches the (INTERNAL_ADDR4, network) selector pair
+# below instead of silently missing the policy.
+ip addr replace "${INTERNAL_ADDR4}/32" dev "$IFACE"
+for net in $NETWORKS; do
+    ip route replace "$net" dev "$IFACE" src "$INTERNAL_ADDR4"
+done
+logger -t racoon-phase1-up "internal=${INTERNAL_ADDR4} configured as local address on $IFACE, routes updated with matching src"
 
 LOCAL="${LOCAL_ADDR}"
 REMOTE="${REMOTE_ADDR}"

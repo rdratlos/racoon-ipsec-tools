@@ -344,3 +344,43 @@ gateway's `auth_groups "vpnuser"`.
 start) once `INTERNAL_ADDR4` is actually set -- if Mode Config didn't
 complete, `journalctl -t racoon-phase1-up` will show "no mode_cfg pool
 address assigned -- not installing SPD".
+
+### Phase 1 + Mode Config stay up (DPD keeps acking), but still no ping
+
+Symptom: `journalctl -u racoon` shows a clean Phase 1 -> XAuth -> Mode
+Config sequence, DPD `R-U-There-Ack` keeps coming back every 30
+seconds for as long as you wait -- the ISAKMP layer is genuinely
+healthy -- but pings toward any of the three networks still just time
+out. `ip route` shows the three networks as plain on-link routes
+(`192.168.66.0/24 dev wlp0s20f3 scope link`, no gateway, no matching
+local address).
+
+This is the routing table telling the truth: the SPD `phase1-up.sh`
+installs requires the packet's *source* address to be exactly
+`INTERNAL_ADDR4/32` (`spdadd ${INTERNAL_ADDR4}/32 <net> any -P out
+...`) -- that's what the gateway expects for this client's identity.
+`ping`/SSSD/autofs, by default, use the laptop's real WLAN address as
+source, never `INTERNAL_ADDR4`, unless something specifically
+configures that pool address as a local, preferred-source address
+first. Without it, the SPD "out" policy simply never matches: no
+`ACQUIRE`, no Quick Mode, and the packet falls straight through to the
+plain on-link route `resolve-gateway.sh` installed earlier for
+reverse-path-filter purposes -- which then fails as an ARP timeout for
+a host that was never really present on the WLAN segment. (This is
+exactly the shipped `roadwarrior/client/phase1-up.sh` sample's reason
+for bringing up an alias interface in its full-tunnel setup; an
+earlier revision of this split-tunnel sample skipped that step, which
+was the bug.)
+
+Fix (already applied in the current `phase1-up.sh`): configure
+`INTERNAL_ADDR4` as a real local address and steer the three routes to
+prefer it as source, *before* installing the SPD:
+```sh
+ip addr replace "${INTERNAL_ADDR4}/32" dev "$IFACE"
+ip route replace <net> dev "$IFACE" src "$INTERNAL_ADDR4"   # per network
+```
+`phase1-down.sh` removes the alias address again on teardown (the
+routes get overwritten by the next `phase1-up.sh` run regardless, so
+they're left as-is). Check `ip addr show dev <iface>` for the
+`/32 INTERNAL_ADDR4` and `ip route show <net>` for a `src` matching it
+to confirm.
