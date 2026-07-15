@@ -546,6 +546,21 @@ CERT_FRAMEWORK_TESTS = \
 	unit/cert-framework/test_ca_revoke_cert.sh \
 	unit/cert-framework/test_openssl_compat.sh
 
+# Test 22: IKE fragment reassembly regression (CVE-2016-10396 follow-up).
+#
+# Only meaningful when IKE fragmentation support is compiled in, so it is
+# guarded by the ENABLE_FRAG automake conditional (--enable-frag).  It links
+# ONLY isakmp_frag.o and provides its own stubs for the daemon symbols that
+# object references (plog, vmbuf, isakmp_send, set_isakmp_header1), so it does
+# not pull in the rest of racoon and must NOT use COMMON_LDADD (which would
+# collide with those stubs).
+if ENABLE_FRAG
+check_PROGRAMS += test_isakmp_frag
+test_isakmp_frag_SOURCES  = test_isakmp_frag.c
+test_isakmp_frag_LDADD    = $(top_builddir)/src/racoon/isakmp_frag.o
+test_isakmp_frag_LDFLAGS  = $(AM_LDFLAGS)
+endif
+
 # Run these tests with 'make check'
 TESTS = $(check_PROGRAMS) $(CERT_FRAMEWORK_TESTS)
 
