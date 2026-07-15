@@ -1380,6 +1380,8 @@ isakmp_cfg_rmstate(iph1)
 	if(iph1->mode_cfg->split_local != NULL)
 		splitnet_list_free(iph1->mode_cfg->split_local,
 			&iph1->mode_cfg->local_count);
+	if(iph1->mode_cfg->split_dns != NULL)
+		racoon_free(iph1->mode_cfg->split_dns);
 
 	xauth_rmstate(&state->xauth);
 
@@ -2119,6 +2121,23 @@ isakmp_cfg_setenv(iph1, envp, envc)
 		racoon_free(splitlist);
 	if (splitlist_cidr != addrlist)
 		racoon_free(splitlist_cidr);
+
+	/* Split DNS domains */
+	if (iph1->mode_cfg->flags & ISAKMP_CFG_GOT_SPLIT_DNS) {
+		if (script_env_append(envp, envc, "INTERNAL_SPLITDNS_DOMAINS",
+		    iph1->mode_cfg->split_dns) != 0) {
+			plog(LLV_ERROR, LOCATION, NULL,
+			    "Cannot set INTERNAL_SPLITDNS_DOMAINS\n");
+			return -1;
+		}
+	} else {
+		if (script_env_append(envp, envc, "INTERNAL_SPLITDNS_DOMAINS",
+		    "") != 0) {
+			plog(LLV_ERROR, LOCATION, NULL,
+			    "Cannot set INTERNAL_SPLITDNS_DOMAINS\n");
+			return -1;
+		}
+	}
 	
 	return 0;
 }
