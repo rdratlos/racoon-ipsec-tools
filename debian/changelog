@@ -1,3 +1,18 @@
+ipsec-tools (1:0.9.0.1) unstable; urgency=high
+
+  * New upstream release: security/availability hotfix.
+    racoon: fix the IKE phase 1 fragment reassembly regression inherited
+    from the CVE-2016-10396 patch. With ike_frag on/force, a legitimate
+    retransmission or reordering of the last fragment was misclassified
+    as a replay attack, stalling phase 1 until "phase1 negotiation failed
+    due to time up" (log: "Repeated last fragment index mismatch"). Ports
+    the corrected NetBSD reassembly logic (PR bin/53646); the
+    CVE-2016-10396 DoS protection is preserved and strengthened, and a
+    regression test is added.
+    GitHub: https://github.com/rdratlos/racoon-ipsec-tools/issues/76
+
+ -- Thomas Reim <reimth@etik.com>  Wed, 15 Jul 2026 16:14:18 +0000
+
 ipsec-tools (1:0.9.0) unstable; urgency=medium
 
   * New upstream release 0.9.0.

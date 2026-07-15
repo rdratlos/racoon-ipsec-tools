@@ -473,6 +473,9 @@ AS_IF([test "x$enable_frag" = "xyes"], [
 	AC_SUBST(FRAG_OBJS)
 	AC_DEFINE([ENABLE_FRAG], [], [IKE fragmentation support])
 ])
+dnl Expose --enable-frag to Automake so the fragment-reassembly regression
+dnl test (test/test_isakmp_frag) is only built when isakmp_frag.o exists.
+AM_CONDITIONAL([ENABLE_FRAG], [test "x$enable_frag" = "xyes"])
 
 AC_MSG_CHECKING(if --with-libradius option is specified)
 AC_ARG_WITH(libradius,

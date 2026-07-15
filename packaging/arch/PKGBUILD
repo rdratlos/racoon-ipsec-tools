@@ -1,6 +1,6 @@
 # Maintainer: Thomas Reim <reimth@etik.com>
 pkgname=ipsec-tools
-pkgver=0.9.0
+pkgver=0.9.0.1
 pkgrel=1
 pkgdesc="IKEv1 key exchange daemon (racoon) and IPsec utilities — community-maintained Linux continuation"
 arch=('x86_64' 'aarch64')
@@ -21,7 +21,7 @@ source=("$pkgname-$pkgver.tar.xz::https://github.com/rdratlos/racoon-ipsec-tools
         setkey.envfile
         ipsec-tools.sysusers
         ipsec-tools.tmpfiles)
-sha256sums=('a1cc3645829c50f57c3e7ca14302a5296f537af13185c4f42bfdd64e73f6471b'
+sha256sums=('5aca3c416b3b83f84e05e2770266ad2e50be4316671315900f8447f442f9721d'
             'd0bf7028281fa2949852872dd2962f31d9c47aaf450272b8833f9d0ed59a803e'
             '711e266296077ee169cb91a0cbc49e1b889155cdcbd7016d0c53aa5758448e69'
             '793e0c09e500853b9ed1667da2e7f7db28b00319653683672847e288df37e7f3'
@@ -56,7 +56,6 @@ build() {
 
 check() {
   cd "racoon-ipsec-tools"
-  export CFLAGS="$CFLAGS -Wno-old-style-definition"
   make check
 }
 
@@ -76,8 +75,8 @@ package() {
   rm -rf "$pkgdir/var/run"
 
   # config, ported from debian/ - see PACKAGING_NOTES.md
-  install -dm755 "$pkgdir/etc/racoon/certs" \
-                 "$pkgdir/etc/racoon/scripts" \
+  install -dm700 "$pkgdir/etc/racoon/certs"
+  install -dm755 "$pkgdir/etc/racoon/scripts" \
                  "$pkgdir/etc/ipsec-tools.d"
   install -Dm644 debian/racoon.conf "$pkgdir/etc/racoon/racoon.conf"
   install -Dm600 src/racoon/samples/psk.txt.sample "$pkgdir/etc/racoon/psk.txt"
