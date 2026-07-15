@@ -158,6 +158,30 @@ neither of which this sample can populate for you:
   boot. Keep both files `0600`, owned by `root` (the install steps
   below do this).
 
+### Getting a stable pool address without breaking iOS/macOS clients
+
+If this laptop should get a *fixed* `INTERNAL_ADDR4` (nicer for the
+best-guess ACQUIRE trap above, and predictable for firewall rules on
+the gateway) rather than whatever the local pool hands out, do **not**
+just flip the gateway's `mode_cfg { conf_source local; }` to
+`conf_source ldap;` and add `CiscoIPAddress`/`CiscoIPNetmask` to this
+laptop's LDAP entry alone -- `conf_source ldap` scopes purely by XAuth
+username by default, so *every* device authenticating with that same
+login (e.g. a phone sharing the person's account) would collide on the
+identical fixed address the moment two sessions were open at once.
+
+This project's `isakmp_xauth.c`/`isakmp_cfg.c` (as of this branch) adds
+an `attr_device` directive to `ldapcfg` for exactly this: it scopes the
+`attr_addr`/`attr_mask` lookup to the *combination* of XAuth username
+and the peer's certificate identity, so one login can be shared across
+several devices while each still gets its own fixed address. Devices
+without a matching (user, device) entry -- e.g. iOS/macOS clients never
+explicitly enrolled -- transparently keep using the local pool, no
+special-casing needed. See `racoon.conf(5)` (`attr_device`) and
+`docs/admin-guide/racoon-admin-guide.html` section 6.2/6.5 on the
+gateway side; nothing in this client-side sample needs to change either
+way, since it just uses whatever `INTERNAL_ADDR4` mode_cfg hands back.
+
 ## Files
 
 | File | Installed as | Purpose |

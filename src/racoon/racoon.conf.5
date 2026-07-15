@@ -1401,6 +1401,33 @@ The default value is
 The attribute used to specify group membership in an ldap directory.
 The default value is
 .Ic member .
+.It Ic attr_device Ar attribute name ;
+The attribute used to scope the
+.Ic attr_addr / attr_mask
+lookup to a specific device identity, in addition to the XAuth username.
+When set, the ldap search filter becomes an AND of
+.Ic attr_user
+(the XAuth login) and this attribute, matched against the connecting
+peer's Phase 1 identity string (as produced by
+.Ic ipsecdoi_id2str ,
+i.e. the certificate Subject DN for
+.Ic asn1dn
+identities).
+This allows a single XAuth login to be shared across several devices
+while each device still receives its own fixed mode_cfg address,
+instead of every device racing for the address stored against one
+shared ldap entry.
+There is no default value: if
+.Ic attr_device
+is not configured, lookups are scoped purely by username, exactly as
+before this directive existed.
+Peers with no matching combined
+.Pq Ic attr_user , Ic attr_device
+ldap entry -- e.g. devices never explicitly enrolled for a fixed
+address -- simply get no address from ldap and fall back to the local
+pool, the same as any other user for whom
+.Ic attr_addr
+is unset.
 .El
 .El
 .Ss Radius configuration settings

@@ -272,7 +272,7 @@ static int process_rmconf()
 %token LISTEN X_ISAKMP X_ISAKMP_NATT X_ADMIN STRICT_ADDRESS ADMINSOCK DISABLED
 	/* ldap config */
 %token LDAPCFG LDAP_URI LDAP_HOST LDAP_PORT LDAP_PVER LDAP_DEBUG LDAP_TIMEOUT LDAP_BASE LDAP_BIND_DN LDAP_BIND_PW LDAP_SUBTREE
-%token LDAP_ATTR_USER LDAP_ATTR_ADDR LDAP_ATTR_MASK LDAP_ATTR_GROUP LDAP_ATTR_MEMBER
+%token LDAP_ATTR_USER LDAP_ATTR_ADDR LDAP_ATTR_MASK LDAP_ATTR_GROUP LDAP_ATTR_MEMBER LDAP_ATTR_DEVICE
 	/* radius config */
 %token RADCFG RAD_AUTH RAD_ACCT RAD_TIMEOUT RAD_RETRIES
 	/* modecfg */
@@ -842,6 +842,17 @@ ldapcfg_stmt
 			if (xauth_ldap_config.attr_member != NULL)
 				vfree(xauth_ldap_config.attr_member);
 			xauth_ldap_config.attr_member = vdup($2);
+#endif
+#endif
+		}
+		EOS
+	|	LDAP_ATTR_DEVICE QUOTEDSTRING
+		{
+#ifdef ENABLE_HYBRID
+#ifdef HAVE_LIBLDAP
+			if (xauth_ldap_config.attr_device != NULL)
+				vfree(xauth_ldap_config.attr_device);
+			xauth_ldap_config.attr_device = vdup($2);
 #endif
 #endif
 		}

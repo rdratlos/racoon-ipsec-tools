@@ -1850,6 +1850,7 @@ HDR*, HASH(3)                                →</code></pre>
         <tr><td class="param-name">attr_mask</td><td>Attribute holding the per-user netmask.</td></tr>
         <tr><td class="param-name">attr_group</td><td>Attribute used to identify the group name in the directory. Default: <code>cn</code>.</td></tr>
         <tr><td class="param-name">attr_member</td><td>Attribute used for group membership checks (e.g. <code>uniqueMember</code>, or <code>member</code> for AD).</td></tr>
+        <tr><td class="param-name">attr_device</td><td>Optional. Scopes the <code>attr_addr</code>/<code>attr_mask</code> lookup to a specific device identity (the peer's certificate Subject DN for <code>asn1dn</code> identities) in addition to <code>attr_user</code>, so one XAuth login shared across several devices can still give each device its own fixed address. Unset by default: lookups stay scoped by username only. A peer without a matching (user, device) entry simply falls back to the local pool, same as any user without <code>attr_addr</code> set.</td></tr>
       </tbody>
     </table>
 
@@ -1950,6 +1951,17 @@ extensionAttribute2: 255.255.255.0</code></pre>
       and assigns the specified address/netmask to the connecting client instead
       of allocating from the local pool.
     </p>
+    <div class="note">
+      <strong>One login, several devices:</strong> a plain <code>attr_user</code>-only
+      lookup gives every device authenticating with the same XAuth login the
+      <em>same</em> fixed address — fine for a single device per person, but two
+      devices connecting concurrently with that login would collide. Set
+      <code>attr_device</code> to also scope the lookup by the peer's certificate
+      identity, and give each device its own (user, device) entry in the
+      directory. Devices without such an entry (e.g. phones/tablets left on the
+      shared local pool on purpose) are unaffected and keep using
+      <code>conf_source local</code> address assignment.
+    </div>
 
     <h3 id="ldap-troubleshoot">6.6 Troubleshooting LDAP</h3>
     <table>

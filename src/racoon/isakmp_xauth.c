@@ -827,6 +827,11 @@ xauth_ldap_init_conf(void)
 	xauth_ldap_config.attr_mask = NULL;
 	xauth_ldap_config.attr_group = NULL;
 	xauth_ldap_config.attr_member = NULL;
+	/* attr_device has no compiled-in default: it stays NULL unless
+	 * explicitly configured, which is what keeps device-scoped
+	 * lookups opt-in and every existing deployment's behavior
+	 * unchanged. See xauth_login_ldap(). */
+	xauth_ldap_config.attr_device = NULL;
 
 	/* set default host */
 	tmplen = strlen(LDAP_DFLT_HOST);
@@ -878,6 +883,59 @@ out:
 	return error;
 }
 
+/*
+ * Escape a string for safe inclusion as an LDAP filter value (RFC 4515):
+ * '*', '(', ')' and '\' must not appear literally. Used both for the
+ * XAuth username and, when attr_device is configured, for the peer's
+ * certificate identity -- which routinely contains parentheses in
+ * practice (e.g. an "OU=(c) 2025 ..." RDN), so this is a correctness
+ * requirement here, not just hardening.
+ */
+static char *
+xauth_ldap_escape_filter(str)
+	const char *str;
+{
+	const char *p;
+	char *out, *q;
+	size_t len = 0;
+
+	for (p = str; *p != '\0'; p++) {
+		switch (*p) {
+		case '*':
+		case '(':
+		case ')':
+		case '\\':
+			len += 3;
+			break;
+		default:
+			len += 1;
+			break;
+		}
+	}
+
+	out = racoon_malloc(len + 1);
+	if (out == NULL)
+		return NULL;
+
+	for (p = str, q = out; *p != '\0'; p++) {
+		switch (*p) {
+		case '*':
+			memcpy(q, "\\2a", 3); q += 3; break;
+		case '(':
+			memcpy(q, "\\28", 3); q += 3; break;
+		case ')':
+			memcpy(q, "\\29", 3); q += 3; break;
+		case '\\':
+			memcpy(q, "\\5c", 3); q += 3; break;
+		default:
+			*q++ = *p; break;
+		}
+	}
+	*q = '\0';
+
+	return out;
+}
+
 int
 xauth_login_ldap(iph1, usr, pwd)
 	struct ph1handle *iph1;
@@ -897,6 +955,9 @@ xauth_login_ldap(iph1, usr, pwd)
 	char *atlist[3];
 	char *basedn = NULL;
 	char *userdn = NULL;
+	char *user_esc = NULL;
+	char *devidstr = NULL;
+	char *devesc = NULL;
 	int tmplen = 0;
 	int ecount = 0;
 	int scope = LDAP_SCOPE_ONE;
@@ -998,19 +1059,82 @@ xauth_login_ldap(iph1, usr, pwd)
 		goto ldap_end;
 	}
 
-	/* build an ldap user search filter */
-	tmplen = strlen(xauth_ldap_config.attr_user->v);
-	tmplen += 1;
-	tmplen += strlen(usr);
-	tmplen += 1;
-	filter = racoon_malloc(tmplen);
-	if (filter == NULL) {
+	/*
+	 * Build an ldap user search filter -- optionally scoped to a
+	 * specific device identity (attr_device), so a single XAuth
+	 * login can be shared across several devices (e.g. a person's
+	 * phone and their notebook) while each still gets its own fixed
+	 * mode_cfg address, instead of every device racing for the same
+	 * LDAP-assigned address. attr_device unset (the default): this
+	 * behaves exactly as before, scoped purely by username.
+	 *
+	 * When attr_device *is* configured but this particular peer has
+	 * no matching (user, device) LDAP entry -- e.g. an iOS/macOS
+	 * client whose certificate was never explicitly enrolled for a
+	 * fixed address -- the search below simply returns no results,
+	 * ISAKMP_CFG_ADDR4_EXTERN never gets set, and isakmp_cfg.c's
+	 * existing "No IP from LDAP, using local pool" fallback applies
+	 * automatically. No separate code path needed for that case.
+	 */
+	user_esc = xauth_ldap_escape_filter(usr);
+	if (user_esc == NULL) {
 		plog(LLV_ERROR, LOCATION, NULL,
-			"unable to alloc ldap search filter buffer\n");
+			"unable to alloc ldap filter escape buffer\n");
 		goto ldap_end;
 	}
-	sprintf(filter, "%s=%s",
-		xauth_ldap_config.attr_user->v, usr);
+
+	if (xauth_ldap_config.attr_device != NULL && iph1->id_p != NULL) {
+		devidstr = ipsecdoi_id2str(iph1->id_p);
+		if (devidstr == NULL) {
+			plog(LLV_ERROR, LOCATION, NULL,
+				"unable to extract peer identity for ldap device filter\n");
+			goto ldap_end;
+		}
+		devesc = xauth_ldap_escape_filter(devidstr);
+		if (devesc == NULL) {
+			plog(LLV_ERROR, LOCATION, NULL,
+				"unable to alloc ldap filter escape buffer\n");
+			goto ldap_end;
+		}
+
+		tmplen = strlen("(&(=)(=))") + 1;
+		tmplen += strlen(xauth_ldap_config.attr_user->v);
+		tmplen += strlen(user_esc);
+		tmplen += strlen(xauth_ldap_config.attr_device->v);
+		tmplen += strlen(devesc);
+		filter = racoon_malloc(tmplen);
+		if (filter == NULL) {
+			plog(LLV_ERROR, LOCATION, NULL,
+				"unable to alloc ldap search filter buffer\n");
+			goto ldap_end;
+		}
+		sprintf(filter, "(&(%s=%s)(%s=%s))",
+			xauth_ldap_config.attr_user->v, user_esc,
+			xauth_ldap_config.attr_device->v, devesc);
+
+		plog(LLV_DEBUG, LOCATION, NULL,
+			"ldap device-scoped search filter for peer identity \'%s\'\n",
+			devidstr);
+	} else {
+		if (xauth_ldap_config.attr_device != NULL) {
+			plog(LLV_INFO, LOCATION, NULL,
+				"attr_device configured but no peer identity available -- "
+				"falling back to username-only ldap lookup\n");
+		}
+
+		tmplen = strlen(xauth_ldap_config.attr_user->v);
+		tmplen += 1;
+		tmplen += strlen(user_esc);
+		tmplen += 1;
+		filter = racoon_malloc(tmplen);
+		if (filter == NULL) {
+			plog(LLV_ERROR, LOCATION, NULL,
+				"unable to alloc ldap search filter buffer\n");
+			goto ldap_end;
+		}
+		sprintf(filter, "%s=%s",
+			xauth_ldap_config.attr_user->v, user_esc);
+	}
 
 	/* build our return attribute list */
 	tmplen = strlen(xauth_ldap_config.attr_addr->v) + 1;
@@ -1141,6 +1265,12 @@ ldap_end:
 		racoon_free(atlist[1]);
 	if (filter != NULL)
 		racoon_free(filter);
+	if (user_esc != NULL)
+		racoon_free(user_esc);
+	if (devidstr != NULL)
+		racoon_free(devidstr);
+	if (devesc != NULL)
+		racoon_free(devesc);
 	if (lr != NULL)
 		ldap_msgfree(lr);
 	if (init != NULL)
