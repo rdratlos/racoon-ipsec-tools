@@ -84,7 +84,8 @@ check_PROGRAMS = \
 	test_strlcpy \
 	test_strnames \
 	test_rsalist \
-	test_plog
+	test_plog \
+	test_splitdns
 
 # Test 1: DH MODP Groups
 test_dh_modp_groups_SOURCES  = test_dh_modp_groups.c
@@ -365,7 +366,13 @@ test_plog_LDADD    = $(top_builddir)/src/racoon/plog.o \
 	$(top_builddir)/src/racoon/misc_noplog.o
 test_plog_LDFLAGS  = $(AM_LDFLAGS)
 
-# Test 18: NAT-D CRYPTO_memcmp regression (issue #34) — natt_compare_addr_hash()
+# Test 18: split DNS (UNITY_SPLITDNS_NAME attribute, ISAKMP_CFG_GOT_SPLIT_DNS
+# flag, INTERNAL_SPLITDNS_DOMAINS env var, resolver integration script logic)
+test_splitdns_SOURCES  = test_splitdns.c
+test_splitdns_LDADD    = $(COMMON_LDADD)
+test_splitdns_LDFLAGS  = $(AM_LDFLAGS)
+
+# Test 19: NAT-D CRYPTO_memcmp regression (issue #34) — natt_compare_addr_hash()
 # in nattraversal.c is the one memcmp()->CRYPTO_memcmp() call site in this
 # hardening pass cheap enough to drive through a real call rather than a
 # synthetic buffer comparison.  Built only with --enable-natt, since
