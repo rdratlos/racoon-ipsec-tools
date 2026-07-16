@@ -18,12 +18,14 @@ export PATH
 
 set -e
 
+SCRIPT_DIR=$(dirname "$0")
+. "${SCRIPT_DIR}/phase1-common.sh"
+
 # --------------------------------------------------------------------------
-# Logging — syslog (logger) + stderr
+# Logging — syslog (logger) only.
 # --------------------------------------------------------------------------
 log() {
 	logger -t racoon-phase1-down "$*"
-	echo "$(date '+%Y-%m-%d %H:%M:%S') [phase1-down] $*" >&2
 }
 
 # --------------------------------------------------------------------------
@@ -74,40 +76,22 @@ fi
 for net in $NETWORKS; do
 	ip route del "$net" dev "$IFACE" src "$INTERNAL_ADDR4" 2>/dev/null || true
 done
+
+# Also remove DNS server /32 routes that were installed in up.sh.
+DNS_SERVERS="${INTERNAL_DNS4_LIST:-$INTERNAL_DNS4}"
+if [ -n "$DNS_SERVERS" ]; then
+	for dns in $DNS_SERVERS; do
+		ip route del "${dns}/32" dev "$IFACE" src "$INTERNAL_ADDR4" 2>/dev/null || true
+	done
+	log "DNS server /32 routes removed: $DNS_SERVERS"
+fi
+
 ip addr del "${INTERNAL_ADDR4}/32" dev "$IFACE" 2>/dev/null || true
 log "Removed routes for: $NETWORKS; removed /32 address from $IFACE"
 
 # --------------------------------------------------------------------------
-# Clean up DNS — mirror the resolver detection from phase1-up.sh.
+# Clean up DNS — resolver detection via shared helper (same as up.sh).
 # --------------------------------------------------------------------------
-detect_resolver() {
-	if command -v resolvectl >/dev/null 2>&1 || command -v resctl >/dev/null 2>&1; then
-		if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
-			echo "systemd-resolved"
-			return
-		fi
-	fi
-	if command -v nmcli >/dev/null 2>&1; then
-		if systemctl is-active --quiet NetworkManager 2>/dev/null; then
-			echo "networkmanager"
-			return
-		fi
-	fi
-	if command -v resolvconf >/dev/null 2>&1; then
-		if [ -e /run/resolvconf ]; then
-			echo "resolvconf"
-			return
-		fi
-	fi
-	if command -v dnsmasq >/dev/null 2>&1; then
-		if pgrep -x dnsmasq >/dev/null 2>&1; then
-			echo "dnsmasq"
-			return
-		fi
-	fi
-	echo "fallback"
-}
-
 RESOLVER=$(detect_resolver)
 log "Detected DNS resolver: ${RESOLVER}"
 
@@ -123,12 +107,18 @@ cleanup_systemd_resolved_dns() {
 }
 
 cleanup_networkmanager_dns() {
-	local vpn_conn="racoon-vpn"
-	if nmcli conn show "$vpn_conn" >/dev/null 2>&1; then
-		nmcli conn down "$vpn_conn" >/dev/null 2>&1 || true
-		nmcli conn delete "$vpn_conn" >/dev/null 2>&1 || true
-	fi
-	log "NetworkManager VPN connection removed"
+	local conn_name vpn_if
+	conn_name=$(racoon_vpn_connname)
+	vpn_if=$(racoon_vpn0_ifname)
+
+	# Clean teardown: de-activate, then delete the connection profile.
+	# The dummy interface is released automatically when the last
+	# connection referencing it is deleted.
+	nmcli conn down "$conn_name" >/dev/null 2>&1 || true
+	nmcli conn delete "$conn_name" >/dev/null 2>&1 || true
+	# Force-remove the dummy if NM left it behind.
+	ip link del "$vpn_if" >/dev/null 2>&1 || true
+	log "NetworkManager VPN dummy $vpn_if removed"
 }
 
 cleanup_resolvconf_dns() {

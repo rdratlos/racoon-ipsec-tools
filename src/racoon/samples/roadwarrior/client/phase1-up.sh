@@ -20,12 +20,14 @@ export PATH
 
 set -e
 
+SCRIPT_DIR=$(dirname "$0")
+. "${SCRIPT_DIR}/phase1-common.sh"
+
 # --------------------------------------------------------------------------
-# Logging — syslog (logger) + stderr for easy debugging
+# Logging — syslog (logger) only.
 # --------------------------------------------------------------------------
 log() {
 	logger -t racoon-phase1-up "$*"
-	echo "$(date '+%Y-%m-%d %H:%M:%S') [phase1-up] $*" >&2
 }
 
 # --------------------------------------------------------------------------
@@ -128,34 +130,6 @@ log "SPD installed ($NETWORKS) via tunnel ${LOCAL}-${REMOTE} (see $SPD_CONF)"
 # DNS — detect the system's resolver and configure nameservers +
 # split-DNS search domains as instructed by the VPN gateway.
 # --------------------------------------------------------------------------
-detect_resolver() {
-	if command -v resolvectl >/dev/null 2>&1 || command -v resctl >/dev/null 2>&1; then
-		if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
-			echo "systemd-resolved"
-			return
-		fi
-	fi
-	if command -v nmcli >/dev/null 2>&1; then
-		if systemctl is-active --quiet NetworkManager 2>/dev/null; then
-			echo "networkmanager"
-			return
-		fi
-	fi
-	if command -v resolvconf >/dev/null 2>&1; then
-		if [ -e /run/resolvconf ]; then
-			echo "resolvconf"
-			return
-		fi
-	fi
-	if command -v dnsmasq >/dev/null 2>&1; then
-		if pgrep -x dnsmasq >/dev/null 2>&1; then
-			echo "dnsmasq"
-			return
-		fi
-	fi
-	echo "fallback"
-}
-
 RESOLVER=$(detect_resolver)
 log "Detected DNS resolver: ${RESOLVER}"
 
@@ -171,6 +145,19 @@ if [ -z "$SEARCH_DOMAINS" ] && [ -n "${DEFAULT_DOMAIN:-}" ]; then
 	SEARCH_DOMAINS="$DEFAULT_DOMAIN"
 fi
 
+# --------------------------------------------------------------------------
+# Always install /32 routes to DNS servers so they are reachable regardless
+# of SPLIT_INCLUDE_CIDR.  The gateway may be authoritative for the internal
+# DNS but its address may not be in any split route.  Without the /32 routes,
+# DNS queries would follow the default route and bypass the tunnel.
+# --------------------------------------------------------------------------
+if [ -n "$DNS_SERVERS" ]; then
+	for dns in $DNS_SERVERS; do
+		ip route replace "${dns}/32" dev "$IFACE" src "$INTERNAL_ADDR4" 2>/dev/null || true
+	done
+	log "DNS server /32 routes installed: $DNS_SERVERS"
+fi
+
 # ---- resolver-specific setup ----
 setup_systemd_resolved_dns() {
 	local ifname="$1" dns_list="$2" domains="$3"
@@ -179,36 +166,87 @@ setup_systemd_resolved_dns() {
 	command -v resolvectl >/dev/null 2>&1 || rescmd="resctl"
 
 	if [ -n "$dns_list" ]; then
-		local dns_csv; dns_csv=$(echo "$dns_list" | tr ' ' ',')
+		local dns_csv
+		dns_csv=$(echo "$dns_list" | tr ' ' ',')
 		"$rescmd" dns "${ifname}" $dns_csv 2>/dev/null || \
 			log "resolvectl dns failed for ${ifname}"
 	fi
 	if [ -n "$domains" ]; then
-		local d; d=$(echo "$domains" | tr ',' ' ')
-		"$rescmd" domain "${ifname}" $d 2>/dev/null || \
-			log "resolvectl domain failed for ${ifname}"
-		# route-only: only resolve for these domains, not as default DNS
+		# Prefix each domain with ~ so it is a routing domain
+		# (only used for matching, not as a default search suffix).
+		local dom
+		for dom in $(echo "$domains" | tr ',' ' '); do
+			"$rescmd" domain "${ifname}" "~${dom}" 2>/dev/null || \
+				log "resolvectl domain failed for ~${dom}"
+		done
 		"$rescmd" default-route "${ifname}" false 2>/dev/null || true
 	fi
 }
 
 setup_networkmanager_dns() {
-	local conn="$1" dns_list="$2" domains="$3"
+	local dns_list="$1" domains="$2"
 	[ -z "$dns_list" ] && [ -z "$domains" ] && return 0
-	local vpn_conn="racoon-vpn"
-	if ! nmcli conn show "$vpn_conn" >/dev/null 2>&1; then
-		nmcli conn add type dummy ifname vpn0 con-name "$vpn_conn" >/dev/null 2>&1 || {
-			log "Cannot create NM VPN connection; skipping NM DNS"
+
+	# Validate that NM has a DNS backend capable of split-DNS.
+	if ! validate_nm_dns_backend; then
+		log "WARNING: NM dns=default cannot do split-DNS; falling back to resolv.conf"
+		setup_fallback_dns "$dns_list" "$domains"
+		return
+	fi
+
+	local conn_name vpn_if
+	conn_name=$(racoon_vpn_connname)
+	vpn_if=$(racoon_vpn0_ifname)
+
+	# Build ~-prefixed search domains for nmcli conn add (space-separated).
+	# ~ prefix marks them as routing domains only — no default search suffix.
+	local dom search_args=""
+	for dom in $(echo "$domains" | tr ',' ' '); do
+		search_args="${search_args:+${search_args} }~${dom}"
+	done
+
+	# Remove any stale connection from a previous run.
+	nmcli conn delete "$conn_name" >/dev/null 2>&1 || true
+
+	# Create the dummy connection with all properties in a single command.
+	# This avoids "reject modify while active" races because we set everything
+	# before the first activation.  ipv4.method=manual gives us full control
+	# over DNS without NM interfering.  ipv4.never-default ensures we never
+	# get a default route from this dummy.  autoconnect=no keeps it inert.
+	if [ -n "$search_args" ]; then
+		nmcli conn add type dummy ifname "$vpn_if" con-name "$conn_name" \
+			ipv4.method manual \
+			ipv4.addresses 169.254.0.1/32 \
+			ipv4.dns $dns_list \
+			ipv4.dns-search $search_args \
+			ipv4.ignore-auto-dns yes \
+			ipv4.ignore-auto-router yes \
+			ipv4.never-default yes \
+			autoconnect no \
+			>/dev/null 2>&1 || {
+			log "Cannot create NM VPN connection; falling back to resolv.conf"
+			setup_fallback_dns "$dns_list" "$domains"
+			return
+		}
+	else
+		nmcli conn add type dummy ifname "$vpn_if" con-name "$conn_name" \
+			ipv4.method manual \
+			ipv4.addresses 169.254.0.1/32 \
+			ipv4.dns $dns_list \
+			ipv4.ignore-auto-dns yes \
+			ipv4.ignore-auto-router yes \
+			ipv4.never-default yes \
+			autoconnect no \
+			>/dev/null 2>&1 || {
+			log "Cannot create NM VPN connection; falling back to resolv.conf"
+			setup_fallback_dns "$dns_list" "$domains"
 			return
 		}
 	fi
-	if [ -n "$dns_list" ]; then
-		nmcli conn modify "$vpn_conn" ipv4.dns "$(echo "$dns_list" | tr ' ' ',')" >/dev/null 2>&1 || true
-	fi
-	if [ -n "$domains" ]; then
-		nmcli conn modify "$vpn_conn" ipv4.dns-search "$(echo "$domains" | tr ',' ';')" >/dev/null 2>&1 || true
-	fi
-	nmcli conn up "$vpn_conn" >/dev/null 2>&1 || true
+
+	# Activate in one shot — no need for subsequent modify.
+	nmcli conn up "$conn_name" >/dev/null 2>&1 || true
+	log "NM DNS configured via dummy $vpn_if (conn=$conn_name): dns=$dns_list search=$search_args"
 }
 
 setup_resolvconf_dns() {
@@ -249,7 +287,7 @@ case "$RESOLVER" in
 		setup_systemd_resolved_dns "${IFACE}" "$DNS_SERVERS" "$SEARCH_DOMAINS"
 		;;
 	networkmanager)
-		setup_networkmanager_dns "racoon-vpn" "$DNS_SERVERS" "$SEARCH_DOMAINS"
+		setup_networkmanager_dns "$DNS_SERVERS" "$SEARCH_DOMAINS"
 		;;
 	resolvconf)
 		setup_resolvconf_dns "$DNS_SERVERS" "$SEARCH_DOMAINS" "${IFACE}"
