@@ -210,7 +210,10 @@ setup_networkmanager_dns() {
 	mkdir -p /run/racoon
 	nmcli -t -f ipv4.dns,ipv4.dns-search conn show "$active_conn" \
 	    2>/dev/null > /run/racoon/nm-dns-backup.txt || true
-	# Replace DNS settings on the active connection.
+	# Replace DNS settings on the active connection.  nmcli conn modify
+	# appends to array properties, so clear first to get a clean replace.
+	nmcli conn modify "$active_conn" ipv4.dns "" >/dev/null 2>&1 || true
+	nmcli conn modify "$active_conn" ipv4.dns-search "" >/dev/null 2>&1 || true
 	if [ -n "$dns_list" ]; then
 		nmcli conn modify "$active_conn" ipv4.dns "$(echo "$dns_list" | tr ' ' ',')" >/dev/null 2>&1 || true
 	fi
