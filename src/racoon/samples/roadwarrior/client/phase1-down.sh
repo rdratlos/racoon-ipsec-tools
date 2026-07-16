@@ -2,8 +2,12 @@
 #
 # phase1-down.sh - racoon phase1-down script hook
 #
-# Modern DNS/route cleanup with resolver auto-detection.
-# Mirrors the resolver used by phase1-up.sh.
+# Called by racoon when Phase 1 tears down (timeout, error, or explicit
+# disconnection).  Reverses everything phase1-up.sh installed:
+#   1. Flushes SPD policies.
+#   2. Removes split routes for internal networks.
+#   3. Removes the /32 auxiliary address from the real interface.
+#   4. Cleans up DNS configuration (resolvers, split-DNS search domains).
 #
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
@@ -14,20 +18,68 @@ export PATH
 
 set -e
 
-# ---- Logging helper ----
+# --------------------------------------------------------------------------
+# Logging — syslog (logger) + stderr
+# --------------------------------------------------------------------------
 log() {
+	logger -t racoon-phase1-down "$*"
 	echo "$(date '+%Y-%m-%d %H:%M:%S') [phase1-down] $*" >&2
 }
 
-# ---- Guard ----
-if [ -z "$INTERNAL_ADDR4" ] || [ -z "$INTERNAL_MASK4" ]; then
-	log "No internal address configuration; skipping cleanup."
+# --------------------------------------------------------------------------
+# Guard — skip if we never had a Mode Config address (same guard as up.sh).
+# --------------------------------------------------------------------------
+if [ -z "${INTERNAL_ADDR4:-}" ]; then
+	log "No internal address; skipping teardown"
 	exit 0
 fi
 
-log "Tearing down VPN: addr=${INTERNAL_ADDR4}/${INTERNAL_CIDR4}"
+log "phase1 down: internal=${INTERNAL_ADDR4} remote=${REMOTE_ADDR:-?}"
 
-# ---- Detect resolver ----
+# --------------------------------------------------------------------------
+# Determine the outbound interface (must match what up.sh used).
+# --------------------------------------------------------------------------
+IFACE=""
+if [ -n "${REMOTE_ADDR:-}" ]; then
+	IFACE=$(ip -4 route get "$REMOTE_ADDR" 2>/dev/null \
+	    | awk '{for (i = 1; i <= NF; i++) if ($i == "dev") print $(i + 1)}')
+fi
+if [ -z "$IFACE" ]; then
+	IFACE=$(ip -4 route show default 2>/dev/null | awk '{print $5; exit}')
+fi
+IFACE="${IFACE:-eth0}"
+
+# --------------------------------------------------------------------------
+# Collect the internal networks (must match up.sh for route cleanup).
+# --------------------------------------------------------------------------
+NETWORKS="${SPLIT_INCLUDE_CIDR:-}"
+if [ -z "$NETWORKS" ]; then
+	NETWORKS="${SPLIT_INCLUDE:-}"
+fi
+if [ -z "$NETWORKS" ]; then
+	NETWORKS="192.168.66.0/24 192.168.83.0/24 10.66.0.0/24"
+fi
+
+# --------------------------------------------------------------------------
+# Flush SPD — remove all IPsec policies to prevent blackholing traffic.
+# --------------------------------------------------------------------------
+if [ -n "${REMOTE_ADDR:-}" ] && [ -n "${LOCAL_ADDR:-}" ]; then
+	setkey -F 2>/dev/null || true
+	log "SPD flushed"
+fi
+
+# --------------------------------------------------------------------------
+# Remove split routes and the /32 auxiliary address.
+# --------------------------------------------------------------------------
+for net in $NETWORKS; do
+	ip route del "$net" dev "$IFACE" src "$INTERNAL_ADDR4" 2>/dev/null || true
+done
+ip addr del "${INTERNAL_ADDR4}/32" dev "$IFACE" 2>/dev/null || true
+log "Removed routes for: $NETWORKS; removed /32 address from $IFACE"
+
+# --------------------------------------------------------------------------
+# Clean up DNS — mirror the resolver detection from phase1-up.sh.
+# --------------------------------------------------------------------------
 detect_resolver() {
 	if command -v resolvectl >/dev/null 2>&1 || command -v resctl >/dev/null 2>&1; then
 		if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
@@ -59,65 +111,15 @@ detect_resolver() {
 RESOLVER=$(detect_resolver)
 log "Detected DNS resolver: ${RESOLVER}"
 
-# ---- Determine tunnel interface ----
-TUNNEL_IF=""
-if [ -d /sys/class/net/tun ]; then
-	for iface in /sys/class/net/*; do
-		ifname=$(basename "$iface")
-		case "$ifname" in
-		lo|sit*) continue ;;
-		esac
-		if [ -d "$iface/tun" ] || [ -L "$iface" ]; then
-			TUNNEL_IF="$ifname"
-			break
-		fi
-	done
-fi
-
-if [ -z "$TUNNEL_IF" ]; then
-	PRIMARY_IF=$(ip -4 route show default 2>/dev/null | awk '{print $5; exit}')
-	TUNNEL_IF="${PRIMARY_IF:-eth0}"
-fi
-
-# ---- Remove SPD rules ----
-if [ -n "$REMOTE_ADDR" ] && [ -n "$LOCAL_ADDR" ]; then
-	LOCAL="${LOCAL_ADDR}"
-	REMOTE="${REMOTE_ADDR}"
-	if [ "x${LOCAL_PORT}" != "x500" ]; then
-		LOCAL="${LOCAL}[${LOCAL_PORT}]"
-		REMOTE="${REMOTE}[${REMOTE_PORT}]"
-	fi
-
-	setkey -F 2>/dev/null || true
-
-	echo "
-spddelete ${INTERNAL_ADDR4}/32[any] 0.0.0.0/0[any] any \
-	-P out ipsec esp/tunnel/${LOCAL}-${REMOTE}/require;
-spddelete 0.0.0.0/0[any] ${INTERNAL_ADDR4}/32[any] any \
-	-P in ipsec esp/tunnel/${REMOTE}-${LOCAL}/require;
-" | setkey -f - 2>/dev/null || log "Failed to remove SPD rules"
-fi
-
-# ---- Remove IP address ----
-ip addr del "${INTERNAL_ADDR4}/${INTERNAL_CIDR4}" dev "${TUNNEL_IF}" 2>/dev/null || true
-log "Removed ${INTERNAL_ADDR4}/${INTERNAL_CIDR4} from ${TUNNEL_IF}"
-
-# ---- Remove route to remote peer ----
-DEFAULT_GW=$(ip -4 route show default 2>/dev/null | awk '{print $3; exit}')
-if [ -n "$DEFAULT_GW" ] && [ -n "$REMOTE_ADDR" ]; then
-	ip route del "${REMOTE_ADDR}/32" via "${DEFAULT_GW}" 2>/dev/null || true
-fi
-
-# ---- Clean up DNS ----
 cleanup_systemd_resolved_dns() {
 	local ifname="$1"
 	local rescmd="resolvectl"
 	command -v resolvectl >/dev/null 2>&1 || rescmd="resctl"
-
 	"$rescmd" revert "${ifname}" 2>/dev/null || {
 		"$rescmd" dns "${ifname}" "" 2>/dev/null || true
 		"$rescmd" domain "${ifname}" "~." 2>/dev/null || true
 	}
+	log "systemd-resolved DNS reverted for ${ifname}"
 }
 
 cleanup_networkmanager_dns() {
@@ -126,38 +128,47 @@ cleanup_networkmanager_dns() {
 		nmcli conn down "$vpn_conn" >/dev/null 2>&1 || true
 		nmcli conn delete "$vpn_conn" >/dev/null 2>&1 || true
 	fi
+	log "NetworkManager VPN connection removed"
 }
 
 cleanup_resolvconf_dns() {
-	resolvconf -d "${TUNNEL_IF}.racoon" 2>/dev/null || true
+	resolvconf -d "${IFACE}.racoon" 2>/dev/null || true
+	log "resolvconf entry removed"
+}
+
+cleanup_dnsmasq_dns() {
+	rm -f /etc/dnsmasq.d/racoon-vpn
+	killall -HUP dnsmasq 2>/dev/null || true
+	log "dnsmasq racoon-vpn config removed"
 }
 
 cleanup_fallback_dns() {
-	# Nothing to clean up for fallback (no persistent state was modified)
-	:
+	if [ -f /etc/resolv.conf.racoon.bak ]; then
+		cp /etc/resolv.conf.racoon.bak /etc/resolv.conf
+		rm -f /etc/resolv.conf.racoon.bak
+		log "/etc/resolv.conf restored from backup"
+	else
+		log "No resolv.conf backup to restore"
+	fi
 }
 
-case "${RESOLVER}" in
-systemd-resolved)
-	cleanup_systemd_resolved_dns "${TUNNEL_IF}"
-	log "Cleaned up systemd-resolved DNS for ${TUNNEL_IF}"
-	;;
-networkmanager)
-	cleanup_networkmanager_dns
-	log "Cleaned up NetworkManager DNS"
-	;;
-resolvconf)
-	cleanup_resolvconf_dns
-	log "Cleaned up resolvconf DNS"
-	;;
-dnsmasq)
-	cleanup_fallback_dns
-	log "No persistent DNS state to clean for dnsmasq"
-	;;
-fallback)
-	log "No persistent DNS state to clean"
-	;;
+case "$RESOLVER" in
+	systemd-resolved)
+		cleanup_systemd_resolved_dns "${IFACE}"
+		;;
+	networkmanager)
+		cleanup_networkmanager_dns
+		;;
+	resolvconf)
+		cleanup_resolvconf_dns
+		;;
+	dnsmasq)
+		cleanup_dnsmasq_dns
+		;;
+	fallback)
+		cleanup_fallback_dns
+		;;
 esac
 
-log "VPN teardown complete."
+log "VPN teardown complete"
 exit 0
