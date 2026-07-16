@@ -195,6 +195,10 @@ setup_networkmanager_dns() {
 	local conn="$1" dns_list="$2" domains="$3"
 	[ -z "$dns_list" ] && [ -z "$domains" ] && return 0
 	local vpn_conn="racoon-vpn"
+	# Remove stale dummy device from a previous run so nmcli conn add
+	# does not fail with "Connection activation failed: Device vpn0
+	# already exists".
+	ip link del vpn0 >/dev/null 2>&1 || true
 	if ! nmcli conn show "$vpn_conn" >/dev/null 2>&1; then
 		nmcli conn add type dummy ifname vpn0 con-name "$vpn_conn" \
 			connection.autoconnect false \
@@ -203,7 +207,8 @@ setup_networkmanager_dns() {
 			ipv4.ignore-auto-dns true \
 			ipv4.ignore-auto-router true \
 			>/dev/null 2>&1 || {
-			log "Cannot create NM VPN connection; skipping NM DNS"
+			log "NM conn add failed; falling back to resolv.conf"
+			[ -n "$dns_list" ] && setup_fallback_dns "$dns_list" "$domains"
 			return
 		}
 	fi
