@@ -267,16 +267,20 @@ if [ "$RESOLVER" = "networkmanager" ]; then
 	# NM_DNS_MODE must be checked for membership in that list, not
 	# equality against a single value.
 	#
-	# Prefer the live D-Bus Mode property -- it reflects the actual
-	# runtime decision including any compiled-in distro default that
-	# never appears as an explicit "dns=" line in NetworkManager.conf
-	# or its drop-ins.  Fall back to parsing the merged config text
-	# only if busctl/D-Bus is unavailable.
-	NM_DNS_MODE=$(nm_dbus_prop Mode)
-	if [ -z "$NM_DNS_MODE" ]; then
-		NM_DNS_MODE=$(NetworkManager --print-config 2>/dev/null \
-		    | awk -F= '/^\[main\]/{m=1;next} /^\[/{m=0} m && $1 ~ /^[[:space:]]*dns[[:space:]]*$/ {gsub(/[[:space:]]/,"",$2); print $2; exit}')
-	fi
+	# Union the D-Bus Mode property with the merged config text instead
+	# of preferring one over the other: confirmed in the field that
+	# D-Bus Mode reports only the single primary resolv.conf-writing
+	# plugin ("default") even when "dns=default,systemd-resolved" is
+	# configured (visible in NetworkManager's own startup log line
+	# "dns-mgr: init: dns=default,systemd-resolved ...") -- Mode does
+	# not surface additional plugins that run in parallel via D-Bus
+	# push rather than owning resolv.conf.  Config text, in turn, won't
+	# show a compiled-in distro default that was never written as an
+	# explicit "dns=" line.  Neither source alone is complete.
+	nm_mode_dbus=$(nm_dbus_prop Mode)
+	nm_mode_cfg=$(NetworkManager --print-config 2>/dev/null \
+	    | awk -F= '/^\[main\]/{m=1;next} /^\[/{m=0} m && $1 ~ /^[[:space:]]*dns[[:space:]]*$/ {gsub(/[[:space:]]/,"",$2); print $2; exit}')
+	NM_DNS_MODE="${nm_mode_dbus}${nm_mode_dbus:+,}${nm_mode_cfg}"
 	NM_DNS_MODE="${NM_DNS_MODE:-default}"
 	log "NetworkManager DNS plugin(s): ${NM_DNS_MODE}"
 fi
@@ -358,12 +362,23 @@ setup_networkmanager_dns() {
 	# ipv4.dns/ipv4.dns-search on an already-active profile is rejected
 	# by NM's policy audit -- that is what made the earlier dummy-device
 	# attempts (create, then modify-while-active) race and fail.
+	#
+	# ipv4.dns-priority MUST be a small positive number here, never
+	# negative: NetworkManager treats a negative priority as "exclusive"
+	# -- it drops every other active connection's DNS servers from the
+	# merged /etc/resolv.conf entirely, not just de-prioritizes them.
+	# That silently took out the physical uplink's own DNS server
+	# (observed in the field: WLAN's DNS server disappeared from
+	# resolv.conf the moment this dummy connection came up), which is
+	# the opposite of split-DNS.  A low positive value still gets this
+	# profile's servers/domains preferred for routing-domain matching
+	# without excluding anyone else's.
 	if ! nmcli connection add type dummy ifname "$NM_DNS_IFACE" \
 	    con-name "$NM_DNS_CONN" autoconnect no \
 	    ipv4.method manual ipv4.addresses "$NM_DNS_ADDR" \
 	    ipv4.dns "$(echo "$dns_list" | tr ' ' ',')" \
 	    ipv4.dns-search "$search" \
-	    ipv4.dns-priority -1 \
+	    ipv4.dns-priority 50 \
 	    ipv4.ignore-auto-dns yes \
 	    ipv4.never-default yes \
 	    ipv6.method disabled >/dev/null 2>&1
