@@ -253,20 +253,32 @@ RESOLVER=$(detect_resolver)
 log "Detected DNS resolver: ${RESOLVER}"
 
 if [ "$RESOLVER" = "networkmanager" ]; then
-	# Only "systemd-resolved" and "dnsmasq" (and "dnsconfd") understand
+	# Only "systemd-resolved", "dnsmasq" and "dnsconfd" understand
 	# per-domain routing domains; "default" writes a flat resolv.conf
-	# with no such concept.  Prefer the live D-Bus Mode property -- it
-	# reflects the actual runtime decision including any compiled-in
-	# distro default that never appears as an explicit "dns=" line in
-	# NetworkManager.conf or its drop-ins.  Fall back to parsing the
-	# merged config text only if busctl/D-Bus is unavailable.
+	# with no such concept.  NM's "dns=" setting is a *comma-separated
+	# list* of simultaneously active plugins -- e.g. "default,
+	# systemd-resolved" is a common and fully supported combination
+	# where "default" owns the flat /etc/resolv.conf *and*
+	# "systemd-resolved" is also live, pushing every connection's DNS
+	# servers/domains to resolved over D-Bus in parallel.  Since
+	# nsswitch.conf typically prefers nss-resolve over the classic
+	# glibc "dns" lookup on such systems, that second path is often
+	# the one that actually serves most name resolution -- so
+	# NM_DNS_MODE must be checked for membership in that list, not
+	# equality against a single value.
+	#
+	# Prefer the live D-Bus Mode property -- it reflects the actual
+	# runtime decision including any compiled-in distro default that
+	# never appears as an explicit "dns=" line in NetworkManager.conf
+	# or its drop-ins.  Fall back to parsing the merged config text
+	# only if busctl/D-Bus is unavailable.
 	NM_DNS_MODE=$(nm_dbus_prop Mode)
 	if [ -z "$NM_DNS_MODE" ]; then
 		NM_DNS_MODE=$(NetworkManager --print-config 2>/dev/null \
 		    | awk -F= '/^\[main\]/{m=1;next} /^\[/{m=0} m && $1 ~ /^[[:space:]]*dns[[:space:]]*$/ {gsub(/[[:space:]]/,"",$2); print $2; exit}')
 	fi
 	NM_DNS_MODE="${NM_DNS_MODE:-default}"
-	log "NetworkManager DNS plugin: ${NM_DNS_MODE}"
+	log "NetworkManager DNS plugin(s): ${NM_DNS_MODE}"
 fi
 
 if [ -z "$DNS_SERVERS" ]; then
@@ -323,8 +335,10 @@ setup_networkmanager_dns() {
 
 	local search=""
 	if [ -n "$domains" ]; then
-		case "$NM_DNS_MODE" in
-			systemd-resolved|dnsmasq|dnsconfd)
+		# NM_DNS_MODE may be a comma list (e.g. "default,systemd-resolved");
+		# check for a routing-capable plugin anywhere in it, not equality.
+		case ",${NM_DNS_MODE}," in
+			*,systemd-resolved,*|*,dnsmasq,*|*,dnsconfd,*)
 				# '~domain' marks a *routing* domain: only queries for
 				# that domain go to this profile's DNS servers, every
 				# other lookup keeps using the normal path.  Without
@@ -333,7 +347,7 @@ setup_networkmanager_dns() {
 				search=$(echo "$domains" | tr ',' '\n' | sed 's/^/~/' | tr '\n' ',' | sed 's/,$//')
 				;;
 			*)
-				log "WARNING: NetworkManager DNS mode is '${NM_DNS_MODE:-default}', which has no per-domain routing. Split-DNS domains cannot be isolated -- ${dns_list:-the VPN DNS server} will become the resolver for ALL lookups while the tunnel is up. For real split-DNS, set dns=systemd-resolved in NetworkManager.conf."
+				log "WARNING: NetworkManager DNS plugin(s) '${NM_DNS_MODE:-default}' include no per-domain routing backend. Split-DNS domains cannot be isolated -- ${dns_list:-the VPN DNS server} will become the resolver for ALL lookups while the tunnel is up. For real split-DNS, add systemd-resolved or dnsmasq to dns= in NetworkManager.conf, e.g. dns=default,systemd-resolved."
 				search="$domains"
 				;;
 		esac
