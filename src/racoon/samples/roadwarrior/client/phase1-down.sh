@@ -123,11 +123,27 @@ cleanup_systemd_resolved_dns() {
 
 cleanup_networkmanager_dns() {
 	local vpn_conn="racoon-vpn"
-	if nmcli conn show "$vpn_conn" >/dev/null 2>&1; then
-		nmcli conn down "$vpn_conn" >/dev/null 2>&1 || true
-		nmcli conn delete "$vpn_conn" >/dev/null 2>&1 || true
+	# Clean up dummy device if it was used.
+	nmcli conn down "$vpn_conn" >/dev/null 2>&1 || true
+	nmcli conn delete "$vpn_conn" >/dev/null 2>&1 || true
+	ip link del vpn0 >/dev/null 2>&1 || true
+	# Restore original DNS on the active connection if we modified it.
+	if [ -f /run/racoon/nm-dns-backup.txt ]; then
+		local active_conn
+		active_conn=$(nmcli -t -f NAME,DEVICE conn show --active 2>/dev/null \
+		    | grep ":${IFACE}$" | head -n1 | cut -d: -f1) || true
+		if [ -n "$active_conn" ]; then
+			while IFS=':' read -r key val; do
+				key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+				val=$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+				[ -n "$key" ] && nmcli conn modify "$active_conn" "$key" "$val" >/dev/null 2>&1 || true
+			done < /run/racoon/nm-dns-backup.txt
+			nmcli conn down "$active_conn" >/dev/null 2>&1 || true
+			nmcli conn up "$active_conn" >/dev/null 2>&1 || true
+		fi
+		rm -f /run/racoon/nm-dns-backup.txt
 	fi
-	log "NetworkManager VPN connection removed"
+	log "NetworkManager DNS restored"
 }
 
 cleanup_resolvconf_dns() {
@@ -151,12 +167,27 @@ cleanup_fallback_dns() {
 	fi
 }
 
+# If phase1-up wrote /run/racoon/dns-method (e.g. NM failed and
+# fell back to resolv.conf), override RESOLVER so the correct
+# cleanup runs.
+if [ -f /run/racoon/dns-method ]; then
+	UP_METHOD=$(cat /run/racoon/dns-method 2>/dev/null) || true
+	case "$UP_METHOD" in
+		fallback) RESOLVER="force-fallback" ;;
+		networkmanager-active|networkmanager-dummy) RESOLVER="force-networkmanager" ;;
+	esac
+	rm -f /run/racoon/dns-method
+fi
+
 case "$RESOLVER" in
+	force-fallback)
+		cleanup_fallback_dns
+		;;
+	force-networkmanager|networkmanager)
+		cleanup_networkmanager_dns
+		;;
 	systemd-resolved)
 		cleanup_systemd_resolved_dns "${IFACE}"
-		;;
-	networkmanager)
-		cleanup_networkmanager_dns
 		;;
 	resolvconf)
 		cleanup_resolvconf_dns

@@ -194,31 +194,33 @@ setup_systemd_resolved_dns() {
 setup_networkmanager_dns() {
 	local conn="$1" dns_list="$2" domains="$3"
 	[ -z "$dns_list" ] && [ -z "$domains" ] && return 0
-	local vpn_conn="racoon-vpn"
-	# Remove stale dummy device from a previous run so nmcli conn add
-	# does not fail with "Connection activation failed: Device vpn0
-	# already exists".
-	ip link del vpn0 >/dev/null 2>&1 || true
-	if ! nmcli conn show "$vpn_conn" >/dev/null 2>&1; then
-		nmcli conn add type dummy ifname vpn0 con-name "$vpn_conn" \
-			connection.autoconnect false \
-			ipv4.method manual \
-			ipv4.addresses 169.254.0.1/32 \
-			ipv4.ignore-auto-dns true \
-			ipv4.ignore-auto-router true \
-			>/dev/null 2>&1 || {
-			log "NM conn add failed; falling back to resolv.conf"
-			[ -n "$dns_list" ] && setup_fallback_dns "$dns_list" "$domains"
-			return
-		}
+	# Find the NM connection profile for the active interface carrying
+	# the VPN traffic.  We modify its DNS directly so NM propagates the
+	# split-DNS to /etc/resolv.conf.
+	local active_conn
+	active_conn=$(nmcli -t -f NAME,DEVICE conn show --active 2>/dev/null \
+	    | grep ":${IFACE}$" | head -n1 | cut -d: -f1) || true
+	if [ -z "$active_conn" ]; then
+		log "Cannot determine NM connection for $IFACE; falling back to resolv.conf"
+		setup_fallback_dns "$dns_list" "$domains"
+		echo "fallback" > /run/racoon/dns-method 2>/dev/null || true
+		return
 	fi
+	# Back up current DNS so phase1-down can restore.
+	mkdir -p /run/racoon
+	nmcli -t -f ipv4.dns,ipv4.dns-search conn show "$active_conn" \
+	    2>/dev/null > /run/racoon/nm-dns-backup.txt || true
+	# Replace DNS settings on the active connection.
 	if [ -n "$dns_list" ]; then
-		nmcli conn modify "$vpn_conn" ipv4.dns "$(echo "$dns_list" | tr ' ' ',')" >/dev/null 2>&1 || true
+		nmcli conn modify "$active_conn" ipv4.dns "$(echo "$dns_list" | tr ' ' ',')" >/dev/null 2>&1 || true
 	fi
 	if [ -n "$domains" ]; then
-		nmcli conn modify "$vpn_conn" ipv4.dns-search "$(echo "$domains" | tr ',' ';')" >/dev/null 2>&1 || true
+		nmcli conn modify "$active_conn" ipv4.dns-search "$(echo "$domains" | tr ',' ';')" >/dev/null 2>&1 || true
 	fi
-	nmcli conn up "$vpn_conn" >/dev/null 2>&1 || true
+	nmcli conn down "$active_conn" >/dev/null 2>&1 || true
+	nmcli conn up "$active_conn" >/dev/null 2>&1 || true
+	echo "networkmanager-active" > /run/racoon/dns-method 2>/dev/null || true
+	log "NM DNS updated on connection '$active_conn': dns=$dns_list domains=$domains"
 }
 
 setup_resolvconf_dns() {
