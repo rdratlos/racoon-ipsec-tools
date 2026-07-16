@@ -23,6 +23,7 @@ AC_PROG_YACC
 AC_PROG_LEX([yywrap])
 AC_SUBST(LEXLIB)
 AC_PROG_EGREP
+AC_CHECK_PROG([PERL], [perl], [perl])
 
 # Determine correct runtime library path flag
 # -R on Solaris/BSD, -Wl,-rpath, on Linux/GCC
@@ -1046,6 +1047,7 @@ AC_CONFIG_FILES([
   src/racoon/samples/psk.txt
   src/racoon/samples/racoon.conf
   test/Makefile
+  misc/kate/Makefile
   ])
 
 dnl packaging/rpm is excluded from the Debian/Ubuntu native source

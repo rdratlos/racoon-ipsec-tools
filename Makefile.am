@@ -4,7 +4,7 @@
 
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = src test @RPM@
+SUBDIRS = src test misc/kate @RPM@
 
 # DIST_SUBDIRS intentionally omitted: with no override, Automake defaults
 # it to $(SUBDIRS), which already resolves packaging/rpm via the opaque
@@ -44,3 +44,7 @@ endif
 .PHONY: dev
 dev:
 	$(MAKE) $(AM_MAKEFLAGS) -C src dev
+
+.PHONY: kate-syntax
+kate-syntax:
+	$(MAKE) $(AM_MAKEFLAGS) -C misc/kate kate-syntax
