@@ -101,4 +101,8 @@ package() {
   cp -r docs/admin-guide "$pkgdir/usr/share/doc/$pkgname/admin-guide"
   find "$pkgdir/usr/share/doc/$pkgname/admin-guide" -type f -exec chmod 644 {} +
   find "$pkgdir/usr/share/doc/$pkgname/admin-guide" -type d -exec chmod 755 {} +
+
+  # Kate syntax highlighting for racoon.conf - see misc/kate/README.md
+  install -Dm644 misc/kate/racoon.xml \
+    "$pkgdir/usr/share/org.kde.syntax-highlighting/syntax/racoon.xml"
 }

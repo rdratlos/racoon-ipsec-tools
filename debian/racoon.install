@@ -25,3 +25,4 @@ usr/share/man/man5/racoon.conf.5
 usr/share/man/man8/plainrsa-gen.8
 usr/share/man/man8/racoon.8
 usr/share/man/man8/racoonctl.8
+misc/kate/racoon.xml usr/share/org.kde.syntax-highlighting/syntax/
