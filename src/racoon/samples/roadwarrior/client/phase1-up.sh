@@ -62,8 +62,9 @@ if [ -z "$NETWORKS" ]; then
 	NETWORKS="${SPLIT_INCLUDE:-}"
 fi
 if [ -z "$NETWORKS" ]; then
-	# Hardcoded fallback — override in your site-local copy or /etc/racoon/overrides
-	NETWORKS="192.168.66.0/24 192.168.83.0/24 10.66.0.0/24"
+	# Hardcoded fallback — matches server sample (10.0.12.0/24).
+	# Override in your site-local copy or /etc/racoon/overrides.
+	NETWORKS="10.0.12.0/24"
 	log "WARNING: No split routes from gateway; using hardcoded NETWORKS fallback"
 fi
 
