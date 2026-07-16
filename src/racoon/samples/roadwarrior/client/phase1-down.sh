@@ -49,7 +49,8 @@ fi
 IFACE="${IFACE:-eth0}"
 
 # --------------------------------------------------------------------------
-# Collect the internal networks (must match up.sh for route cleanup).
+# Collect the internal networks (must match up.sh for route cleanup),
+# plus the same DNS-server /32 host routes up.sh added on top of them.
 # --------------------------------------------------------------------------
 NETWORKS="${SPLIT_INCLUDE_CIDR:-}"
 if [ -z "$NETWORKS" ]; then
@@ -58,6 +59,15 @@ fi
 if [ -z "$NETWORKS" ]; then
 	NETWORKS="10.0.12.0/24"
 fi
+
+DNS_SERVERS="${INTERNAL_DNS4_LIST:-$INTERNAL_DNS4}"
+TUNNEL_ROUTES="$NETWORKS"
+for dns in $DNS_SERVERS; do
+	case " $TUNNEL_ROUTES " in
+		*" ${dns}/32 "*) ;;  # exact /32 already present, skip
+		*) TUNNEL_ROUTES="$TUNNEL_ROUTES ${dns}/32" ;;
+	esac
+done
 
 # --------------------------------------------------------------------------
 # Flush SPD — remove all IPsec policies to prevent blackholing traffic.
@@ -70,27 +80,46 @@ fi
 # --------------------------------------------------------------------------
 # Remove split routes and the /32 auxiliary address.
 # --------------------------------------------------------------------------
-for net in $NETWORKS; do
+for net in $TUNNEL_ROUTES; do
 	ip route del "$net" dev "$IFACE" src "$INTERNAL_ADDR4" 2>/dev/null || true
 done
 ip addr del "${INTERNAL_ADDR4}/32" dev "$IFACE" 2>/dev/null || true
-log "Removed routes for: $NETWORKS; removed /32 address from $IFACE"
+log "Removed routes for: $TUNNEL_ROUTES; removed /32 address from $IFACE"
 
 # --------------------------------------------------------------------------
-# Clean up DNS — mirror the resolver detection from phase1-up.sh.
+# Clean up DNS — mirror the resolver detection from phase1-up.sh.  The
+# authoritative signal is what /etc/resolv.conf actually resolves to, not
+# whether a resolvectl/nmcli binary happens to be installed or a service
+# happens to be running (see phase1-up.sh for the full rationale).
 # --------------------------------------------------------------------------
 detect_resolver() {
+	local target
+	target=$(readlink -f /etc/resolv.conf 2>/dev/null) || target=""
+
+	case "$target" in
+		*/run/systemd/resolve/stub-resolv.conf|*/run/systemd/resolve/resolv.conf)
+			echo "systemd-resolved"
+			return
+			;;
+		*/run/NetworkManager/resolv.conf)
+			echo "networkmanager"
+			return
+			;;
+		*/run/resolvconf/resolv.conf)
+			echo "resolvconf"
+			return
+			;;
+	esac
+
 	if command -v resolvectl >/dev/null 2>&1 || command -v resctl >/dev/null 2>&1; then
 		if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
 			echo "systemd-resolved"
 			return
 		fi
 	fi
-	if command -v nmcli >/dev/null 2>&1; then
-		if systemctl is-active --quiet NetworkManager 2>/dev/null; then
-			echo "networkmanager"
-			return
-		fi
+	if command -v nmcli >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager 2>/dev/null; then
+		echo "networkmanager"
+		return
 	fi
 	if command -v resolvconf >/dev/null 2>&1; then
 		if [ -e /run/resolvconf ]; then
@@ -122,28 +151,20 @@ cleanup_systemd_resolved_dns() {
 }
 
 cleanup_networkmanager_dns() {
-	local vpn_conn="racoon-vpn"
-	# Clean up dummy device if it was used.
-	nmcli conn down "$vpn_conn" >/dev/null 2>&1 || true
-	nmcli conn delete "$vpn_conn" >/dev/null 2>&1 || true
+	# Tear down the dedicated DNS-only dummy profile created by
+	# phase1-up.sh.  This never touches the physical uplink connection,
+	# so there is nothing to "restore" there and nothing that can bounce
+	# the user's actual network link.
+	nmcli connection down "racoon-vpn-dns" >/dev/null 2>&1 || true
+	nmcli connection delete "racoon-vpn-dns" >/dev/null 2>&1 || true
+	ip link del racoon-dns0 >/dev/null 2>&1 || true
+	# Best-effort cleanup of artifacts from older versions of this script
+	# that modified the active connection directly or used a "vpn0"/
+	# "racoon-vpn" dummy device.
+	nmcli connection down "racoon-vpn" >/dev/null 2>&1 || true
+	nmcli connection delete "racoon-vpn" >/dev/null 2>&1 || true
 	ip link del vpn0 >/dev/null 2>&1 || true
-	# Restore original DNS on the active connection if we modified it.
-	if [ -f /run/racoon/nm-dns-backup.txt ]; then
-		local active_conn
-		active_conn=$(nmcli -t -f NAME,DEVICE conn show --active 2>/dev/null \
-		    | grep ":${IFACE}$" | head -n1 | cut -d: -f1) || true
-		if [ -n "$active_conn" ]; then
-			while IFS=':' read -r key val; do
-				key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-				val=$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-				[ -n "$key" ] && nmcli conn modify "$active_conn" "$key" "$val" >/dev/null 2>&1 || true
-			done < /run/racoon/nm-dns-backup.txt
-			nmcli conn down "$active_conn" >/dev/null 2>&1 || true
-			nmcli conn up "$active_conn" >/dev/null 2>&1 || true
-		fi
-		rm -f /run/racoon/nm-dns-backup.txt
-	fi
-	log "NetworkManager DNS restored"
+	log "NetworkManager DNS profile removed"
 }
 
 cleanup_resolvconf_dns() {
