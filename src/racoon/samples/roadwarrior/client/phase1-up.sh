@@ -195,26 +195,18 @@ setup_networkmanager_dns() {
 	local conn="$1" dns_list="$2" domains="$3"
 	[ -z "$dns_list" ] && [ -z "$domains" ] && return 0
 	local vpn_conn="racoon-vpn"
-	local creating=0
 	if ! nmcli conn show "$vpn_conn" >/dev/null 2>&1; then
 		nmcli conn add type dummy ifname vpn0 con-name "$vpn_conn" \
 			connection.autoconnect false \
+			ipv4.method manual \
+			ipv4.addresses 169.254.0.1/32 \
+			ipv4.ignore-auto-dns true \
+			ipv4.ignore-auto-router true \
 			>/dev/null 2>&1 || {
 			log "Cannot create NM VPN connection; skipping NM DNS"
 			return
 		}
-		creating=1
 	fi
-	# Deactivate first.  NM auto-activates dummy devices on creation with
-	# method=disabled, which then rejects ipv4.dns/ipv4.dns-search.
-	# We must deactivate, reconfigure, and reactivate.
-	nmcli conn down "$vpn_conn" >/dev/null 2>&1 || true
-	nmcli conn modify "$vpn_conn" \
-		ipv4.method manual \
-		ipv4.addresses 169.254.0.1/32 \
-		ipv4.ignore-auto-dns true \
-		ipv4.ignore-auto-router true \
-		>/dev/null 2>&1 || true
 	if [ -n "$dns_list" ]; then
 		nmcli conn modify "$vpn_conn" ipv4.dns "$(echo "$dns_list" | tr ' ' ',')" >/dev/null 2>&1 || true
 	fi
