@@ -25,7 +25,6 @@ set -e
 # --------------------------------------------------------------------------
 log() {
 	logger -t racoon-phase1-up "$*"
-	echo "$(date '+%Y-%m-%d %H:%M:%S') [phase1-up] $*" >&2
 }
 
 # --------------------------------------------------------------------------
@@ -201,6 +200,15 @@ setup_networkmanager_dns() {
 			log "Cannot create NM VPN connection; skipping NM DNS"
 			return
 		}
+		# Dummy devices default to ipv4.method=disabled which rejects
+		# ipv4.dns and ipv4.dns-search settings.  Set method=manual
+		# with a /32 dummy address so NM accepts the DNS properties.
+		nmcli conn modify "$vpn_conn" \
+			ipv4.method manual \
+			ipv4.addresses 169.254.0.1/32 \
+			ipv4.ignore-auto-dns true \
+			ipv4.ignore-auto-router true \
+			>/dev/null 2>&1 || true
 	fi
 	if [ -n "$dns_list" ]; then
 		nmcli conn modify "$vpn_conn" ipv4.dns "$(echo "$dns_list" | tr ' ' ',')" >/dev/null 2>&1 || true
