@@ -80,6 +80,7 @@
 
 int dump_config = 0;	/* dump parsed config file. */
 int f_local = 0;	/* local test mode.  behave like a wall. */
+int f_configtest = 0;	/* check configuration file syntax, then exit. */
 int vflag = 1;		/* for print-isakmp.c */
 static int loading_sa = 0;	/* install sa when racoon boots up. */
 
@@ -135,7 +136,7 @@ print_version()
 static void
 usage()
 {
-	printf("usage: racoon [-BdFv"
+	printf("usage: racoon [-BdFtv"
 #ifdef INET6
 		"46"
 #endif
@@ -146,6 +147,7 @@ usage()
 		"   -C: dump parsed config file.\n"
 		"   -L: include location in debug messages\n"
 		"   -F: run in foreground, do not become daemon.\n"
+		"   -t: check the configuration file for syntax errors, then exit.\n"
 		"   -v: be more verbose\n"
 		"   -V: print version and exit\n"
 #ifdef INET6
@@ -179,7 +181,7 @@ parse(ac, av)
 	else
 		pname = *av;
 
-	while ((c = getopt(ac, av, "dLFp:P:f:l:vVZBC"
+	while ((c = getopt(ac, av, "dLFp:P:f:l:tvVZBC"
 #ifdef YYDEBUG
 			"y"
 #endif
@@ -209,6 +211,9 @@ parse(ac, av)
 			break;
 		case 'l':
 			plogset(optarg);
+			break;
+		case 't':
+			f_configtest = 1;
 			break;
 		case 'v':
 			vflag++;
@@ -273,6 +278,14 @@ main(ac, av)
 	initlcconf();
 	parse(ac, av);
 
+	if (f_configtest) {
+		/*
+		 * Force plog() to also print to stdout, the same as -F,
+		 * so parse errors are visible without a working syslogd.
+		 */
+		f_foreground = 1;
+	}
+
 	if (geteuid() != 0) {
 		errx(1, "must be root to invoke this program.");
 		/* NOTREACHED*/
@@ -308,8 +321,29 @@ main(ac, av)
 	plog(LLV_INFO, LOCATION, NULL, "@(#)"
 	    "This product linked %s (http://www.openssl.org/)"
 	    "\n", eay_version());
-	plog(LLV_INFO, LOCATION, NULL, "Reading configuration from \"%s\"\n", 
+	plog(LLV_INFO, LOCATION, NULL, "Reading configuration from \"%s\"\n",
 	    lcconf->racoon_conf);
+
+	if (f_configtest) {
+		/*
+		 * Run the exact same initialization and parser the daemon
+		 * uses at real startup (see session()), including the
+		 * pfkey-derived kernel algorithm support checks, but without
+		 * opening the admin port, forking, or writing a pid file.
+		 */
+		session_init_before_cfparse();
+		if (cfparse() != 0) {
+			fprintf(stderr,
+			    "%s: configuration file \"%s\" test failed\n",
+			    pname, lcconf->racoon_conf);
+			exit(1);
+		}
+		printf("%s: configuration file \"%s\" syntax is ok\n",
+		    pname, lcconf->racoon_conf);
+		printf("%s: configuration file \"%s\" test is successful\n",
+		    pname, lcconf->racoon_conf);
+		exit(0);
+	}
 
 	/*
 	 * install SAs from the specified file.  If the file is not specified

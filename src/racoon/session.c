@@ -173,16 +173,20 @@ unmonitor_fd(int fd)
 		     &fd_monitors[fd], chain);
 }
 
-int
-session(void)
+/*
+ * Everything cfparse() and the grammar's kernel-algorithm checks
+ * (pk_checkalg(), reached via sainfo's encryption/authentication_algorithm)
+ * depend on: fd monitoring, the scheduler, and the pfkey/isakmp/auth-backend
+ * state that lets the parser ask the kernel which algorithms it supports.
+ *
+ * Split out of session() so "racoon -t" (see main.c) can run the exact
+ * same pre-parse initialization the daemon does at real startup, without
+ * also opening the admin port, writing a pid file, or forking.
+ */
+void
+session_init_before_cfparse(void)
 {
-	struct timeval *timeout;
-	int error;
-	char pid_file[MAXPATHLEN];
-	FILE *fp;
-	pid_t racoon_pid = 0;
-	int i, count;
-	struct fd_monitor *fdm;
+	int i;
 
 	nfds = 0;
 	FD_ZERO(&preset_mask);
@@ -222,6 +226,20 @@ session(void)
 	 * saving some parameters before parsing configuration file.
 	 */
 	save_params();
+}
+
+int
+session(void)
+{
+	struct timeval *timeout;
+	int error;
+	char pid_file[MAXPATHLEN];
+	FILE *fp;
+	pid_t racoon_pid = 0;
+	int i, count;
+	struct fd_monitor *fdm;
+
+	session_init_before_cfparse();
 	if (cfparse() != 0)
 		errx(1, "failed to parse configuration file.");
 	restore_params();

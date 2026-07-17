@@ -40,7 +40,7 @@
 .Sh SYNOPSIS
 .Nm racoon
 .Bk -words
-.Op Fl 46BdFLVv
+.Op Fl 46BdFLtVv
 .Ek
 .Bk -words
 .Op Fl f Ar configfile
@@ -115,6 +115,19 @@ The default is 4500.
 Listen to the ISAKMP key exchange on port
 .Ar isakmp-port
 instead of the default port number, 500.
+.It Fl t
+Check the configuration file specified by
+.Fl f
+.Pq or the default, if none is given
+for syntax errors, then exit.
+.Nm
+performs the same initialization and parsing it would at normal
+startup, including asking the kernel which algorithms it supports,
+but does not open the ISAKMP or admin sockets, write a pid file, or
+become a daemon.
+This requires the same privileges as running
+.Nm
+normally.
 .It Fl V
 Print racoon version and compilation options and exit.
 .It Fl v
@@ -130,6 +143,10 @@ at
 .\"
 .Sh RETURN VALUES
 The command exits with 0 on success, and non-zero on errors.
+With
+.Fl t ,
+it exits with 0 if the configuration file is valid and 1 otherwise,
+without starting the daemon either way.
 .\"
 .Sh FILES
 .Bl -tag -width /etc/racoon.conf -compact
