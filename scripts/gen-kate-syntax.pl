@@ -159,7 +159,7 @@ print <<'BODY';
 <DetectChar char="&quot;" attribute="String" context="#pop"/>
 </context>
 <context name="Comment" attribute="Comment" lineEndContext="#pop">
-<IncludeRules context="##Comments"/>
+<IncludeRules context="##Alerts"/>
 </context>
 </contexts>
 <itemDatas>
