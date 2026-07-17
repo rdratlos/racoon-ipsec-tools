@@ -1,19 +1,18 @@
 [Unit]
-Description=ipsec key exchange server
-Requires=setkey.service
-After=setkey.service
+Description=IPsec key exchange daemon (racoon)
+Wants=setkey.service
+After=setkey.service network.target
 
 [Service]
 Type=simple
-EnvironmentFile=-/etc/default/racoon
+EnvironmentFile=-/etc/conf.d/racoon
 RuntimeDirectory=racoon
 # Fail the start rather than launch racoon with a broken config; see racoon(8) -t.
-ExecStartPre=/usr/sbin/racoon -t $RACOON_ARGS
-ExecStart=-/usr/sbin/racoon -F $RACOON_ARGS
+ExecStartPre=/usr/bin/racoon -t $RACOON_ARGS
+ExecStart=-/usr/bin/racoon -F $RACOON_ARGS
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-

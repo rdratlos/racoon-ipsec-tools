@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE language>
+<language name="Racoon IPSec Tools" version="2" kateversion="5.0" section="Configuration" extensions="racoon.conf;racoon-*.conf;*.racoon.conf" indenter="cstyle" author="racoon-ipsec-tools contributors" license="BSD-3-Clause">
+<highlighting>
+<list name="sections">
+<item>gss_id_enc</item>
+<item>ldapcfg</item>
+<item>listen</item>
+<item>log</item>
+<item>mode_cfg</item>
+<item>padding</item>
+<item>path</item>
+<item>privsep</item>
+<item>proposal</item>
+<item>radiuscfg</item>
+<item>remote</item>
+<item>sainfo</item>
+<item>timer</item>
+</list>
+<list name="keywords">
+<item>accounting</item>
+<item>acct</item>
+<item>admin</item>
+<item>adminsock</item>
+<item>anonymous</item>
+<item>any</item>
+<item>attr_addr</item>
+<item>attr_group</item>
+<item>attr_mask</item>
+<item>attr_member</item>
+<item>attr_user</item>
+<item>auth</item>
+<item>auth_groups</item>
+<item>auth_source</item>
+<item>auth_throttle</item>
+<item>authentication_algorithm</item>
+<item>authentication_method</item>
+<item>banner</item>
+<item>base</item>
+<item>bind_dn</item>
+<item>bind_pw</item>
+<item>byte</item>
+<item>ca_type</item>
+<item>certificate_type</item>
+<item>chroot</item>
+<item>clientaddr</item>
+<item>complex_bundle</item>
+<item>compression_algorithm</item>
+<item>conf_source</item>
+<item>counter</item>
+<item>debug</item>
+<item>default_domain</item>
+<item>dh_group</item>
+<item>disabled</item>
+<item>dns4</item>
+<item>dnssec</item>
+<item>doi</item>
+<item>dpd</item>
+<item>dpd_delay</item>
+<item>dpd_maxfail</item>
+<item>dpd_retry</item>
+<item>encryption_algorithm</item>
+<item>esp_frag</item>
+<item>exchange_mode</item>
+<item>exclusive_tail</item>
+<item>force</item>
+<item>from</item>
+<item>generate_policy</item>
+<item>group</item>
+<item>group_source</item>
+<item>gss_id</item>
+<item>gssapi_id</item>
+<item>hash_algorithm</item>
+<item>host</item>
+<item>ike_frag</item>
+<item>include</item>
+<item>inherit</item>
+<item>initial_contact</item>
+<item>interval</item>
+<item>isakmp</item>
+<item>isakmp_natt</item>
+<item>keepalive</item>
+<item>ldap</item>
+<item>lifetime</item>
+<item>local</item>
+<item>local_lan</item>
+<item>match_empty_cr</item>
+<item>maximum_length</item>
+<item>mode_cfg</item>
+<item>my_identifier</item>
+<item>nat_traversal</item>
+<item>natt_keepalive</item>
+<item>nbns4</item>
+<item>netmask4</item>
+<item>network4</item>
+<item>nonce_size</item>
+<item>none</item>
+<item>pam</item>
+<item>passive</item>
+<item>peers_certfile</item>
+<item>peers_identifier</item>
+<item>persend</item>
+<item>pfkey_buffer</item>
+<item>pfs_group</item>
+<item>ph1id</item>
+<item>phase1</item>
+<item>phase1_dead</item>
+<item>phase1_down</item>
+<item>phase1_up</item>
+<item>phase2</item>
+<item>pool_size</item>
+<item>port</item>
+<item>proposal_check</item>
+<item>radius</item>
+<item>randomize</item>
+<item>randomize_length</item>
+<item>rekey</item>
+<item>remote_address</item>
+<item>remoteid</item>
+<item>retries</item>
+<item>save_passwd</item>
+<item>script</item>
+<item>send_cert</item>
+<item>send_cr</item>
+<item>situation</item>
+<item>split_dns</item>
+<item>split_network</item>
+<item>strict_address</item>
+<item>strict_check</item>
+<item>subtree</item>
+<item>support_proxy</item>
+<item>system</item>
+<item>time</item>
+<item>timeout</item>
+<item>uri</item>
+<item>user</item>
+<item>verify_cert</item>
+<item>verify_identifier</item>
+<item>version</item>
+<item>weak_phase1_check</item>
+<item>wins4</item>
+<item>xauth_login</item>
+</list>
+<list name="datatypes">
+<item>address</item>
+<item>aes</item>
+<item>asn1dn</item>
+<item>blowfish</item>
+<item>camellia</item>
+<item>cast128</item>
+<item>deflate</item>
+<item>des</item>
+<item>des_iv32</item>
+<item>des_iv64</item>
+<item>des_mac</item>
+<item>dsssig</item>
+<item>ec2n155</item>
+<item>ec2n185</item>
+<item>file</item>
+<item>fqdn</item>
+<item>gssapi_krb</item>
+<item>hmac_md5</item>
+<item>hmac_sha1</item>
+<item>hmac_sha256</item>
+<item>hmac_sha2_256</item>
+<item>hmac_sha2_384</item>
+<item>hmac_sha2_512</item>
+<item>hmac_sha384</item>
+<item>hmac_sha512</item>
+<item>hybrid_dss_client</item>
+<item>hybrid_dss_server</item>
+<item>hybrid_rsa_client</item>
+<item>hybrid_rsa_server</item>
+<item>idea</item>
+<item>keyid</item>
+<item>kpdk</item>
+<item>lzs</item>
+<item>md5</item>
+<item>modp1024</item>
+<item>modp1536</item>
+<item>modp2048</item>
+<item>modp3072</item>
+<item>modp4096</item>
+<item>modp6144</item>
+<item>modp768</item>
+<item>modp8192</item>
+<item>non_auth</item>
+<item>null</item>
+<item>null_enc</item>
+<item>oui</item>
+<item>pre_shared_key</item>
+<item>rc4</item>
+<item>rc5</item>
+<item>rijndael</item>
+<item>rsaenc</item>
+<item>rsarev</item>
+<item>rsasig</item>
+<item>sha1</item>
+<item>sha256</item>
+<item>sha2_256</item>
+<item>sha2_384</item>
+<item>sha2_512</item>
+<item>sha384</item>
+<item>sha512</item>
+<item>subnet</item>
+<item>tag</item>
+<item>tiger</item>
+<item>twofish</item>
+<item>user_fqdn</item>
+<item>xauth_psk_client</item>
+<item>xauth_psk_server</item>
+<item>xauth_rsa_client</item>
+<item>xauth_rsa_server</item>
+</list>
+<list name="constants">
+<item>aggressive</item>
+<item>backupsa</item>
+<item>base</item>
+<item>certificate</item>
+<item>claim</item>
+<item>debug</item>
+<item>debug2</item>
+<item>error</item>
+<item>exact</item>
+<item>identity_only</item>
+<item>include</item>
+<item>info</item>
+<item>integrity</item>
+<item>ipsec_doi</item>
+<item>latin1</item>
+<item>main</item>
+<item>no</item>
+<item>notify</item>
+<item>obey</item>
+<item>off</item>
+<item>on</item>
+<item>pidfile</item>
+<item>plain_rsa</item>
+<item>pre_shared_key</item>
+<item>require</item>
+<item>script</item>
+<item>secrecy</item>
+<item>strict</item>
+<item>unique</item>
+<item>utf-16le</item>
+<item>warning</item>
+<item>x509</item>
+<item>yes</item>
+</list>
+<list name="units">
+<item>B</item>
+<item>KB</item>
+<item>MB</item>
+<item>TB</item>
+<item>byte</item>
+<item>bytes</item>
+<item>hour</item>
+<item>hours</item>
+<item>min</item>
+<item>mins</item>
+<item>minute</item>
+<item>minutes</item>
+<item>sec</item>
+<item>second</item>
+<item>seconds</item>
+<item>secs</item>
+</list>
+<list name="protocols">
+<item>ah</item>
+<item>esp</item>
+<item>gre</item>
+<item>icmp</item>
+<item>icmp6</item>
+<item>ipcomp</item>
+<item>tcp</item>
+<item>udp</item>
+</list>
+<contexts>
+<context name="Normal" attribute="Normal Text" lineEndContext="#stay">
+<keyword String="sections" attribute="Section"/>
+<keyword String="keywords" attribute="Keyword"/>
+<keyword String="datatypes" attribute="DataType"/>
+<keyword String="constants" attribute="Constant"/>
+<keyword String="units" attribute="Unit"/>
+<keyword String="protocols" attribute="Protocol"/>
+<DetectChar char="&quot;" attribute="String" context="String"/>
+<RegExpr String="0x[0-9A-Fa-f]+" attribute="Hex"/>
+<RegExpr String="[0-9A-Fa-f]+([:.][0-9A-Fa-f:.]*)+(%[A-Za-z0-9]+)?" attribute="Address"/>
+<Int attribute="Decimal"/>
+<DetectChar char="{" attribute="Operator" beginRegion="Block"/>
+<DetectChar char="}" attribute="Operator" endRegion="Block"/>
+<AnyChar String="[];," attribute="Operator"/>
+<DetectChar char="#" attribute="Comment" context="Comment"/>
+</context>
+<context name="String" attribute="String" lineEndContext="#pop">
+<DetectChar char="&quot;" attribute="String" context="#pop"/>
+</context>
+<context name="Comment" attribute="Comment" lineEndContext="#pop">
+<IncludeRules context="##Alerts"/>
+</context>
+</contexts>
+<itemDatas>
+<itemData name="Normal Text" defStyleNum="dsNormal"/>
+<itemData name="Section" defStyleNum="dsKeyword"/>
+<itemData name="Keyword" defStyleNum="dsKeyword"/>
+<itemData name="DataType" defStyleNum="dsDataType"/>
+<itemData name="Constant" defStyleNum="dsConstant"/>
+<itemData name="Unit" defStyleNum="dsBuiltIn"/>
+<itemData name="Protocol" defStyleNum="dsBuiltIn"/>
+<itemData name="String" defStyleNum="dsString"/>
+<itemData name="Hex" defStyleNum="dsBaseN"/>
+<itemData name="Address" defStyleNum="dsOthers"/>
+<itemData name="Decimal" defStyleNum="dsDecVal"/>
+<itemData name="Operator" defStyleNum="dsOperator"/>
+<itemData name="Comment" defStyleNum="dsComment"/>
+</itemDatas>
+</highlighting>
+<general>
+<comments>
+<comment name="singleLine" start="#"/>
+</comments>
+<keywords casesensitive="1"/>
+</general>
+</language>

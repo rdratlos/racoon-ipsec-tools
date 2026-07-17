@@ -8,36 +8,92 @@ url="https://github.com/rdratlos/racoon-ipsec-tools"
 license=('BSD-3-Clause')
 depends=('openssl' 'libldap' 'linux-headers' 'pam' 'krb5')
 makedepends=('autoconf' 'automake' 'libtool' 'flex' 'bison' 'pkgconf')
-source=("$pkgname-$pkgver.tar.gz::https://github.com/rdratlos/racoon-ipsec-tools/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+install=ipsec-tools.install
+backup=('etc/racoon/racoon.conf'
+        'etc/racoon/psk.txt'
+        'etc/ipsec-tools.conf'
+        'etc/conf.d/racoon'
+        'etc/conf.d/setkey')
+source=("$pkgname-$pkgver.tar.xz::https://github.com/rdratlos/racoon-ipsec-tools/releases/download/v$pkgver/ipsec-tools_$pkgver.tar.xz"
+        racoon.service
+        setkey.service
+        racoon.envfile
+        setkey.envfile
+        ipsec-tools.sysusers
+        ipsec-tools.tmpfiles)
+sha256sums=('SKIP'
+            '48f1c1ada6c9dd7482b907fcecf675ff3dbc15b5676d4a628e3fed2d66b92012'
+            '711e266296077ee169cb91a0cbc49e1b889155cdcbd7016d0c53aa5758448e69'
+            '793e0c09e500853b9ed1667da2e7f7db28b00319653683672847e288df37e7f3'
+            '0302f5f5d900870e29b8cf96a8789ad572815827b109709dab21a783e54b93d7'
+            '52f3c273e6c2e2cd0d9ee15e48ecdab07496af0b233fde0a59b6e69a02b25bee'
+            '0f3cca9ed12b9790f95f76985e5317c4319fc3954eb37d627109131235ef9579')
 
 build() {
-  cd "racoon-ipsec-tools-$pkgver"
+  cd "racoon-ipsec-tools"
   autoreconf -fi
+  export CFLAGS="$CFLAGS -Wno-old-style-definition"
   ./configure \
+    --host=x86_64-linux-gnu \
+    --build=x86_64-linux-gnu \
     --prefix=/usr \
+    --sbindir=/usr/bin \
     --sysconfdir=/etc/racoon \
-    --enable-hybrid \
-    --enable-frag \
-    --enable-natt \
-    --enable-dpd \
-    --enable-adminport \
-    --with-libldap \
-    --with-libpam \
-    --without-readline \
-    --disable-security-context
+    --libdir=/usr/lib/ipsec-tools \
+    --mandir=\${prefix}/share/man \
+    --infodir=\${prefix}/share/info \
+    --localstatedir=/var/run
   make
 }
 
 check() {
-  cd "racoon-ipsec-tools-$pkgver"
+  cd "racoon-ipsec-tools"
   make check
 }
 
 package() {
-  cd "racoon-ipsec-tools-$pkgver"
+  cd "racoon-ipsec-tools"
   make DESTDIR="$pkgdir" install
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 NEWS.md "$pkgdir/usr/share/doc/$pkgname/NEWS.md"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+
+  # usrmerge (/usr/sbin) and /var/run tmpfs conflicts - see PACKAGING_NOTES.md
+  if [ -d "$pkgdir/usr/sbin" ]; then
+    mkdir -p "$pkgdir/usr/bin"
+    mv "$pkgdir"/usr/sbin/* "$pkgdir/usr/bin/" 2>/dev/null || true
+    rmdir "$pkgdir/usr/sbin"
+  fi
+  rm -rf "$pkgdir/var/run"
+
+  # config, ported from debian/ - see PACKAGING_NOTES.md
+  install -dm755 "$pkgdir/etc/racoon/certs" \
+                 "$pkgdir/etc/racoon/scripts" \
+                 "$pkgdir/etc/ipsec-tools.d"
+  install -Dm644 debian/racoon.conf "$pkgdir/etc/racoon/racoon.conf"
+  install -Dm600 src/racoon/samples/psk.txt.sample "$pkgdir/etc/racoon/psk.txt"
+  install -Dm644 debian/ipsec-tools.conf "$pkgdir/etc/ipsec-tools.conf"
+
+  # systemd units + runtime plumbing
+  install -Dm644 "$srcdir/racoon.service" "$pkgdir/usr/lib/systemd/system/racoon.service"
+  install -Dm644 "$srcdir/setkey.service" "$pkgdir/usr/lib/systemd/system/setkey.service"
+  install -Dm644 "$srcdir/racoon.envfile" "$pkgdir/etc/conf.d/racoon"
+  install -Dm644 "$srcdir/setkey.envfile" "$pkgdir/etc/conf.d/setkey"
+  install -Dm644 "$srcdir/ipsec-tools.sysusers" "$pkgdir/usr/lib/sysusers.d/$pkgname.conf"
+  install -Dm644 "$srcdir/ipsec-tools.tmpfiles" "$pkgdir/usr/lib/tmpfiles.d/$pkgname.conf"
+
+  # docs, examples, admin guide - see PACKAGING_NOTES.md
+  install -dm755 "$pkgdir/usr/share/doc/$pkgname/examples"
+  install -m644 src/racoon/samples/racoon.conf.sample* \
+    "$pkgdir/usr/share/doc/$pkgname/examples/"
+  install -m644 debian/examples/tunnel-openbsd-to-debian-example.txt \
+    "$pkgdir/usr/share/doc/$pkgname/examples/tunnel-example.txt"
+  install -Dm644 debian/racoon.README.Debian "$pkgdir/usr/share/doc/$pkgname/README.packaging"
+  cp -r docs/admin-guide "$pkgdir/usr/share/doc/$pkgname/admin-guide"
+  find "$pkgdir/usr/share/doc/$pkgname/admin-guide" -type f -exec chmod 644 {} +
+  find "$pkgdir/usr/share/doc/$pkgname/admin-guide" -type d -exec chmod 755 {} +
+
+  # Kate syntax highlighting for racoon.conf - see misc/kate/README.md
+  install -Dm644 misc/kate/racoon.xml \
+    "$pkgdir/usr/share/org.kde.syntax-highlighting/syntax/racoon.xml"
 }
