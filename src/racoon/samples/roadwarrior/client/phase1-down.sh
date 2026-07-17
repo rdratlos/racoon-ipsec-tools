@@ -96,6 +96,14 @@ log "Removed routes for: $TUNNEL_ROUTES; removed /32 address from $IFACE"
 # --------------------------------------------------------------------------
 nm_dbus_prop() {
 	# $1 = RcManager | Mode, properties of NM's DnsManager D-Bus object.
+	#
+	# Gate on the service already being active *before* touching D-Bus:
+	# a bare `busctl get-property org.freedesktop.NetworkManager ...`
+	# call can silently bus-activate NetworkManager on a system that
+	# deliberately doesn't run it (see phase1-up.sh for the field
+	# evidence and full rationale). systemctl is-active is a pure state
+	# read with no such side effect.
+	systemctl is-active --quiet NetworkManager 2>/dev/null || return 1
 	command -v busctl >/dev/null 2>&1 || return 1
 	busctl get-property org.freedesktop.NetworkManager \
 	    /org/freedesktop/NetworkManager/DnsManager \
