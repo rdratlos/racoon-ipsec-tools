@@ -22,7 +22,7 @@ source=("$pkgname-$pkgver.tar.xz::https://github.com/rdratlos/racoon-ipsec-tools
         ipsec-tools.sysusers
         ipsec-tools.tmpfiles)
 sha256sums=('SKIP'
-            'd0bf7028281fa2949852872dd2962f31d9c47aaf450272b8833f9d0ed59a803e'
+            '48f1c1ada6c9dd7482b907fcecf675ff3dbc15b5676d4a628e3fed2d66b92012'
             '711e266296077ee169cb91a0cbc49e1b889155cdcbd7016d0c53aa5758448e69'
             '793e0c09e500853b9ed1667da2e7f7db28b00319653683672847e288df37e7f3'
             '0302f5f5d900870e29b8cf96a8789ad572815827b109709dab21a783e54b93d7'
