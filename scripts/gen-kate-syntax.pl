@@ -129,7 +129,7 @@ my %list_name_of = (
 print <<'HEADER';
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE language>
-<language name="Racoon IPSec Tools" version="2" kateversion="5.62" section="Configuration" extensions="racoon.conf;racoon-*.conf;*.racoon.conf" indenter="cstyle" author="racoon-ipsec-tools contributors" license="BSD-3-Clause">
+<language name="Racoon IPSec Tools" version="2" kateversion="5.0" section="Configuration" extensions="racoon.conf;racoon-*.conf;*.racoon.conf" indenter="cstyle" author="racoon-ipsec-tools contributors" license="BSD-3-Clause">
 <highlighting>
 HEADER
 
