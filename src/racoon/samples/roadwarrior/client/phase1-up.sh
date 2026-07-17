@@ -165,6 +165,20 @@ NM_DNS_MODE=""
 
 nm_dbus_prop() {
 	# $1 = RcManager | Mode, properties of NM's DnsManager D-Bus object.
+	#
+	# Gate on the service already being active *before* touching D-Bus at
+	# all.  NetworkManager ships a D-Bus activation file, so a bare
+	# `busctl get-property org.freedesktop.NetworkManager ...` call can
+	# silently *start* NetworkManager via bus activation on a system that
+	# deliberately doesn't run it -- confirmed in the field on an Ubuntu
+	# Bionic box with no NetworkManager configured (systemd-resolved
+	# only): probing this property alone caused NetworkManager to spawn,
+	# which then made every later "is NM active" check honestly true and
+	# hijacked a system that was never supposed to be running it.  That
+	# is exactly the "impacting the machine" failure this detection
+	# scheme exists to avoid.  systemctl is-active is a pure state read
+	# with no such side effect.
+	systemctl is-active --quiet NetworkManager 2>/dev/null || return 1
 	command -v busctl >/dev/null 2>&1 || return 1
 	busctl get-property org.freedesktop.NetworkManager \
 	    /org/freedesktop/NetworkManager/DnsManager \
