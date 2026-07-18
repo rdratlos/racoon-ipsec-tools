@@ -203,6 +203,112 @@ assert_file_contains "postcondition failure recorded as failed, not ok" "$STATE_
 rhook_exit_trap 2>"$WORK/report4.log"
 assert_file_contains "report explains the step reported success but had no effect" "$WORK/report4.log" "reported success, but had no effect"
 
+# --------------------------------------------------------------------------
+# Test 7: rhook_undo_replay() (§3.4/R4) -- undoes successful steps in
+# reverse apply order, skips steps that never succeeded (no undo needed),
+# removes the state file on a fully clean teardown, and on a partial
+# failure retains only the still-failing entries so a retry can finish
+# the job without re-running undos that already succeeded.
+# --------------------------------------------------------------------------
+RHOOK_EXIT_HANDLED=0
+UNDO_LOG="$WORK/undo-order.log"
+: > "$UNDO_LOG"
+rhook_state_reset
+rhook_plan_reset
+rhook_plan_add u_first  test_type required "first applied"          "true"  "echo undo-first >> \"$UNDO_LOG\""
+rhook_plan_add u_second test_type required "second applied"         "true"  "echo undo-second >> \"$UNDO_LOG\""
+rhook_plan_add u_opt    test_type optional "optional, never succeeds" "false" "echo undo-opt-SHOULD-NOT-RUN >> \"$UNDO_LOG\""
+rhook_plan_add u_third  test_type required "third applied"          "true"  "echo undo-third >> \"$UNDO_LOG\""
+rhook_report_init
+rhook_apply_plan
+rhook_exit_trap 2>/dev/null
+
+TESTS_RUN=$((TESTS_RUN + 1))
+if rhook_state_exists; then
+	pass "state file is non-empty after a plan with successful steps applied"
+else
+	fail "state file should be non-empty before undo replay runs"
+fi
+
+RHOOK_EXIT_HANDLED=0
+rhook_report_init
+rhook_undo_replay
+undo_rc=$?
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ "$undo_rc" -eq 0 ]; then
+	pass "rhook_undo_replay reports success when every undo succeeds"
+else
+	fail "rhook_undo_replay should have reported success"
+fi
+assert_eq "undo replay runs in reverse apply order (R4)" \
+	"$(cat "$UNDO_LOG")" \
+	"undo-third
+undo-second
+undo-first"
+TESTS_RUN=$((TESTS_RUN + 1))
+if rhook_state_exists; then
+	fail "state file must be removed after a fully successful undo replay"
+else
+	pass "state file is removed after a fully successful undo replay"
+fi
+
+# Partial failure: one undo command fails -- the rest must still run
+# (best effort), and only the failed entry survives in the state file.
+RHOOK_EXIT_HANDLED=0
+: > "$UNDO_LOG"
+rhook_state_reset
+rhook_plan_reset
+rhook_plan_add u_ok1 test_type required "ok 1" "true" "echo undo-ok1 >> \"$UNDO_LOG\""
+rhook_plan_add u_bad test_type required "will fail to undo" "true" "sh -c 'echo undo-bad >> \"$UNDO_LOG\"; exit 5'"
+rhook_plan_add u_ok2 test_type required "ok 2" "true" "echo undo-ok2 >> \"$UNDO_LOG\""
+rhook_report_init
+rhook_apply_plan
+rhook_exit_trap 2>/dev/null
+
+RHOOK_EXIT_HANDLED=0
+rhook_report_init
+rhook_undo_replay
+undo_rc2=$?
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ "$undo_rc2" -ne 0 ]; then
+	pass "rhook_undo_replay reports failure when at least one undo fails"
+else
+	fail "rhook_undo_replay should have reported failure"
+fi
+assert_eq "best-effort: the other undos still ran despite one failing" \
+	"$(cat "$UNDO_LOG")" \
+	"undo-ok2
+undo-bad
+undo-ok1"
+TESTS_RUN=$((TESTS_RUN + 1))
+if rhook_state_exists; then
+	pass "state file is retained after a partial-failure undo replay"
+else
+	fail "state file should be retained when something failed to undo"
+fi
+STATE_FILE3=$(rhook_state_file)
+assert_file_contains "only the failed entry survives in the retained state file" "$STATE_FILE3" "u_bad"
+assert_file_not_contains "the successfully-undone entries are not retained" "$STATE_FILE3" "u_ok1"
+assert_file_not_contains "the successfully-undone entries are not retained (2)" "$STATE_FILE3" "u_ok2"
+
+# Retry: fix the failing command in place and replay again -- the
+# remaining entry must undo cleanly and the state file must finally go.
+# `sed -i` is not POSIX (and GNU/BSD sed disagree on its syntax besides);
+# redirect to a temp file and move it into place instead, matching this
+# repo's other in-place-edit sites.
+sed "s/exit 5/exit 0/" "$STATE_FILE3" > "$STATE_FILE3.tmp" && mv "$STATE_FILE3.tmp" "$STATE_FILE3"
+RHOOK_EXIT_HANDLED=0
+rhook_report_init
+rhook_undo_replay
+undo_rc3=$?
+assert_eq "retry after fixing the failing undo succeeds" "$undo_rc3" "0"
+TESTS_RUN=$((TESTS_RUN + 1))
+if rhook_state_exists; then
+	fail "state file must be gone once the retry finishes the job"
+else
+	pass "state file is gone once the retry finishes the job"
+fi
+
 echo ""
 echo "$TESTS_RUN checks run, $TESTS_FAILED failed"
 [ "$TESTS_FAILED" -eq 0 ]

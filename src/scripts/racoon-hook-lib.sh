@@ -356,6 +356,90 @@ rhook_apply_plan() {
 }
 
 # --------------------------------------------------------------------------
+# rhook_undo_replay(): phase1-down's entire teardown logic (§3.4). The
+# state file -- not Mode Config, not a re-run of the survey, not a
+# re-derived plan -- is the *sole* source of what to undo: only lines
+# recorded with outcome "ok" carry a meaningful undo_command (skipped/
+# failed/not-attempted steps never changed anything, so there is nothing
+# to reverse), and they are replayed in the opposite of apply order.
+#
+# Apply order writes dummy interface/address/routes first and DNS steps
+# last (§3.2), so the state file's on-disk order is chronological apply
+# order; reversing it for undo satisfies R4 (DNS torn down first, dummy
+# interface/address removed last) for free, as a consequence of the file
+# order rather than a separate rule to keep in sync.
+#
+# Best-effort: one failed undo does not stop the rest from being
+# attempted, so a single stuck resource never blocks releasing everything
+# else. Only entries whose undo failed are written back to the state
+# file afterwards (in their original apply-chronological relative order,
+# so a later retry's own reversal still undoes them in the right
+# sequence) -- successfully undone entries are dropped. The state file is
+# removed entirely only once nothing is left to undo (§3.4: "the state
+# file is deleted only after a successful teardown").
+#
+# Returns 0 if every undo succeeded (or there was nothing to undo), 1 if
+# at least one failed.
+# --------------------------------------------------------------------------
+rhook_undo_replay() {
+	local rhook_state rhook_reversed_tmp rhook_line rhook_id rhook_type
+	local rhook_outcome rhook_undo rhook_out rhook_rc rhook_had_failure
+	local rhook_kept_lines
+
+	rhook_state="$(rhook_state_file)"
+	[ -s "$rhook_state" ] || return 0
+
+	rhook_had_failure=0
+	rhook_kept_lines=""
+
+	# Portable line-reversal (classic sed idiom): `tac` is not POSIX and
+	# is not guaranteed present on NetBSD, one of this codebase's target
+	# shells' platforms.
+	rhook_reversed_tmp="${rhook_state}.reversed.$$"
+	sed '1!G;h;$!d' "$rhook_state" > "$rhook_reversed_tmp" 2>/dev/null
+
+	while IFS= read -r rhook_line || [ -n "$rhook_line" ]; do
+		[ -n "$rhook_line" ] || continue
+		rhook_id=$(printf '%s' "$rhook_line" | cut -f1)
+		rhook_type=$(printf '%s' "$rhook_line" | cut -f2)
+		rhook_outcome=$(printf '%s' "$rhook_line" | cut -f3)
+		rhook_undo=$(printf '%s' "$rhook_line" | cut -f4)
+
+		[ "$rhook_outcome" = "ok" ] || continue
+		[ -n "$rhook_undo" ] || continue
+
+		rhook_log verbose "undo $rhook_id: $rhook_undo"
+		rhook_out=$(eval "$rhook_undo" 2>&1)
+		rhook_rc=$?
+		if [ "$rhook_rc" -eq 0 ]; then
+			rhook_report_line "[ ok        ] undo $rhook_id ($rhook_type)"
+			rhook_log trace "  command: $rhook_undo"
+			rhook_log trace "  output: $rhook_out"
+		else
+			rhook_report_line "[ FAILED    ] undo $rhook_id ($rhook_type) (exit $rhook_rc)"
+			rhook_log trace "  command: $rhook_undo"
+			rhook_log trace "  output: $rhook_out"
+			rhook_had_failure=1
+			if [ -z "$rhook_kept_lines" ]; then
+				rhook_kept_lines="$rhook_line"
+			else
+				rhook_kept_lines="$rhook_line
+$rhook_kept_lines"
+			fi
+		fi
+	done < "$rhook_reversed_tmp"
+	rm -f "$rhook_reversed_tmp" 2>/dev/null
+
+	if [ "$rhook_had_failure" -eq 1 ]; then
+		printf '%s\n' "$rhook_kept_lines" > "$rhook_state"
+		rhook_log warn "some teardown steps failed to undo; state file retained for a future retry: $rhook_state"
+	else
+		rm -f "$rhook_state" 2>/dev/null
+	fi
+	[ "$rhook_had_failure" -eq 0 ]
+}
+
+# --------------------------------------------------------------------------
 # Final report (§5.3) and the EXIT trap that guarantees it is emitted even
 # on an abnormal exit -- replacing `set -e`, which is removed entirely
 # (§3.3): every failure here is explicit, per step, and recorded, rather
