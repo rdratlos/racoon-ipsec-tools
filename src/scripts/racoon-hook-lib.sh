@@ -396,3 +396,201 @@ rhook_exit_trap() {
 	RHOOK_EXIT_HANDLED=1
 	rhook_emit_report
 }
+
+# --------------------------------------------------------------------------
+# Input validation (§4, R3).
+#
+# Everything racoon exports from Mode Config -- INTERNAL_ADDR4,
+# INTERNAL_DNS4, INTERNAL_DNS4_LIST, SPLIT_INCLUDE, SPLIT_INCLUDE_CIDR,
+# INTERNAL_SPLITDNS_DOMAINS, DEFAULT_DOMAIN, LOCAL_ADDR, REMOTE_ADDR and
+# the port variables -- arrives from the peer over the network and is
+# consumed by a root process.  Every one of these is whitelist-validated
+# here before use.  The rule throughout: reject the whole value on the
+# first bad element, never trim/rewrite/"fix" one -- a partially-sanitized
+# value that still gets used is exactly how injection survives review.
+#
+# On success each `rhook_validate_*_list` function prints the *original*
+# input verbatim (nothing is rewritten) and returns 0.  On failure it
+# prints nothing, sets RHOOK_VALIDATION_REASON, and returns 1.  Single-
+# value validators (rhook_valid_ipv4 et al.) are pure predicates: no
+# output, exit status only.
+# --------------------------------------------------------------------------
+RHOOK_MAX_DNS_SERVERS=8
+RHOOK_MAX_DOMAINS=32
+RHOOK_MAX_ROUTES=32
+RHOOK_VALIDATION_REASON=""
+
+# rhook_valid_ipv4 <token> -- dotted-quad, each octet 0-255, no leading
+# zeros (which some parsers read as octal), exactly 4 fields.
+rhook_valid_ipv4() {
+	local rhook_tok rhook_o rhook_oldifs
+	rhook_tok="$1"
+	[ -n "$rhook_tok" ] || return 1
+	case "$rhook_tok" in
+		*[!0-9.]*) return 1 ;;
+		.*|*.|*..*) return 1 ;;
+	esac
+	rhook_oldifs="$IFS"
+	IFS=.
+	# shellcheck disable=SC2086 # word-splitting on IFS=. is the point
+	set -- $rhook_tok
+	IFS="$rhook_oldifs"
+	[ "$#" -eq 4 ] || return 1
+	for rhook_o in "$@"; do
+		case "$rhook_o" in
+			0|[1-9]|[1-9][0-9]|[1-9][0-9][0-9]) ;;
+			*) return 1 ;;
+		esac
+		[ "$rhook_o" -le 255 ] || return 1
+	done
+	return 0
+}
+
+# rhook_valid_cidr4 <token> -- IPv4 address with an optional /0..32.
+# Rejects any character outside [0-9./] outright: this alone defeats the
+# `default via 10.6.6.6` argument-injection vector (and any other
+# letters/spaces/semicolons/newlines) before the address is even parsed.
+rhook_valid_cidr4() {
+	local rhook_tok rhook_addr rhook_len
+	rhook_tok="$1"
+	case "$rhook_tok" in
+		*[!0-9./]*) return 1 ;;
+	esac
+	case "$rhook_tok" in
+		*/*)
+			rhook_addr="${rhook_tok%%/*}"
+			rhook_len="${rhook_tok#*/}"
+			case "$rhook_len" in */*) return 1 ;; esac
+			case "$rhook_len" in
+				0|[1-9]|[12][0-9]|3[0-2]) ;;
+				*) return 1 ;;
+			esac
+			;;
+		*)
+			rhook_addr="$rhook_tok"
+			;;
+	esac
+	rhook_valid_ipv4 "$rhook_addr"
+}
+
+# rhook_valid_port <token> -- 1-65535, digits only.
+rhook_valid_port() {
+	local rhook_tok
+	rhook_tok="$1"
+	case "$rhook_tok" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	[ "$rhook_tok" -ge 1 ] 2>/dev/null && [ "$rhook_tok" -le 65535 ] 2>/dev/null
+}
+
+# rhook_valid_domain <token> -- [A-Za-z0-9.-] only, each label 1-63 bytes,
+# total <= 253 bytes, no empty label, no label starting or ending with a
+# hyphen (the brief requires no *leading* hyphen; trailing is rejected too
+# as a superset per RFC 1035 label syntax -- noted as a self-resolved
+# design choice, not a contradiction of the brief).
+rhook_valid_domain() {
+	local rhook_tok rhook_label rhook_oldifs
+	rhook_tok="$1"
+	[ -n "$rhook_tok" ] || return 1
+	[ "${#rhook_tok}" -le 253 ] || return 1
+	case "$rhook_tok" in
+		*[!A-Za-z0-9.-]*) return 1 ;;
+		.*|*.|*..*) return 1 ;;
+	esac
+	rhook_oldifs="$IFS"
+	IFS=.
+	# shellcheck disable=SC2086 # word-splitting on IFS=. is the point
+	set -- $rhook_tok
+	IFS="$rhook_oldifs"
+	for rhook_label in "$@"; do
+		[ -n "$rhook_label" ] || return 1
+		[ "${#rhook_label}" -le 63 ] || return 1
+		case "$rhook_label" in
+			-*|*-) return 1 ;;
+		esac
+	done
+	return 0
+}
+
+# rhook_validate_dns_list <space-separated tokens>
+# Rejects 0.0.0.0, loopback (127.0.0.0/8) and multicast (224.0.0.0/4) in
+# addition to plain address-format validation (§4: "Reject 0.0.0.0,
+# loopback, and multicast for DNS servers").
+rhook_validate_dns_list() {
+	local rhook_list rhook_tok rhook_count
+	rhook_list="$1"
+	rhook_count=0
+	RHOOK_VALIDATION_REASON=""
+	for rhook_tok in $rhook_list; do
+		rhook_count=$((rhook_count + 1))
+		if [ "$rhook_count" -gt "$RHOOK_MAX_DNS_SERVERS" ]; then
+			RHOOK_VALIDATION_REASON="more than $RHOOK_MAX_DNS_SERVERS DNS servers offered"
+			return 1
+		fi
+		if ! rhook_valid_ipv4 "$rhook_tok"; then
+			RHOOK_VALIDATION_REASON="DNS server '$rhook_tok' is not a valid IPv4 address"
+			return 1
+		fi
+		case "$rhook_tok" in
+			0.0.0.0)
+				RHOOK_VALIDATION_REASON="DNS server '$rhook_tok' is 0.0.0.0"
+				return 1
+				;;
+			127.*)
+				RHOOK_VALIDATION_REASON="DNS server '$rhook_tok' is a loopback address"
+				return 1
+				;;
+			22[4-9].*|23[0-9].*)
+				RHOOK_VALIDATION_REASON="DNS server '$rhook_tok' is a multicast address"
+				return 1
+				;;
+		esac
+	done
+	printf '%s' "$rhook_list"
+	return 0
+}
+
+# rhook_validate_domain_list <space-or-comma-separated tokens>
+# Callers normalize comma/space mixed lists to spaces before calling this
+# (racoon exports search domains comma-separated); kept as a single space-
+# separated contract here to match rhook_validate_dns_list/cidr_list.
+rhook_validate_domain_list() {
+	local rhook_list rhook_tok rhook_count
+	rhook_list="$1"
+	rhook_count=0
+	RHOOK_VALIDATION_REASON=""
+	for rhook_tok in $rhook_list; do
+		rhook_count=$((rhook_count + 1))
+		if [ "$rhook_count" -gt "$RHOOK_MAX_DOMAINS" ]; then
+			RHOOK_VALIDATION_REASON="more than $RHOOK_MAX_DOMAINS domains offered"
+			return 1
+		fi
+		if ! rhook_valid_domain "$rhook_tok"; then
+			RHOOK_VALIDATION_REASON="domain '$rhook_tok' failed validation"
+			return 1
+		fi
+	done
+	printf '%s' "$rhook_list"
+	return 0
+}
+
+# rhook_validate_cidr_list <space-separated tokens>
+rhook_validate_cidr_list() {
+	local rhook_list rhook_tok rhook_count
+	rhook_list="$1"
+	rhook_count=0
+	RHOOK_VALIDATION_REASON=""
+	for rhook_tok in $rhook_list; do
+		rhook_count=$((rhook_count + 1))
+		if [ "$rhook_count" -gt "$RHOOK_MAX_ROUTES" ]; then
+			RHOOK_VALIDATION_REASON="more than $RHOOK_MAX_ROUTES routes offered"
+			return 1
+		fi
+		if ! rhook_valid_cidr4 "$rhook_tok"; then
+			RHOOK_VALIDATION_REASON="route '$rhook_tok' is not a valid IPv4 CIDR"
+			return 1
+		fi
+	done
+	printf '%s' "$rhook_list"
+	return 0
+}
