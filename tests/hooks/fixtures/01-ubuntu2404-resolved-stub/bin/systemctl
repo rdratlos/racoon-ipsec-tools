@@ -1,0 +1,3 @@
+#!/bin/sh
+# stub: nothing is active in this fixture
+exit 3

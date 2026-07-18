@@ -1,0 +1,8 @@
+DESC="NetworkManager with dns=default,systemd-resolved (Mode only reports the primary)"
+EXPECT_GLIBC_READER_SUFFIX="/etc/resolv.conf"
+EXPECT_NSS_RESOLVE="no"
+EXPECT_DIVERGENT="no"
+EXPECT_PARALLEL_UNLINKED="no"
+EXPECT_NM_RCMANAGER="symlink"
+EXPECT_NM_MODE="default"
+EXPECT_NM_PRINT_CONFIG_DNS="default,systemd-resolved"

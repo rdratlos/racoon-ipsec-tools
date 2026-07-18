@@ -1,0 +1,7 @@
+#!/bin/sh
+[ "$1" = "--print-config" ] || exit 1
+cat <<'CFG'
+[main]
+dns=default,systemd-resolved
+plugins=keyfile
+CFG
