@@ -15,6 +15,11 @@
 # shell in the target set (documented once, here, rather than at each use).
 # No arrays, no `[[`, no `${var,,}`, no process substitution.
 #
+# shellcheck disable=SC3043
+# ^ one file-wide justification for every `local` declaration below (the
+# paragraph above), rather than repeating the same disable comment at
+# each of the ~45 uses.
+#
 # Architecture: survey -> plan -> apply (see the top-level hooks for the
 # phase breakdown). This file provides the plan/apply/state machinery and
 # the primitives every phase needs; the step *types* a plan can contain are
@@ -703,6 +708,12 @@ rhook_validate_cidr_list() {
 			return 1
 		fi
 		if ! rhook_valid_cidr4 "$rhook_tok"; then
+			# shellcheck disable=SC2034
+			# RHOOK_VALIDATION_REASON is a deliberate out-of-band return
+			# channel: this function's caller reads it after a nonzero
+			# return, in the caller's own scope, not this one -- see the
+			# §4 comment block above rhook_valid_ipv4() for the full
+			# convention.
 			RHOOK_VALIDATION_REASON="route '$rhook_tok' is not a valid IPv4 CIDR"
 			return 1
 		fi

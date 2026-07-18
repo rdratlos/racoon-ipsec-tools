@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>racoon IPsec Tools — Split-DNS &amp; Routing Hooks</title>
+<style>
+  :root {
+    --bg: #ffffff; --bg2: #f6f8fa; --bg3: #eef1f4;
+    --border: #d8dee4; --text: #1f2328; --text-dim: #59636e;
+    --head: #0f172a; --accent: #0969da; --code-bg: #f6f8fa;
+    --ok-bg: #dafbe1; --ok-text: #1a7f37;
+    --warn-bg: #fff8c5; --warn-text: #7d4e00;
+    --bad-bg: #ffebe9; --bad-text: #cf222e;
+    --mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+    --sans: -apple-system, 'Segoe UI', Inter, Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128;
+      --border: #30363d; --text: #c9d1d9; --text-dim: #8b949e;
+      --head: #f0f6fc; --accent: #58a6ff; --code-bg: #161b22;
+      --ok-bg: #0d2818; --ok-text: #56d364;
+      --warn-bg: #2b2000; --warn-text: #e3b341;
+      --bad-bg: #2d0f0f; --bad-text: #f85149;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128;
+    --border: #30363d; --text: #c9d1d9; --text-dim: #8b949e;
+    --head: #f0f6fc; --accent: #58a6ff; --code-bg: #161b22;
+    --ok-bg: #0d2818; --ok-text: #56d364;
+    --warn-bg: #2b2000; --warn-text: #e3b341;
+    --bad-bg: #2d0f0f; --bad-text: #f85149;
+  }
+  :root[data-theme="light"] {
+    --bg: #ffffff; --bg2: #f6f8fa; --bg3: #eef1f4;
+    --border: #d8dee4; --text: #1f2328; --text-dim: #59636e;
+    --head: #0f172a; --accent: #0969da; --code-bg: #f6f8fa;
+    --ok-bg: #dafbe1; --ok-text: #1a7f37;
+    --warn-bg: #fff8c5; --warn-text: #7d4e00;
+    --bad-bg: #ffebe9; --bad-text: #cf222e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 16px; line-height: 1.7;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+  header.page { border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+  header.page .kicker {
+    font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--text-dim);
+  }
+  h1 { color: var(--head); font-size: 1.9rem; margin: 0.3rem 0 0.5rem; }
+  h2 {
+    color: var(--head); font-size: 1.25rem; margin-top: 3rem; margin-bottom: 1rem;
+    padding-bottom: 0.4rem; border-bottom: 1px solid var(--border);
+  }
+  h3 { color: var(--head); font-size: 1.05rem; margin-top: 1.75rem; margin-bottom: 0.6rem; }
+  p { margin: 0 0 1rem; }
+  ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+  li { margin-bottom: 0.35rem; }
+  a { color: var(--accent); }
+  code {
+    font-family: var(--mono); font-size: 0.87em; background: var(--code-bg);
+    border: 1px solid var(--border); border-radius: 4px; padding: 0.1em 0.4em;
+  }
+  pre {
+    font-family: var(--mono); font-size: 0.85rem; background: var(--code-bg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem;
+    overflow-x: auto; margin: 0 0 1.2rem; line-height: 1.55;
+  }
+  pre code { border: none; background: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 0 0 1.5rem; overflow-x: auto; display: block; }
+  table thead { display: table-header-group; }
+  table tbody { display: table-row-group; }
+  th, td { text-align: left; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--border); font-size: 0.92rem; }
+  th { color: var(--text-dim); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .badge {
+    display: inline-block; font-family: var(--mono); font-size: 0.72rem;
+    padding: 0.12em 0.55em; border-radius: 999px; font-weight: 600;
+  }
+  .badge.ok   { background: var(--ok-bg);   color: var(--ok-text); }
+  .badge.warn { background: var(--warn-bg); color: var(--warn-text); }
+  .badge.bad  { background: var(--bad-bg);  color: var(--bad-text); }
+  .callout {
+    border: 1px solid var(--border); border-left: 4px solid var(--accent);
+    background: var(--bg2); border-radius: 6px; padding: 1rem 1.2rem; margin: 0 0 1.5rem;
+  }
+  .callout.warn { border-left-color: var(--warn-text); }
+  .callout p:last-child { margin-bottom: 0; }
+  .toc {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 1.2rem 1.6rem; margin-bottom: 2rem;
+  }
+  .toc-title { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 0.6rem; }
+  .toc ol { columns: 2; column-gap: 2rem; }
+  .toc a { text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 0.85rem; }
+  .scroll-x { overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <div class="kicker">racoon-ipsec-tools &middot; admin guide</div>
+  <h1>Split-DNS &amp; Routing Hooks</h1>
+  <p>How <code>phase1-up.sh</code>/<code>phase1-down.sh</code> configure per-domain DNS resolution and split-tunnel routing when a road-warrior client connects, what they will and will not touch on your system, and how to diagnose them with <code>racoon-dns-detect</code>.</p>
+</header>
+
+<nav class="toc">
+  <div class="toc-title">Contents</div>
+  <ol>
+    <li><a href="#overview">Overview &amp; design constraints</a></li>
+    <li><a href="#install">Installation</a></li>
+    <li><a href="#config">Configuration (hooks.conf)</a></li>
+    <li><a href="#backends">Supported DNS backends</a></li>
+    <li><a href="#detect">Diagnosing with racoon-dns-detect</a></li>
+    <li><a href="#state">State, logs, and teardown</a></li>
+    <li><a href="#security">Security model</a></li>
+    <li><a href="#troubleshooting">Troubleshooting</a></li>
+    <li><a href="#limitations">Known limitations</a></li>
+  </ol>
+</nav>
+
+<section id="overview">
+<h2>1. Overview &amp; design constraints</h2>
+<p>When a road-warrior client completes Phase 1 and Mode Config negotiation, the gateway may hand back an internal address, a list of split-include networks, one or more internal DNS servers, and a list of split-DNS domains. <code>phase1-up.sh</code> turns that into: a dedicated interface carrying the assigned address, routes for the split-include networks, and DNS configuration scoped to the given domains only — so lookups for <code>corp.example.com</code> go over the tunnel while everything else keeps using your normal resolver. <code>phase1-down.sh</code> reverses exactly what was applied when the tunnel goes down.</p>
+
+<p>The hooks follow a fixed set of rules, regardless of which backend ends up handling DNS on your system:</p>
+<ul>
+  <li><strong>Never a persistent system change.</strong> Nothing here edits <code>/etc/nsswitch.conf</code>, enables a service, or otherwise reconfigures your machine beyond the lifetime of the VPN session. Where a genuine reconfiguration would help (e.g. resolving a <span class="badge warn">PARALLEL_UNLINKED</span> resolv.conf landscape), the hooks report a recommendation — they never apply it themselves.</li>
+  <li><strong>Never touches the SPD/SAD.</strong> Security policy is racoon's own responsibility, configured in <code>racoon.conf</code>. These hooks only handle routing and DNS.</li>
+  <li><strong>Every value from the gateway is untrusted input.</strong> Mode Config attributes are validated against a strict whitelist before use; a value that fails validation is dropped, never partially used.</li>
+  <li><strong>DNS goes up last, comes down first.</strong> On connect, DNS is only configured once the tunnel and routes are in place; on disconnect, DNS is reverted before routes and the interface are torn down.</li>
+  <li><strong>The VPN address lives on a dedicated dummy interface</strong> (<code>racoon0</code> by default), never on your physical network card — this avoids ARP-leaking the internal address onto your LAN. Split-include routes still point out your physical interface; only the packets' <em>source</em> address is anchored via the dummy interface's address.</li>
+  <li><strong>No hardcoded fallback network.</strong> If the gateway sends no split-include networks and no internal DNS servers, there is nothing to route through the tunnel — the hook reports that and refuses, rather than guessing a network that might not even be reachable through this gateway.</li>
+</ul>
+</section>
+
+<section id="install">
+<h2>2. Installation</h2>
+<p>The hook scripts live in <code>src/scripts/</code> in this source tree:</p>
+<pre><code>src/scripts/racoon-hook-lib.sh   # shared library (sourced by everything below)
+src/scripts/phase1-up.sh         # racoon phase1-up hook
+src/scripts/phase1-down.sh       # racoon phase1-down hook
+src/scripts/racoon-dns-detect    # standalone diagnostic CLI</code></pre>
+<p>Point racoon at the hooks in your client-side <code>racoon.conf</code>:</p>
+<pre><code>remote anyremote
+{
+    ...
+    script "/path/to/src/scripts/phase1-up.sh" phase1_up;
+    script "/path/to/src/scripts/phase1-down.sh" phase1_down;
+}</code></pre>
+<p>All four scripts are plain POSIX <code>sh</code> — no bashisms, no arrays, no <code>[[ ]]</code> — and run under <code>dash</code>, <code>bash</code>, and NetBSD's <code>/bin/sh</code> unmodified. They must stay together in the same directory: <code>phase1-up.sh</code>/<code>phase1-down.sh</code>/<code>racoon-dns-detect</code> all source <code>racoon-hook-lib.sh</code> from the directory they themselves live in.</p>
+</section>
+
+<section id="config">
+<h2>3. Configuration (hooks.conf)</h2>
+<p>An optional config file at <code>/etc/racoon/hooks.conf</code> (or wherever <code>RACOON_HOOK_CONF</code> points) controls hook behavior. See <a href="../../etc/racoon/hooks.conf.sample"><code>etc/racoon/hooks.conf.sample</code></a> for the fully-commented version; the keys are:</p>
+<table>
+<thead><tr><th>Key</th><th>Default</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>backend</code></td><td><code>auto</code></td><td>Force a specific DNS backend, or let the hook detect one (see <a href="#backends">§4</a>).</td></tr>
+<tr><td><code>on_dns_failure</code></td><td><code>warn</code></td><td><code>warn</code> always exits 0; <code>abort</code> exits 1 when a required step fails (visible to whatever supervises the hook process — racoon itself does not reject a tunnel based on a hook's exit code).</td></tr>
+<tr><td><code>debug_level</code></td><td><code>0</code></td><td>0–3, see <a href="#state">§6</a>. <code>RACOON_HOOK_DEBUG</code> in the environment overrides this without editing the file.</td></tr>
+<tr><td><code>dummy_iface</code></td><td><code>racoon0</code></td><td>Name of the dedicated interface carrying the VPN address and DNS profile.</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="backends">
+<h2>4. Supported DNS backends</h2>
+<p>Backend detection asks, in order: NetworkManager's own D-Bus <code>RcManager</code> property (never guessed from file layout — NetworkManager's own "symlink" mode can legitimately write a plain file), then <code>nsswitch.conf</code>'s <code>hosts:</code> line for an <code>nss-resolve</code> entry, then the glibc resolver's actual symlink target, then a content-signature scan of <code>/etc/resolv.conf</code>, then whether <code>resolvconf</code>/<code>dnsmasq</code> are present and active. Set <code>backend</code> explicitly in <code>hooks.conf</code> to skip detection.</p>
+
+<table>
+<thead><tr><th>Backend</th><th>Split-DNS?</th><th>Mechanism</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>resolved</code></td>
+  <td><span class="badge ok">yes</span></td>
+  <td>Per-link DNS servers and routing-only domains (<code>~domain</code>) via <code>resolvectl</code> (or <code>systemd-resolve</code> on older systems — the two have <em>incompatible</em> flag grammar and are never conflated). <code>default-route</code> is only used when the running <code>resolvectl</code> actually supports it, detected by feature probe, not version number.</td>
+</tr>
+<tr>
+  <td><code>networkmanager</code></td>
+  <td><span class="badge ok">yes, if a routing-capable DNS plugin is active</span></td>
+  <td>A dedicated dummy connection profile (<code>racoon-vpn-dns</code>) fully configured in one <code>nmcli connection add</code> call before first activation. Routing-only domains require <code>systemd-resolved</code>, <code>dnsmasq</code>, or <code>dnsconfd</code> to also be listed in NetworkManager's own <code>dns=</code> setting; with a plain <code>dns=default</code> configuration NetworkManager has no concept of per-domain routing, and the hook says so loudly rather than silently doing a full redirect.</td>
+</tr>
+<tr>
+  <td><code>resolvconf</code></td>
+  <td><span class="badge warn">no</span></td>
+  <td>Classic resolvconf(8) merges nameservers with no per-domain routing concept — the VPN resolver becomes authoritative for <em>every</em> lookup while the tunnel is up. Reported as such, not represented as real split-DNS.</td>
+</tr>
+<tr>
+  <td><code>dnsmasq</code></td>
+  <td><span class="badge ok">yes</span></td>
+  <td>One <code>server=/domain/ip</code> line per domain/server pair in <code>/etc/dnsmasq.d/racoon-vpn</code> — never a bare <code>server=ip</code> line, which would replace dnsmasq's <em>global</em> upstream. Refuses outright (a reported failure, not a silent redirect) if the gateway sent no split-DNS domains at all.</td>
+</tr>
+<tr>
+  <td><code>none</code> (fallback)</td>
+  <td><span class="badge bad">no</span></td>
+  <td>No supported resolver manager detected. Writes <code>/etc/resolv.conf</code> directly (backed up first) — a full DNS redirect for the duration of the tunnel, explicitly reported as not real split-DNS.</td>
+</tr>
+</tbody>
+</table>
+
+<div class="callout warn">
+<p><strong>A negative NetworkManager DNS priority is never used.</strong> NetworkManager treats a negative <code>ipv4.dns-priority</code> as "exclusive," dropping every <em>other</em> active connection's DNS servers from the merged <code>/etc/resolv.conf</code> — this silently took out a physical uplink's own DNS server in earlier iterations of this hook set. The dummy profile always uses a small positive priority (<code>50</code>).</p>
+</div>
+</section>
+
+<section id="detect">
+<h2>5. Diagnosing with racoon-dns-detect</h2>
+<p><code>racoon-dns-detect</code> answers "what would the hooks do on this system right now?" without a VPN session, without root, and without changing anything:</p>
+<pre><code># Survey resolv.conf and the DNS capability matrix, explain each conclusion
+racoon-dns-detect --detect --explain
+
+# Preview the exact step plan for sample (or real) DNS parameters --
+# nothing below --dry-run is ever executed
+racoon-dns-detect --dry-run --explain \
+    --dns=10.0.12.53 --domains=corp.example.com --routes=10.0.12.0/24
+
+# Machine-readable output for scripting
+racoon-dns-detect --detect --format=kv</code></pre>
+<p>Two resolv.conf landscape problems it will flag by name:</p>
+<ul>
+  <li><span class="badge bad">DIVERGENT</span> — the file glibc actually reads (per <code>nsswitch.conf</code>/the resolver symlink) disagrees with at least one other backend-generated copy on the system.</li>
+  <li><span class="badge warn">PARALLEL_UNLINKED</span> — multiple resolver backends appear to be writing <code>resolv.conf</code> independently with no symlink tying them together. <code>racoon-dns-detect</code> prints a recommendation (symlink <code>/etc/resolv.conf</code> to the authoritative backend's output, or set that backend's own file-ownership setting) — it never applies this itself (design rule in <a href="#overview">§1</a>).</li>
+</ul>
+</section>
+
+<section id="state">
+<h2>6. State, logs, and teardown</h2>
+<p>Every applied step is journaled to <code>/run/racoon/hook-state.&lt;remote-addr&gt;-&lt;remote-port&gt;</code> as it succeeds — this file, not a re-run of detection, is <code>phase1-down.sh</code>'s <em>only</em> source of what to undo. Undoing happens in the reverse of apply order, which is what makes "DNS down first" (<a href="#overview">§1</a>) fall out automatically rather than needing to be a separately-maintained rule.</p>
+<p>Teardown is best-effort: one failed undo does not block the rest from running. Anything that fails to undo stays in the state file for a future retry (the next <code>phase1-down.sh</code> invocation, or a subsequent <code>phase1-up.sh</code> run, which will notice the leftover state, archive it, and start fresh rather than get permanently stuck). The state file is only removed once nothing is left to undo.</p>
+<p>Verbosity is controlled by <code>debug_level</code> in <code>hooks.conf</code> (or <code>RACOON_HOOK_DEBUG</code> in the environment, which always wins):</p>
+<table>
+<thead><tr><th>Level</th><th>Destination</th></tr></thead>
+<tbody>
+<tr><td><code>0</code> quiet</td><td>syslog only: errors, warnings, the final one-line summary.</td></tr>
+<tr><td><code>1</code> normal</td><td>+ the full per-step report on stderr.</td></tr>
+<tr><td><code>2</code> verbose</td><td>+ exact command line and exit code per step, mirrored to <code>/run/racoon/hook.trace</code>.</td></tr>
+<tr><td><code>3</code> trace</td><td>+ captured stdout/stderr per step, plus the evidence behind each detection decision.</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="security">
+<h2>7. Security model</h2>
+<ul>
+  <li>Every Mode Config value the gateway sends (internal address, DNS servers, split-include networks, split-DNS domains) is whitelist-validated before use — IPv4/CIDR/domain-name/port syntax and count limits. The whole value is rejected on the first invalid element; nothing is trimmed or "fixed" and partially used.</li>
+  <li>0.0.0.0, loopback, and multicast addresses are rejected as DNS servers.</li>
+  <li>Plan steps are built entirely from already-validated tokens before any external command runs, so the single execution point that evaluates them never sees an un-validated value from the network.</li>
+  <li>Nothing here runs <code>setkey</code> or touches SPD/SAD state — that remains exclusively racoon's own responsibility via <code>racoon.conf</code>.</li>
+</ul>
+</section>
+
+<section id="troubleshooting">
+<h2>8. Troubleshooting</h2>
+<h3>"Split-DNS domains cannot be isolated" warning</h3>
+<p>Seen with <code>backend = networkmanager</code> when NetworkManager's own <code>dns=</code> setting has no per-domain routing plugin (plain <code>dns=default</code>). Add <code>systemd-resolved</code> or <code>dnsmasq</code> to <code>dns=</code> in <code>NetworkManager.conf</code>, e.g. <code>dns=default,systemd-resolved</code>, or set <code>backend = resolved</code> in hooks.conf if systemd-resolved is already running.</p>
+<h3>A required step keeps failing and the tunnel exits nonzero</h3>
+<p>Set <code>debug_level = 2</code> (or <code>RACOON_HOOK_DEBUG=2</code>) and re-run; the trace at <code>/run/racoon/hook.trace</code> has the exact failing command and its output. <code>racoon-dns-detect --dry-run --explain</code> with the same DNS parameters will show the same plan without needing an active tunnel.</p>
+<h3>A previous disconnect never fully cleaned up</h3>
+<p>Check <code>/run/racoon/hook-state.*</code> — a non-empty file means something failed to undo last time. Run <code>phase1-down.sh</code> by hand (with the same <code>REMOTE_ADDR</code>/<code>REMOTE_PORT</code> environment racoon would set) to retry, or inspect the file's undo commands directly; each line is <code>id&nbsp;&nbsp;type&nbsp;&nbsp;outcome&nbsp;&nbsp;undo_command</code>, tab-separated.</p>
+</section>
+
+<section id="limitations">
+<h2>9. Known limitations</h2>
+<ul>
+  <li>IPv4 only — no IPv6 split-DNS/routing support yet.</li>
+  <li><code>resolvectl</code>'s <code>default-route</code> subcommand is feature-probed (via <code>resolvectl --help</code>) rather than version-gated, because the systemd release that introduced it could not be confirmed against upstream release notes.</li>
+  <li><code>resolvconf</code> and the <code>/etc/resolv.conf</code> fallback backend both apply a full DNS redirect for the tunnel's duration, not per-domain routing — this is a property of those backends, not a bug in the hook.</li>
+  <li>The road-warrior topology assumes one active gateway connection per racoon instance; the connection id used for state-file naming is derived from <code>REMOTE_ADDR</code>/<code>REMOTE_PORT</code>.</li>
+</ul>
+</section>
+
+<footer>
+racoon-ipsec-tools &middot; BSD-3-Clause &middot; see <a href="../../etc/racoon/hooks.conf.sample">hooks.conf.sample</a> and <code>tests/hooks/</code> for the executable specification these hooks are held to.
+</footer>
+
+</div>
+</body>
+</html>

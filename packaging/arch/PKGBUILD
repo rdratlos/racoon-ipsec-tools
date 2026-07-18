@@ -51,6 +51,15 @@ check() {
   make check
 }
 
+# NOTE: src/scripts/{racoon-hook-lib.sh,phase1-up.sh,phase1-down.sh,
+# racoon-dns-detect} (the road-warrior split-DNS/routing hooks) and
+# etc/racoon/hooks.conf.sample are not yet installed by this PKGBUILD --
+# `make DESTDIR=... install` below does not currently place them anywhere,
+# since they are not wired into any Makefile.am install rule upstream.
+# Until that lands, install them manually from the built source tree, e.g.
+# into /etc/racoon/scripts/, and reference their installed paths from the
+# `script` directives in racoon.conf. See doc/admin/split-dns.html for
+# full documentation.
 package() {
   cd "racoon-ipsec-tools"
   make DESTDIR="$pkgdir" install

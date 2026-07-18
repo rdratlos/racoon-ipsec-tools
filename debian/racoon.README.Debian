@@ -82,3 +82,34 @@ A Perl script to convert the OpenBSD key file format to the one used
 by racoon, plainrsa-convert, is installed in
 /usr/share/doc/racoon/examples. It requires the
 libparse-recdescent-perl and libcrypt-openssl-rsa-perl packages.
+
+Road-warrior split-DNS and routing hooks
+------------------------------------------
+
+Upstream source ships phase1-up/phase1-down script hooks for
+Mode-Config road-warrior clients under src/scripts/ in the source
+tree (racoon-hook-lib.sh, phase1-up.sh, phase1-down.sh, and the
+racoon-dns-detect diagnostic CLI). These are not yet wired into this
+package's build (no debian/racoon.install entry, no Makefile.am
+install rule) -- packaging them requires deciding an install location
+(candidates: /usr/lib/racoon/hooks, or the existing but currently
+unused etc/racoon/scripts directory already declared in
+debian/racoon.dirs) and a dependency floor for the resolver tools
+they shell out to (iproute2, and optionally one of
+network-manager/systemd-resolved/resolvconf/dnsmasq depending on
+which backend a given install actually uses -- these are probed at
+runtime, not hard dependencies, so none should be pulled in
+unconditionally).
+
+Until that lands, install manually:
+
+  # install -d /etc/racoon/scripts
+  # install -m 0755 src/scripts/racoon-hook-lib.sh \
+        src/scripts/phase1-up.sh src/scripts/phase1-down.sh \
+        src/scripts/racoon-dns-detect /etc/racoon/scripts/
+  # install -m 0644 etc/racoon/hooks.conf.sample /etc/racoon/
+
+then reference the installed phase1-up.sh/phase1-down.sh paths from
+the `script` directives in your racoon.conf. See
+doc/admin/split-dns.html in the source tree for full usage,
+configuration, and troubleshooting documentation.
