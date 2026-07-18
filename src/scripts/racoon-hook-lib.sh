@@ -880,3 +880,231 @@ rhook_nm_dbus_prop() {
 	    | sed -n 's/^s "\(.*\)"$/\1/p'
 	return 0
 }
+
+# --------------------------------------------------------------------------
+# systemd-resolved: tool detection, version, and capability matrix (§6).
+#
+# Two tools do this job with *different command grammars*: resolvectl
+# (verb-based: `resolvectl dns IF a.b.c.d`) and its predecessor
+# systemd-resolve (flag-based: `systemd-resolve --interface=IF
+# --set-dns=a.b.c.d`). Confirmed against systemd's own NEWS files:
+# systemd-resolve gained --set-dns=/--set-domain=/--set-llmnr=/
+# --set-mdns=/--set-dnssec=/--set-nta=/--revert in v236; it was renamed to
+# resolvectl with a verb-based interface in v239, remaining available
+# under the old name as a compatibility alias. Xubuntu Bionic 32-bit -- a
+# supported target -- has *neither* resolvectl nor busctl, only
+# systemd-resolve: a previous version of this detection assumed a
+# resolvectl fallback binary name ("resctl") that does not exist anywhere,
+# so the entire resolved path silently no-op'd there, and detection even
+# *selected* that path based on probing the non-existent binary. Fixed
+# here: probe resolvectl, then systemd-resolve, never resctl.
+#
+# Capabilities are feature-probed, not version-sniffed (§6 point 7): dns/
+# domain/revert/flush-caches are confirmed present in both tools per the
+# NEWS entries above. The exact version resolvectl's "default-route"
+# subcommand first shipped in could not be confirmed -- checked the NEWS
+# files for v240, v244 and v248, none mention it -- so rather than assert
+# an unconfirmed "requires vN" cutoff, it is probed directly via
+# `resolvectl --help` output.
+# UNVERIFIED: resolvectl default-route's introduction version.
+# UNVERIFIED: whether systemd-resolve's --set-dns=/--set-domain= accept
+# multiple values per flag occurrence or must be repeated once per value;
+# the emitters below repeat the flag once per value, which is the
+# standard getopt_long repeatable-option convention and is safe even if
+# a single occurrence would also have accepted a space-separated list.
+# --------------------------------------------------------------------------
+
+rhook_dns_tool_detect() {
+	if command -v "$RACOON_HOOK_RESOLVECTL" >/dev/null 2>&1; then
+		printf 'resolvectl'
+	elif command -v "$RACOON_HOOK_SYSTEMD_RESOLVE" >/dev/null 2>&1; then
+		printf 'systemd-resolve'
+	fi
+	return 0
+}
+
+# `systemctl --version`, first line, second field, e.g.
+# "systemd 255 (255.4-1ubuntu8.4)" -> "255".
+rhook_systemd_version() {
+	"$RACOON_HOOK_SYSTEMCTL" --version 2>/dev/null | awk 'NR==1{print $2; exit}'
+}
+
+# rhook_dns_cap <tool> <capability>
+# capability: per_link_dns | routing_domains | default_route | revert | flush_caches
+# Returns 0 (has it) / 1 (doesn't); prints nothing either way.
+rhook_dns_cap() {
+	local rhook_tool rhook_cap
+	rhook_tool="$1"
+	rhook_cap="$2"
+	[ -n "$rhook_tool" ] || return 1
+	case "$rhook_cap" in
+		per_link_dns|routing_domains|revert|flush_caches)
+			return 0
+			;;
+		default_route)
+			case "$rhook_tool" in
+				resolvectl)
+					"$RACOON_HOOK_RESOLVECTL" --help 2>&1 | grep -q 'default-route'
+					return $?
+					;;
+				*)
+					return 1
+					;;
+			esac
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+# --------------------------------------------------------------------------
+# Emitters: one function per operation, each with a case-branch per tool
+# selecting that tool's grammar. Every branch prints a plain command-line
+# string (destined for a plan step's command/undo_command field, later
+# run via eval -- see the plan-storage comment on why that is safe here)
+# and returns 1 if the tool isn't one of the two known ones. Never build
+# one command string and hope it works for whichever tool happens to be
+# installed (§6 point 4).
+# --------------------------------------------------------------------------
+
+# rhook_dns_emit_set_dns <tool> <iface> <server...>
+rhook_dns_emit_set_dns() {
+	local rhook_tool rhook_iface rhook_out rhook_srv
+	rhook_tool="$1"; rhook_iface="$2"; shift 2
+	case "$rhook_tool" in
+		resolvectl)
+			rhook_out="$RACOON_HOOK_RESOLVECTL dns $rhook_iface"
+			for rhook_srv in "$@"; do rhook_out="$rhook_out $rhook_srv"; done
+			;;
+		systemd-resolve)
+			rhook_out="$RACOON_HOOK_SYSTEMD_RESOLVE"
+			for rhook_srv in "$@"; do
+				rhook_out="$rhook_out --interface=$rhook_iface --set-dns=$rhook_srv"
+			done
+			;;
+		*)
+			return 1
+			;;
+	esac
+	printf '%s' "$rhook_out"
+}
+
+# rhook_dns_emit_set_domains <tool> <iface> <domain...>
+# Domains are passed through exactly as given by the caller; whether they
+# carry a leading '~' (routing-only) or not is the plan builder's
+# decision (§6/§7.1: only meaningful when the backend actually routes on
+# it), not this emitter's.
+rhook_dns_emit_set_domains() {
+	local rhook_tool rhook_iface rhook_out rhook_dom
+	rhook_tool="$1"; rhook_iface="$2"; shift 2
+	case "$rhook_tool" in
+		resolvectl)
+			rhook_out="$RACOON_HOOK_RESOLVECTL domain $rhook_iface"
+			for rhook_dom in "$@"; do rhook_out="$rhook_out $rhook_dom"; done
+			;;
+		systemd-resolve)
+			rhook_out="$RACOON_HOOK_SYSTEMD_RESOLVE"
+			for rhook_dom in "$@"; do
+				rhook_out="$rhook_out --interface=$rhook_iface --set-domain=$rhook_dom"
+			done
+			;;
+		*)
+			return 1
+			;;
+	esac
+	printf '%s' "$rhook_out"
+}
+
+# rhook_dns_emit_default_route <tool> <iface> <true|false>
+# resolvectl only; systemd-resolve never gained an equivalent. Callers
+# must check rhook_dns_cap first and skip (report §5.3 SKIPPED with
+# reason+impact), not call this blind.
+rhook_dns_emit_default_route() {
+	local rhook_tool rhook_iface rhook_val
+	rhook_tool="$1"; rhook_iface="$2"; rhook_val="$3"
+	case "$rhook_tool" in
+		resolvectl)
+			printf '%s default-route %s %s' "$RACOON_HOOK_RESOLVECTL" "$rhook_iface" "$rhook_val"
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+# rhook_dns_emit_revert <tool> <iface>
+rhook_dns_emit_revert() {
+	local rhook_tool rhook_iface
+	rhook_tool="$1"; rhook_iface="$2"
+	case "$rhook_tool" in
+		resolvectl)
+			printf '%s revert %s' "$RACOON_HOOK_RESOLVECTL" "$rhook_iface"
+			;;
+		systemd-resolve)
+			printf '%s --interface=%s --revert' "$RACOON_HOOK_SYSTEMD_RESOLVE" "$rhook_iface"
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+# rhook_dns_emit_flush_caches <tool>
+rhook_dns_emit_flush_caches() {
+	case "$1" in
+		resolvectl)
+			printf '%s flush-caches' "$RACOON_HOOK_RESOLVECTL"
+			;;
+		systemd-resolve)
+			printf '%s --flush-caches' "$RACOON_HOOK_SYSTEMD_RESOLVE"
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+# rhook_dns_emit_clear_dns / rhook_dns_emit_clear_domains <tool> <iface>
+#
+# Explicit per-setting fallback for when revert is unavailable or fails at
+# apply time (§6 point 6). Both tools document a single empty-string
+# argument to dns/domain (or --set-dns=""/--set-domain="") as clearing
+# that value list. NEVER use "~." here: that is the catch-all *routing*
+# domain, meaning "route every query with no better match to this link" --
+# the opposite of clearing it, and it promotes a DNS-less link to the
+# system-wide default resolver. This is a confirmed, previously-live bug
+# in this hook set's own teardown fallback: it produced a total resolution
+# outage on the very path meant to prevent one, reported by users as "the
+# VPN killed my internet".
+rhook_dns_emit_clear_dns() {
+	local rhook_tool rhook_iface
+	rhook_tool="$1"; rhook_iface="$2"
+	case "$rhook_tool" in
+		resolvectl)
+			printf '%s dns %s ""' "$RACOON_HOOK_RESOLVECTL" "$rhook_iface"
+			;;
+		systemd-resolve)
+			printf '%s --interface=%s --set-dns=""' "$RACOON_HOOK_SYSTEMD_RESOLVE" "$rhook_iface"
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+rhook_dns_emit_clear_domains() {
+	local rhook_tool rhook_iface
+	rhook_tool="$1"; rhook_iface="$2"
+	case "$rhook_tool" in
+		resolvectl)
+			printf '%s domain %s ""' "$RACOON_HOOK_RESOLVECTL" "$rhook_iface"
+			;;
+		systemd-resolve)
+			printf '%s --interface=%s --set-domain=""' "$RACOON_HOOK_SYSTEMD_RESOLVE" "$rhook_iface"
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
