@@ -366,10 +366,23 @@ rhook_emit_report() {
 	local rhook_ts rhook_summary rhook_level
 	[ -f "$RHOOK_REPORT_FILE" ] || return 0
 
-	rhook_ok=$(grep -c '^\[ ok' "$RHOOK_REPORT_FILE" 2>/dev/null || printf 0)
-	rhook_failed=$(grep -c '^\[ FAILED' "$RHOOK_REPORT_FILE" 2>/dev/null || printf 0)
-	rhook_skipped=$(grep -c '^\[ SKIPPED' "$RHOOK_REPORT_FILE" 2>/dev/null || printf 0)
-	rhook_notrun=$(grep -c '^\[ not-run' "$RHOOK_REPORT_FILE" 2>/dev/null || printf 0)
+	# `grep -c` always prints a count, including "0", even when it finds
+	# no match -- its exit status just signals match/no-match, not
+	# success/failure. A trailing `|| printf 0` therefore does not fall
+	# back on the zero-match case, it *appends* a second "0" to grep's
+	# own "0" output (both writes land in the same command substitution
+	# regardless of grep's exit status), producing "0<newline>0" and
+	# breaking every `-gt 0` integer test below on dash. `${var:-0}`
+	# after a plain capture handles the one case that legitimately needs
+	# a fallback -- grep itself missing or the report file vanishing.
+	rhook_ok=$(grep -c '^\[ ok' "$RHOOK_REPORT_FILE" 2>/dev/null)
+	rhook_ok="${rhook_ok:-0}"
+	rhook_failed=$(grep -c '^\[ FAILED' "$RHOOK_REPORT_FILE" 2>/dev/null)
+	rhook_failed="${rhook_failed:-0}"
+	rhook_skipped=$(grep -c '^\[ SKIPPED' "$RHOOK_REPORT_FILE" 2>/dev/null)
+	rhook_skipped="${rhook_skipped:-0}"
+	rhook_notrun=$(grep -c '^\[ not-run' "$RHOOK_REPORT_FILE" 2>/dev/null)
+	rhook_notrun="${rhook_notrun:-0}"
 
 	if [ "$rhook_failed" -gt 0 ] || [ "$rhook_notrun" -gt 0 ] || [ "$rhook_skipped" -gt 0 ]; then
 		rhook_result="PARTIAL"
@@ -1361,6 +1374,20 @@ rhook_build_plan() {
 			"$RACOON_HOOK_IP route replace \"$rhook_net\" dev \"$RHOOK_IFACE\" src \"$RHOOK_INTERNAL_ADDR4\"" \
 			"$RACOON_HOOK_IP route del \"$rhook_net\" dev \"$RHOOK_IFACE\" src \"$RHOOK_INTERNAL_ADDR4\""
 	done
+
+	if [ -z "$RHOOK_ROUTES" ]; then
+		# R7: no hardcoded network fallback. If the gateway sent no
+		# split-include networks and no internal DNS servers were
+		# provided either (the other source of routes, added above),
+		# there is nothing to route through the tunnel -- report that as
+		# a failure (subject to the configured failure policy) instead
+		# of silently guessing a fallback network that may not even be
+		# reachable through this particular gateway.
+		rhook_plan_add no_routes no_routes required \
+			"determine networks to route through the tunnel" \
+			"sh -c 'echo \"gateway sent no split-include networks and no internal DNS servers were provided either -- nothing to route through the tunnel, refusing to guess\" >&2; exit 1'" \
+			""
+	fi
 
 	[ -n "$RHOOK_DNS_SERVERS" ] && rhook_plan_dns
 	return 0
