@@ -832,6 +832,8 @@ xauth_ldap_init_conf(void)
 	 * lookups opt-in and every existing deployment's behavior
 	 * unchanged. See xauth_login_ldap(). */
 	xauth_ldap_config.attr_device = NULL;
+	xauth_ldap_config.device_id_type = XAUTH_DEVICE_ID_DNSNAME;
+	xauth_ldap_config.device_id_required = FALSE;
 
 	/* set default host */
 	tmplen = strlen(LDAP_DFLT_HOST);
@@ -887,9 +889,13 @@ out:
  * Escape a string for safe inclusion as an LDAP filter value (RFC 4515):
  * '*', '(', ')' and '\' must not appear literally. Used both for the
  * XAuth username and, when attr_device is configured, for the peer's
- * certificate identity -- which routinely contains parentheses in
- * practice (e.g. an "OU=(c) 2025 ..." RDN), so this is a correctness
- * requirement here, not just hardening.
+ * device identity string -- required regardless of which
+ * device_id_type is in effect: dNSName/rfc822Name values are normally
+ * metacharacter-free but are still attacker-influenced (they come from
+ * a certificate a CA issued to someone else's request), and the legacy
+ * "dn" identity type routinely contains literal parentheses in practice
+ * (e.g. an "OU=(c) 2025 ..." RDN). Escape unconditionally rather than
+ * special-casing by identity type.
  */
 static char *
 xauth_ldap_escape_filter(str)
@@ -936,6 +942,72 @@ xauth_ldap_escape_filter(str)
 	return out;
 }
 
+/*
+ * Device identity for attr_device scoping, taken from the peer's
+ * *verified* certificate subjectAltName (RFC 4945), not from the
+ * asserted Phase 1 ID payload -- unlike the ID payload, which is only
+ * checked against the certificate at all when verify_identifier is on
+ * (oakley_check_certid()), the SAN is read directly out of the
+ * certificate racoon itself validated against the configured CA. Model
+ * is oakley_check_certid()'s subjectAltName loop in oakley.c, which
+ * already uses eay_get_x509subjectaltname() the same way.
+ *
+ * Returns a racoon_malloc()ed string, or NULL if none of the peer's
+ * subjectAltName entries match the configured device_id_type (or if
+ * there is no verified certificate to read one from at all). Caller
+ * frees.
+ */
+static char *
+xauth_peer_device_id(iph1)
+	struct ph1handle *iph1;
+{
+	char *altname = NULL;
+	int type;
+	int wanted_type;
+	int pos;
+
+	if (iph1->rmconf == NULL || iph1->rmconf->verify_cert == FALSE) {
+		plog(LLV_WARNING, LOCATION, NULL,
+			"attr_device: verify_cert is off for this peer -- an "
+			"unverified certificate's subjectAltName cannot be trusted "
+			"for device scoping, treating as no device identity\n");
+		return NULL;
+	}
+
+	if (iph1->cert_p == NULL)
+		return NULL;
+
+	switch (xauth_ldap_config.device_id_type) {
+	case XAUTH_DEVICE_ID_RFC822:
+		wanted_type = GENT_EMAIL;
+		break;
+	case XAUTH_DEVICE_ID_DNSNAME:
+	default:
+		wanted_type = GENT_DNS;
+		break;
+	}
+
+	for (pos = 1; ; pos++) {
+		if (eay_get_x509subjectaltname(iph1->cert_p, &altname, &type, pos) != 0) {
+			/* no more subjectAltName entries (or a parse issue) --
+			 * either way, there is nothing (more) to match here. */
+			return NULL;
+		}
+		if (altname == NULL)
+			return NULL;
+
+		if (type == wanted_type) {
+			plog(LLV_INFO, LOCATION, NULL,
+				"attr_device: using peer certificate subjectAltName "
+				"\'%s\' as device identity\n", altname);
+			return altname;
+		}
+
+		racoon_free(altname);
+		altname = NULL;
+	}
+}
+
 int
 xauth_login_ldap(iph1, usr, pwd)
 	struct ph1handle *iph1;
@@ -961,6 +1033,7 @@ xauth_login_ldap(iph1, usr, pwd)
 	int tmplen = 0;
 	int ecount = 0;
 	int scope = LDAP_SCOPE_ONE;
+	int device_scoped = 0;
 
 	atlist[0] = NULL;
 	atlist[1] = NULL;
@@ -1068,13 +1141,13 @@ xauth_login_ldap(iph1, usr, pwd)
 	 * LDAP-assigned address. attr_device unset (the default): this
 	 * behaves exactly as before, scoped purely by username.
 	 *
-	 * When attr_device *is* configured but this particular peer has
-	 * no matching (user, device) LDAP entry -- e.g. an iOS/macOS
-	 * client whose certificate was never explicitly enrolled for a
-	 * fixed address -- the search below simply returns no results,
-	 * ISAKMP_CFG_ADDR4_EXTERN never gets set, and isakmp_cfg.c's
-	 * existing "No IP from LDAP, using local pool" fallback applies
-	 * automatically. No separate code path needed for that case.
+	 * The device identity itself normally comes from the peer's
+	 * *verified* certificate subjectAltName (device_id_type
+	 * dnsname/rfc822, the default is dnsname) -- see
+	 * xauth_peer_device_id(). device_id_type dn keeps the previous,
+	 * non-certificate-bound behavior (Phase 1 ID payload only) for
+	 * backward compatibility; choosing it logs a warning at config
+	 * parse time (cfparse.y).
 	 */
 	user_esc = xauth_ldap_escape_filter(usr);
 	if (user_esc == NULL) {
@@ -1083,13 +1156,43 @@ xauth_login_ldap(iph1, usr, pwd)
 		goto ldap_end;
 	}
 
-	if (xauth_ldap_config.attr_device != NULL && iph1->id_p != NULL) {
-		devidstr = ipsecdoi_id2str(iph1->id_p);
-		if (devidstr == NULL) {
-			plog(LLV_ERROR, LOCATION, NULL,
-				"unable to extract peer identity for ldap device filter\n");
-			goto ldap_end;
+	if (xauth_ldap_config.attr_device != NULL) {
+		if (xauth_ldap_config.device_id_type == XAUTH_DEVICE_ID_DN) {
+			if (iph1->id_p != NULL)
+				devidstr = ipsecdoi_id2str(iph1->id_p);
+		} else {
+			devidstr = xauth_peer_device_id(iph1);
 		}
+
+		if (devidstr == NULL) {
+			plog(LLV_INFO, LOCATION, NULL,
+				"attr_device configured but no device identity "
+				"available for this peer -- "
+				"falling back to username-only ldap lookup\n");
+		}
+	}
+
+	/* build our return attribute list -- independent of the filter,
+	 * built once even if the search below is retried. */
+	tmplen = strlen(xauth_ldap_config.attr_addr->v) + 1;
+	atlist[0] = racoon_malloc(tmplen);
+	tmplen = strlen(xauth_ldap_config.attr_mask->v) + 1;
+	atlist[1] = racoon_malloc(tmplen);
+	if ((atlist[0] == NULL)||(atlist[1] == NULL)) {
+		plog(LLV_ERROR, LOCATION, NULL,
+			"unable to alloc ldap attrib list buffer\n");
+		goto ldap_end;
+	}
+	strcpy(atlist[0],xauth_ldap_config.attr_addr->v);
+	strcpy(atlist[1],xauth_ldap_config.attr_mask->v);
+
+	if (xauth_ldap_config.base != NULL)
+		basedn = xauth_ldap_config.base->v;
+	if (xauth_ldap_config.subtree)
+		scope = LDAP_SCOPE_SUBTREE;
+
+build_filter:
+	if (devidstr != NULL) {
 		devesc = xauth_ldap_escape_filter(devidstr);
 		if (devesc == NULL) {
 			plog(LLV_ERROR, LOCATION, NULL,
@@ -1111,17 +1214,12 @@ xauth_login_ldap(iph1, usr, pwd)
 		sprintf(filter, "(&(%s=%s)(%s=%s))",
 			xauth_ldap_config.attr_user->v, user_esc,
 			xauth_ldap_config.attr_device->v, devesc);
+		device_scoped = 1;
 
 		plog(LLV_DEBUG, LOCATION, NULL,
 			"ldap device-scoped search filter for peer identity \'%s\'\n",
 			devidstr);
 	} else {
-		if (xauth_ldap_config.attr_device != NULL) {
-			plog(LLV_INFO, LOCATION, NULL,
-				"attr_device configured but no peer identity available -- "
-				"falling back to username-only ldap lookup\n");
-		}
-
 		tmplen = strlen(xauth_ldap_config.attr_user->v);
 		tmplen += 1;
 		tmplen += strlen(user_esc);
@@ -1136,24 +1234,7 @@ xauth_login_ldap(iph1, usr, pwd)
 			xauth_ldap_config.attr_user->v, user_esc);
 	}
 
-	/* build our return attribute list */
-	tmplen = strlen(xauth_ldap_config.attr_addr->v) + 1;
-	atlist[0] = racoon_malloc(tmplen);
-	tmplen = strlen(xauth_ldap_config.attr_mask->v) + 1;
-	atlist[1] = racoon_malloc(tmplen);
-	if ((atlist[0] == NULL)||(atlist[1] == NULL)) {
-		plog(LLV_ERROR, LOCATION, NULL,
-			"unable to alloc ldap attrib list buffer\n");
-		goto ldap_end;
-	}
-	strcpy(atlist[0],xauth_ldap_config.attr_addr->v);
-	strcpy(atlist[1],xauth_ldap_config.attr_mask->v);
-
 	/* attempt to locate the user dn */
-	if (xauth_ldap_config.base != NULL)
-		basedn = xauth_ldap_config.base->v;
-	if (xauth_ldap_config.subtree)
-		scope = LDAP_SCOPE_SUBTREE;
 	timeout.tv_sec = 15;
 	timeout.tv_usec = 0;
 	res = ldap_search_ext_s(ld, basedn, scope,
@@ -1169,8 +1250,34 @@ xauth_login_ldap(iph1, usr, pwd)
 	/* check the number of ldap entries returned */
 	ecount = ldap_count_entries(ld, lr);
 	if (ecount < 1) {
-		plog(LLV_WARNING, LOCATION, NULL, 
-			"no ldap results for filter \'%s\'\n", 
+		if (device_scoped) {
+			if (xauth_ldap_config.device_id_required) {
+				plog(LLV_ERROR, LOCATION, NULL,
+					"attr_device: no ldap entry for user \'%s\' "
+					"device \'%s\' and device_id_required is on -- "
+					"rejecting login\n", usr, devidstr);
+				goto ldap_end;
+			}
+
+			plog(LLV_INFO, LOCATION, NULL,
+				"attr_device: no ldap entry for user \'%s\' device "
+				"\'%s\' -- retrying username-only lookup\n",
+				usr, devidstr);
+
+			racoon_free(filter);
+			filter = NULL;
+			racoon_free(devesc);
+			devesc = NULL;
+			racoon_free(devidstr);
+			devidstr = NULL;
+			device_scoped = 0;
+			ldap_msgfree(lr);
+			lr = NULL;
+			goto build_filter;
+		}
+
+		plog(LLV_WARNING, LOCATION, NULL,
+			"no ldap results for filter \'%s\'\n",
 			 filter);
 		goto ldap_end;
 	}

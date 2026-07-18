@@ -170,6 +170,17 @@ int xauth_login_radius(struct ph1handle *, char *, char *);
 #define LDAP_DFLT_GROUP		"cn"
 #define LDAP_DFLT_MEMBER	"member"
 
+/*
+ * How the peer's device identity is derived for attr_device scoping.
+ * DNSNAME/RFC822 are taken from the *verified* peer certificate's
+ * subjectAltName (RFC 4945). DN is the pre-existing, non-certificate-bound
+ * fallback (Phase 1 ID payload only) kept for backward compatibility --
+ * see xauth_login_ldap()/xauth_peer_device_id() in isakmp_xauth.c.
+ */
+#define XAUTH_DEVICE_ID_DNSNAME	0
+#define XAUTH_DEVICE_ID_RFC822		1
+#define XAUTH_DEVICE_ID_DN		2
+
 struct xauth_ldap_config {
 	int		pver;
 	int		debug;
@@ -188,6 +199,8 @@ struct xauth_ldap_config {
 	vchar_t		*attr_group;
 	vchar_t		*attr_member;
 	vchar_t		*attr_device;
+	int		device_id_type;		/* XAUTH_DEVICE_ID_* */
+	int		device_id_required;	/* TRUE: no device match -> reject login */
 };
 
 extern struct xauth_ldap_config xauth_ldap_config;

@@ -173,14 +173,26 @@ identical fixed address the moment two sessions were open at once.
 This project's `isakmp_xauth.c`/`isakmp_cfg.c` (as of this branch) adds
 an `attr_device` directive to `ldapcfg` for exactly this: it scopes the
 `attr_addr`/`attr_mask` lookup to the *combination* of XAuth username
-and the peer's certificate identity, so one login can be shared across
-several devices while each still gets its own fixed address. Devices
-without a matching (user, device) entry -- e.g. iOS/macOS clients never
-explicitly enrolled -- transparently keep using the local pool, no
-special-casing needed. See `racoon.conf(5)` (`attr_device`) and
-`docs/admin-guide/racoon-admin-guide.html` section 6.2/6.5 on the
-gateway side; nothing in this client-side sample needs to change either
-way, since it just uses whatever `INTERNAL_ADDR4` mode_cfg hands back.
+and a device identity, so one login can be shared across several
+devices while each still gets its own fixed address. Devices without a
+matching (user, device) entry -- e.g. iOS/macOS clients never
+explicitly enrolled -- transparently fall back to a plain per-user
+lookup and from there to the local pool, no special-casing needed.
+
+The device identity itself is read from this laptop's **verified
+client certificate's `subjectAltName`** (`device_id_type dnsname`, the
+default -- not the asserted Phase 1 ID/Subject DN, which isn't bound to
+the certificate at all and is only kept as a legacy `device_id_type dn`
+option). This only has security meaning if the gateway has
+`verify_cert on` and working CA/CRL validation, and only distinguishes
+devices that actually hold distinct certificates -- both already true
+for this setup (see "Credentials" above and the X.509 client cert this
+sample assumes throughout). See `racoon.conf(5)` (`attr_device`,
+`device_id_type`, `device_id_required`) and
+`docs/admin-guide/racoon-admin-guide.html` section 6.2/6.5 (worked
+example) on the gateway side; nothing in this client-side sample needs
+to change either way, since it just uses whatever `INTERNAL_ADDR4`
+mode_cfg hands back.
 
 ## Files
 

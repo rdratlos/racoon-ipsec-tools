@@ -1850,9 +1850,23 @@ HDR*, HASH(3)                                →</code></pre>
         <tr><td class="param-name">attr_mask</td><td>Attribute holding the per-user netmask.</td></tr>
         <tr><td class="param-name">attr_group</td><td>Attribute used to identify the group name in the directory. Default: <code>cn</code>.</td></tr>
         <tr><td class="param-name">attr_member</td><td>Attribute used for group membership checks (e.g. <code>uniqueMember</code>, or <code>member</code> for AD).</td></tr>
-        <tr><td class="param-name">attr_device</td><td>Optional. Scopes the <code>attr_addr</code>/<code>attr_mask</code> lookup to a specific device identity (the peer's certificate Subject DN for <code>asn1dn</code> identities) in addition to <code>attr_user</code>, so one XAuth login shared across several devices can still give each device its own fixed address. Unset by default: lookups stay scoped by username only. A peer without a matching (user, device) entry simply falls back to the local pool, same as any user without <code>attr_addr</code> set.</td></tr>
+        <tr><td class="param-name">attr_device</td><td>Optional. Scopes the <code>attr_addr</code>/<code>attr_mask</code> lookup to a specific device identity, in addition to <code>attr_user</code>, so one XAuth login shared across several devices can still give each device its own fixed address. Unset by default: lookups stay scoped by username only. A peer for whom no device identity can be extracted, or with no matching (user, device) entry, falls back to a username-only lookup (and from there to the local pool) unless <code>device_id_required</code> is <code>on</code>.</td></tr>
+        <tr><td class="param-name">device_id_type</td><td><code>dnsname</code> (default) / <code>rfc822</code> / <code>dn</code>. Where the device identity for <code>attr_device</code> comes from. <code>dnsname</code>/<code>rfc822</code> read the peer's <em>verified</em> certificate <code>subjectAltName</code> (RFC 4945) — the first <code>dNSName</code> or <code>rfc822Name</code> entry, respectively. <code>dn</code> is the legacy, non-certificate-bound fallback (the asserted Phase 1 ID payload) kept for backward compatibility; selecting it logs a warning at parse time. Only meaningful with <code>attr_device</code> set.</td></tr>
+        <tr><td class="param-name">device_id_required</td><td><code>on</code>/<code>off</code>, default <code>off</code>. With <code>attr_device</code> set and no device identity/matching entry found: <code>off</code> falls back to a plain per-user lookup (XAuth can still succeed, just without a device-specific address); <code>on</code> rejects the XAuth login instead. Use <code>on</code> only where <code>attr_device</code> is meant as access control, not just an address-assignment convenience.</td></tr>
       </tbody>
     </table>
+    <div class="warn">
+      <strong>Security note:</strong> <code>attr_device</code> with <code>device_id_type dnsname</code>/<code>rfc822</code>
+      only has security value if <code>verify_cert on</code> is set and CA chain/CRL
+      validation actually works — the <code>subjectAltName</code> it reads is only
+      as trustworthy as the certificate verification that preceded it. Per-device
+      certificates are also a prerequisite: if several devices share one client
+      certificate, device scoping is advisory only, since every device presents
+      the same <code>subjectAltName</code>. <code>device_id_type dn</code>
+      additionally never had certificate binding at all — it trusts the peer's
+      self-asserted Phase 1 ID payload, which is only checked against the
+      certificate when <code>verify_identifier</code> is enabled.
+    </div>
 
     <h3 id="ldap-layout">6.3 Directory Layout</h3>
     <p>
@@ -1956,12 +1970,45 @@ extensionAttribute2: 255.255.255.0</code></pre>
       lookup gives every device authenticating with the same XAuth login the
       <em>same</em> fixed address — fine for a single device per person, but two
       devices connecting concurrently with that login would collide. Set
-      <code>attr_device</code> to also scope the lookup by the peer's certificate
-      identity, and give each device its own (user, device) entry in the
-      directory. Devices without such an entry (e.g. phones/tablets left on the
-      shared local pool on purpose) are unaffected and keep using
-      <code>conf_source local</code> address assignment.
+      <code>attr_device</code> to also scope the lookup by the peer's
+      <strong>verified certificate <code>subjectAltName</code></strong>
+      (<code>device_id_type dnsname</code>, the default — or <code>rfc822</code>
+      for an email-address SAN), and give each device its own (user, device)
+      entry in the directory. Devices without such an entry (e.g. phones/tablets
+      left on the shared local pool on purpose) are unaffected and keep using
+      <code>conf_source local</code>/pool address assignment. This requires
+      <code>verify_cert on</code> and a working CA chain — an unverified
+      certificate's SAN cannot be trusted for this, and racoon refuses to use it
+      for device scoping in that case (logs a warning instead).
     </div>
+
+    <h4>Worked example: a dedicated automated client</h4>
+    <p>
+      A notebook that auto-connects at boot (e.g. via SSSD/autofs) needs a
+      <em>stable</em> address, while phones/tablets sharing the same XAuth login
+      should keep getting pool addresses. Issue the notebook a client certificate
+      with a dedicated SAN, e.g.:
+    </p>
+    <pre><code><span class="comment"># certificate SAN for this device</span>
+X509v3 Subject Alternative Name:
+    DNS:notebook01.vpn.nepomuc.de</code></pre>
+    <p>Directory entry, matched on <em>both</em> the shared login and this SAN:</p>
+    <pre><code>dn: uid=jdoe,ou=vpn-devices,dc=nepomuc,dc=de
+uid: jdoe
+racoonDeviceDN: notebook01.vpn.nepomuc.de
+CiscoIPAddress: 192.168.66.250
+CiscoIPNetmask: 255.255.255.0</code></pre>
+    <p>Gateway <code>ldapcfg</code>:</p>
+    <pre><code><span class="kw">attr_device</span>       <span class="str">"racoonDeviceDN"</span>;
+<span class="kw">device_id_type</span>    <span class="val">dnsname</span>;      <span class="comment"># default, shown for clarity</span>
+<span class="kw">device_id_required</span> <span class="val">off</span>;     <span class="comment"># phones/tablets fall back to the pool</span></code></pre>
+    <p>
+      A phone authenticating with the same <code>jdoe</code> login but a
+      different certificate (different SAN, or none at all) finds no matching
+      <code>(uid=jdoe, racoonDeviceDN=&lt;its own SAN&gt;)</code> entry and simply
+      falls back to <code>conf_source local</code> pool allocation — no separate
+      configuration needed for it.
+    </p>
 
     <h3 id="ldap-troubleshoot">6.6 Troubleshooting LDAP</h3>
     <table>
