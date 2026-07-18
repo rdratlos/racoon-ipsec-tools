@@ -103,12 +103,20 @@ nm_dbus_prop() {
 	# deliberately doesn't run it (see phase1-up.sh for the field
 	# evidence and full rationale). systemctl is-active is a pure state
 	# read with no such side effect.
-	systemctl is-active --quiet NetworkManager 2>/dev/null || return 1
-	command -v busctl >/dev/null 2>&1 || return 1
+	#
+	# Always exit 0: callers only look at (possibly empty) stdout.
+	# Returning non-zero from an early guard here kills the whole script
+	# under set -e when the call is the right-hand side of a plain
+	# `var=$(...)` assignment (confirmed in the field: NetworkManager
+	# fully uninstalled made this abort before its caller's case
+	# statement even ran).
+	systemctl is-active --quiet NetworkManager 2>/dev/null || return 0
+	command -v busctl >/dev/null 2>&1 || return 0
 	busctl get-property org.freedesktop.NetworkManager \
 	    /org/freedesktop/NetworkManager/DnsManager \
 	    org.freedesktop.NetworkManager.DnsManager "$1" 2>/dev/null \
 	    | sed -n 's/^s "\(.*\)"$/\1/p'
+	return 0
 }
 
 detect_resolver() {
