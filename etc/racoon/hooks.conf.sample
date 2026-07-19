@@ -37,19 +37,38 @@
 #backend = auto
 
 # --------------------------------------------------------------------------
-# on_dns_failure: what phase1-up.sh/phase1-down.sh's own exit status
-# should do when a *required* step fails (a DNS step, a route, or the R7
-# "nothing to route through the tunnel" refusal).
+# on_dns_failure: what phase1-up.sh/phase1-down.sh should do -- to their
+# own exit status, and (rollback only) to the changes they already made --
+# when a *required* step fails (a DNS step, a route, an SPD entry, or the
+# R7 "nothing to route through the tunnel" refusal).
 #
-#   warn  - always exit 0 (default). Whatever partially applied stays in
-#           effect; the failure is fully explained in the report (syslog
-#           summary line + stderr/trace detail per debug_level below),
-#           but the hook's own process exit status never reflects it.
-#   abort - exit 1 when a required step fails. racoon itself does not
-#           tear down an established Phase 1 SA based on a hook's exit
-#           code, so this does not reject the tunnel -- it only makes the
-#           failure visible to whatever supervises this process (init
-#           system, monitoring, log-based alerting on non-zero hook exits).
+# None of these three ever reject the tunnel or tear down the SA racoon
+# itself just established: racoon does not consult a hook's exit status
+# for that (verified against src/racoon -- no caller of script_hook()
+# inspects its return value that way), and a hook running after the fact
+# has no mechanism to make it do so. Read all three with that in mind.
+#
+#   warn     - always exit 0 (default). Whatever partially applied stays
+#              in effect; the failure is fully explained in the report
+#              (syslog summary line + stderr/trace detail per debug_level
+#              below), but the hook's own process exit status never
+#              reflects it.
+#   report   - exit 1 when a required step fails, so whatever supervises
+#              this process (init system, monitoring, log-based alerting
+#              on non-zero hook exits) can see it. Changes already
+#              applied are left in place, exactly like "warn" -- this
+#              only changes the exit code.
+#   rollback - same visible exit-1 failure as "report", and additionally
+#              undoes every change *this run* applied (the same teardown
+#              path phase1-down.sh itself uses) before exiting, so a
+#              failed connection attempt does not leave the link
+#              half-configured. This is local rollback only -- it cannot
+#              reach into racoon or affect the SA it already negotiated.
+#
+# "abort" (brief 1/2 naming) is accepted as a deprecated alias for
+# "report" -- it never meant "reject the tunnel" either, the name just
+# implied more than it did. Update existing configs to "report" (identical
+# behavior) or "rollback" (also undoes this run's own changes).
 #
 #on_dns_failure = warn
 

@@ -313,10 +313,81 @@ export REMOTE_ADDR="203.0.113.99"
 export REMOTE_PORT="500"
 out=$(run_hook)
 rc=$?
-assert_eq "no-routes with on_dns_failure=abort exits 1" "$rc" "1"
+# Brief 3 §H: "abort" is a deprecated alias for "report" -- same exit
+# code, but the deprecation is logged (RACOON_HOOK_DEBUG=1 in reset_env
+# puts the report on stderr, which `out` already captures).
+assert_eq "no-routes with on_dns_failure=abort (deprecated) exits 1" "$rc" "1"
+assert_contains "on_dns_failure=abort logs a deprecation notice" "$out" "deprecated alias for 'report'"
+
+reset_env noroutes-report
+cat > "$WORK/hooks.conf" <<'EOF'
+backend = networkmanager
+on_dns_failure = report
+EOF
+export INTERNAL_ADDR4="192.0.2.44"
+export LOCAL_ADDR="203.0.113.1"
+export REMOTE_ADDR="203.0.113.99"
+export REMOTE_PORT="500"
+out=$(run_hook)
+rc=$?
+assert_eq "no-routes with on_dns_failure=report exits 1" "$rc" "1"
+assert_not_contains "on_dns_failure=report (the honest, non-deprecated name) never logs a deprecation notice" "$out" "deprecated"
 cat > "$WORK/hooks.conf" <<'EOF'
 backend = networkmanager
 EOF
+
+# ==========================================================================
+# Brief 3 §H: on_dns_failure=rollback undoes every change *this run*
+# applied when a later required step fails -- exercised with a scenario
+# where routes and one SPD pair already succeeded before a second SPD
+# entry fails, so there is real work to roll back. Uses a dedicated
+# setkey stub that fails only for the second split-include network's
+# outbound entry (SETKEY_FAIL_MARKER), leaving the first network's
+# routes/SPD and both routes journaled as "ok" first.
+# ==========================================================================
+reset_env rollback
+cat > "$WORK/hooks.conf" <<'EOF'
+backend = networkmanager
+on_dns_failure = rollback
+EOF
+cat > "$WORK/bin/setkey" <<'STUBEOF'
+#!/bin/sh
+SETKEY_INPUT=$(cat)
+printf 'setkey %s: %s\n' "$*" "$SETKEY_INPUT" >> "$SETKEY_LOG"
+case "$SETKEY_INPUT" in
+	*"198.51.100.128/25"*"-P out"*) exit 1 ;;
+esac
+exit 0
+STUBEOF
+chmod +x "$WORK/bin/setkey"
+export INTERNAL_ADDR4="192.0.2.44"
+export LOCAL_ADDR="203.0.113.1"
+export REMOTE_ADDR="203.0.113.99"
+export REMOTE_PORT="500"
+export SPLIT_INCLUDE_CIDR="198.51.100.0/24 198.51.100.128/25"
+out=$(run_hook)
+rc=$?
+assert_eq "rollback: a required SPD failure still exits 1" "$rc" "1"
+assert_contains "rollback: the hook announces it is undoing this run's own changes" "$out" "on_dns_failure=rollback"
+assert_contains "rollback: first network's route was undone" "$(cat "$IP_LOG")" "route del 198.51.100.0/24"
+assert_contains "rollback: second network's route was undone" "$(cat "$IP_LOG")" "route del 198.51.100.128/25"
+assert_contains "rollback: first network's outbound SPD entry was undone" \
+	"$(cat "$SETKEY_LOG")" "spddelete 192.0.2.44/32 198.51.100.0/24 any -P out"
+assert_contains "rollback: first network's inbound SPD entry was undone" \
+	"$(cat "$SETKEY_LOG")" "spddelete 198.51.100.0/24 192.0.2.44/32 any -P in"
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ -f "$WORK_RUN/hook-state.203.0.113.99.1" ]; then
+	fail "rollback: the state file must not be left as a live (unconsumed) generation once this run has undone itself"
+fi
+cat > "$WORK/hooks.conf" <<'EOF'
+backend = networkmanager
+EOF
+cat > "$WORK/bin/setkey" <<'STUBEOF'
+#!/bin/sh
+{ printf 'setkey %s: ' "$*"; cat; } >> "$SETKEY_LOG"
+exit 0
+STUBEOF
+chmod +x "$WORK/bin/setkey"
 
 # ==========================================================================
 # Brief 3 §D: an old, unconsumed generation left behind by an incomplete

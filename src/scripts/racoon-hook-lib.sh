@@ -85,7 +85,19 @@ rhook_load_config() {
 		esac
 	done < "$RHOOK_CONF"
 	case "$RHOOK_ON_DNS_FAILURE" in
-		abort|warn) ;;
+		# Brief 3 §H: "abort" never meant "reject the tunnel" -- racoon
+		# does not consult a hook's exit status when deciding whether to
+		# keep an SA (verified: no caller of script_hook() anywhere in
+		# src/racoon inspects privsep_script_exec()'s return value for
+		# that purpose). "abort" only ever made the failure visible via
+		# this script's own exit code. Kept as a deprecated alias for
+		# "report" (identical behavior, honest name) rather than breaking
+		# an existing hooks.conf outright.
+		abort)
+			rhook_log warn "hooks.conf: on_dns_failure=abort is a deprecated alias for 'report' -- racoon does not reject a tunnel based on a hook's exit status, so 'abort' never aborted anything but this script's own exit code; use 'report' (same behavior) or 'rollback' (also undo this run's own changes before exiting) instead"
+			RHOOK_ON_DNS_FAILURE="report"
+			;;
+		warn|report|rollback) ;;
 		*)
 			rhook_log warn "hooks.conf: on_dns_failure='$RHOOK_ON_DNS_FAILURE' invalid, using 'warn'"
 			RHOOK_ON_DNS_FAILURE="warn"
