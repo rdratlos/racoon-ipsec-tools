@@ -55,20 +55,19 @@ fi
 rhook_log step "phase1 up: local=${LOCAL_ADDR}:${LOCAL_PORT:-?} remote=${REMOTE_ADDR}:${REMOTE_PORT:-?} internal=${INTERNAL_ADDR4}"
 
 # --------------------------------------------------------------------------
-# §3.4: a non-empty state file at this point means the previous teardown
-# for this same connection id never completed (crash, kill -9, or a
-# required undo step that itself failed) -- phase1-up must decide what to
-# do about that itself, this is not merely informational. Refusing to
-# proceed would permanently wedge a roadwarrior client that racoon keeps
-# retrying against the same gateway on every reconnect; archiving the
-# stale file and starting a fresh plan lets reconnection self-heal, at
-# the cost of that abandoned state never being replayed. Logged loudly
-# either way so the abandoned undo commands are not silently lost.
+# §3.4/brief-3 §D: this always allocates a brand-new, monotonically
+# numbered generation for this peer address -- it never inspects, never
+# archives, and never touches whatever earlier generations may still be
+# sitting there unconsumed. That is deliberate: with FIFO generation
+# matching, an old generation that never got torn down (crash, kill -9,
+# a required undo step that itself failed) does not need "handling" here
+# at all -- it simply waits for a future phase1-down.sh to consume it in
+# its turn (oldest first), exactly like any other pending teardown,
+# without this run needing to know it exists. The reap step below only
+# ever removes *already-consumed* generations that are old or numerous
+# enough to reap; a live, unconsumed one is never touched automatically.
 # --------------------------------------------------------------------------
-if rhook_state_exists; then
-	rhook_log warn "a previous teardown for this connection never completed (stale state file) -- archiving it and starting fresh: $(rhook_state_file).stale.$$"
-	mv -f "$(rhook_state_file)" "$(rhook_state_file).stale.$$" 2>/dev/null || true
-fi
+rhook_state_reap
 rhook_state_reset
 
 # --------------------------------------------------------------------------

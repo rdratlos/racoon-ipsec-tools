@@ -74,10 +74,13 @@ REMOTE_ADDR="203.0.113.7"
 REMOTE_PORT="500"
 
 # --------------------------------------------------------------------------
-# Test 1: connection id is deterministic and filesystem-safe.
+# Test 1: connection identity is REMOTE_ADDR alone, sanitized, and
+# filesystem-safe. REMOTE_PORT is deliberately not part of it (brief 3
+# §D: it floats 500->4500 on a NAT-T rebind and changes across a
+# reconnect, so it can no longer be trusted to identify "the same peer").
 # --------------------------------------------------------------------------
 RHOOK_HOOK_NAME="phase1-up"
-assert_eq "conn id sanitizes address/port" "$(rhook_conn_id)" "203.0.113.7-500"
+assert_eq "conn addr sanitizes the address, ignores the port" "$(rhook_conn_addr)" "203.0.113.7"
 
 # --------------------------------------------------------------------------
 # Test 2: config loading picks up known keys, warns on unknown, rejects a
@@ -154,7 +157,13 @@ fi
 
 # --------------------------------------------------------------------------
 # Test 5: a fully successful plan reports OK and the EXIT trap reflects it
-# in its own exit status.
+# in its own exit status. Also demonstrates the FIFO/generation model
+# (brief 3 §D): test 3's generation for this same peer address was never
+# consumed (no undo replay ran against it), so it is still discoverable
+# here -- rhook_state_reset() below allocates a *new*, independent
+# generation for the same peer rather than reusing or clobbering it,
+# which is the whole point of numbering generations instead of keeping
+# one file per connection id.
 # --------------------------------------------------------------------------
 RHOOK_EXIT_HANDLED=0
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -180,7 +189,15 @@ TESTS_RUN=$((TESTS_RUN + 1))
 # Test 6: postcondition support (§7.4) -- a step whose command exits 0 but
 # whose postcondition reports a reason must be downgraded to failed, not
 # recorded as ok, and must still stop the plan if required.
+#
+# A fresh peer address isolates this from tests 3/5's still-live,
+# still-unconsumed generations above -- otherwise rhook_state_exists()/
+# rhook_state_oldest_unconsumed() would keep finding those instead of
+# this test's own generation, exactly the FIFO ordering brief 3 §D wants
+# preserved (oldest-first), which would make this test's own assertions
+# meaningless.
 # --------------------------------------------------------------------------
+REMOTE_ADDR="203.0.113.16"
 RHOOK_EXIT_HANDLED=0
 rhook_postcond_no_effect_type() {
 	printf 'wrote to a file nothing reads'
@@ -206,10 +223,17 @@ assert_file_contains "report explains the step reported success but had no effec
 # --------------------------------------------------------------------------
 # Test 7: rhook_undo_replay() (§3.4/R4) -- undoes successful steps in
 # reverse apply order, skips steps that never succeeded (no undo needed),
-# removes the state file on a fully clean teardown, and on a partial
-# failure retains only the still-failing entries so a retry can finish
-# the job without re-running undos that already succeeded.
+# marks the state file consumed on a fully clean teardown, and on a
+# partial failure retains only the still-failing entries so a retry can
+# finish the job without re-running undos that already succeeded.
+#
+# A fresh peer address, and passing rhook_undo_replay's target file
+# explicitly (rather than via rhook_state_oldest_unconsumed()), tests
+# the replay mechanism on its own terms -- *which* file the FIFO scheme
+# picks is a separate concern, exercised end to end through the real
+# hooks in test-phase1-roundtrip.sh.
 # --------------------------------------------------------------------------
+REMOTE_ADDR="203.0.113.17"
 RHOOK_EXIT_HANDLED=0
 UNDO_LOG="$WORK/undo-order.log"
 : > "$UNDO_LOG"
@@ -230,9 +254,10 @@ else
 	fail "state file should be non-empty before undo replay runs"
 fi
 
+UNDO_TARGET1=$(rhook_state_file)
 RHOOK_EXIT_HANDLED=0
 rhook_report_init
-rhook_undo_replay
+rhook_undo_replay "$UNDO_TARGET1"
 undo_rc=$?
 TESTS_RUN=$((TESTS_RUN + 1))
 if [ "$undo_rc" -eq 0 ]; then
@@ -247,9 +272,15 @@ undo-second
 undo-first"
 TESTS_RUN=$((TESTS_RUN + 1))
 if rhook_state_exists; then
-	fail "state file must be removed after a fully successful undo replay"
+	fail "state file must no longer be live (consumed) after a fully successful undo replay"
 else
-	pass "state file is removed after a fully successful undo replay"
+	pass "state file is no longer live (marked consumed) after a fully successful undo replay"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ -f "$UNDO_TARGET1.consumed" ]; then
+	pass "the consumed generation is kept on disk with a .consumed suffix, not deleted outright"
+else
+	fail "expected $UNDO_TARGET1.consumed to exist after a successful undo replay"
 fi
 
 # Partial failure: one undo command fails -- the rest must still run
@@ -265,9 +296,10 @@ rhook_report_init
 rhook_apply_plan
 rhook_exit_trap 2>/dev/null
 
+UNDO_TARGET2=$(rhook_state_file)
 RHOOK_EXIT_HANDLED=0
 rhook_report_init
-rhook_undo_replay
+rhook_undo_replay "$UNDO_TARGET2"
 undo_rc2=$?
 TESTS_RUN=$((TESTS_RUN + 1))
 if [ "$undo_rc2" -ne 0 ]; then
@@ -286,7 +318,7 @@ if rhook_state_exists; then
 else
 	fail "state file should be retained when something failed to undo"
 fi
-STATE_FILE3=$(rhook_state_file)
+STATE_FILE3="$UNDO_TARGET2"
 assert_file_contains "only the failed entry survives in the retained state file" "$STATE_FILE3" "u_bad"
 assert_file_not_contains "the successfully-undone entries are not retained" "$STATE_FILE3" "u_ok1"
 assert_file_not_contains "the successfully-undone entries are not retained (2)" "$STATE_FILE3" "u_ok2"
@@ -299,14 +331,14 @@ assert_file_not_contains "the successfully-undone entries are not retained (2)" 
 sed "s/exit 5/exit 0/" "$STATE_FILE3" > "$STATE_FILE3.tmp" && mv "$STATE_FILE3.tmp" "$STATE_FILE3"
 RHOOK_EXIT_HANDLED=0
 rhook_report_init
-rhook_undo_replay
+rhook_undo_replay "$STATE_FILE3"
 undo_rc3=$?
 assert_eq "retry after fixing the failing undo succeeds" "$undo_rc3" "0"
 TESTS_RUN=$((TESTS_RUN + 1))
 if rhook_state_exists; then
-	fail "state file must be gone once the retry finishes the job"
+	fail "state file must no longer be live once the retry finishes the job"
 else
-	pass "state file is gone once the retry finishes the job"
+	pass "state file is no longer live once the retry finishes the job"
 fi
 
 # --------------------------------------------------------------------------
@@ -316,6 +348,7 @@ fi
 # preceding non-DNS-group steps (dummy interface/address/routes) alone,
 # and the rolled-back entries must not linger in the state file.
 # --------------------------------------------------------------------------
+REMOTE_ADDR="203.0.113.18"
 RHOOK_EXIT_HANDLED=0
 : > "$UNDO_LOG"
 rhook_state_reset
@@ -346,6 +379,38 @@ assert_file_not_contains "the rolled-back domains entry is removed from state, n
 assert_file_contains "the failed dns step itself is recorded failed" "$STATE_FILE4" "dns_fail	set_dns	failed"
 rhook_exit_trap 2>"$WORK/report5.log"
 assert_file_contains "the report shows the rollback undo succeeding" "$WORK/report5.log" "rollback undo domains"
+
+# --------------------------------------------------------------------------
+# Test 9: rhook_state_reap() age cap (brief 3 §D: "suggest 5 / 24h").
+# Count-based reaping is exercised end to end through the real
+# phase1-up.sh in test-phase1-up.sh; the age cap is easier to test
+# directly here by backdating a .consumed file's mtime past
+# RHOOK_REAP_MAX_AGE_SECONDS with `touch -t` (POSIX, unlike GNU-only
+# `touch -d`) rather than waiting 24 real hours.
+# --------------------------------------------------------------------------
+REMOTE_ADDR="203.0.113.19"
+REAP_PREFIX="$(rhook_state_file_prefix)"
+rhook_ensure_state_dir
+printf 'old\tcreate_dummy\tok\ttrue\n' > "${REAP_PREFIX}.1.consumed"
+printf 'recent\tcreate_dummy\tok\ttrue\n' > "${REAP_PREFIX}.2.consumed"
+# Two days ago, well past the 24h cap -- portable timestamp via `touch -t`.
+OLD_STAMP=$("$RACOON_HOOK_DATE" -d '2 days ago' +%Y%m%d%H%M 2>/dev/null || "$RACOON_HOOK_DATE" -v-2d +%Y%m%d%H%M 2>/dev/null)
+if [ -n "$OLD_STAMP" ]; then
+	touch -t "$OLD_STAMP" "${REAP_PREFIX}.1.consumed" 2>/dev/null
+	rhook_state_reap
+	TESTS_RUN=$((TESTS_RUN + 1))
+	if [ -f "${REAP_PREFIX}.1.consumed" ]; then
+		fail "a .consumed generation older than RHOOK_REAP_MAX_AGE_SECONDS must be reaped regardless of count"
+	fi
+	TESTS_RUN=$((TESTS_RUN + 1))
+	if [ -f "${REAP_PREFIX}.2.consumed" ]; then
+		:
+	else
+		fail "a recent .consumed generation must survive reaping when only the age cap, not the count cap, is exceeded"
+	fi
+else
+	echo "SKIP: neither GNU 'date -d' nor BSD 'date -v' available to backdate a file for the age-cap test"
+fi
 
 echo ""
 echo "$TESTS_RUN checks run, $TESTS_FAILED failed"
