@@ -74,17 +74,61 @@ RHOOK_DOMAINS="corp.example.com internal.example.com"
 # ==========================================================================
 # Common steps (dummy interface / address / routes) -- shared by every
 # backend except networkmanager, which folds them into its own profile.
+#
+# Brief 3 §K: dummy_iface's own undo command now branches on whether
+# NetworkManager is active (rhook_survey_nm_active(), a plain `systemctl
+# is-active` state read) -- pinned to an explicit "inactive" stub here
+# rather than relying on whatever this test happens to run under, so
+# this assertion is hermetic regardless of the host's own systemd/NM
+# state. The NM-active branch is exercised separately below.
 # ==========================================================================
 RHOOK_BACKEND="resolvconf"
 RACOON_HOOK_RESOLVCONF="$WORK/bin/resolvconf-absent"
+RACOON_HOOK_SYSTEMCTL="$WORK/bin/systemctl-nm-inactive"
+cat > "$RACOON_HOOK_SYSTEMCTL" <<'EOF'
+#!/bin/sh
+exit 3
+EOF
+chmod +x "$RACOON_HOOK_SYSTEMCTL"
 rhook_build_plan
 PLAN="$(rhook_plan_file)"
 
 assert_eq "dummy_iface: criticality" "$(plan_field dummy_iface 3 "$PLAN")" "required"
 assert_eq "dummy_iface: command" "$(plan_field dummy_iface 5 "$PLAN")" \
 	'ip link add "racoon0" type dummy && ip link set "racoon0" up'
-assert_eq "dummy_iface: undo" "$(plan_field dummy_iface 6 "$PLAN")" \
+assert_eq "dummy_iface: undo (NetworkManager inactive -- plain iproute owner)" "$(plan_field dummy_iface 6 "$PLAN")" \
 	'ip link del "racoon0"'
+assert_eq "RHOOK_DUMMY_OWNER reflects iproute when NetworkManager is inactive" "$RHOOK_DUMMY_OWNER" "iproute"
+
+# NetworkManager active, but *not* the DNS backend (e.g. it manages the
+# physical interfaces while systemd-resolved handles DNS directly) --
+# the dummy_iface undo must try NM's own device-removal path first, and
+# fall back to a plain `ip link del` only if that fails, so the
+# interface is never leaked even if NM turns out not to have actually
+# claimed it.
+RACOON_HOOK_SYSTEMCTL="$WORK/bin/systemctl-nm-active"
+cat > "$RACOON_HOOK_SYSTEMCTL" <<'EOF'
+#!/bin/sh
+[ "$1" = "is-active" ] && [ "$3" = "NetworkManager" ] && exit 0
+exit 3
+EOF
+chmod +x "$RACOON_HOOK_SYSTEMCTL"
+rhook_build_plan
+PLAN="$(rhook_plan_file)"
+assert_eq "RHOOK_DUMMY_OWNER reflects nm when NetworkManager is active" "$RHOOK_DUMMY_OWNER" "nm"
+assert_eq "dummy_iface: undo (NetworkManager active -- nmcli first, ip link del fallback)" \
+	"$(plan_field dummy_iface 6 "$PLAN")" \
+	'nmcli device delete "racoon0" >/dev/null 2>&1 || ip link del "racoon0"'
+assert_eq "dummy_iface: apply command is unaffected by the owner branch" \
+	"$(plan_field dummy_iface 5 "$PLAN")" \
+	'ip link add "racoon0" type dummy && ip link set "racoon0" up'
+
+RACOON_HOOK_SYSTEMCTL="$WORK/bin/systemctl-nm-inactive"
+cat > "$RACOON_HOOK_SYSTEMCTL" <<'EOF'
+#!/bin/sh
+exit 3
+EOF
+chmod +x "$RACOON_HOOK_SYSTEMCTL"
 
 assert_eq "dummy_addr: command" "$(plan_field dummy_addr 5 "$PLAN")" \
 	'ip addr replace "10.0.12.44/32" dev "racoon0"'
