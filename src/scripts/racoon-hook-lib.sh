@@ -49,6 +49,7 @@
 : "${RACOON_HOOK_SS:=ss}"
 : "${RACOON_HOOK_NETSTAT:=netstat}"
 : "${RACOON_HOOK_SOCKSTAT:=sockstat}"
+: "${RACOON_HOOK_SETKEY:=setkey}"
 
 # --------------------------------------------------------------------------
 # Configuration (etc/racoon/hooks.conf.sample documents each key).  Loaded
@@ -1976,6 +1977,106 @@ rhook_dnsmasq_conf_content() {
 }
 
 # --------------------------------------------------------------------------
+# Brief 3 §E: SPD ownership (R2').
+#
+# Brief 1's R2 ("never touch SPD/SAD") assumed racoon installs its own
+# client-side policy once Mode Config hands out an address. Verified
+# against this tree's own src/racoon sources, not assumed: SPD generation
+# (rmconf->gen_policy / iph2->spidx_gen, consumed only by pk_sendspdadd2()
+# in pfkey.c) is wired exclusively into get_proposal_r() in
+# isakmp_quick.c, which is called only from quick_r1recv() -- the
+# *responder* side of quick mode (the "_r" naming convention, and the
+# function's own comment, both confirm this). There is no code path that
+# installs an SPD entry for an initiator receiving a Mode Config address.
+# Without a policy, the split-include traffic this hook just routed onto
+# the tunnel has nothing telling the kernel to encrypt it -- any packet
+# reaching the peer's subnet outside of an existing SA triggers a kernel
+# ACQUIRE instead, which is the reconnect loop observed in F1/F4.
+#
+# The hook now installs exactly the SPD entries its own routes correspond
+# to, one in/out pair per RHOOK_ROUTES entry, and owns exactly what it
+# installed: each entry's undo command is a full spddelete reconstructed
+# from the same selector text at plan-build time, journalled to state like
+# any other step (never spdflush, never `setkey -F`), torn down through
+# rhook_run_step() like any other step. Apply order places this after
+# routes and before DNS, so reversing apply order for teardown produces
+# the brief's required DNS -> SPD -> routes -> address -> dummy sequence
+# without this file needing to know about that ordering explicitly.
+#
+# Every value interpolated into a spdadd/spddelete line below is either
+# already-validated (RHOOK_INTERNAL_ADDR4, RHOOK_ROUTES -- both passed
+# through rhook_valid_ipv4()/rhook_validate_cidr_list() in phase1-up.sh
+# before rhook_build_plan() ever runs) or must be validated by the caller
+# before calling rhook_plan_spd() (LOCAL_ADDR/REMOTE_ADDR/LOCAL_PORT/
+# REMOTE_PORT -- raw Mode Config / racoon environment input, R3). setkey's
+# stdin grammar has no escaping mechanism: a newline or shell metacharacter
+# smuggled into an unvalidated selector would inject arbitrary setkey
+# commands here, or -- since rhook_run_step() executes the stored command
+# via eval -- arbitrary shell. This is the highest-severity finding in the
+# subsystem per the brief; there is no defense-in-depth below beyond that
+# validation, so it must not be skipped.
+# --------------------------------------------------------------------------
+
+# rhook_spd_tunnel_endpoints <local_addr> <local_port> <remote_addr> <remote_port>
+# Builds the esp/tunnel/... ipsec_level string consumed by setkey's -P
+# policy_requests grammar (src/libipsec/policy_parse.y's `addresses`
+# production, confirmed in this tree to accept both "IPADDRESS-IPADDRESS"
+# and "IPADDRESS PORT HYPHEN IPADDRESS PORT" with PORT being
+# policy_token.l's bracketed `\[{decstring}\]`). Ports are included only
+# when both are known; the bare address-address form is the other half of
+# the same grammar production, not a different one, so omitting ports here
+# is not a degraded case.
+rhook_spd_tunnel_endpoints() {
+	local rhook_laddr rhook_lport rhook_raddr rhook_rport
+	rhook_laddr="$1"
+	rhook_lport="$2"
+	rhook_raddr="$3"
+	rhook_rport="$4"
+	if [ -n "$rhook_lport" ] && [ -n "$rhook_rport" ]; then
+		printf 'esp/tunnel/%s[%s]-%s[%s]/require' "$rhook_laddr" "$rhook_lport" "$rhook_raddr" "$rhook_rport"
+	else
+		printf 'esp/tunnel/%s-%s/require' "$rhook_laddr" "$rhook_raddr"
+	fi
+}
+
+# rhook_plan_spd: one required in/out pair of spd_entry steps per
+# RHOOK_ROUTES entry. A no-op when RHOOK_ROUTES is empty -- the R7
+# no-routes-at-all case already planned a required failing no_routes step
+# ahead of this call, so rhook_apply_plan() never reaches here in that
+# case, but this stays a harmless no-op regardless of call order.
+#
+# Caller (phase1-up.sh) is expected to have already whitelist-validated
+# LOCAL_ADDR/REMOTE_ADDR (rhook_valid_ipv4) and LOCAL_PORT/REMOTE_PORT
+# (rhook_valid_port, when present) -- see the §E header comment above.
+rhook_plan_spd() {
+	local rhook_net rhook_endpoints rhook_endpoints_rev
+	local rhook_out_line rhook_out_undo_line rhook_in_line rhook_in_undo_line
+
+	[ -n "$RHOOK_ROUTES" ] || return 0
+
+	rhook_endpoints=$(rhook_spd_tunnel_endpoints "${LOCAL_ADDR:-}" "${LOCAL_PORT:-}" "${REMOTE_ADDR:-}" "${REMOTE_PORT:-}")
+	rhook_endpoints_rev=$(rhook_spd_tunnel_endpoints "${REMOTE_ADDR:-}" "${REMOTE_PORT:-}" "${LOCAL_ADDR:-}" "${LOCAL_PORT:-}")
+
+	for rhook_net in $RHOOK_ROUTES; do
+		rhook_out_line="spdadd $RHOOK_INTERNAL_ADDR4/32 $rhook_net any -P out ipsec $rhook_endpoints;"
+		rhook_out_undo_line="spddelete $RHOOK_INTERNAL_ADDR4/32 $rhook_net any -P out;"
+		rhook_in_line="spdadd $rhook_net $RHOOK_INTERNAL_ADDR4/32 any -P in ipsec $rhook_endpoints_rev;"
+		rhook_in_undo_line="spddelete $rhook_net $RHOOK_INTERNAL_ADDR4/32 any -P in;"
+
+		rhook_plan_add "spd_out_$rhook_net" spd_entry required \
+			"install outbound SPD $RHOOK_INTERNAL_ADDR4/32 -> $rhook_net" \
+			"printf '%s\n' '$rhook_out_line' | $RACOON_HOOK_SETKEY -c" \
+			"printf '%s\n' '$rhook_out_undo_line' | $RACOON_HOOK_SETKEY -c"
+
+		rhook_plan_add "spd_in_$rhook_net" spd_entry required \
+			"install inbound SPD $rhook_net -> $RHOOK_INTERNAL_ADDR4/32" \
+			"printf '%s\n' '$rhook_in_line' | $RACOON_HOOK_SETKEY -c" \
+			"printf '%s\n' '$rhook_in_undo_line' | $RACOON_HOOK_SETKEY -c"
+	done
+	return 0
+}
+
+# --------------------------------------------------------------------------
 # Plan builder (§3.2). Pure construction -- calls rhook_plan_add only,
 # never anything that touches the system -- so --dry-run costs nothing to
 # support (§3.2: "Building the plan performs no changes").
@@ -1987,6 +2088,12 @@ rhook_dnsmasq_conf_content() {
 #                          unioned with DNS-server /32 host routes
 #   RHOOK_DNS_SERVERS    - space-separated validated IPv4 DNS servers
 #   RHOOK_DOMAINS        - space-separated validated domains
+#   LOCAL_ADDR/REMOTE_ADDR/LOCAL_PORT/REMOTE_PORT - racoon's own Phase 1
+#                          environment, consumed by rhook_plan_spd() for
+#                          the SPD tunnel-endpoint selector; validated by
+#                          phase1-up.sh (rhook_valid_ipv4/rhook_valid_port)
+#                          before rhook_build_plan() is called (§E header
+#                          comment above rhook_plan_spd()).
 # RHOOK_BACKEND (auto|resolved|networkmanager|resolvconf|dnsmasq|none, from
 # hooks.conf) selects/overrides the backend. Sets RHOOK_BACKEND_RESOLVED,
 # RHOOK_DNS_TOOL and RHOOK_CAP_DEFAULT_ROUTE as a side effect, consulted by
@@ -2039,6 +2146,8 @@ rhook_build_plan() {
 			"sh -c 'echo \"gateway sent no split-include networks and no internal DNS servers were provided either -- nothing to route through the tunnel, refusing to guess\" >&2; exit 1'" \
 			""
 	fi
+
+	rhook_plan_spd
 
 	[ -n "$RHOOK_DNS_SERVERS" ] && rhook_plan_dns
 	return 0

@@ -77,6 +77,16 @@ exit 0
 STUBEOF
 chmod +x "$WORK/bin/nmcli"
 
+# setkey stub (brief 3 §E): logs the exact line piped to `setkey -c` on
+# stdin, one line per invocation, so SPD apply/undo commands are
+# verifiable the same way ip/nmcli invocations are.
+cat > "$WORK/bin/setkey" <<'STUBEOF'
+#!/bin/sh
+{ printf 'setkey %s: ' "$*"; cat; } >> "$SETKEY_LOG"
+exit 0
+STUBEOF
+chmod +x "$WORK/bin/setkey"
+
 cat > "$WORK/hooks.conf" <<'EOF'
 backend = networkmanager
 EOF
@@ -95,6 +105,7 @@ reset_env() {
 	export RACOON_HOOK_CONF="$WORK/hooks.conf"
 	export RACOON_HOOK_IP="$WORK/bin/ip"
 	export RACOON_HOOK_NMCLI="$WORK/bin/nmcli"
+	export RACOON_HOOK_SETKEY="$WORK/bin/setkey"
 	# Level 1 ("step") so the assembled report actually reaches stderr for
 	# these assertions to inspect -- level 0 is syslog-only by design
 	# (§5.1), which would otherwise make every report-content assertion
@@ -102,8 +113,10 @@ reset_env() {
 	export RACOON_HOOK_DEBUG=1
 	export IP_LOG="$WORK/ip.log.$1"
 	export NMCLI_LOG="$WORK/nmcli.log.$1"
+	export SETKEY_LOG="$WORK/setkey.log.$1"
 	: > "$IP_LOG"
 	: > "$NMCLI_LOG"
+	: > "$SETKEY_LOG"
 	unset IP_FAIL_LINK_ADD OUTBOUND_IFACE
 	unset INTERNAL_ADDR4 LOCAL_ADDR LOCAL_PORT REMOTE_ADDR REMOTE_PORT
 	unset SPLIT_INCLUDE_CIDR SPLIT_INCLUDE INTERNAL_DNS4_LIST INTERNAL_DNS4
@@ -186,7 +199,9 @@ assert_eq "happy path exits 0" "$rc" "0"
 # rhook_emit_report classify the run as PARTIAL, which is correct here,
 # not a failure.
 assert_contains "happy path reports PARTIAL (skips are expected, not failures)" "$out" "result: PARTIAL"
-assert_contains "happy path has zero actually-failed steps" "$out" "3 ok, 2 skipped, 0 failed"
+# 7 ok = nm_dns profile + 2 routes + 4 spd_entry (in/out pair per route,
+# brief 3 §E -- one split-include network plus one DNS-server host route).
+assert_contains "happy path has zero actually-failed steps" "$out" "7 ok, 2 skipped, 0 failed"
 assert_contains "comma-separated domains split correctly in the report header" "$out" "domains=corp.example.com internal.example.com"
 assert_contains "DNS-server host route added on top of split-include" "$out" "routes=198.51.100.0/24 198.51.100.53/32"
 # Generation .1: a fresh WORK_RUN dir means rhook_state_max_generation()
@@ -198,6 +213,14 @@ TESTS_RUN=$((TESTS_RUN + 1))
 [ -s "$STATE_FILE" ] || fail "happy path must leave a non-empty state file"
 assert_contains "state file journals the NM profile undo command" "$(cat "$STATE_FILE" 2>/dev/null)" "nmcli connection delete racoon-vpn-dns"
 assert_contains "nmcli invoked for the DNS profile" "$(cat "$NMCLI_LOG")" "connection add type dummy"
+# Brief 3 §E: state file journals a full, directly-replayable spddelete per
+# installed spd_entry -- phase1-down.sh never re-derives the selector.
+assert_contains "state file journals the outbound spddelete undo command" \
+	"$(cat "$STATE_FILE" 2>/dev/null)" "spddelete 192.0.2.44/32 198.51.100.0/24 any -P out"
+assert_contains "state file journals the inbound spddelete undo command" \
+	"$(cat "$STATE_FILE" 2>/dev/null)" "spddelete 198.51.100.0/24 192.0.2.44/32 any -P in"
+assert_contains "setkey invoked with the outbound spdadd tunnel selector" \
+	"$(cat "$SETKEY_LOG")" "spdadd 192.0.2.44/32 198.51.100.0/24 any -P out ipsec esp/tunnel/203.0.113.1[500]-203.0.113.99[500]/require"
 
 # ==========================================================================
 # R3: injected Mode Config value is rejected outright, never partially
@@ -215,6 +238,51 @@ TESTS_RUN=$((TESTS_RUN + 1))
 if grep -q '10\.6\.6\.6' "$IP_LOG" 2>/dev/null; then
 	fail "injected route-add fragment must never reach a real ip invocation"
 fi
+
+# ==========================================================================
+# Brief 3 §E: newline-smuggled REMOTE_ADDR must never reach setkey. Unlike
+# SPLIT_INCLUDE_CIDR/INTERNAL_DNS4_LIST above, LOCAL_ADDR/REMOTE_ADDR are
+# racoon's own Phase 1 environment, not a Mode Config attribute -- but they
+# feed the same eval'd spdadd/spddelete text (rhook_plan_spd()), so an
+# unvalidated value here is the "highest-severity finding in the
+# subsystem" the brief calls out. A literal embedded newline followed by a
+# second setkey command line is the injection this guards against: without
+# validation it would become a second line on setkey's stdin.
+# ==========================================================================
+reset_env spd-injection
+export INTERNAL_ADDR4="192.0.2.44"
+export LOCAL_ADDR="203.0.113.1"
+export REMOTE_ADDR="$(printf '203.0.113.99\nspdflush;')"
+export REMOTE_PORT="500"
+export SPLIT_INCLUDE_CIDR="198.51.100.0/24"
+out=$(run_hook)
+rc=$?
+assert_eq "newline-smuggled REMOTE_ADDR: hook exits 0 (nothing to do, not a crash)" "$rc" "0"
+assert_contains "newline-smuggled REMOTE_ADDR is rejected with a reason" "$out" "invalid REMOTE_ADDR"
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -s "$SETKEY_LOG" ] && fail "setkey must never be invoked when REMOTE_ADDR fails validation"
+
+# A malformed LOCAL_PORT/REMOTE_PORT must not abort the hook (the address
+# pair alone is still a valid tunnel selector) but must never reach setkey
+# either -- ports are dropped from the selector instead, never smuggled in
+# as-is.
+reset_env spd-port-injection
+export INTERNAL_ADDR4="192.0.2.44"
+export LOCAL_ADDR="203.0.113.1"
+export LOCAL_PORT="$(printf '500]-1.2.3.4[9\nspdflush;')"
+export REMOTE_ADDR="203.0.113.99"
+export REMOTE_PORT="500"
+export SPLIT_INCLUDE_CIDR="198.51.100.0/24"
+out=$(run_hook)
+rc=$?
+assert_eq "malformed LOCAL_PORT: hook still exits 0 and configures the tunnel" "$rc" "0"
+assert_contains "malformed LOCAL_PORT is rejected with a reason" "$out" "invalid LOCAL_PORT"
+TESTS_RUN=$((TESTS_RUN + 1))
+if grep -q 'spdflush' "$SETKEY_LOG" 2>/dev/null; then
+	fail "injected LOCAL_PORT fragment must never reach setkey"
+fi
+assert_contains "SPD entry installed with ports omitted, bare address-address selector" \
+	"$(cat "$SETKEY_LOG")" "esp/tunnel/203.0.113.1-203.0.113.99/require"
 
 # ==========================================================================
 # R7: no split-include and no DNS servers at all -- refuse rather than
