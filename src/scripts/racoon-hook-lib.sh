@@ -46,6 +46,9 @@
 : "${RACOON_HOOK_UNBOUND_CONTROL:=unbound-control}"
 : "${RACOON_HOOK_NETWORKMANAGER:=NetworkManager}"
 : "${RACOON_HOOK_DATE:=date}"
+: "${RACOON_HOOK_SS:=ss}"
+: "${RACOON_HOOK_NETSTAT:=netstat}"
+: "${RACOON_HOOK_SOCKSTAT:=sockstat}"
 
 # --------------------------------------------------------------------------
 # Configuration (etc/racoon/hooks.conf.sample documents each key).  Loaded
@@ -1054,6 +1057,192 @@ rhook_survey_dns_effective_file() {
 		*",$rhook_expect,"*) return 0 ;;
 	esac
 	return 1
+}
+
+# --------------------------------------------------------------------------
+# Port 53 ownership survey (brief 3 §C). A first-class input of *equal
+# weight* to the file-based survey and the NM D-Bus probe above -- not an
+# override of either. It is the only signal that detects a resolver
+# invisible to both: a forwarder (e.g. dnsmasq) bound to 127.0.0.1 behind
+# a static /etc/resolv.conf that never mentions it, which the file/D-Bus
+# survey alone would misclassify as "static" every time.
+#
+# Tool priority: `ss -lntup 'sport = :53'` (confirmed live against a real
+# listener during development: UDP sockets report state UNCONN, not
+# LISTEN, and the Process column is `users:(("name",pid=N,fd=M))` --
+# possibly several comma-separated entries if a socket is shared).
+# `netstat -lnpu`/`netstat -lnpt` where ss is absent (also confirmed
+# live: UDP rows have no State column at all, one field fewer than TCP
+# rows, so PID/Program must be read from the *last* awk field, never a
+# fixed position). On NetBSD, `sockstat -l`, format modelled on FreeBSD's
+# sockstat (which NetBSD's descends from) since no NetBSD host was
+# available to confirm directly -- # UNVERIFIED: exact NetBSD sockstat(1)
+# column layout. `netstat -an` is the final fallback everywhere (no owner
+# information at all, but still detects that *something* is listening,
+# which matters more than who).
+rhook_survey_port53_tool() {
+	command -v "$RACOON_HOOK_SS" >/dev/null 2>&1 && { printf 'ss'; return 0; }
+	command -v "$RACOON_HOOK_NETSTAT" >/dev/null 2>&1 && { printf 'netstat'; return 0; }
+	command -v "$RACOON_HOOK_SOCKSTAT" >/dev/null 2>&1 && { printf 'sockstat'; return 0; }
+	command -v "$RACOON_HOOK_NETSTAT" >/dev/null 2>&1 && { printf 'netstat-an'; return 0; }
+	return 1
+}
+
+# Prints one TSV row per listening tcp/udp socket the chosen tool
+# reports, filtered to port 53: proto \t local_addr:port \t pid \t tool.
+# pid is empty when the tool ran without permission to see it (ss/netstat
+# as a non-root user) or the fallback tool has no PID concept at all
+# (netstat -an) -- callers must treat an empty pid as owner=unknown, not
+# an error.
+rhook_survey_port53_raw() {
+	local rhook_tool
+	rhook_tool=$(rhook_survey_port53_tool) || return 1
+	case "$rhook_tool" in
+		ss)
+			"$RACOON_HOOK_SS" -lntup 'sport = :53' 2>/dev/null | awk -v tool=ss '
+				NR == 1 { next }
+				{
+					pid = ""
+					if (match($7, /pid=[0-9]+/)) pid = substr($7, RSTART + 4, RLENGTH - 4)
+					printf "%s\t%s\t%s\t%s\n", $1, $5, pid, tool
+				}'
+			;;
+		netstat)
+			{ "$RACOON_HOOK_NETSTAT" -lnpu 2>/dev/null; "$RACOON_HOOK_NETSTAT" -lnpt 2>/dev/null; } | awk -v tool=netstat '
+				$1 == "tcp" || $1 == "udp" {
+					pid = ""
+					n = split($NF, pp, "/")
+					if (n == 2 && pp[1] ~ /^[0-9]+$/) pid = pp[1]
+					printf "%s\t%s\t%s\t%s\n", $1, $4, pid, tool
+				}'
+			;;
+		sockstat)
+			# UNVERIFIED column layout, see the header comment above.
+			"$RACOON_HOOK_SOCKSTAT" -l 2>/dev/null | awk -v tool=sockstat '
+				NR == 1 { next }
+				$5 ~ /^(tcp|tcp4|tcp6|udp|udp4|udp6)$/ {
+					printf "%s\t%s\t%s\t%s\n", $5, $6, $3, tool
+				}'
+			;;
+		netstat-an)
+			"$RACOON_HOOK_NETSTAT" -an 2>/dev/null | awk -v tool=netstat-an '
+				$1 ~ /^(tcp|udp)/ {
+					printf "%s\t%s\t%s\t%s\n", $1, $4, "", tool
+				}'
+			;;
+	esac
+}
+
+# rhook_survey_port53(): rhook_survey_port53_raw(), filtered to exactly
+# port 53 and with local_addr:port split into separate fields via POSIX
+# parameter expansion on the *last* colon -- colon-count-agnostic, so a
+# bracketed IPv6 address (`[::]:53`) splits the same way a plain IPv4
+# one does, without replicating that logic once per tool's awk block
+# above. One line per listener: proto \t addr \t port \t pid \t tool.
+rhook_survey_port53() {
+	local rhook_line rhook_proto rhook_addrport rhook_pid rhook_tool rhook_port rhook_addr
+	rhook_survey_port53_raw | while IFS= read -r rhook_line || [ -n "$rhook_line" ]; do
+		[ -n "$rhook_line" ] || continue
+		rhook_proto=$(printf '%s' "$rhook_line" | cut -f1)
+		rhook_addrport=$(printf '%s' "$rhook_line" | cut -f2)
+		rhook_pid=$(printf '%s' "$rhook_line" | cut -f3)
+		rhook_tool=$(printf '%s' "$rhook_line" | cut -f4)
+		rhook_port="${rhook_addrport##*:}"
+		[ "$rhook_port" = "53" ] || continue
+		rhook_addr="${rhook_addrport%:*}"
+		printf '%s\t%s\t%s\t%s\t%s\n' "$rhook_proto" "$rhook_addr" "$rhook_port" "$rhook_pid" "$rhook_tool"
+	done
+}
+
+# rhook_survey_port53_owner <pid>: resolves a pid to its real binary path
+# via /proc/<pid>/exe, falling back to the first NUL-terminated token of
+# /proc/<pid>/cmdline. Never trusts `comm`/the process-name string a
+# tool's own -p/-p output already gave us: Linux truncates `comm` to 15
+# characters, so "systemd-resolved" (16 chars) renders as
+# "systemd-resolve" -- an exact collision with the *legacy systemd-resolve
+# CLI tool's own real name*, confirmed on the field-test host (F7). Uses
+# rhook_fs_path() so fixtures can fake /proc/<pid>/exe and /proc/<pid>/cmdline
+# the same way they fake /etc/resolv.conf.
+rhook_survey_port53_owner() {
+	local rhook_pid rhook_exe rhook_cmdline_path
+	rhook_pid="$1"
+	if [ -z "$rhook_pid" ]; then
+		printf 'unknown'
+		return 0
+	fi
+	rhook_exe=$(readlink "$(rhook_fs_path "/proc/$rhook_pid/exe")" 2>/dev/null)
+	if [ -n "$rhook_exe" ]; then
+		printf '%s' "$rhook_exe"
+		return 0
+	fi
+	rhook_cmdline_path="$(rhook_fs_path "/proc/$rhook_pid/cmdline")"
+	if [ -r "$rhook_cmdline_path" ]; then
+		rhook_exe=$(tr '\0' '\n' < "$rhook_cmdline_path" 2>/dev/null | head -n 1)
+		if [ -n "$rhook_exe" ]; then
+			printf '%s' "$rhook_exe"
+			return 0
+		fi
+	fi
+	printf 'unknown'
+}
+
+# rhook_survey_port53_classify_addr <local_addr>: classifies a single
+# listener's bind address per the brief's taxonomy. Deliberately does
+# not use the owner binary path here -- "which forwarder" is a separate
+# question from "what does the bind address itself imply" (a 0.0.0.0
+# bind may be serving a LAN, not necessarily this host's own resolver;
+# see the header comment on rhook_survey_port53_summary() for how the
+# two combine).
+rhook_survey_port53_classify_addr() {
+	case "$1" in
+		127.0.0.53) printf 'stub' ;;
+		127.*|::1|'[::1]') printf 'forwarder' ;;
+		0.0.0.0|'*'|::|'[::]') printf 'server' ;;
+		*) printf 'other' ;;
+	esac
+}
+
+# One line per listener plus, when applicable, one BROKEN line: the
+# structured form racoon-dns-detect renders. Every listener is reported
+# (§C: "more than one listener -> report all of them; do not silently
+# pick"), each with pid empty and owner=unknown when the pid could not
+# be resolved at all (unprivileged run, or the fallback tool has no pid
+# concept -- §C's "degradation without root" requirement). §C: "Record
+# pid, resolved binary path, and the bound address/port for every
+# listener" -- all four are in this row.
+#   LISTENER \t proto \t addr \t port \t pid \t owner_binary \t classification \t tool
+#   BROKEN \t <nameserver found in the effective resolv.conf>
+rhook_survey_port53_summary() {
+	local rhook_line rhook_proto rhook_addr rhook_port rhook_pid rhook_tool
+	local rhook_owner rhook_class rhook_reader rhook_ns
+	rhook_survey_port53 | while IFS= read -r rhook_line || [ -n "$rhook_line" ]; do
+		[ -n "$rhook_line" ] || continue
+		rhook_proto=$(printf '%s' "$rhook_line" | cut -f1)
+		rhook_addr=$(printf '%s' "$rhook_line" | cut -f2)
+		rhook_port=$(printf '%s' "$rhook_line" | cut -f3)
+		rhook_pid=$(printf '%s' "$rhook_line" | cut -f4)
+		rhook_tool=$(printf '%s' "$rhook_line" | cut -f5)
+		rhook_owner=$(rhook_survey_port53_owner "$rhook_pid")
+		rhook_class=$(rhook_survey_port53_classify_addr "$rhook_addr")
+		printf 'LISTENER\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+			"$rhook_proto" "$rhook_addr" "$rhook_port" "$rhook_pid" "$rhook_owner" "$rhook_class" "$rhook_tool"
+	done
+	# The BROKEN check needs to know whether there were zero listeners,
+	# but the `while` above ran in a pipeline subshell (rhook_survey_port53
+	# is itself piped from rhook_survey_port53_raw), so nothing set inside
+	# it is visible here -- re-run the (cheap) query directly instead of
+	# trying to smuggle a flag out of a subshell.
+	if [ -z "$(rhook_survey_port53)" ]; then
+		rhook_reader=$(rhook_survey_glibc_reader)
+		if [ -r "$rhook_reader" ]; then
+			rhook_ns=$(rhook_survey_nameservers "$rhook_reader")
+			case ",$rhook_ns," in
+				*,127.*,*|*,::1,*)
+					printf 'BROKEN\t%s\n' "$rhook_ns"
+					;;
+			esac
+		fi
+	fi
 }
 
 # --------------------------------------------------------------------------

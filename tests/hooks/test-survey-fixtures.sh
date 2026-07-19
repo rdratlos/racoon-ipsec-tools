@@ -76,6 +76,34 @@ run_fixture() {
 			[ "$m" = "$EXPECT_NM_MODE" ] || errors="$errors|nm_mode: got '$m', expected '$EXPECT_NM_MODE'"
 		fi
 
+		# §C (brief 3): port 53 ownership survey. Optional -- only
+		# checked when a fixture actually sets these, so fixtures 01-10
+		# (which never stub ss/netstat) are unaffected.
+		if [ -n "${EXPECT_PORT53_COUNT:-}" ]; then
+			port53_summary=$(rhook_survey_port53_summary)
+			port53_count=$(printf '%s\n' "$port53_summary" | grep -c '^LISTENER	' 2>/dev/null)
+			port53_count="${port53_count:-0}"
+			[ "$port53_count" = "$EXPECT_PORT53_COUNT" ] || errors="$errors|port53_count: got '$port53_count', expected '$EXPECT_PORT53_COUNT'"
+
+			if [ -n "${EXPECT_PORT53_CONTAINS:-}" ]; then
+				old_ifs="$IFS"
+				IFS='
+'
+				for expected_line in $EXPECT_PORT53_CONTAINS; do
+					case "$port53_summary" in
+						*"$expected_line"*) ;;
+						*) errors="$errors|port53_contains: '$expected_line' not found in summary" ;;
+					esac
+				done
+				IFS="$old_ifs"
+			fi
+
+			if [ -n "${EXPECT_PORT53_BROKEN:-}" ]; then
+				if printf '%s\n' "$port53_summary" | grep -q '^BROKEN	'; then broken=yes; else broken=no; fi
+				[ "$broken" = "$EXPECT_PORT53_BROKEN" ] || errors="$errors|port53_broken: got '$broken', expected '$EXPECT_PORT53_BROKEN'"
+			fi
+		fi
+
 		if [ -n "$errors" ]; then
 			printf 'FIXTURE_FAIL:%s:%s\n' "$name" "$errors"
 		else
