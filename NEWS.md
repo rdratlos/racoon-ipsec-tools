@@ -92,6 +92,24 @@ on building cleanly against current OpenSSL releases and toolchains.
   cleanly onto `develop`.
 - Fixed minor Debian packaging bugs: a spurious group-removal warning
   on purge, and `setkey.service` no longer auto-enabling at boot.
+- Added a real, maintained phase1-up/phase1-down split-DNS and routing
+  hook set for Mode Config road-warrior clients
+  (`src/racoon/scripts/racoon-hook-lib.sh`, `phase1-up.sh`,
+  `phase1-down.sh`, and the `racoon-dns-detect` diagnostic CLI):
+  detects and drives systemd-resolved, NetworkManager, resolvconf, and
+  dnsmasq; installs and owns exactly the routes and SPD entries a
+  connection needs; whitelist-validates every value the gateway sends
+  before using it; and journals a per-connection undo log so
+  phase1-down.sh reverses precisely what phase1-up.sh applied.
+  Superseding the minimal example hooks that have long sat under
+  `src/racoon/samples/roadwarrior/client/` (kept there for reference,
+  never installed), this is now a first-class build component wired
+  into `src/racoon/scripts/Makefile.am` — `make install` places it at
+  `$(sysconfdir)/scripts` (`/etc/racoon/scripts` under this project's
+  own packaging) rather than requiring a manual copy. A commented
+  `hooks.conf.sample` and the full admin/troubleshooting documentation
+  (`doc/admin/split-dns.html`) ship alongside it as package
+  examples/docs. See that document for installation and configuration.
 
 ### Bug fixes
 

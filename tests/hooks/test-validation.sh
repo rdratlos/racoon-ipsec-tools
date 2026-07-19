@@ -9,7 +9,7 @@
 set -u
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-LIB="$SCRIPT_DIR/../../src/scripts/racoon-hook-lib.sh"
+LIB="$SCRIPT_DIR/../../src/racoon/scripts/racoon-hook-lib.sh"
 
 TESTS_RUN=0
 TESTS_FAILED=0
@@ -81,7 +81,7 @@ assert_list_invalid() {
 	fi
 }
 
-# shellcheck source=SCRIPTDIR/../../src/scripts/racoon-hook-lib.sh
+# shellcheck source=SCRIPTDIR/../../src/racoon/scripts/racoon-hook-lib.sh
 . "$LIB"
 
 # ==========================================================================

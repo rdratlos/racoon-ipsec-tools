@@ -12,7 +12,7 @@
 set -u
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-LIB="$SCRIPT_DIR/../../src/scripts/racoon-hook-lib.sh"
+LIB="$SCRIPT_DIR/../../src/racoon/scripts/racoon-hook-lib.sh"
 
 TESTS_RUN=0
 TESTS_FAILED=0
@@ -66,7 +66,7 @@ RACOON_HOOK_CONF="$WORK/nonexistent-hooks.conf"
 export RACOON_HOOK_STATE_DIR RACOON_HOOK_CONF
 unset RACOON_HOOK_DEBUG 2>/dev/null || true
 
-# shellcheck source=SCRIPTDIR/../../src/scripts/racoon-hook-lib.sh
+# shellcheck source=SCRIPTDIR/../../src/racoon/scripts/racoon-hook-lib.sh
 # shellcheck disable=SC2034  # REMOTE_ADDR/REMOTE_PORT/RHOOK_* below are read by the sourced library, not this file
 . "$LIB"
 

@@ -3,12 +3,12 @@ name: racoon phase1 hooks
 on:
   push:
     paths:
-      - 'src/scripts/**'
+      - 'src/racoon/scripts/**'
       - 'tests/hooks/**'
       - '.github/workflows/racoon-hooks.yml'
   pull_request:
     paths:
-      - 'src/scripts/**'
+      - 'src/racoon/scripts/**'
       - 'tests/hooks/**'
       - '.github/workflows/racoon-hooks.yml'
 
@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: shellcheck src/scripts
+      - name: shellcheck src/racoon/scripts
         # --severity=warning: every SC3043 ('local' is not POSIX) and
         # SC2034 (cross-file variable use the sourced library reads) is
         # addressed with a justified inline disable comment in the
@@ -27,10 +27,10 @@ jobs:
         # sourcing, which shellcheck cannot statically resolve and is not
         # a real issue.
         run: |
-          shellcheck -s sh --severity=warning src/scripts/racoon-hook-lib.sh
-          shellcheck -s sh --severity=warning src/scripts/phase1-up.sh
-          shellcheck -s sh --severity=warning src/scripts/phase1-down.sh
-          shellcheck -s sh --severity=warning src/scripts/racoon-dns-detect
+          shellcheck -s sh --severity=warning src/racoon/scripts/racoon-hook-lib.sh
+          shellcheck -s sh --severity=warning src/racoon/scripts/phase1-up.sh
+          shellcheck -s sh --severity=warning src/racoon/scripts/phase1-down.sh
+          shellcheck -s sh --severity=warning src/racoon/scripts/racoon-dns-detect
 
   test-linux:
     name: tests/hooks (${{ matrix.shell }} on Linux)

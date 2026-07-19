@@ -143,19 +143,20 @@
 
 <section id="install">
 <h2>2. Installation</h2>
-<p>The hook scripts live in <code>src/scripts/</code> in this source tree:</p>
-<pre><code>src/scripts/racoon-hook-lib.sh   # shared library (sourced by everything below)
-src/scripts/phase1-up.sh         # racoon phase1-up hook
-src/scripts/phase1-down.sh       # racoon phase1-down hook
-src/scripts/racoon-dns-detect    # standalone diagnostic CLI</code></pre>
+<p>The hook scripts are a real installed component of the build (<code>src/racoon/scripts/Makefile.am</code>), not example material — a plain <code>./configure &amp;&amp; make install</code> installs all four into <code>$(sysconfdir)/racoon/scripts</code> (<code>/etc/racoon/scripts</code> with the packaging defaults), alongside <code>hooks.conf</code>:</p>
+<pre><code>/etc/racoon/scripts/racoon-hook-lib.sh   # shared library (sourced by everything below)
+/etc/racoon/scripts/phase1-up.sh         # racoon phase1-up hook
+/etc/racoon/scripts/phase1-down.sh       # racoon phase1-down hook
+/etc/racoon/scripts/racoon-dns-detect    # standalone diagnostic CLI</code></pre>
 <p>Point racoon at the hooks in your client-side <code>racoon.conf</code>:</p>
 <pre><code>remote anyremote
 {
     ...
-    script "/path/to/src/scripts/phase1-up.sh" phase1_up;
-    script "/path/to/src/scripts/phase1-down.sh" phase1_down;
+    script "/etc/racoon/scripts/phase1-up.sh" phase1_up;
+    script "/etc/racoon/scripts/phase1-down.sh" phase1_down;
 }</code></pre>
-<p>All four scripts are plain POSIX <code>sh</code> — no bashisms, no arrays, no <code>[[ ]]</code> — and run under <code>dash</code>, <code>bash</code>, and NetBSD's <code>/bin/sh</code> unmodified. They must stay together in the same directory: <code>phase1-up.sh</code>/<code>phase1-down.sh</code>/<code>racoon-dns-detect</code> all source <code>racoon-hook-lib.sh</code> from the directory they themselves live in.</p>
+<p>Building from a source checkout without installing (development, or running the test suite) works the same way against the in-tree copy at <code>src/racoon/scripts/</code> — nothing about the scripts themselves differs between the two locations.</p>
+<p>All four scripts are plain POSIX <code>sh</code> — no bashisms, no arrays, no <code>[[ ]]</code> — and run under <code>dash</code>, <code>bash</code>, and NetBSD's <code>/bin/sh</code> unmodified. They must stay together in the same directory: <code>phase1-up.sh</code>/<code>phase1-down.sh</code>/<code>racoon-dns-detect</code> all source <code>racoon-hook-lib.sh</code> from the directory they themselves live in — this is also why <code>racoon-dns-detect</code> is installed alongside the others rather than into <code>sbindir</code> with the rest of racoon's own binaries; run it via its installed path (or symlink it onto your own <code>PATH</code> if you prefer).</p>
 </section>
 
 <section id="config">

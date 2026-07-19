@@ -18,8 +18,8 @@
 set -u
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-HOOK_UP="$SCRIPT_DIR/../../src/scripts/phase1-up.sh"
-HOOK_DOWN="$SCRIPT_DIR/../../src/scripts/phase1-down.sh"
+HOOK_UP="$SCRIPT_DIR/../../src/racoon/scripts/phase1-up.sh"
+HOOK_DOWN="$SCRIPT_DIR/../../src/racoon/scripts/phase1-down.sh"
 
 TESTS_RUN=0
 TESTS_FAILED=0
