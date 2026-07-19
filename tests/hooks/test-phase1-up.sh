@@ -47,6 +47,39 @@ assert_not_contains() {
 	esac
 }
 
+# --------------------------------------------------------------------------
+# Brief 3 §J: every real `dash "$HOOK"` invocation this file makes goes
+# through run_hook() below, which checks the captured output against a
+# fixed denylist of shell-portability error markers -- phrases a stricter
+# shell (NetBSD's /bin/sh in particular) emits for a construct it doesn't
+# accept the way dash/bash do. A scenario's own assertions only check for
+# the specific substrings it cares about; they would not by themselves
+# catch a portability bug whose extra noise on stderr happens not to
+# break those substrings. Verified (grep) that none of the shipped
+# scripts' own log/error text uses any denylisted phrase, so a match here
+# is always either a real portability bug or new legitimate text that
+# needs a documented exception in RHOOK_STDERR_ALLOWLIST below -- never
+# remove a denylist entry to make a real failure go away.
+# --------------------------------------------------------------------------
+RHOOK_STDERR_ALLOWLIST=""   # newline-separated fixed strings to excuse, if ever needed
+
+assert_stderr_clean() {
+	# $1 = description  $2 = captured output (stdout+stderr merged)
+	rhook_asc_out="$2"
+	TESTS_RUN=$((TESTS_RUN + 1))
+	if [ -n "$RHOOK_STDERR_ALLOWLIST" ]; then
+		rhook_asc_tmp=$(mktemp "${TMPDIR:-/tmp}/racoon-hook-allowlist.XXXXXX")
+		printf '%s\n' "$RHOOK_STDERR_ALLOWLIST" > "$rhook_asc_tmp"
+		rhook_asc_out=$(printf '%s\n' "$rhook_asc_out" | grep -vFf "$rhook_asc_tmp")
+		rm -f "$rhook_asc_tmp"
+	fi
+	case "$rhook_asc_out" in
+		*"command not found"*|*": not found"*|*"Illegal number"*|*"Syntax error"*|*"bad substitution"*|*"Bad substitution"*|*"parameter not set"*|*"unbound variable"*|*"arithmetic syntax error"*|*"divide by zero"*|*"Illegal option"*)
+			fail "$1 -- shell-portability error marker found in captured output (possible dash/bash/NetBSD-sh divergence): $rhook_asc_out"
+			;;
+	esac
+}
+
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/racoon-phase1-up-test.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin"
@@ -95,6 +128,14 @@ run_hook() {
 	# Fresh per-call env: caller sets the Mode Config vars it needs, then
 	# calls this. STATE_DIR/logs are shared across the whole file (reset
 	# per test section below where isolation matters).
+	#
+	# NOTE (brief 3 §J): every caller invokes this as `out=$(run_hook)`,
+	# which runs the whole function body in a command-substitution
+	# subshell -- any TESTS_RUN/TESTS_FAILED updates made *inside* this
+	# function would be invisible to the parent shell once that subshell
+	# exits. assert_stderr_clean() is therefore called by each caller
+	# explicitly, after capturing $out (and $rc, where checked), not from
+	# in here.
 	dash "$HOOK" 2>&1
 }
 
@@ -130,6 +171,7 @@ reset_env() {
 reset_env guard
 out=$(run_hook)
 rc=$?
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"
 assert_eq "no-address guard exits 0" "$rc" "0"
 assert_contains "no-address guard logs why" "$out" "no Mode Config address assigned"
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -152,6 +194,7 @@ STUBEOF
 chmod +x "$WORK/bin/ip"
 out=$(run_hook)
 rc=$?
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"
 assert_eq "no-interface guard exits 0" "$rc" "0"
 assert_contains "no-interface guard logs why" "$out" "cannot determine outbound interface"
 # restore the working ip stub for the rest of the file
@@ -192,6 +235,7 @@ export INTERNAL_DNS4_LIST="198.51.100.53"
 export INTERNAL_SPLITDNS_DOMAINS="corp.example.com,internal.example.com"
 out=$(run_hook)
 rc=$?
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"
 assert_eq "happy path exits 0" "$rc" "0"
 # PARTIAL, not OK: dummy_iface/dummy_addr are legitimately SKIPPED under
 # the networkmanager backend (its own `nmcli connection add` creates the
@@ -233,6 +277,7 @@ export REMOTE_ADDR="203.0.113.99"
 export REMOTE_PORT="500"
 export SPLIT_INCLUDE_CIDR="10.0.12.0/24;ip route add default via 10.6.6.6"
 out=$(run_hook)
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"
 assert_contains "injected split-include is rejected with a reason" "$out" "invalid split-include network list"
 TESTS_RUN=$((TESTS_RUN + 1))
 if grep -q '10\.6\.6\.6' "$IP_LOG" 2>/dev/null; then
@@ -257,6 +302,7 @@ export REMOTE_PORT="500"
 export SPLIT_INCLUDE_CIDR="198.51.100.0/24"
 out=$(run_hook)
 rc=$?
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"
 assert_eq "newline-smuggled REMOTE_ADDR: hook exits 0 (nothing to do, not a crash)" "$rc" "0"
 assert_contains "newline-smuggled REMOTE_ADDR is rejected with a reason" "$out" "invalid REMOTE_ADDR"
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -275,6 +321,7 @@ export REMOTE_PORT="500"
 export SPLIT_INCLUDE_CIDR="198.51.100.0/24"
 out=$(run_hook)
 rc=$?
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"
 assert_eq "malformed LOCAL_PORT: hook still exits 0 and configures the tunnel" "$rc" "0"
 assert_contains "malformed LOCAL_PORT is rejected with a reason" "$out" "invalid LOCAL_PORT"
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -295,6 +342,7 @@ export REMOTE_ADDR="203.0.113.99"
 export REMOTE_PORT="500"
 out=$(run_hook)
 rc=$?
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"
 assert_eq "no-routes with on_dns_failure=warn (default) exits 0" "$rc" "0"
 assert_contains "no-routes is reported as a failed required step" "$out" "[ FAILED    ] determine networks to route through the tunnel"
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -313,6 +361,7 @@ export REMOTE_ADDR="203.0.113.99"
 export REMOTE_PORT="500"
 out=$(run_hook)
 rc=$?
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"
 # Brief 3 §H: "abort" is a deprecated alias for "report" -- same exit
 # code, but the deprecation is logged (RACOON_HOOK_DEBUG=1 in reset_env
 # puts the report on stderr, which `out` already captures).
@@ -330,6 +379,7 @@ export REMOTE_ADDR="203.0.113.99"
 export REMOTE_PORT="500"
 out=$(run_hook)
 rc=$?
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"
 assert_eq "no-routes with on_dns_failure=report exits 1" "$rc" "1"
 assert_not_contains "on_dns_failure=report (the honest, non-deprecated name) never logs a deprecation notice" "$out" "deprecated"
 cat > "$WORK/hooks.conf" <<'EOF'
@@ -367,6 +417,7 @@ export REMOTE_PORT="500"
 export SPLIT_INCLUDE_CIDR="198.51.100.0/24 198.51.100.128/25"
 out=$(run_hook)
 rc=$?
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"
 assert_eq "rollback: a required SPD failure still exits 1" "$rc" "1"
 assert_contains "rollback: the hook announces it is undoing this run's own changes" "$out" "on_dns_failure=rollback"
 assert_contains "rollback: first network's route was undone" "$(cat "$IP_LOG")" "route del 198.51.100.0/24"
@@ -410,6 +461,7 @@ mkdir -p "$WORK_RUN"
 printf 'leftover_step\tcreate_dummy\tok\tip link del racoon0\n' > "$WORK_RUN/hook-state.203.0.113.99.1"
 out=$(run_hook)
 rc=$?
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"
 assert_eq "run with an old unconsumed generation present still exits 0" "$rc" "0"
 TESTS_RUN=$((TESTS_RUN + 1))
 if [ -f "$WORK_RUN/hook-state.203.0.113.99.1" ] && grep -q 'leftover_step' "$WORK_RUN/hook-state.203.0.113.99.1" 2>/dev/null; then
@@ -447,6 +499,7 @@ while [ "$i" -le 7 ]; do
 done
 out=$(run_hook)
 rc=$?
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"
 assert_eq "run with 7 pre-existing consumed generations still exits 0" "$rc" "0"
 remaining=$(find "$WORK_RUN" -name 'hook-state.203.0.113.99.*.consumed' | wc -l | tr -d ' ')
 assert_eq "reaping down from 7 consumed generations keeps exactly the newest 5" "$remaining" "5"
