@@ -271,6 +271,15 @@
     <li><a href="#rfc-refs">RFCs</a></li>
     <li><a href="#hist-refs">Historical Documentation</a></li>
     <li><a href="#related-projects">Related Projects</a></li>
+
+    <li class="section-head"><a>12. Split-DNS &amp; Routing Hooks</a></li>
+    <li><a href="#hooks-overview">12.1 Overview</a></li>
+    <li><a href="#hooks-listeners">12.2 Pinning Listeners</a></li>
+    <li><a href="#hooks-policies">12.3 Static Policies vs. Mode Config</a></li>
+    <li><a href="#hooks-leftover-state">12.4 Leftover State After a Non-Clean Stop</a></li>
+    <li><a href="#hooks-logging">12.5 Unreliable Logs Under systemd</a></li>
+    <li><a href="#hooks-port53">12.6 Port 53 Ownership Reference</a></li>
+    <li><a href="#hooks-bionic">12.7 systemd 237 / Ubuntu Bionic Limitations</a></li>
   </ul>
 </nav>
 
@@ -993,6 +1002,14 @@ makepkg -si</code></pre>
         </tr>
       </tbody>
     </table>
+
+    <div class="note">
+      Running the <a href="#hooks-overview">split-DNS and routing hooks</a> for road-warrior
+      clients? See <a href="#hooks-listeners">§12.2 Pinning Listeners</a> — an unpinned
+      <code>listen</code> block on a multi-homed host leaves the hooks' own outbound-interface
+      detection at the mercy of whatever route the kernel happens to resolve for a given
+      negotiation.
+    </div>
   </section>
 
   <!-- ═══════════ TIMER BLOCK ═══════════ -->
@@ -2765,6 +2782,196 @@ racoonctl vpn-connect 192.168.1.1</code></pre>
         <tr><td>iked (OpenIKED)</td><td>Portable OpenBSD iked; IKEv2 only; BSD licence.</td></tr>
       </tbody>
     </table>
+  </section>
+
+  <!-- ═══════════ SPLIT-DNS & ROUTING HOOKS ═══════════ -->
+  <section id="hooks-overview">
+    <h2>12. Split-DNS &amp; Routing Hooks (Road-Warrior Clients)</h2>
+    <h3>12.1 Overview</h3>
+    <p>
+      <code>src/racoon/scripts/</code> ships a <code>phase1-up</code>/<code>phase1-down</code>
+      hook set that configures a road-warrior client's local resolver and routing table
+      from the Mode Config attributes a gateway hands back after Phase 1 — internal address,
+      split-include networks, internal DNS servers, and split-DNS domains. It detects and
+      drives whichever DNS backend is actually active on the client (systemd-resolved,
+      NetworkManager, resolvconf, or dnsmasq), installs and owns exactly the routes and SPD
+      entries the connection needs, whitelist-validates every value the gateway sends before
+      using it, and journals a per-connection undo log so <code>phase1-down.sh</code> reverses
+      precisely what <code>phase1-up.sh</code> applied.
+    </p>
+    <div class="note">
+      This is a different mechanism from the <a href="#modecfg"><code>mode_cfg</code> block's</a>
+      own <code>split_dns "domain";</code> directive. That directive is a peer-side hint
+      understood only by the Cisco VPN client itself — it never touches the local system's
+      resolver on this host, and racoon does not
+      interpret it further. The hooks described here are what actually reconfigure <em>this</em>
+      machine's DNS and routing for any Mode Config client, Cisco or not.
+    </div>
+    <p>
+      Installation, <code>hooks.conf</code> reference, the supported-backend matrix, the
+      <code>racoon-dns-detect</code> diagnostic CLI, and the full security model are covered
+      in <code>doc/admin/split-dns.html</code> in the source tree (installed alongside this
+      guide as <code>/usr/share/doc/racoon/split-dns.html</code> on Debian/Ubuntu). This
+      section covers only the operational caveats that fall outside that document's own scope:
+      interactions with racoon's own configuration, and specific known limitations.
+    </p>
+
+    <h3 id="hooks-listeners">12.2 Pinning Listeners</h3>
+    <p>
+      The hooks determine which physical interface and source address a connection actually
+      used by asking the kernel for the route to <code>REMOTE_ADDR</code> at the moment
+      <code>phase1-up.sh</code> runs (§3.4 of <code>doc/admin/split-dns.html</code>) — they do
+      not re-derive this from racoon's own configuration, since racoon exports no interface
+      name to script hooks (confirmed against <code>isakmp.c</code>/<code>isakmp_cfg.c</code>).
+      On a host with more than one active uplink, an unpinned <a href="#phase1-listen">
+      <code>listen</code> block</a> means racoon itself may accept the
+      negotiation on any interface — the hooks will still route correctly for
+      <em>that specific</em> negotiation, but which interface ends up carrying a given
+      client's traffic becomes a race against whatever route the kernel resolves at that
+      instant, not a deliberate choice.
+    </p>
+    <div class="warn">
+      For a road-warrior gateway or client sitting behind more than one uplink, pin
+      <code>isakmp</code>/<code>isakmp_natt</code> to the specific address you intend racoon
+      to negotiate on. This is standard racoon.conf hygiene independent of these hooks, but
+      it matters more with them in the picture: the hooks' own outbound-interface detection
+      inherits whatever ambiguity an unpinned listener leaves in place.
+    </div>
+
+    <h3 id="hooks-policies">12.3 Static Security Policies vs. Mode Config</h3>
+    <p>
+      Brief 3 §E of this project's hook-rewrite work verified against
+      <code>isakmp_quick.c</code> that racoon's own SPD policy generation
+      (<code>generate_policy</code> / <code>gen_policy</code>) is wired exclusively into
+      <code>get_proposal_r()</code> — the <strong>responder</strong> side of Quick Mode. A
+      racoon instance acting as a Mode Config <strong>initiator</strong> (the road-warrior
+      client role these hooks target) never has racoon install SPD policy of its own; the
+      hooks install and own exactly the SPD entries their own routes need instead (see
+      <code>doc/admin/split-dns.html</code>'s security model section).
+    </p>
+    <div class="danger">
+      Do not combine a static <code>require</code>-level security policy (a hand-written
+      <code>spdadd ... -P out ipsec esp/tunnel/…/require;</code>, or a <code>sainfo</code>
+      block paired with one) for the same peer/selector a Mode Config connection using these
+      hooks will also negotiate. A static policy racoon did not install and does not track is
+      invisible to <code>phase1-down.sh</code>'s undo replay — teardown only ever reverses
+      what a specific connection's own state file recorded, never a system-wide
+      <code>spdflush</code> — so a leftover static policy can silently persist, encrypt
+      traffic that should have stopped when the tunnel came down, or conflict with the
+      selector the hooks themselves construct for the same connection.
+    </div>
+
+    <h3 id="hooks-leftover-state">12.4 Leftover State After a Non-Clean Stop</h3>
+    <p>
+      racoon's own Phase 1 teardown (<code>close_session()</code> →
+      <code>flushph1()</code> → <code>delph1()</code>) does invoke the
+      <code>phase1_down</code> script hook on every code path, including
+      <code>SIGTERM</code>/<code>SIGINT</code> — but the hook invocation itself is
+      fire-and-forget (<code>script_exec()</code> forks and returns immediately, without
+      waiting), and racoon typically reaches <code>exit(0)</code> a fraction of a millisecond
+      later. Under systemd's default <code>KillMode=control-group</code>, the daemon's own
+      exit can trigger a cgroup cleanup that reaps the still-running
+      <code>phase1-down.sh</code> before it finishes reverting routes, DNS, and SPD entries —
+      more likely the more external commands a teardown has to run (<code>ip</code>,
+      <code>resolvectl</code>/<code>nmcli</code>, <code>setkey</code>).
+    </p>
+    <p>
+      This is filed as a known daemon-side issue, not fixed at the daemon level (see this
+      project's <code>doc/dev/daemon-issues.md</code> for the full analysis and a reproducer).
+      The hooks themselves are defensive about it: an interrupted teardown leaves its
+      generation's state file (<code>/run/racoon/hook-state.&lt;remote-addr&gt;.&lt;n&gt;</code>)
+      in place rather than deleting it, so it is picked up and retried automatically —
+      oldest-first — the next time <code>phase1-down.sh</code> runs for that peer.
+    </p>
+    <table>
+      <thead><tr><th>Symptom</th><th>What to check</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">Routes/DNS/SPD still active after <code>systemctl stop racoon</code></td><td><code>ls /run/racoon/hook-state.*</code> — a file present here (not <code>.consumed</code>) means an incomplete teardown is queued for retry, not lost.</td></tr>
+        <tr><td class="param-name">State never clears on its own</td><td>Manually invoke the hook set's own teardown logic for the stuck generation, or simply bring racoon back up and back down again for the same peer — <code>phase1-down.sh</code> always consumes the oldest unconsumed generation first.</td></tr>
+        <tr><td class="param-name">Confirming what a leftover generation would undo</td><td>The state file itself is the plan: each line is a step id, type, outcome, and its exact undo command (see <code>doc/admin/split-dns.html</code> §6).</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="hooks-logging">12.5 Unreliable Logs Under systemd</h3>
+    <p>
+      racoon's own foreground logging (<code>plogv()</code> in <code>plog.c</code>, active
+      under the <code>-F</code> flag this project's <code>racoon.service</code> unit passes)
+      writes via a plain <code>vprintf()</code> to stdout, with no explicit
+      <code>setvbuf()</code> call anywhere in the daemon. glibc defaults to full block
+      buffering on a non-TTY file descriptor — exactly what a systemd unit's stdout is — so
+      log lines can be delayed, torn, or lost around shutdown specifically (a buffer that
+      never fills before the process exits, combined with the <a href="#hooks-leftover-state">
+      teardown race in §12.4</a>, can mean a message never reaches the journal at all).
+    </p>
+    <div class="warn">
+      Do not rely on <code>journalctl -u racoon</code> alone when diagnosing a hook-related
+      issue around connect/disconnect timing. The hooks maintain their own independent,
+      explicitly-flushed trace file, <code>/run/racoon/hook.trace</code> (enabled at
+      <code>debug_level 2</code> or higher in <code>hooks.conf</code>, or
+      <code>RACOON_HOOK_DEBUG=2</code> in the environment for a one-off run) — that file, not
+      racoon's own log stream, is authoritative for what the hooks themselves actually did and
+      when.
+    </div>
+
+    <h3 id="hooks-port53">12.6 Port 53 Ownership Reference</h3>
+    <p>
+      <code>racoon-dns-detect --detect</code> surveys who, if anyone, is actually bound to
+      port 53 on the client as a first-class, equal-weight input alongside the
+      file/D-Bus-based backend classification (never as a silent override — a disagreement
+      between the two is always reported explicitly, never resolved one way automatically).
+      The classifications it can report:
+    </p>
+    <table>
+      <thead><tr><th>Class</th><th>Meaning</th><th>Typical owner</th></tr></thead>
+      <tbody>
+        <tr><td class="param-name">stub</td><td>Bound to a loopback stub address (127.0.0.53 and similar) — the systemd-resolved pattern. Real per-link servers live in <code>resolvectl</code>/<code>systemd-resolve</code> status output, never in a static resolv.conf-style file.</td><td>systemd-resolved</td></tr>
+        <tr><td class="param-name">forwarder</td><td>Bound to 127.0.0.1 or another loopback address, forwarding to configured upstreams — the dnsmasq/unbound-as-local-resolver pattern.</td><td>dnsmasq, unbound, or similar</td></tr>
+        <tr><td class="param-name">broken-state</td><td>Nothing bound to port 53 at all, but a resolver backend appears configured (e.g. resolv.conf still points at a loopback address). The resolver managing this system's DNS may not actually be running.</td><td>none — investigate</td></tr>
+        <tr><td class="param-name">unprivileged</td><td>The survey ran without permission to resolve the owning process (no <code>/proc/&lt;pid&gt;/exe</code> access) — a listener was seen but its owner could not be confirmed.</td><td>unknown — re-run with sufficient privilege if the owner matters</td></tr>
+      </tbody>
+    </table>
+    <p>
+      Owner resolution always reads <code>/proc/&lt;pid&gt;/exe</code> (falling back to the
+      first NUL-terminated token of <code>/proc/&lt;pid&gt;/cmdline</code>), never the
+      15-byte-truncated <code>comm</code> field — <code>systemd-resolved</code> truncates to
+      <code>systemd-resolve</code> at that length, which previously collided with the legacy
+      <code>systemd-resolve</code> CLI tool's own name.
+    </p>
+
+    <h3 id="hooks-bionic">12.7 systemd 237 / Ubuntu Bionic Limitations</h3>
+    <p>
+      This hook set's DNS-effectiveness verification and backend detection are exercised
+      against a wide span of systemd versions by design, but Ubuntu Bionic's systemd 237
+      specifically drove several fixes and remains worth calling out on its own:
+    </p>
+    <ul>
+      <li><strong>No <code>resolvectl</code> binary at all</strong> — only the older,
+      flag-based <code>systemd-resolve</code> is present (introduced in systemd 236,
+      renamed to the verb-based <code>resolvectl</code> in systemd 239). The hooks detect and
+      use whichever is actually on <code>PATH</code>, never assume one implies the other —
+      the two have incompatible flag grammars.</li>
+      <li><strong>No <code>busctl</code> on a minimal install</strong> — NetworkManager D-Bus
+      probing (used only to read the <code>RcManager</code> property, one input among several
+      to backend detection) degrades gracefully when <code>busctl</code> is absent, never
+      treating that absence as "NetworkManager is not in control."</li>
+      <li><strong><code>systemd-resolve --status</code> is plain text, not a table</strong> —
+      confirmed against systemd's own <code>resolve-tool.c</code> at the v237 tag: a
+      <code>Link N (ifname)</code> header, blank-padded continuation lines, no box-drawing.
+      Modern <code>resolvectl status</code> (systemd ≥ 249) renders a very different,
+      table-based format. The hooks' own effectiveness check uses a plain substring match
+      against either form rather than parsing structure, specifically to stay correct across
+      both.</li>
+      <li><strong>DNS effectiveness must key off the tool actually selected, not merely
+      whichever binary exists</strong> — checking only for the presence of
+      <code>resolvectl</code> and falling back to a stub-resolv.conf file check otherwise
+      produces a false failure on Bionic: the resolved backend is genuinely active via
+      <code>systemd-resolve</code>, but <code>/run/systemd/resolve/stub-resolv.conf</code>
+      can never contain a real per-link server by design. A false failure here was the
+      direct trigger for a kernel-ACQUIRE reconnect loop observed during this hook set's own
+      Bionic testing (an unscoped DNS server left registered by a partially-rolled-back
+      apply) — see this project's <code>doc/dev/teardown-investigation.md</code> for the full
+      causal chain.</li>
+    </ul>
   </section>
 
   <footer>
