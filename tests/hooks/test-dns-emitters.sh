@@ -188,13 +188,26 @@ assert_eq "resolvectl: clear domains uses empty string, not ~." \
 	"$(rhook_dns_emit_clear_domains resolvectl wlan0)" \
 	'resolvectl domain wlan0 ""'
 
-assert_eq "systemd-resolve: clear domains uses empty string" \
+# systemd-resolve: --set-dns=""/--set-domain="" are NOT valid syntax for
+# this tool (confirmed against systemd v237's own resolve-tool.c:
+# --set-dns requires a value that parses as an address, --set-domain
+# requires valid domain syntax; an empty string fails both) -- found
+# live on a real Bionic host, both erroring out rather than clearing
+# anything. --revert is this tool's own documented way to clear all
+# per-link settings, confirmed idempotent against resolved's server-side
+# bus_link_method_revert() (resolved-link-bus.c): it unconditionally
+# calls link_flush_settings() and succeeds regardless of prior state.
+assert_eq "systemd-resolve: clear domains uses --revert, not the invalid --set-domain=\"\"" \
 	"$(rhook_dns_emit_clear_domains systemd-resolve wlan0)" \
-	'systemd-resolve --interface=wlan0 --set-domain=""'
+	'systemd-resolve --interface=wlan0 --revert'
 
 assert_eq "resolvectl: clear dns uses empty string" \
 	"$(rhook_dns_emit_clear_dns resolvectl wlan0)" \
 	'resolvectl dns wlan0 ""'
+
+assert_eq "systemd-resolve: clear dns uses --revert, not the invalid --set-dns=\"\"" \
+	"$(rhook_dns_emit_clear_dns systemd-resolve wlan0)" \
+	'systemd-resolve --interface=wlan0 --revert'
 
 # The emitted string must never literally contain the tilde-dot sequence.
 TESTS_RUN=$((TESTS_RUN + 1))

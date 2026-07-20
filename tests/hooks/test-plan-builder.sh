@@ -327,6 +327,17 @@ PLAN="$(rhook_plan_file)"
 assert_eq "systemd-resolve: resolved_dns command uses --set-dns grammar" \
 	"$(plan_field resolved_dns 5 "$PLAN")" \
 	"$RACOON_HOOK_SYSTEMD_RESOLVE --interface=racoon0 --set-dns=10.0.12.53 --interface=racoon0 --set-dns=10.0.12.54"
+# --set-dns=""/--set-domain="" are not valid systemd-resolve syntax
+# (confirmed against systemd v237's own resolve-tool.c -- found live,
+# erroring on a real Bionic host); --revert is the correct undo for
+# this tool, confirmed idempotent against resolved's own server-side
+# bus_link_method_revert().
+assert_eq "systemd-resolve: resolved_dns undo uses --revert, not the invalid --set-dns=\"\"" \
+	"$(plan_field resolved_dns 6 "$PLAN")" \
+	"$RACOON_HOOK_SYSTEMD_RESOLVE --interface=racoon0 --revert"
+assert_eq "systemd-resolve: resolved_domains undo uses --revert, not the invalid --set-domain=\"\"" \
+	"$(plan_field resolved_domains 6 "$PLAN")" \
+	"$RACOON_HOOK_SYSTEMD_RESOLVE --interface=racoon0 --revert"
 TESTS_RUN=$((TESTS_RUN + 1))
 reason=$(rhook_precond_default_route)
 case "$reason" in

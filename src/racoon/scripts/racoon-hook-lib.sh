@@ -1679,16 +1679,38 @@ rhook_dns_emit_flush_caches() {
 
 # rhook_dns_emit_clear_dns / rhook_dns_emit_clear_domains <tool> <iface>
 #
-# Explicit per-setting fallback for when revert is unavailable or fails at
-# apply time (§6 point 6). Both tools document a single empty-string
-# argument to dns/domain (or --set-dns=""/--set-domain="") as clearing
-# that value list. NEVER use "~." here: that is the catch-all *routing*
-# domain, meaning "route every query with no better match to this link" --
-# the opposite of clearing it, and it promotes a DNS-less link to the
-# system-wide default resolver. This is a confirmed, previously-live bug
-# in this hook set's own teardown fallback: it produced a total resolution
-# outage on the very path meant to prevent one, reported by users as "the
-# VPN killed my internet".
+# Explicit per-setting undo for set_dns/set_domains (§6 point 6). NEVER use
+# "~." here: that is the catch-all *routing* domain, meaning "route every
+# query with no better match to this link" -- the opposite of clearing it,
+# and it promotes a DNS-less link to the system-wide default resolver.
+# This is a confirmed, previously-live bug in this hook set's own teardown
+# fallback: it produced a total resolution outage on the very path meant
+# to prevent one, reported by users as "the VPN killed my internet".
+#
+# resolvectl's empty-string form (`dns IFACE ""` / `domain IFACE ""`) is
+# genuinely valid -- confirmed against resolvectl.c's verb_dns()/
+# verb_domain()/call_dns(): an argv of a single empty string is special-
+# cased (`strv_equal(dns, STRV_MAKE(""))`) to bypass normal per-value
+# parsing and clear the setting. systemd-resolve's flag-based
+# --set-dns=""/--set-domain="" is NOT the equivalent, despite looking
+# like it should be: confirmed against systemd v237's own
+# resolve-tool.c that --set-dns requires a value that parses as an
+# address (in_addr_from_string_auto()) and --set-domain requires valid
+# domain syntax -- an empty string fails both, and the command errors
+# out rather than clearing anything. Found live on a real Bionic host
+# (systemd-resolve --interface=racoon0 --set-dns="" / --set-domain=""
+# both erroring), not merely inferred from source. --revert is that
+# tool's own documented way to clear all per-link settings; confirmed
+# idempotent by reading resolved's server-side D-Bus method
+# implementation (resolved-link-bus.c's bus_link_method_revert(), called
+# via resolved-bus.c's call_link_method()/get_any_link()): it
+# unconditionally calls link_flush_settings() and returns success
+# regardless of whether anything was actually set on the link, with the
+# only error paths being an unknown ifindex or an explicitly unmanaged
+# link -- neither applies to a dummy interface this hook set is actively
+# tearing down. Calling revert from both this function and
+# rhook_dns_emit_clear_domains() when both steps are in the same plan is
+# therefore redundant but harmless, not a bug to work around.
 rhook_dns_emit_clear_dns() {
 	local rhook_tool rhook_iface
 	rhook_tool="$1"; rhook_iface="$2"
@@ -1697,7 +1719,7 @@ rhook_dns_emit_clear_dns() {
 			printf '%s dns %s ""' "$RACOON_HOOK_RESOLVECTL" "$rhook_iface"
 			;;
 		systemd-resolve)
-			printf '%s --interface=%s --set-dns=""' "$RACOON_HOOK_SYSTEMD_RESOLVE" "$rhook_iface"
+			rhook_dns_emit_revert "$rhook_tool" "$rhook_iface"
 			;;
 		*)
 			return 1
@@ -1713,7 +1735,7 @@ rhook_dns_emit_clear_domains() {
 			printf '%s domain %s ""' "$RACOON_HOOK_RESOLVECTL" "$rhook_iface"
 			;;
 		systemd-resolve)
-			printf '%s --interface=%s --set-domain=""' "$RACOON_HOOK_SYSTEMD_RESOLVE" "$rhook_iface"
+			rhook_dns_emit_revert "$rhook_tool" "$rhook_iface"
 			;;
 		*)
 			return 1
