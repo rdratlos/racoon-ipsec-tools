@@ -225,6 +225,29 @@ PLAN="$(rhook_plan_file)"
 assert_eq "dummy_iface step is still planned (precondition gates it, not the plan)" \
 	"$(plan_field dummy_iface 3 "$PLAN")" "required"
 
+# Found live (Ubuntu Bionic and Arch/Manjaro roadwarriors, both with
+# NetworkManager active): `ip route ... src $RHOOK_INTERNAL_ADDR4` requires
+# that address to already be assigned locally -- confirmed against the
+# kernel directly (RTM_NEWROUTE's own prefsrc validation), not merely
+# assumed. nm_dns (nm_dummy_profile) is the *only* step that assigns it
+# for this backend (dummy_iface/dummy_addr are precondition-skipped), so
+# it must appear in the plan file *before* every route_* step, not after
+# SPD/DNS as originally implemented -- that ordering bug failed outright
+# on both real hosts tested, regardless of DNS tool (systemd-resolve on
+# Bionic, resolvectl on Arch).
+nm_dns_lineno=$(grep -n '^nm_dns	' "$PLAN" | cut -d: -f1)
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ -z "$nm_dns_lineno" ]; then
+	fail "nm_dns step must be present in the plan"
+fi
+for rhook_route_id in 'route_10.0.12.0/24' 'route_192.168.66.0/24'; do
+	rhook_route_lineno=$(grep -n "^${rhook_route_id}	" "$PLAN" | cut -d: -f1)
+	TESTS_RUN=$((TESTS_RUN + 1))
+	if [ -z "$rhook_route_lineno" ] || [ -z "$nm_dns_lineno" ] || [ "$nm_dns_lineno" -ge "$rhook_route_lineno" ]; then
+		fail "nm_dns (line $nm_dns_lineno) must be planned before $rhook_route_id (line $rhook_route_lineno) -- routes need the address nm_dns assigns"
+	fi
+done
+
 nm_cmd=$(plan_field nm_dns 5 "$PLAN")
 assert_contains "nm profile: dns-priority is 50 (small positive), not negative" "$nm_cmd" "ipv4.dns-priority 50"
 assert_not_contains "nm profile: never a negative dns-priority" "$nm_cmd" "dns-priority -"

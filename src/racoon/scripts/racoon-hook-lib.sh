@@ -2283,6 +2283,53 @@ rhook_build_plan() {
 		"$RACOON_HOOK_IP addr replace \"$RHOOK_INTERNAL_ADDR4/32\" dev \"$RHOOK_DUMMY_IFACE\"" \
 		"$RACOON_HOOK_IP addr del \"$RHOOK_INTERNAL_ADDR4/32\" dev \"$RHOOK_DUMMY_IFACE\""
 
+	# Found live (Ubuntu Bionic and Arch/Manjaro roadwarriors, both with
+	# NetworkManager active): `ip route ... src $RHOOK_INTERNAL_ADDR4`
+	# below requires that address to already be assigned to *some* local
+	# interface -- confirmed directly against the kernel (RTM_NEWROUTE's
+	# own prefsrc validation, not an iproute2-side check): `ip route add
+	# ... src X` fails with exactly "Error: Invalid prefsrc address."
+	# (exit 2) whenever X is not currently configured anywhere on the
+	# host, and succeeds the moment it is, regardless of which interface
+	# it's on. For every other backend, dummy_iface/dummy_addr above
+	# already assigned that address before this point. For
+	# networkmanager, they are precondition-skipped (NM creates the
+	# interface itself) and the only step that actually assigns the
+	# address -- nm_dummy_profile, folded into rhook_plan_dns_networkmanager()
+	# -- used to be planned last, inside the DNS section, after routes
+	# and SPD. Routes therefore tried to reference an address nothing
+	# had assigned yet and failed outright on every real NetworkManager
+	# host tested, regardless of which DNS tool it delegates to
+	# (systemd-resolve on Bionic, resolvectl on Arch -- the failure never
+	# reached DNS-tool-specific code at all). Planning it here instead,
+	# right alongside dummy_iface/dummy_addr, fixes that without touching
+	# the resolved/resolvconf/dnsmasq/fallback backends' step order or
+	# DNS-tool selection at all -- see rhook_plan_dns()'s own comment for
+	# why the networkmanager case is a no-op there now.
+	#
+	# Trade-off, not hidden: nm_dummy_profile bundles interface, address
+	# and DNS configuration into one atomic `nmcli connection add`
+	# call -- deliberately, since Brief 1's own history found that
+	# creating the interface separately and configuring it afterward
+	# races NetworkManager's own policy audit ("modify while active").
+	# Moving that whole atomic step earlier necessarily moves its
+	# teardown later too (state file order follows actual apply order,
+	# reversed) -- for this backend only, DNS is no longer the first
+	# thing reverted on disconnect (R4), it is now reverted together
+	# with the interface, last. Splitting it to preserve R4's ordering
+	# exactly is the same "modify while active" race Brief 1 already
+	# found and rejected, so this fix keeps the atomic step and accepts
+	# the teardown-order trade-off rather than reintroducing that race.
+	#
+	# Known gap this does not address: if the gateway sends split-include
+	# routes but no internal DNS servers at all, RHOOK_DNS_SERVERS is
+	# empty and this call is skipped entirely (matching its pre-existing
+	# guard), so no interface gets created here either -- routes would
+	# still fail in that specific case, unchanged from before this fix.
+	if [ "$RHOOK_BACKEND_RESOLVED" = "networkmanager" ] && [ -n "$RHOOK_DNS_SERVERS" ]; then
+		rhook_plan_dns_networkmanager
+	fi
+
 	# R5: routes stay on the physical interface (that's what actually
 	# forwards packets); only src= comes from the dummy-anchored address.
 	# shellcheck disable=SC2153 # RHOOK_IFACE is a caller-supplied global input (see header comment above), not a misspelling of the local rhook_iface used by other functions in this file
@@ -2315,7 +2362,13 @@ rhook_build_plan() {
 
 rhook_plan_dns() {
 	case "$RHOOK_BACKEND_RESOLVED" in
-		networkmanager)   rhook_plan_dns_networkmanager ;;
+		networkmanager)
+			# Already planned earlier in rhook_build_plan(), right after
+			# dummy_iface/dummy_addr and before routes -- see that call
+			# site's own comment for why (routes need the address
+			# nm_dummy_profile assigns, and that step is atomic with
+			# interface creation). Nothing to do here for this backend.
+			;;
 		resolved)         rhook_plan_dns_resolved ;;
 		resolvconf)       rhook_plan_dns_resolvconf ;;
 		dnsmasq)          rhook_plan_dns_dnsmasq ;;
