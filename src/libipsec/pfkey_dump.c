@@ -114,6 +114,12 @@ static void str_lifetime_byte __P((struct sadb_lifetime *, char *));
 static void pfkey_sadump1(struct sadb_msg *, int);
 static void pfkey_spdump1(struct sadb_msg *, int);
 
+/*
+ * When set via pfkey_spdump_filter_socket_policy(), pfkey_spdump1()
+ * suppresses output for per-socket policy entries (setkey -DPN).
+ */
+static int pfkey_spdump_nosock = 0;
+
 struct val2str {
 	int val;
 	const char *str;
@@ -474,6 +480,18 @@ pfkey_spdump_withports(struct sadb_msg *m)
 	pfkey_spdump1(m, 1);
 }
 
+/*
+ * Control whether pfkey_spdump()/pfkey_spdump_withports() skip
+ * per-socket policy entries (the ones shown as "(per-socket policy)").
+ * Pass a non-zero value to suppress them.
+ */
+void
+pfkey_spdump_filter_socket_policy(nosock)
+	int nosock;
+{
+	pfkey_spdump_nosock = nosock;
+}
+
 static void
 pfkey_spdump1(struct sadb_msg *m, int withports)
 {
@@ -513,12 +531,29 @@ pfkey_spdump1(struct sadb_msg *m, int withports)
 #ifdef SADB_X_EXT_SEC_CTX
 	m_sec_ctx = (struct sadb_x_sec_ctx *)mhp[SADB_X_EXT_SEC_CTX];
 #endif
+    {
+	int is_socket_policy = 0;
+
 #ifdef __linux__
-	/* *bsd indicates per-socket policies by omiting src and dst 
+	/* *bsd indicates per-socket policies by omiting src and dst
 	 * extensions. Linux always includes them, but we can catch it
 	 * by checkin for policy id.
 	 */
-	if (m_xpl->sadb_x_policy_id % 8 >= 3) {
+	if (m_xpl != NULL && m_xpl->sadb_x_policy_id % 8 >= 3)
+		is_socket_policy = 1;
+#endif
+	if (!is_socket_policy && !(m_saddr && m_daddr)
+#ifdef SADB_X_EXT_TAG
+	    && m_tag == NULL
+#endif
+	    )
+		is_socket_policy = 1;
+
+	if (pfkey_spdump_nosock && is_socket_policy)
+		return;
+
+#ifdef __linux__
+	if (is_socket_policy) {
 		printf("(per-socket policy) ");
 	} else
 #endif
@@ -580,6 +615,7 @@ pfkey_spdump1(struct sadb_msg *m, int withports)
 #endif
 	else
 		printf("(no selector, probably per-socket policy) ");
+    }
 
 	/* policy */
     {
