@@ -146,6 +146,12 @@ They can be numerous and are rarely of interest when inspecting the
 SPD installed for IPsec tunnels/transport policies, so
 .Fl N
 filters them out of the output.
+If any entries were hidden this way,
+.Nm
+prints a one-line summary
+.Pq e.g. Qq 4 per-socket policies not shown (filtered by -N)
+after the dump so that an SPD consisting entirely of per-socket
+policies is not mistaken for empty output.
 .It Fl r
 Use semantics described in IPsec RFCs.
 This mode is default.

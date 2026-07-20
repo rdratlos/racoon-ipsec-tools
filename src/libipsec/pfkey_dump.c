@@ -117,8 +117,13 @@ static void pfkey_spdump1(struct sadb_msg *, int);
 /*
  * When set via pfkey_spdump_filter_socket_policy(), pfkey_spdump1()
  * suppresses output for per-socket policy entries (setkey -DPN).
+ * pfkey_spdump_nosock_filtered counts how many entries were hidden this
+ * way in the current SPD dump; it is reset whenever a new dump begins
+ * (the entry carrying sadb_msg_seq == 1, the kernel's first reply) and
+ * can be read back via pfkey_spdump_filtered_count().
  */
 static int pfkey_spdump_nosock = 0;
+static unsigned long pfkey_spdump_nosock_filtered = 0;
 
 struct val2str {
 	int val;
@@ -492,6 +497,17 @@ pfkey_spdump_filter_socket_policy(nosock)
 	pfkey_spdump_nosock = nosock;
 }
 
+/*
+ * Number of per-socket policy entries hidden by the filter enabled
+ * through pfkey_spdump_filter_socket_policy() during the SPD dump
+ * currently in progress (or just completed).
+ */
+unsigned long
+pfkey_spdump_filtered_count(void)
+{
+	return pfkey_spdump_nosock_filtered;
+}
+
 static void
 pfkey_spdump1(struct sadb_msg *m, int withports)
 {
@@ -534,6 +550,11 @@ pfkey_spdump1(struct sadb_msg *m, int withports)
     {
 	int is_socket_policy = 0;
 
+	/* sadb_msg_seq == 1 marks the kernel's first reply of a fresh
+	 * SPD dump, so this is where a new per-dump filtered count starts. */
+	if (m->sadb_msg_seq == 1)
+		pfkey_spdump_nosock_filtered = 0;
+
 #ifdef __linux__
 	/* *bsd indicates per-socket policies by omiting src and dst
 	 * extensions. Linux always includes them, but we can catch it
@@ -549,8 +570,10 @@ pfkey_spdump1(struct sadb_msg *m, int withports)
 	    )
 		is_socket_policy = 1;
 
-	if (pfkey_spdump_nosock && is_socket_policy)
+	if (pfkey_spdump_nosock && is_socket_policy) {
+		pfkey_spdump_nosock_filtered++;
 		return;
+	}
 
 #ifdef __linux__
 	if (is_socket_policy) {
