@@ -795,6 +795,13 @@ postproc(struct sadb_msg *msg, int len)
 			pfkey_spdump_withports(msg);
 		else
 			pfkey_spdump(msg);
+		if (f_nosock && msg->sadb_msg_seq == 0) {
+			unsigned long n = pfkey_spdump_filtered_count();
+			if (n > 0)
+				printf("%lu per-socket %s not shown "
+				    "(filtered by -N)\n", n,
+				    n == 1 ? "policy" : "policies");
+		}
 		break;
 #ifdef HAVE_PFKEY_POLICY_PRIORITY
 	case SADB_X_SPDADD:
