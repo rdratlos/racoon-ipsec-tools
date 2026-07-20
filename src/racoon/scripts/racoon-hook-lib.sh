@@ -2417,7 +2417,21 @@ rhook_plan_dns_networkmanager() {
 		esac
 	fi
 
-	rhook_apply="$RACOON_HOOK_NMCLI connection delete racoon-vpn-dns >/dev/null 2>&1; $RACOON_HOOK_IP link del \"$RHOOK_DUMMY_IFACE\" >/dev/null 2>&1; $RACOON_HOOK_NMCLI connection add type dummy ifname \"$RHOOK_DUMMY_IFACE\" con-name racoon-vpn-dns autoconnect no ipv4.method manual ipv4.addresses \"$RHOOK_INTERNAL_ADDR4/32\" ipv4.dns \"$rhook_dns_csv\" ipv4.dns-search \"$rhook_search\" ipv4.dns-priority 50 ipv4.ignore-auto-dns yes ipv4.never-default yes ipv6.method disabled && $RACOON_HOOK_NMCLI connection up racoon-vpn-dns"
+	# ipv6.method: "ignore" not "disabled". Found live on Ubuntu Bionic
+	# (NetworkManager 1.10.6): `nmcli connection add ... ipv6.method
+	# disabled` fails outright -- "Error: failed to modify ipv6.method:
+	# 'disabled' not among [ignore, auto, dhcp, link-local, manual,
+	# shared]". Confirmed against that NM version's own source
+	# (libnm-core/nm-setting-ip6-config.c): NM_SETTING_IP6_CONFIG_METHOD_
+	# DISABLED does not exist there at all -- it was added later. "ignore"
+	# has been present since NM's oldest supported releases and is
+	# documented (current source, nm-setting-ip6-config.c) as meaning
+	# "IPv6 configuration is not done" -- weaker than "disabled" (which
+	# additionally turns IPv6 off at the kernel level), since the dummy
+	# interface may still pick up a kernel-assigned link-local address,
+	# but that's harmless here: this hook never routes IPv6 traffic
+	# through it, only anchors an IPv4 address for DNS/route src=.
+	rhook_apply="$RACOON_HOOK_NMCLI connection delete racoon-vpn-dns >/dev/null 2>&1; $RACOON_HOOK_IP link del \"$RHOOK_DUMMY_IFACE\" >/dev/null 2>&1; $RACOON_HOOK_NMCLI connection add type dummy ifname \"$RHOOK_DUMMY_IFACE\" con-name racoon-vpn-dns autoconnect no ipv4.method manual ipv4.addresses \"$RHOOK_INTERNAL_ADDR4/32\" ipv4.dns \"$rhook_dns_csv\" ipv4.dns-search \"$rhook_search\" ipv4.dns-priority 50 ipv4.ignore-auto-dns yes ipv4.never-default yes ipv6.method ignore && $RACOON_HOOK_NMCLI connection up racoon-vpn-dns"
 	rhook_undo="$RACOON_HOOK_NMCLI connection down racoon-vpn-dns >/dev/null 2>&1; $RACOON_HOOK_NMCLI connection delete racoon-vpn-dns >/dev/null 2>&1"
 
 	rhook_plan_add nm_dns nm_dummy_profile required \

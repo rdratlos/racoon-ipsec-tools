@@ -258,6 +258,16 @@ assert_contains "nm profile: never-default so the physical uplink stays the defa
 	"$nm_cmd" "ipv4.never-default yes"
 assert_contains "nm profile: single connection add call (fully configured before first activation)" \
 	"$nm_cmd" "connection add type dummy"
+# Found live on Ubuntu Bionic (NetworkManager 1.10.6): "ipv6.method
+# disabled" is rejected outright -- that NM version's own
+# NM_SETTING_IP6_CONFIG_METHOD_* enum has no DISABLED member yet, only
+# ignore/auto/dhcp/link-local/manual/shared (confirmed against that
+# version's source). "ignore" is the value present since NM's oldest
+# supported releases and portable across all of them.
+assert_contains "nm profile: ipv6.method is ignore, not disabled (unsupported on NM 1.10.x / Ubuntu Bionic)" \
+	"$nm_cmd" "ipv6.method ignore"
+assert_not_contains "nm profile: never ipv6.method disabled (rejected by NM 1.10.x / Ubuntu Bionic)" \
+	"$nm_cmd" "ipv6.method disabled"
 nm_undo=$(plan_field nm_dns 6 "$PLAN")
 assert_contains "nm profile undo: tears down the profile" "$nm_undo" "connection delete racoon-vpn-dns"
 
