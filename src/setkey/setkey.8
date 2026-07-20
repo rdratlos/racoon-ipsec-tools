@@ -46,7 +46,7 @@
 .Op Fl krv
 .Fl f Ar filename
 .Nm setkey
-.Op Fl aklPrv
+.Op Fl aklNPrv
 .Fl D
 .Nm setkey
 .Op Fl Pvp
@@ -98,6 +98,11 @@ is also specified, the SPD entries are dumped.
 If
 .Fl p
 is specified, the ports are displayed.
+If
+.Fl N
+is specified together with
+.Fl P ,
+per-socket policy entries are omitted from the SPD dump.
 .It Fl F
 Flush the SAD entries.
 If
@@ -126,6 +131,21 @@ Loop forever with short output on
 No action.
 The program will check validity of the input, but no changes to
 the SPD will be made.
+.It Fl N
+Suppress per-socket policy entries when dumping the SPD with
+.Fl D Fl P .
+Per-socket policies are installed by applications through
+.Xr setsockopt 2
+.Pq Dv IP_IPSEC_POLICY
+and are shown by
+.Nm
+as
+.Dq (per-socket policy)
+entries with no address selectors.
+They can be numerous and are rarely of interest when inspecting the
+SPD installed for IPsec tunnels/transport policies, so
+.Fl N
+filters them out of the output.
 .It Fl r
 Use semantics described in IPsec RFCs.
 This mode is default.

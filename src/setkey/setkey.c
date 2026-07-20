@@ -130,6 +130,7 @@ int f_hexdump = 0;
 int f_tflag = 0;
 int f_notreally = 0;
 int f_withports = 0;
+int f_nosock = 0;
 #ifdef HAVE_PFKEY_POLICY_PRIORITY
 int last_msg_type;
 uint32_t last_priority;
@@ -163,7 +164,7 @@ usage(int only_version)
 		printf("usage: setkey [-v" RK_OPTS "] file ...\n");
 		printf("       setkey [-nv" RK_OPTS "] -c\n");
 		printf("       setkey [-nv" RK_OPTS "] -f filename\n");
-		printf("       setkey [-Palpv" RK_OPTS "] -D\n");
+		printf("       setkey [-PalpvN" RK_OPTS "] -D\n");
 		printf("       setkey [-Pv] -F\n");
 		printf("       setkey [-H] -x\n");
 		printf("       setkey [-V] [-h]\n");
@@ -186,7 +187,7 @@ main(argc, argv)
 
 	thiszone = gmt2local(0);
 
-	while ((c = getopt(argc, argv, "acdf:HlnvxDFPphVrk?")) != -1) {
+	while ((c = getopt(argc, argv, "acdf:HlnvxDFPphVrkN?")) != -1) {
 		switch (c) {
 		case 'c':
 			f_mode = MODE_STDIN;
@@ -236,6 +237,9 @@ main(argc, argv)
 		case 'p':
 			f_withports = 1;
 			break;
+		case 'N':
+			f_nosock = 1;
+			break;
 		case 'v':
 			f_verbose = 1;
 			break;
@@ -276,6 +280,9 @@ main(argc, argv)
 		}
 		exit(0);
 	}
+
+	if (f_nosock)
+		pfkey_spdump_filter_socket_policy(1);
 
 	so = pfkey_open();
 	if (so < 0) {
