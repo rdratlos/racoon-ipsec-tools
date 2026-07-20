@@ -129,7 +129,7 @@ rc=$?
 assert_stderr_clean "racoon-dns-detect invocation is stderr-clean" "$out"
 assert_eq "--dry-run exits 0" "$rc" "0"
 assert_contains "dry-run marks itself as simulated" "$out" "Simulated plan (nothing below is executed)"
-assert_contains "dry-run --explain shows the apply command" "$out" "apply: ip link add"
+assert_contains "dry-run --explain shows the apply command" "$out" "apply: rhook_ensure_dummy_iface"
 assert_contains "dry-run notes it used sample values when none were given" "$out" "using RFC 5737 documentation-reserved sample values"
 TESTS_RUN=$((TESTS_RUN + 1))
 if [ -e "$WORK/run" ] && find "$WORK/run" -name 'plan.*' 2>/dev/null | grep -q .; then

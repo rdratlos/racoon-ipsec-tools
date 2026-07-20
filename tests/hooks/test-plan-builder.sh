@@ -95,7 +95,7 @@ PLAN="$(rhook_plan_file)"
 
 assert_eq "dummy_iface: criticality" "$(plan_field dummy_iface 3 "$PLAN")" "required"
 assert_eq "dummy_iface: command" "$(plan_field dummy_iface 5 "$PLAN")" \
-	'ip link add "racoon0" type dummy && ip link set "racoon0" up'
+	'rhook_ensure_dummy_iface "racoon0"'
 assert_eq "dummy_iface: undo (NetworkManager inactive -- plain iproute owner)" "$(plan_field dummy_iface 6 "$PLAN")" \
 	'ip link del "racoon0"'
 assert_eq "RHOOK_DUMMY_OWNER reflects iproute when NetworkManager is inactive" "$RHOOK_DUMMY_OWNER" "iproute"
@@ -121,7 +121,7 @@ assert_eq "dummy_iface: undo (NetworkManager active -- nmcli first, ip link del 
 	'nmcli device delete "racoon0" >/dev/null 2>&1 || ip link del "racoon0"'
 assert_eq "dummy_iface: apply command is unaffected by the owner branch" \
 	"$(plan_field dummy_iface 5 "$PLAN")" \
-	'ip link add "racoon0" type dummy && ip link set "racoon0" up'
+	'rhook_ensure_dummy_iface "racoon0"'
 
 RACOON_HOOK_SYSTEMCTL="$WORK/bin/systemctl-nm-inactive"
 cat > "$RACOON_HOOK_SYSTEMCTL" <<'EOF'

@@ -2120,6 +2120,70 @@ rhook_plan_spd() {
 }
 
 # --------------------------------------------------------------------------
+# Idempotent dummy-interface creation.
+#
+# Found live (Ubuntu Bionic roadwarrior, no reboot between test runs):
+#   [trace]   command: ip link add "racoon0" type dummy && ip link set "racoon0" up
+#   [trace]   output: RTNETLINK answers: File exists
+# An incomplete prior teardown -- F2's SIGTERM/script_exec() race
+# (doc/dev/daemon-issues.md), or simply racoon restarting without a
+# clean phase1-down.sh having run first -- left racoon0 already present.
+# The unconditional `ip link add ... type dummy` this step used to run
+# then failed outright (ip exit 2), a *required* step, halting
+# phase1-up.sh before address, routes, SPD or DNS ever applied --
+# leaving the interface "hanging" from the prior run AND the new
+# connection completely unconfigured.
+#
+# Verified against real iproute2 behavior (this tree's own dev
+# container, iproute2 6.1.0) rather than assumed, and cross-checked
+# against iproute2 4.15.0's own source -- the exact release Ubuntu
+# Bionic ships -- via ipaddr_list_flush_or_save()/match_link_kind() in
+# ipaddress.c, confirming `ip link show dev IFACE type KIND` filtering
+# by the link's info_kind existed there too, not only in a newer
+# version:
+#   - a nonexistent device: `ip link show dev IFACE` (with or without a
+#     type filter) exits 1 with `Device "IFACE" does not exist.`
+#   - an existing device whose type does NOT match the filter: exits 0
+#     with EMPTY output -- the mismatch is silent, not an error, so
+#     exit status alone cannot distinguish "wrong type" from "matches";
+#     the output must be checked for content.
+#   - an existing device whose type DOES match: exits 0 with the normal
+#     link listing (non-empty).
+#
+# Never touches an existing interface this hook set cannot positively
+# identify as its own dummy-type creation -- reusing (never deleting or
+# reconfiguring) a same-named, wrong-type interface would violate R1
+# ("no persistent reconfiguration beyond the VPN session") far more
+# seriously than refusing to start.
+#
+# Known residual scope limit, not fixed here: this assumes a single
+# active session owns $RHOOK_DUMMY_IFACE at a time -- the same
+# assumption the networkmanager backend's nm_dummy_profile step already
+# makes via its own single hardcoded connection name. Two genuinely
+# concurrent generations for the same peer (brief 3 §D's overlap
+# scenario) sharing one physical dummy interface is a separate,
+# pre-existing design question this fix does not attempt to solve.
+# --------------------------------------------------------------------------
+rhook_ensure_dummy_iface() {
+	local rhook_edi_iface
+	rhook_edi_iface="$1"
+
+	if ! "$RACOON_HOOK_IP" link show dev "$rhook_edi_iface" >/dev/null 2>&1; then
+		"$RACOON_HOOK_IP" link add "$rhook_edi_iface" type dummy && "$RACOON_HOOK_IP" link set "$rhook_edi_iface" up
+		return $?
+	fi
+
+	if [ -n "$("$RACOON_HOOK_IP" -o link show dev "$rhook_edi_iface" type dummy 2>/dev/null)" ]; then
+		rhook_log warn "dummy interface $rhook_edi_iface already exists -- reusing it rather than failing (a prior session's teardown likely did not complete; see the Admin Guide's Split-DNS & Routing Hooks section, Leftover State After a Non-Clean Stop)"
+		"$RACOON_HOOK_IP" link set "$rhook_edi_iface" up
+		return $?
+	fi
+
+	echo "an interface named $rhook_edi_iface already exists and is not a dummy-type interface this hook set created -- refusing to touch it (set dummy_iface in hooks.conf to a different name, or resolve the conflict manually)" >&2
+	return 1
+}
+
+# --------------------------------------------------------------------------
 # Plan builder (§3.2). Pure construction -- calls rhook_plan_add only,
 # never anything that touches the system -- so --dry-run costs nothing to
 # support (§3.2: "Building the plan performs no changes").
@@ -2183,12 +2247,12 @@ rhook_build_plan() {
 		# never leaked either way.
 		rhook_plan_add dummy_iface create_dummy required \
 			"create dummy interface $RHOOK_DUMMY_IFACE" \
-			"$RACOON_HOOK_IP link add \"$RHOOK_DUMMY_IFACE\" type dummy && $RACOON_HOOK_IP link set \"$RHOOK_DUMMY_IFACE\" up" \
+			"rhook_ensure_dummy_iface \"$RHOOK_DUMMY_IFACE\"" \
 			"$RACOON_HOOK_NMCLI device delete \"$RHOOK_DUMMY_IFACE\" >/dev/null 2>&1 || $RACOON_HOOK_IP link del \"$RHOOK_DUMMY_IFACE\""
 	else
 		rhook_plan_add dummy_iface create_dummy required \
 			"create dummy interface $RHOOK_DUMMY_IFACE" \
-			"$RACOON_HOOK_IP link add \"$RHOOK_DUMMY_IFACE\" type dummy && $RACOON_HOOK_IP link set \"$RHOOK_DUMMY_IFACE\" up" \
+			"rhook_ensure_dummy_iface \"$RHOOK_DUMMY_IFACE\"" \
 			"$RACOON_HOOK_IP link del \"$RHOOK_DUMMY_IFACE\""
 	fi
 

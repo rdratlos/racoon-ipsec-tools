@@ -423,6 +423,102 @@ else
 	echo "SKIP: neither GNU 'date -d' nor BSD 'date -v' available to backdate a file for the age-cap test"
 fi
 
+# --------------------------------------------------------------------------
+# Test 11: rhook_ensure_dummy_iface() -- found live on an Ubuntu Bionic
+# roadwarrior with no reboot between test runs:
+#   [trace]   command: ip link add "racoon0" type dummy && ip link set "racoon0" up
+#   [trace]   output: RTNETLINK answers: File exists
+# An incomplete prior teardown left racoon0 already present; the old
+# unconditional `ip link add` failed outright (a required step), halting
+# phase1-up.sh before anything else applied. The stub below reproduces
+# real iproute2 behavior verified directly against iproute2 6.1.0 (and
+# cross-checked against 4.15.0's own source, the release Ubuntu Bionic
+# ships): a nonexistent device exits 1 with a "does not exist" message;
+# an existing device that does not match a `type KIND` filter exits 0
+# with EMPTY output (not an error); a matching device exits 0 with
+# non-empty output.
+# --------------------------------------------------------------------------
+cat > "$WORK/ip-stub" <<'STUBEOF'
+#!/bin/sh
+echo "ip $*" >> "$IP_CALL_LOG"
+[ "$1" = "-o" ] && shift
+if [ "$1 $2" = "link show" ]; then
+	shift 2
+	rhook_t_iface=""
+	rhook_t_type=""
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			dev) shift; rhook_t_iface="$1" ;;
+			type) shift; rhook_t_type="$1" ;;
+		esac
+		shift
+	done
+	if [ -z "${IFACE_STATE:-}" ]; then
+		echo "Device \"$rhook_t_iface\" does not exist." >&2
+		exit 1
+	fi
+	if [ -n "$rhook_t_type" ] && [ "$rhook_t_type" != "$IFACE_STATE" ]; then
+		exit 0
+	fi
+	echo "1: $rhook_t_iface: <BROADCAST,NOARP,UP,LOWER_UP> mtu 1500 qdisc noqueue state UNKNOWN"
+	exit 0
+elif [ "$1 $2" = "link add" ]; then
+	exit "${IP_ADD_RC:-0}"
+elif [ "$1 $2" = "link set" ]; then
+	exit "${IP_SET_RC:-0}"
+fi
+exit 0
+STUBEOF
+chmod +x "$WORK/ip-stub"
+RACOON_HOOK_IP="$WORK/ip-stub"
+
+# 11a: interface does not exist at all -- creates it fresh (unchanged
+# behavior from before this fix).
+unset IFACE_STATE
+IP_CALL_LOG="$WORK/ip-calls-11a.log"
+export IP_CALL_LOG
+: > "$IP_CALL_LOG"
+edi_out=$(rhook_ensure_dummy_iface racoon0 2>&1)
+edi_rc=$?
+assert_eq "11a: nonexistent interface -- function succeeds" "$edi_rc" "0"
+assert_file_contains "11a: link add was invoked" "$IP_CALL_LOG" "link add racoon0 type dummy"
+assert_file_contains "11a: link set up was invoked" "$IP_CALL_LOG" "link set racoon0 up"
+
+# 11b: interface already exists and IS dummy-typed -- the live-bug fix:
+# reuse it (bring it up, idempotent) instead of failing on "File exists".
+IFACE_STATE="dummy"
+export IFACE_STATE
+IP_CALL_LOG="$WORK/ip-calls-11b.log"
+: > "$IP_CALL_LOG"
+edi_out=$(rhook_ensure_dummy_iface racoon0 2>&1)
+edi_rc=$?
+assert_eq "11b: existing dummy-typed interface -- function succeeds (reused, not failed)" "$edi_rc" "0"
+assert_file_not_contains "11b: link add is never invoked for a reused interface" "$IP_CALL_LOG" "link add"
+assert_file_contains "11b: link set up still runs (idempotent bring-up)" "$IP_CALL_LOG" "link set racoon0 up"
+TESTS_RUN=$((TESTS_RUN + 1))
+case "$edi_out" in
+	*"already exists"*) ;;
+	*) fail "11b: reuse must be logged, not silent -- got: $edi_out" ;;
+esac
+
+# 11c: interface already exists but is NOT dummy-typed -- refuse outright,
+# never touch an interface this hook set cannot identify as its own.
+IFACE_STATE="veth"
+IP_CALL_LOG="$WORK/ip-calls-11c.log"
+: > "$IP_CALL_LOG"
+edi_out=$(rhook_ensure_dummy_iface racoon0 2>&1)
+edi_rc=$?
+assert_eq "11c: existing non-dummy interface -- function fails" "$edi_rc" "1"
+assert_file_not_contains "11c: link add is never invoked for a foreign interface" "$IP_CALL_LOG" "link add"
+assert_file_not_contains "11c: link set is never invoked for a foreign interface" "$IP_CALL_LOG" "link set"
+TESTS_RUN=$((TESTS_RUN + 1))
+case "$edi_out" in
+	*"not a dummy-type interface"*) ;;
+	*) fail "11c: refusal must explain why -- got: $edi_out" ;;
+esac
+
+unset IFACE_STATE IP_CALL_LOG
+
 echo ""
 echo "$TESTS_RUN checks run, $TESTS_FAILED failed"
 [ "$TESTS_FAILED" -eq 0 ]
