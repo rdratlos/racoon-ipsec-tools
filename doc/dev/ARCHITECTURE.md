@@ -247,10 +247,12 @@ feel earned: **the same code has to run correctly on a five-year-old
 Ubuntu LTS and this week's Arch, and those two systems don't just have
 different tools installed — the tools that share a name accept different
 arguments.** `resolvectl` and `systemd-resolve` are, formally, the same
-tool at two different points in its life (`systemd-resolve` gained
-`--set-dns=`/`--set-domain=`/`--revert` in systemd v236; it was renamed to
-`resolvectl` with a verb-based command grammar in v239, staying available
-under the old name as a compatibility alias). "Same tool" is not "same
+tool at two different points in its life — confirmed against systemd's own
+NEWS file, not inferred: v236's entry reads "The systemd-resolve command
+line tool gained a new set of options --set-dns=, --set-domain=, ...
+and --revert"; v239's reads "The systemd-resolve tool has been renamed to
+resolvectl (it also remains available under the old name, for
+compatibility), and its interface is now verb-based." "Same tool" is not "same
 argument syntax." Section 6 is a live example of exactly this problem, one
 level down, inside `nmcli` instead.
 
@@ -338,7 +340,7 @@ disagrees with what the file-based survey concluded.
 This walks a real bug, found live and already fixed in this project, the
 way a sysadmin would actually hit it — not a constructed example.
 
-### 1. The symptom
+### 6.1 The symptom
 
 VPN connects. The report shows one `FAILED` step, right where DNS gets
 configured, and the tunnel comes up with routes and SPD entries never
@@ -347,7 +349,7 @@ whole connection quietly does nothing useful, on a machine where the exact
 same hooks.conf worked fine on a different, newer Linux box the day
 before.
 
-### 2. Where to look first: the report
+### 6.2 Where to look first: the report
 
 Here's what it actually said, captured live from an Ubuntu Bionic
 32-bit roadwarrior with NetworkManager active:
@@ -386,7 +388,7 @@ It surfaces as a generic `FAILED (exit N)`, same as any other command
 failure. The trace log is what actually tells you it's an `nmcli`
 complaint about `ipv6.method`, not a routing or permissions problem.
 
-### 3. Confirming it by hand
+### 6.3 Confirming it by hand
 
 Using only `nmcli`, which you already know: try the same property value
 directly, with a throwaway connection rather than the hook's real one.
@@ -408,7 +410,7 @@ it doesn't get that far). `nmcli --version` on the affected host showed
 `1.10.6` — a five-year-old NetworkManager, much older than
 whatever generated the working config on the other machine.
 
-### 4. Finding the one function responsible
+### 6.4 Finding the one function responsible
 
 You don't need to be told the function name to find it — that's the
 actual skill. `grep -n 'ipv6.method' src/racoon/scripts/racoon-hook-lib.sh`
@@ -421,7 +423,7 @@ exactly one place, so there is always exactly one function to find. That's
 the method; it works for a different symptom and a different function the
 same way.
 
-### 5. Understanding why it's wrong
+### 6.5 Understanding why it's wrong
 
 In `nmcli`'s own terms, `ipv6.method` is not one setting with two spellings
 for "off" — `ignore` and `disabled` mean different things, and only one of
@@ -439,7 +441,7 @@ yet on this NetworkManager version, and `nmcli` rejected the entire
 `connection add` rather than partially applying it — which is why nothing
 after it in the plan ever ran either.
 
-### 6. Making the fix
+### 6.6 Making the fix
 
 One word, in `rhook_plan_dns_networkmanager()`
 (`src/racoon/scripts/racoon-hook-lib.sh`):
@@ -457,7 +459,7 @@ with a harmless link-local IPv6 address it wouldn't have had under
 routes IPv6 traffic through that interface at all — only an IPv4 address
 for DNS and route `src=`.
 
-### 7. Proving it
+### 6.7 Proving it
 
 **By hand**, the same `nmcli` command with the fixed value:
 
@@ -508,7 +510,7 @@ temporarily revert the fix locally (`git stash push --
 src/racoon/scripts/racoon-hook-lib.sh`) and confirm the suite fails, then
 `git stash pop` to restore it.
 
-### 8. What class of bug this was
+### 6.8 What class of bug this was
 
 Two tools, or two versions of the same tool, share a name or a property
 name but not its accepted values — `resolvectl`/`systemd-resolve` (section
@@ -521,9 +523,10 @@ applied reactively, after a live failure, to one `nmcli` property — and
 it's exactly the kind of gap a capability-matrix-style check doesn't yet
 cover for `nmcli` itself (see section 8 below). Next time the report shows
 a `FAILED` step with an unfamiliar tool complaint in the trace log, this
-is the eight-step method: reproduce by hand, find the one function via
-`grep`, understand the tool's own distinction between the two values,
-fix, prove it both ways.
+is the method walked above (6.1–6.7): state the symptom, read the report,
+confirm it by hand, find the one function via `grep`, understand the
+tool's own distinction between the two values, make the fix, prove it
+both ways — then name the class of bug, same as this step.
 
 ## 7. Map: where things live
 
