@@ -8,6 +8,19 @@
 # handles DESTDIR/staged installs the same way the *_PROGRAMS targets in
 # ../Makefile.am do.
 #
+# racoon-hook-lib.sh is deliberately not in hookscripts_SCRIPTS below,
+# even though it lives in the same directory and ships alongside the
+# three that are: it has no #! interpreter line and is never executed
+# directly (its own header comment: "Nothing in this file executes on
+# its own; it only defines functions and default variables, so
+# `. racoon-hook-lib.sh` is always safe") -- sourcing a file needs it to
+# be readable, not executable. SCRIPTS' automatic 0755 on a file with no
+# shebang is exactly what lintian's executable-not-elf-or-script check
+# flags: a file marked executable that is neither an ELF binary nor a
+# recognizable script. DATA installs it at the same path with the
+# ordinary non-executable mode (0644) INSTALL_DATA uses, which is both
+# correct for a sourced-only file and what silences the warning.
+#
 # All four files are installed into the *same* directory and must stay
 # there: phase1-up.sh, phase1-down.sh and racoon-dns-detect each locate
 # racoon-hook-lib.sh by their own installed location (SCRIPT_DIR, derived
@@ -32,13 +45,15 @@
 hookscriptsdir = $(sysconfdir)/scripts
 
 hookscripts_SCRIPTS = \
-	racoon-hook-lib.sh \
 	phase1-up.sh \
 	phase1-down.sh \
 	racoon-dns-detect
 
-# automake does not distribute *_SCRIPTS files automatically the way it
-# does *_SOURCES -- these are plain, hand-written files (nothing here is
-# generated), so EXTRA_DIST is what makes `make dist`/`make distcheck`
-# actually ship them.
-EXTRA_DIST = $(hookscripts_SCRIPTS)
+hookscripts_DATA = \
+	racoon-hook-lib.sh
+
+# automake does not distribute *_SCRIPTS/*_DATA files automatically the
+# way it does *_SOURCES -- these are plain, hand-written files (nothing
+# here is generated), so EXTRA_DIST is what makes `make dist`/
+# `make distcheck` actually ship them.
+EXTRA_DIST = $(hookscripts_SCRIPTS) $(hookscripts_DATA)
