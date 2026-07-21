@@ -335,6 +335,64 @@ either decision — it never feeds back into backend or tool selection at
 all — it's a standing check reported for human judgement when it
 disagrees with what the file-based survey concluded.
 
+**A live example of the `RC` branch: Arch Linux.** The `RC` decision at
+the top of the diagram only reaches `unmanaged` — the value that lets
+classification fall through past `networkmanager` to `resolved` — when
+NetworkManager's own `rc-manager` setting is `auto` and it has detected
+`systemd-resolved` as the active DNS plugin. Found live, comparing an
+Ubuntu Noble and an Arch roadwarrior with `dns=systemd-resolved`
+configured identically on both and `systemd-resolved` correctly enabled
+and running on both: Noble classified `resolved`, Arch stubbornly kept
+classifying `networkmanager`. `NetworkManager --print-config` on each
+explained it — a `#`-commented value in that output is NetworkManager's
+*effective default*, not something set in any config file:
+
+```
+Ubuntu Noble  (NetworkManager 1.46.0):  # rc-manager=
+Arch Linux    (NetworkManager 1.56.1):  # rc-manager=symlink
+```
+
+Confirmed against NetworkManager's own build options
+(`meson_options.txt`'s `config_dns_rc_manager_default`: allowed values
+`auto`/`symlink`/`file`/`netconfig`/`resolvconf`, upstream default
+`auto`) and its source (`src/core/dns/nm-dns-manager.c`,
+`init_resolv_conf_mode()`): the check that resolves `rc-manager` to
+`unmanaged` when the DNS plugin is `systemd-resolved` only ever runs
+*inside* the branch handling `rc-manager == auto`. Arch's own
+`networkmanager` package is built with that default pinned to `symlink`
+instead of upstream's `auto`, so the branch — and the check inside it —
+is skipped unconditionally, regardless of what DNS plugin is actually
+active or how many times NetworkManager is reloaded. This is a packaging
+choice, not a bug in NetworkManager or in this hook set — but it silently
+caps a stock Arch install on the `networkmanager` backend's flat,
+non-isolated DNS (the "cannot be isolated" warning from section 4), even
+with `systemd-resolved` fully enabled and working.
+
+The fix is on the NetworkManager side, not this project's — pin
+`rc-manager` explicitly rather than relying on the compiled default:
+
+```
+# /etc/NetworkManager/conf.d/dns.conf
+[main]
+dns=systemd-resolved
+rc-manager=unmanaged
+```
+
+then `sudo systemctl restart NetworkManager` so it picks up the new
+file. Confirmed working end to end on a real Arch roadwarrior:
+`RcManager` reports `unmanaged`, `racoon-dns-detect --detect` classifies
+`resolved`, and `resolvectl status` shows the same `~domain`
+routing-only isolation on `racoon0` that Noble gets without any of this.
+
+Treat "Arch defaults to `symlink`" as a snapshot, not a guarantee — it's
+a packaging choice that could change in either direction on any distro.
+The durable, portable check is the method, not the fact:
+`NetworkManager --print-config | grep rc-manager` (or `busctl
+get-property org.freedesktop.NetworkManager
+/org/freedesktop/NetworkManager/DnsManager
+org.freedesktop.NetworkManager.DnsManager RcManager` directly) tells you
+immediately which path your own host is on, whatever distro it is.
+
 ## 6. Worked example: `ipv6.method=disabled` rejected on Ubuntu Bionic
 
 This walks a real bug, found live and already fixed in this project, the
