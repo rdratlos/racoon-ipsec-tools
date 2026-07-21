@@ -38,6 +38,12 @@ This RFC defines the architectural invariants, layered structure, and extension
 points. Repository layout, CLI syntax, and implementation roadmap are in
 Appendix A or deferred to future RFCs.
 
+The same layered architecture also extends to a second, complementary use
+case: exercising the project's road-warrior split-DNS/routing shell hooks
+against real, distribution-packaged DNS and network-management tools rather
+than stubbed commands. §18 covers the motivation, scope, and mechanism for
+that extension.
+
 ## 2. Motivation
 
 Racoon correctness cannot be fully established by unit tests alone. The
@@ -63,6 +69,9 @@ users encounter?"*
   cross-distribution interoperability.
 - Clean, immutable environments per run; reusable topologies; automatic
   artifact collection on failure; CI-portable.
+- Catch real-tool, real-package, and real-version-specific bugs in the
+  road-warrior split-DNS/routing hooks that a stubbed-command unit test
+  suite cannot represent by construction (§18).
 
 ## 5. Non-goals
 
@@ -294,6 +303,213 @@ after acceptance. This RFC does not introduce new lifecycle vocabulary.
 - [ ] A failed run produces full diagnostics without per-scenario instrumentation.
 - [ ] Every run starts from a freshly provisioned lab.
 - [ ] Adding a new topology does not require framework code changes.
+- [ ] The DNS-management backends identified in §18.6 as never yet tested
+      against real tools run against real tools in at least one target
+      environment.
+
+## 18. Real-Binary Coverage: the Split-DNS/Routing Hook Scripts
+
+The project's road-warrior support includes a set of shell hooks racoon
+invokes around Phase 1 up/down. These hooks detect which DNS-management
+subsystem is active on the host (a network manager, a system DNS resolution
+service, classic resolvconf-style tooling, or none of the above) and build a
+plan of commands against real system tools — interface/route management,
+the detected DNS tool's own command-line interface, and `setkey` — to
+configure split-DNS and routing for the tunnel's duration, then reverse it
+on disconnect.
+
+This section is additive to the framework already defined in §1–§17: hook
+coverage is a specific application of the same layered architecture (§9),
+not a second framework. It does not change any architectural invariant in
+§6.
+
+### 18.1 Motivating Evidence
+
+Live manual testing of these hooks across three distributions (a legacy-LTS
+release, a current-LTS release, and a rolling-release distribution) found
+real, distro- and version-specific bugs that a fixture-driven unit test
+suite using stubbed commands cannot catch by construction, because each bug
+lives in a *real* tool's actual behavior, not in the hook's own decision
+logic:
+
+- A dummy network interface creation step that was not idempotent,
+  surfacing only after a non-clean daemon stop left real kernel state
+  behind — a stub that always succeeds cannot model an interface that
+  already exists.
+- A route-installation ordering bug that surfaced only against the real
+  kernel's own source-address validation, rejecting a route whose source
+  address was not yet assigned to any interface — invisible to a stub that
+  accepts any arguments.
+- A network manager's real command-line tool rejecting a specific property
+  value that an older shipped version of that same tool did not yet
+  support — a version-skew bug in the tool's own argument validation, not
+  in the hook.
+- A system DNS resolution service being installed but not enabled, silently
+  changing which detection branch was correct — a service-state
+  interaction no stub models unless specifically told to.
+- A distribution's build of a network manager shipping a different
+  compiled-in default for how it manages system DNS configuration than
+  upstream's own default — changing which detection branch was correct for
+  reasons entirely outside the hook's own code, discoverable only by
+  querying the real installed binary's real reported state.
+
+Every one of these took a multi-day manual round on real hardware or a real
+VM to find. This class of bug recurs with every new distribution release
+and every DNS-manager version; the project's existing stubbed-command hook
+test suite cannot catch any of it by design (§18.2). The remainder of this
+section is the answer to "how do we catch the next one before a manual
+testing round has to."
+
+### 18.2 Scope Boundary With the Stubbed Hook Unit Test Suite
+
+The hook scripts already have, or are gaining, a fixture-driven unit test
+suite that stubs every external command and asserts on the exact plan and
+command strings the hooks construct. That suite is good at what it does —
+decision logic, exact command construction, input-validation and injection
+regressions — and none of it should move into this framework. Containerizing
+a test that only needs to check "did the hook choose the right branch given
+this input" would be strictly slower for no additional confidence.
+
+This framework's hook coverage exists specifically for the complementary
+class of bug in §18.1: real binary behavior, real kernel behavior, and real
+package/version differences that no stub can represent regardless of how
+carefully it is written. A future contributor should not attempt to migrate
+the stubbed suite into containers wholesale; the two suites test different
+things and both remain necessary. Every real-binary finding this harness
+produces should also gain a corresponding regression case in the stubbed
+suite once the underlying decision logic is understood (§18.5).
+
+### 18.3 Target Environments
+
+Driven by the bug history in §18.1, not a generic "test on many
+distributions" goal:
+
+| Target | Why | Priority |
+| --- | --- | --- |
+| A legacy-grammar environment (oldest supported DNS-tool command syntax the project still targets) | Source of the idempotency and version-skew findings | Must-have |
+| A current-LTS environment with a network manager installed | Modern tool grammar; source of the route-ordering finding | Must-have |
+| An environment built from the actual upstream distribution package of the network manager in use, not a generic recent build of it | The compiled-in-default finding was specific to how one distribution's package was built, not to network-manager version generally — a generic image would not reproduce it | Must-have |
+| Environments covering the DNS-management subsystems never yet exercised against real tools: classic resolvconf/openresolv-style tooling, a network manager's own DNS-caching-daemon plugin mode, and the opt-in direct-resolv.conf-overwrite fallback path | Identified gap, not yet live-tested at all; proposed as the first milestone (§18.6) | Must-have |
+| A BSD-family environment already in the project's unit-test CI matrix | Already a source of at least one portability finding at the unit-test level | Open (§19) |
+
+### 18.4 Mechanism
+
+Building on §9's layered architecture and §12's container/VM selection,
+applied to this specific scope:
+
+**Capability requirements.** `CAP_NET_ADMIN` at minimum, for interface,
+route, and security-policy manipulation from inside the instance — the same
+requirement §13 already documents for the framework generally. No
+additional capability beyond what §13 assumes has been identified for this
+scope.
+
+**A real service manager and network manager inside the instance, not a
+faked one.** The hooks' own detection logic queries live service state and,
+on some paths, properties a running network manager exposes over D-Bus —
+not just static configuration files. A container that fakes just enough of
+that surface to satisfy the hooks' detection risks recreating the exact gap
+this section exists to close: the compiled-in-default finding in §18.1 was
+only discoverable by querying a *real* running network manager's *real*
+reported state, not a static config file. This framework already runs Incus
+system containers with full systemd support (§12) for other scenarios; the
+same choice is recommended here, specifically because it is what would have
+caught the motivating finding.
+
+**Instance isolation per run.** §6's "every run is immutable" invariant
+already covers this generally; it is called out here because it maps
+directly onto live-testing findings — a stale route or security policy left
+behind by an unclean daemon stop, and the route/interface ordering bug
+above, are exactly the kind of leftover host state that contaminates a
+later run if instances are reused rather than provisioned fresh. No
+hook-specific exception to the immutability invariant is proposed.
+
+**Driving the hooks: real daemon-to-daemon negotiation vs. direct
+invocation.** Two ways to exercise the hooks under test:
+
+1. A real second daemon instance acting as the gateway, so the hooks are
+   invoked exactly as production would invoke them — the most faithful
+   option, and the only one that exercises the daemon-to-hook handoff
+   itself (timing, the exact environment the daemon exports, and
+   daemon-side failure modes around that handoff).
+2. Invoking the hook scripts directly with a crafted environment-variable
+   set standing in for what the daemon would export — lighter and faster,
+   but does not exercise the handoff itself.
+
+Recommendation: option 1 for any scenario whose purpose includes verifying
+the handoff itself; option 2 remains useful as a fast, targeted way to drive
+many DNS-backend permutations without paying negotiation cost on every one,
+and is not excluded. This is stated as a recommendation, not a settled
+decision — see §19.
+
+### 18.5 CI Integration
+
+- A separate job/matrix entry from the existing fixture-driven suite, not a
+  step folded into it — consistent with §9's "CI is a caller" invariant and
+  the heavier privilege/resource requirements in §18.4 and §13.
+- Recommended cadence: not on every pull request. The target environments
+  in §18.3 change on a distribution-release and network-manager-release
+  cadence measured in weeks to months, not on every commit; running full
+  container provisioning on every PR would put the framework's heaviest
+  tooling behind its highest-frequency trigger for no matching benefit. A
+  nightly or pre-release cadence is recommended, with a manual trigger
+  available for a contributor actively working in this area.
+- **Triage guidance.** A failure here most often means one of two different
+  things, and a future maintainer should be able to tell them apart
+  quickly: (a) the hook's own logic is wrong, in which case the stubbed
+  suite should also gain a regression case once fixed (§18.2); or (b) a
+  real tool's behavior changed out from under the hooks (a new distribution
+  release, a new network-manager version), in which case the fix is a
+  version-matrix or detection-logic update, not necessarily evidence the
+  code was wrong when written. Failure output should record the exact tool
+  version(s) involved so this distinction does not have to be re-derived by
+  hand each time.
+
+### 18.6 First Milestone: the Never-Tested Backends
+
+The DNS-management subsystems named in §18.3 as never yet exercised against
+real tools — classic resolvconf/openresolv-style tooling, a network
+manager's own DNS-caching-daemon plugin mode, and the opt-in
+direct-resolv.conf-overwrite fallback path — are proposed as this
+framework's first concrete piece of hook coverage, ahead of broader
+target-environment expansion. This is a clearly bounded, already-identified
+gap rather than an open-ended "improve coverage" goal, and closing it does
+not depend on resolving the open mechanism question in §18.4/§19.
+
+### 18.7 Non-goals (Hook Coverage)
+
+In addition to §5's existing non-goals, specific to this scope:
+
+- Not a replacement for manual road-warrior testing against a real,
+  unpredictable network path — carrier NAT behavior, address churn, and
+  NAT-T float are not reproducible in a container topology and remain a
+  manual/future-integration-test concern, consistent with §5's existing
+  scope limits.
+- Not a performance or load-testing framework (already excluded by §5;
+  restated here because it would be an easy scope-creep target once real
+  containers exist for this purpose too).
+- Does not cover the daemon's own C code paths — that is §9–§12's existing
+  scope for daemon/kernel testing. This section is additive to the
+  framework's coverage, not a redefinition of what it already tests
+  elsewhere.
+
+## 19. Open Questions
+
+- **Real daemon-to-daemon negotiation vs. direct hook invocation (§18.4).**
+  A live investigation into an unrelated question — how a specific
+  kernel-triggered renegotiation event is provisioned after a clean
+  disconnect — is in progress at the time of writing, using a real daemon
+  instance driven through exactly this kind of scripted, containerized
+  connect/disconnect cycle. Its outcome may materially inform which of the
+  two mechanisms in §18.4 is the better default, since it will produce
+  direct evidence about what a real-daemon-driven run actually observes
+  versus what a direct-invocation run would have to fake instead. This
+  section should be revisited once that investigation concludes, rather
+  than settling the mechanism from first principles alone.
+- Whether the BSD-family target in §18.3 is in scope for this specific
+  harness, given the heavier cost of VM-based coverage relative to
+  container-based coverage for the other targets (§12 already treats VM use
+  as an exception, not a default) — left open pending a cost/benefit pass
+  once the must-have targets in §18.3 are running.
 
 ## Appendix A: Implementation Guidance
 
