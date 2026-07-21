@@ -598,7 +598,7 @@ not more:
     `resolvectl`/`systemd-resolve status` output with its leading `~` or
     without (mitigated: checked with the `~` stripped either way).
 
-  See `doc/admin/split-dns-implementation-report.md` for the full detail
+  See `doc/admin/1d1-split-dns-implementation-report.md` for the full detail
   on each and what would settle it.
 - **No effectiveness postcondition exists yet for the `networkmanager`
   backend's own DNS profile step** — unlike the `resolved` backend, which
