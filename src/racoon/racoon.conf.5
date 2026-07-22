@@ -320,6 +320,20 @@ They must be quoted.
 The defaults are
 .Pa /var/racoon/racoon.sock ,
 UID 0, and GID 0.
+For safety, the file name component of
+.Ar path
+must be
+.Pa racoon.sock
+or end with
+.Pa .sock
+or
+.Pa .socket ,
+and must not contain any
+.Pa ..
+path components; racoon refuses to start otherwise.
+This keeps a mistaken or templated configuration from pointing the
+admin socket at an unrelated system file, which racoon would
+otherwise remove and replace while running as root.
 .Ar mode
 is the access mode in octal.
 The default is 0600.

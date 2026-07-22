@@ -2821,6 +2821,13 @@ adminsock_conf(path, owner, group, mode_dec)
 
 	adminsock_path = path->v;
 
+	if (admin_check_sockpath(adminsock_path) != 0) {
+		yyerror("admin socket path \"%s\" is not allowed: the file "
+			"name must be \"racoon.sock\" or end with \".sock\""
+			"/\".socket\", and must not contain \"..\" "
+			"components", adminsock_path);
+	}
+
 	if (owner == NULL)
 		return;
 

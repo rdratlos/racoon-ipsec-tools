@@ -133,6 +133,51 @@ mkdir_p(path, mode)
 	return 0;
 }
 
+/*
+ * racoon.conf lets an admin point the admin socket at an arbitrary
+ * path via "listen { adminsock <path> ... ; }". Since admin_init()
+ * runs as root (before privilege separation drops), a careless or
+ * templated config pointing that path at an existing system file
+ * would cause it to be unlink()'d and replaced by a socket, and its
+ * parent directories to be created outright. Restrict the accepted
+ * file name to the conventional "racoon.sock" or a "*.sock"/"*.socket"
+ * suffix, and reject any ".." path traversal component, so racoon
+ * only ever touches paths that look like dedicated socket locations.
+ */
+int
+admin_check_sockpath(path)
+	const char *path;
+{
+	const char *base;
+	size_t plen, blen;
+
+	if (path == NULL || *path == '\0')
+		return -1;
+
+	plen = strlen(path);
+	if (strstr(path, "/../") != NULL ||
+	    strncmp(path, "../", 3) == 0 ||
+	    strcmp(path, "..") == 0 ||
+	    (plen >= 3 && strcmp(path + plen - 3, "/..") == 0))
+		return -1;
+
+	base = strrchr(path, '/');
+	base = (base != NULL) ? base + 1 : path;
+	if (*base == '\0')
+		return -1;
+
+	if (strcmp(base, "racoon.sock") == 0)
+		return 0;
+
+	blen = strlen(base);
+	if (blen > 5 && strcmp(base + blen - 5, ".sock") == 0)
+		return 0;
+	if (blen > 7 && strcmp(base + blen - 7, ".socket") == 0)
+		return 0;
+
+	return -1;
+}
+
 static int
 admin_handler(ctx, fd)
 	void *ctx;
@@ -751,6 +796,15 @@ admin_init()
 	snprintf(sunaddr.sun_path, sizeof(sunaddr.sun_path),
 		"%s", adminsock_path);
 
+	if (admin_check_sockpath(sunaddr.sun_path) != 0) {
+		plog(LLV_ERROR, LOCATION, NULL,
+			"refusing admin socket path \"%s\": the file name "
+			"must be \"racoon.sock\" or end with \".sock\"/"
+			"\".socket\", and must not contain \"..\" "
+			"components\n", sunaddr.sun_path);
+		return -1;
+	}
+
 	/*
 	 * The runtime directory (e.g. /var/run/racoon) may not exist yet:
 	 * systemd's RuntimeDirectory= only creates it while the unit is
@@ -784,7 +838,34 @@ admin_init()
 	}
 	close_on_exec(lcconf->sock_admin);
 
-	unlink(sunaddr.sun_path);
+	/*
+	 * Only remove a pre-existing path if it is already a socket.
+	 * This keeps a misconfigured/traversal-crafted path (or a
+	 * symlink swapped in between checks) from causing racoon to
+	 * unlink and overwrite an unrelated file.
+	 */
+	{
+		struct stat st;
+
+		if (lstat(sunaddr.sun_path, &st) == 0) {
+			if (!S_ISSOCK(st.st_mode)) {
+				plog(LLV_ERROR, LOCATION, NULL,
+					"refusing to bind admin socket: "
+					"%s already exists and is not a "
+					"socket\n", sunaddr.sun_path);
+				(void)close(lcconf->sock_admin);
+				return -1;
+			}
+			unlink(sunaddr.sun_path);
+		} else if (errno != ENOENT) {
+			plog(LLV_ERROR, LOCATION, NULL,
+				"lstat(%s): %s\n",
+				sunaddr.sun_path, strerror(errno));
+			(void)close(lcconf->sock_admin);
+			return -1;
+		}
+	}
+
 	if (bind(lcconf->sock_admin, (struct sockaddr *)&sunaddr,
 			sizeof(sunaddr)) != 0) {
 		plog(LLV_ERROR, LOCATION, NULL,
