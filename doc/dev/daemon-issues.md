@@ -1,12 +1,14 @@
 # racoon daemon-side issues found during split-DNS hook testing
 
-Filed per brief 3 §G. These are **not fixed here** — this work package is
-explicitly scoped to *filing* what live testing on a Xubuntu Bionic 32-bit
-roadwarrior (racoon 0.9.1, OpenSSL 1.1.1, systemd 237) surfaced in
-`src/racoon`'s own C code, each traced to a concrete source location and
-given a reproducer, so a future change to the daemon itself can be scoped
-correctly. No file under `src/racoon/` is touched by this document or by
-the commit that adds it.
+Filed per brief 3 §G (Issues 1-3) and the Task F ACQUIRE-provenance
+investigation (Issue 4, `doc/dev/teardown-investigation.md`). These are
+**not fixed here** — this work package is explicitly scoped to *filing*
+what live testing on a Xubuntu Bionic 32-bit roadwarrior (racoon 0.9.1,
+OpenSSL 1.1.1, systemd 237) and, for Issue 4, a wider set of live hosts
+(Bionic, Noble, Arch) surfaced in `src/racoon`'s own C code, each traced
+to a concrete source location and given a reproducer, so a future change
+to the daemon itself can be scoped correctly. No file under `src/racoon/`
+is touched by this document or by the commit that adds it.
 
 Each issue below cites the exact function/line the finding traces to in
 *this* tree (not upstream ipsec-tools, which may already read differently),
@@ -267,3 +269,84 @@ rejected candidate pair at `LLV_WARNING`) is a behavior change to
 so an operator (or a future reader of racoon's logs while debugging Issue
 1/Issue 2 above) does not mistake this expected search noise for an actual
 negotiation fault.
+
+---
+
+## Issue 4: `racoonctl vpn-disconnect` (and any admin-socket event wait) can exit non-zero with zero output
+
+**Severity:** low — does not affect the underlying teardown, which
+proceeds and succeeds independently; purely a diagnostic/scripting
+concern. Filed because it produced a misleading "did not return cleanly"
+signal in **every one of 8 live Task F test runs** (`doc/dev/
+teardown-investigation.md`) across three distros, well under the
+configured timeout each time — a 100% reproduction rate makes this worth
+documenting precisely rather than shrugging off as a one-off race.
+
+**Root cause.** `f_vpnd()` (`src/racoon/racoonctl.c:708-733`) sets
+`evt_quit_event = EVT_PHASE1_DOWN` and delegates to
+`f_deleteallsadst()`; the shared `f_vc()` request loop
+(`src/racoon/racoonctl.c:296-327`) then blocks in `com_recv()`
+(`src/racoon/kmpstat.c:136-189`) waiting for that event to arrive over the
+admin `AF_UNIX` socket. `com_recv()` has two distinct failure paths that
+both `goto bad1` with **no `perror()` or any other diagnostic call**:
+
+```c
+/* receive by PEEK */
+if ((len = recv(so, &h, sizeof(h), MSG_PEEK)) == -1)
+	goto bad1;
+
+/* sanity check */
+if (len < sizeof(h))
+	goto bad1;
+```
+
+(`src/racoon/kmpstat.c:149-154`). If the admin socket EOFs or resets
+before the expected event arrives on that specific connection — for
+whatever reason on racoon's side, not otherwise diagnosed here — either
+branch fires silently, `com_recv()` returns `-1`, and `f_vc()`'s caller
+falls through to:
+
+```c
+bad:
+	close(so);
+	if (errno == EEXIST)
+		exit(0);
+	exit(1);
+```
+
+(`racoonctl.c:322-326`). `errno` at this point is whatever a clean EOF
+happened to leave behind, essentially never `EEXIST`, so this is a
+silent `exit(1)`: no stdout, no stderr, non-zero exit, and — critically —
+this happens fast (well under any reasonable timeout), not after a hang.
+Meanwhile racoon's own teardown (`isakmp_ph1delete()`, `delph1()`, the
+`SCRIPT_PHASE1_DOWN` hook) proceeds via its own internal path, independent
+of whether `racoonctl`'s specific connection saw the event, and reliably
+completes a moment later — confirmed in all 8 Task F runs, where
+`phase1-down.sh`'s own completion summary always appeared in syslog
+shortly after `vpn-disconnect` had already exited non-zero.
+
+**Reproducer:**
+
+```sh
+# Bring a tunnel up, then disconnect while capturing both the exit code
+# and all output -- expect an empty capture with a non-zero exit on a
+# meaningful fraction of runs, well under any timeout:
+racoonctl vpn-connect <gateway>
+racoonctl vpn-disconnect <gateway>; echo "exit=$?"
+# Compare against syslog: phase1-down.sh's own "result: OK|PARTIAL"
+# summary (tag racoon-phase1-down) still appears a moment later,
+# independent of the exit code above.
+journalctl -t racoon-phase1-down --no-pager | tail -5
+```
+
+**Why not fixed here.** A real fix (adding `perror()`/an explicit error
+message on both `goto bad1` paths in `com_recv()`, or having `f_vc()`
+distinguish "clean EOF after the request was accepted" from "not
+delivered at all" before deciding its own exit code) is a behavior change
+to `src/racoon/kmpstat.c` and/or `racoonctl.c`, out of scope for this
+filing-only pass. Workaround already in place in
+`task-f-acquire-investigation.sh`: it never treats `vpn-disconnect`'s own
+exit code as authoritative, and instead waits for `phase1-down.sh`'s own
+always-emitted syslog summary before drawing any conclusion — any script
+or operator relying on `racoonctl vpn-disconnect`'s exit code alone should
+do the same.

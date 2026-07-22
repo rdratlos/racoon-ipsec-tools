@@ -1,8 +1,9 @@
 # Teardown / reconnect-loop investigation (brief 3 §F)
 
-Tracks the live Bionic finding chain (F1 → F3 → F4) and what §F itself
-still needs a live host to settle. Companion to `doc/dev/daemon-issues.md`
-(F2, F5, F8 — daemon-side issues filed, not fixed) and
+Tracks the live Bionic finding chain (F1 → F3 → F4) and §F's own
+ACQUIRE-provenance question, now resolved against live evidence (see
+below). Companion to `doc/dev/daemon-issues.md` (F2, F5, F8, and now a
+Task-F-sourced Issue 4 — daemon-side issues filed, not fixed) and
 `doc/admin/split-dns.html` (the shipped behavior after A–E landed).
 
 ## What the live test actually showed (F1)
@@ -71,60 +72,154 @@ entries its own routes need, which is what actually prevents an
 rather than only preventing one specific way of accidentally routing
 traffic to an unscoped resolver.
 
-## What §F itself still needs (blocked — no live host in this session)
+## §F resolved: ACQUIRE-provenance investigation
 
-The brief's own §F asks for `setkey -DP` captures **before and after**
-a connect/disconnect cycle on the Bionic host, specifically to confirm:
+**Verdict: Branch B.** No external mechanism reinstalls or leaves behind
+an SPD policy after a clean teardown. On-demand reconnection after
+`phase1-down.sh` completes is simply not implemented (no arm/disarm
+step exists in the current design) — that is the entire explanation for
+what F1 originally observed. Branch A (some other path — NetworkManager,
+a stray `ipsec-tools` init script, `racoon.conf`'s own `generate_policy`,
+or a leftover static policy — independently installing a policy that
+outlives teardown) is ruled out.
 
-1. That no SPD entry exists for the peer's subnet *before* `rhook_plan_spd()`
-   ever runs (confirming the source-level claim in §E — that racoon
-   installs no initiator-side policy of its own — actually holds at
-   runtime on this exact racoon build/config, not just in the general
-   case proven from source).
-2. That the entries `rhook_plan_spd()` installs are the *only* new
-   entries appearing in `setkey -DP` output after `phase1-up.sh` runs
-   (ruling out some other path — NetworkManager, a stray `ipsec-tools`
-   init script, a leftover static policy from a previous manual test —
-   also contributing a policy that could independently trigger or mask
-   an `ACQUIRE`).
-3. That `setkey -DP` is empty for this peer again after `phase1-down.sh`
-   completes a clean teardown, confirming the SPD-ownership teardown
-   (exact `spddelete` reconstruction, §E) actually removes what it
-   installed and nothing more.
-4. Whether the specific `ACQUIRE` observed in the original F1 run (if a
-   copy of that host's `/var/log` or `dmesg` capture is still available)
-   correlates by selector with the unscoped-DNS-server traffic pattern
-   F4 describes, or points at some other source entirely — the F3/F4
-   causal chain above is the most parsimonious explanation consistent
-   with the evidence recorded in brief 3, but was not itself confirmed
-   with a kernel-level capture at the time.
+### Method
 
-None of this can be done from source reading or the fixture-driven test
-suite alone — it requires a real kernel SPD table and a real `ACQUIRE`
-event on the exact host/kernel/racoon build combination the original
-finding came from. Once a Bionic (or equivalent) host is available again:
+A dedicated investigation script
+(`task-f-acquire-investigation.sh`, evolved through three revisions
+against real evidence, see below) was run against live IPsec-capable
+hosts — this repo's own sandbox has `CONFIG_NET_KEY`/`CONFIG_INET_ESP`
+both unset and cannot run PF_KEY at all, so this genuinely required an
+external host. Each run: capability preflight; a hard-stop guard against
+a pre-existing racoon instance; baseline `setkey -DPN` (kernel-native
+per-socket-policy filtering, not a custom `awk` postprocess — see the
+script's own comments for why); connect, waiting for `phase1-up.sh`'s own
+completion summary in syslog rather than trusting `racoonctl vpn-connect`
+returning (`script_hook()` forks and returns immediately without waiting
+for the child — confirmed against `isakmp_cfg.c`, `isakmp.c`, and
+`privsep.c` — so "vpn-connect returned" and "the hook actually finished"
+are two different moments); a connected-state SPD/hook-state snapshot;
+disconnect, with the same wait discipline for `phase1-down.sh`
+(`isakmp_ph1delete()`: `evt_phase1(EVT_PHASE1_DOWN)` — what
+`vpn-disconnect` blocks on — fires *before* `delph1()` calls
+`script_hook(SCRIPT_PHASE1_DOWN)`); a filtered SPD snapshot immediately
+after that confirmed completion (**the fork in the road** — Branch A if
+non-per-socket policy remains, Branch B if empty); and, in the Branch B
+case, a scripted `ping` to an internal host behind the tunnel specifically
+to provoke an `ACQUIRE`, with an 8s syslog watch afterward.
 
-```sh
-# Before phase1-up.sh
-setkey -DP > /tmp/spd-before.txt
+### Results: 8 live runs, Branch B in every one
 
-# Run a connect/disconnect cycle, e.g. via racoonctl or letting racoon
-# negotiate normally
-...
+| Host | Backend | Branch | ACQUIRE after provocation ping |
+| :--- | :--- | :--- | :--- |
+| Bionic i386 | NetworkManager, `rc-manager=unmanaged` | B | no |
+| Bionic i386 | no NetworkManager, pure `systemd-networkd` | B | no |
+| Noble | NetworkManager, `rc-manager=unmanaged` | B | no |
+| Noble | no NetworkManager, pure `systemd-networkd` | B | no |
+| Noble | NetworkManager, `rc-manager=auto` | B | no |
+| Arch | NetworkManager, `rc-manager=unmanaged` | B | no |
+| Arch | NetworkManager, `rc-manager=unmanaged` (rerun) | B | no |
+| Arch | NetworkManager, `rc-manager=auto` | B | no |
 
-# Immediately after phase1-up.sh's report shows the spd_entry steps ok
-setkey -DP > /tmp/spd-during.txt
-diff /tmp/spd-before.txt /tmp/spd-during.txt
+Every run: `phase1-up.sh`/`phase1-down.sh` completion independently
+confirmed via syslog (not inferred from `racoonctl`'s return), filtered
+SPD (`setkey -DPN`, per-socket noise excluded at the kernel level) empty
+after teardown, and no `ACQUIRE`-related log line in the post-ping window.
+Three different distros, two different DNS/network-management backends,
+one host retested from a fresh reboot — the result did not vary once.
 
-# Immediately after phase1-down.sh's report shows result: OK
-setkey -DP > /tmp/spd-after.txt
-diff /tmp/spd-before.txt /tmp/spd-after.txt   # expect empty diff
+**On the `rc-manager=auto` runs specifically**: both show
+`rc-manager=unmanaged` in the live `busctl get-property ... RcManager`
+ground-truth capture despite `auto` being correctly configured on disk
+and the host freshly rebooted before the test — this is not a
+misconfiguration. Confirmed against NetworkManager's own
+`src/core/dns/nm-dns-manager.c` (`init_resolv_conf_mode()`):
 
-# If dmesg/journalctl still has the original ACQUIRE from the F1 run:
-dmesg | grep -i acquire
-journalctl -k --since "<time of the original F1 test>" | grep -i acquire
+```c
+if (rc_manager == NM_DNS_MANAGER_RESOLV_CONF_MAN_AUTO) {
+	rc_manager_was_auto = TRUE;
+	if (nm_streq(mode, "systemd-resolved") || nm_streq(mode, "dnsconfd"))
+		rc_manager = NM_DNS_MANAGER_RESOLV_CONF_MAN_UNMANAGED;
+	else if (HAS_RESOLVCONF && g_file_test(RESOLVCONF_PATH, G_FILE_TEST_IS_EXECUTABLE))
+		rc_manager = NM_DNS_MANAGER_RESOLV_CONF_MAN_RESOLVCONF;
+	...
+}
 ```
 
-This document should be updated with the actual capture output the next
-time a live host is available, and §F in the tracking task list closed
-out at that point — it stays open (blocked) until then.
+Both hosts run with DNS mode `systemd-resolved` (confirmed in the same
+snapshot), so `auto` deterministically collapses to `unmanaged` at
+NetworkManager's own runtime resolution — on any modern systemd-resolved
+based desktop, `rc-manager=auto` and `rc-manager=unmanaged` are the same
+thing in practice. The two `auto` runs are legitimate, correctly-configured
+confirmations that happen to be behaviorally identical to the
+`rc-manager=unmanaged` runs, not duplicates by mistake.
+
+### Why the very first two archives showed a real ACQUIRE, and this isn't a contradiction
+
+The investigation script's first version, run against Bionic before any
+of the fixes below, *did* show a genuine, reproducible, gateway-directed
+`ACQUIRE` roughly 15 seconds after a scripted disconnect — the opposite
+of the verdict above. Close reading of those two archives (not guessing)
+found two contamination sources in the script itself, both since fixed:
+
+1. **No guard against a pre-existing racoon.** Both archives showed two
+   concurrent racoon processes — the system's own already-running
+   `racoon.service` plus the script's freshly-started instance — both
+   registered as PF_KEY listeners simultaneously, making SPD/SA
+   attribution ambiguous by construction.
+2. **A disconnect-side completion check that could never pass.** The
+   original wait grepped syslog for the hook's `"racoon phase1-down
+   report --"` header text. That header is only emitted at hook debug
+   level ≥ 1 (`racoon-hook-lib.sh`); the default is 0 ("syslog only: the
+   final one-line summary"). Under default settings the check was
+   structurally a no-op — the script proceeded to snapshot the SPD without
+   ever actually confirming the hook had finished.
+
+Once both were fixed (a hard-stop guard, and waiting on the hook's
+*always-emitted* one-line `result: OK|PARTIAL` summary instead), the
+`ACQUIRE` stopped appearing — in all 8 subsequent runs, with no
+exceptions. The most parsimonious reading, consistent with everything
+else in this investigation: the original `ACQUIRE` was itself an artifact
+of test contamination (most plausibly the two racoon processes racing
+each other over the same PF_KEY namespace), not a genuine hook or racoon
+behavior. This is also consistent with F3/F4 above — that mechanism
+(an unscoped DNS server left registered, provoking real traffic toward an
+un-tunneled resolver) is real and was independently fixed by §A/§B, but
+was never actually needed to explain F1's original symptom once the
+teardown race and the ACQUIRE-provenance question were both settled
+directly.
+
+### A related, separate finding surfaced during this investigation
+
+Reading a live Arch host's `/run/racoon/hook-state.*` directory (accumulated
+over several manual test sessions) found 5 generation files for one peer,
+only 2 marked `.consumed` — three complete, successful connection states
+were never torn down. This is expected under `rhook_state_reap()`'s
+documented design (it deliberately never deletes *live* files, only aged
+`.consumed` ones), but combined with `rhook_state_oldest_unconsumed()`'s
+strict oldest-generation-first matching, means a `phase1-down.sh` run can
+consume an *orphaned* generation from an earlier, uncleaned session instead
+of its own — invisible whenever every session's undo commands are
+byte-identical (same `racoon.conf` every time, as in all 8 runs above),
+but a real correctness gap if they ever differ. Tracked separately — see
+the FIFO generation follow-up issue — since it's a hook-library
+correctness question, not part of the ACQUIRE-provenance answer itself.
+A generation-verification step (`task-f-acquire-investigation.sh` step 5b)
+was added to the investigation script but has not yet caught this live
+(the Arch host was rebooted between the run that found the orphans and the
+rerun that added the check, clearing `/run` and resetting generation
+numbering to 1).
+
+### Also surfaced: a daemon-side silent-exit quirk
+
+`racoonctl vpn-disconnect` exited non-zero with zero output in **every
+single one** of the 8 runs above, well under its timeout — not a hang.
+Traced to `src/racoon/kmpstat.c`'s `com_recv()`: both its `MSG_PEEK`-failure
+and short-read paths (`~149-154`) `goto bad1` with no `perror()` call at
+all, so if the admin socket EOFs before the expected event arrives on that
+specific connection, `racoonctl`'s main loop (`racoonctl.c` `~322-326`)
+`exit(1)`s completely silently, while racoon's own teardown (and the hook)
+proceeds and succeeds independently a moment later, exactly as every
+run's syslog confirms. Filed as Issue 4 in `doc/dev/daemon-issues.md`
+alongside F2/F5/F8, per this project's existing "file, don't fix
+daemon-side C code" convention.
