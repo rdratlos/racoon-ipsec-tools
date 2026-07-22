@@ -106,15 +106,30 @@ com_init()
 		"%s", adminsock_path);
 
 	so = socket(AF_UNIX, SOCK_STREAM, 0);
-	if (so < 0)
+	if (so < 0) {
+		warn("cannot create admin socket");
 		return -1;
+	}
 
 	if (connect(so, (struct sockaddr *)&name, sizeof(name)) < 0) {
+		warnx("cannot connect to racoon admin socket %s: %s "
+			"(is racoon running?)",
+			adminsock_path, strerror(errno));
 		(void)close(so);
+		so = -1;
 		return -1;
 	}
 
 	return 0;
+}
+
+void
+com_close(void)
+{
+	if (so >= 0) {
+		(void)close(so);
+		so = -1;
+	}
 }
 
 int
@@ -124,7 +139,7 @@ com_send(combuf)
 	int len;
 
 	if ((len = send(so, combuf->v, combuf->l, 0)) == -1) {
-		perror("send");
+		warn("failed to send request to racoon");
 		(void)close(so);
 		return -1;
 	}
@@ -145,9 +160,11 @@ com_recv(combufp)
 	if (combufp == NULL)
 		return -1;
 
-	/* receive by PEEK */ 
-	if ((len = recv(so, &h, sizeof(h), MSG_PEEK)) == -1)
+	/* receive by PEEK */
+	if ((len = recv(so, &h, sizeof(h), MSG_PEEK)) == -1) {
+		warn("failed to receive reply from racoon");
 		goto bad1;
+	}
 
 	/* sanity check */
 	if (len < sizeof(h))
@@ -172,7 +189,7 @@ com_recv(combufp)
 	p = (*combufp)->v;
 	while (l < rlen) {
 		if ((len = recv(so, p, rlen - l, 0)) < 0) {
-			perror("recv");
+			warn("failed to receive reply from racoon");
 			goto bad2;
 		}
 		l += len;

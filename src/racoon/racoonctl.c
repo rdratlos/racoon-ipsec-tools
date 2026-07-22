@@ -190,8 +190,6 @@ struct ulproto_tag {
 	{ 0, NULL },
 };
 
-int so;
-
 static char _addr1_[NI_MAXHOST], _addr2_[NI_MAXHOST];
 
 char *pname;
@@ -301,7 +299,8 @@ main(ac, av)
 	if (loglevel)
 		racoon_hexdump(combuf, ((struct admin_com *)combuf)->ac_len);
 
-	com_init();
+	if (com_init() != 0)
+		goto bad;
 
 	if (com_send(combuf) != 0)
 		goto bad;
@@ -316,11 +315,11 @@ main(ac, av)
 		vfree(combuf);
 	} while (evt_quit_event != 0);
 
-	close(so);
+	com_close();
 	exit(0);
 
 bad:
-	close(so);
+	com_close();
 	if (errno == EEXIST)
 		exit(0);
 	exit(1);
