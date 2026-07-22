@@ -213,6 +213,14 @@ was added to the investigation script but has not yet caught this live
 rerun that added the check, clearing `/run` and resetting generation
 numbering to 1).
 
+**Update:** filed as issue #90 and fixed. `phase1-down.sh` no longer
+matches by generation order at all — `script_hook()`
+(`src/racoon/isakmp.c`) now exports `IKE_COOKIE`, racoon's own ISAKMP
+cookie pair for the negotiation, and `rhook_state_own_generation()`
+(`racoon-hook-lib.sh`) matches a teardown to its own generation by exact
+value instead of oldest-first. Step 5b's live confirmation on a real
+accumulated-orphan host is still open — see the issue.
+
 ### Also surfaced: a daemon-side silent-exit quirk
 
 `racoonctl vpn-disconnect` exited non-zero with zero output in **every

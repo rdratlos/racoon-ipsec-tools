@@ -32,6 +32,16 @@
  * behaviour -- so this reproduces as a crash today, independently of the
  * leak itself. The child is forked off so that crash does not take the rest
  * of the test suite down with it.
+ *
+ * test_ike_cookie_env() is a second, unrelated regression test riding the
+ * same isolated script_hook() build (issue #90): the hook scripts need a
+ * per-negotiation session token, stable across SCRIPT_PHASE1_UP and
+ * SCRIPT_PHASE1_DOWN for the same connection attempt, to stop
+ * phase1-down.sh's state-file matching from guessing by file order (which
+ * can consume an unrelated, never-torn-down orphan generation for the same
+ * peer instead of its own). script_hook() exports the iph1's own ISAKMP
+ * cookie pair as IKE_COOKIE via isakmp_pindex(&iph1->index, 0); this test
+ * pins a known cookie pair and asserts the exact rendered value.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -62,6 +72,7 @@ extern char *test_stub_id2str_next_result;
 extern int test_stub_id2str_return_null;
 extern int test_stub_id2str_calls;
 extern int test_stub_privsep_script_exec_calls;
+extern char *test_stub_last_ike_cookie;
 
 /* Linker-level free() interposition (-Wl,--wrap=free in test/Makefile.am):
  * every free() call made from code compiled into this binary is redirected
@@ -209,11 +220,42 @@ test_null_id2str_result_does_not_crash(void)
 	}
 }
 
+static void
+test_ike_cookie_env(void)
+{
+	struct ph1handle *iph1 = make_ph1handle_with_script();
+	static const cookie_t i_ck = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
+	static const cookie_t r_ck = { 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18 };
+	static const char expected[] =
+	    "0102030405060708:1112131415161718";
+
+	test_stub_id2str_return_null = 0;
+	test_stub_privsep_script_exec_calls = 0;
+	memcpy(iph1->index.i_ck, i_ck, sizeof(i_ck));
+	memcpy(iph1->index.r_ck, r_ck, sizeof(r_ck));
+
+	script_hook(iph1, SCRIPT_PHASE1_UP);
+
+	CHECK(test_stub_privsep_script_exec_calls == 1,
+	    "the configured phase1_up script is invoked (IKE_COOKIE test)");
+	CHECK(test_stub_last_ike_cookie != NULL,
+	    "IKE_COOKIE is present in the hook script's environment (issue #90)");
+	if (test_stub_last_ike_cookie != NULL) {
+		CHECK(strcmp(test_stub_last_ike_cookie, expected) == 0,
+		    "IKE_COOKIE renders as i_ck_hex:r_ck_hex via isakmp_pindex()");
+	}
+
+	free(test_stub_last_ike_cookie);
+	test_stub_last_ike_cookie = NULL;
+	free_ph1handle_with_script(iph1);
+}
+
 int
 main(void)
 {
 	test_leak_normal_id();
 	test_null_id2str_result_does_not_crash();
+	test_ike_cookie_env();
 
 	if (failures > 0) {
 		fprintf(stderr, "\n%d check(s) failed\n", failures);

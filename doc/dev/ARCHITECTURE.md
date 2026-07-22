@@ -659,7 +659,7 @@ both ways — then name the class of bug, same as this step.
 | `rhook_run_step` | The one place a plan step's command is `eval`'d; precondition/postcondition dispatch | You need to understand why a step is `ok`/`SKIPPED`/`FAILED` |
 | `rhook_apply_plan` | Runs the whole plan; in-transaction DNS rollback on a required-step failure | A partial-failure rollback isn't undoing what you expect |
 | `rhook_undo_replay` | `phase1-down`'s entire teardown logic: reverse-order replay of the state file | Teardown isn't undoing something, or undoes things in the wrong order |
-| `rhook_state_*` | State file I/O, FIFO generation matching per peer address | Overlapping reconnects confuse which generation gets torn down |
+| `rhook_state_*` | State file I/O; `rhook_state_own_generation()` matches a teardown to its own generation by exact `IKE_COOKIE` (issue #90), not by arrival order | Overlapping reconnects (or a leftover orphan for the same peer) confuse which generation gets torn down |
 | `rhook_emit_report`/`rhook_report_line` | Assembles and prints the report (section 3) | You want to change what the report shows |
 | `phase1-up.sh` | Thin wrapper: Mode Config guard, outbound-interface detection, input validation, calls build/apply | Something *upstream* of the library (Mode Config parsing itself) looks wrong |
 | `phase1-down.sh` | Thin wrapper: pure undo replay, no re-derivation of anything | The teardown invocation itself, not the replay logic, looks wrong |
@@ -698,18 +698,29 @@ not more:
   evidence cannot isolate which one actually explains the original
   symptom — see `doc/dev/teardown-investigation.md`'s "§F resolved"
   section for the full reasoning and why this doesn't affect the verdict.
-- **A FIFO generation-matching gap in `phase1-down.sh`'s state-file
-  lookup, found but not yet exercised live.** `rhook_state_oldest_unconsumed()`
-  picks the oldest *live* (never-consumed) state file for a peer, not
+- **Fixed: the FIFO generation-matching gap in `phase1-down.sh`'s
+  state-file lookup (issue #90).** `rhook_state_oldest_unconsumed()` used
+  to pick the oldest *live* (never-consumed) state file for a peer, not
   necessarily the current session's own — `rhook_state_reap()`
   deliberately never deletes live files, only aged `.consumed` ones, so a
-  session that's never cleanly torn down leaves a permanent orphan behind.
+  session that's never cleanly torn down left a permanent orphan behind
+  that a later, unrelated session's own teardown could wrongly consume.
   Found on a real, reused Arch host (5 accumulated generations, only 2
-  consumed); invisible in every test run so far because every session
+  consumed); invisible in every Task F test run because every session
   used byte-identical `racoon.conf`, so consuming the "wrong" (orphaned)
-  generation still produced a correct real-world teardown. Whether this
-  is a real correctness risk under differing configs across sessions
-  hasn't been confirmed live yet — tracked separately from Task F.
+  generation still happened to produce a correct real-world teardown in
+  that setup. Fixed by giving `phase1-down.sh` an exact correlator instead
+  of a heuristic: `script_hook()` (`src/racoon/isakmp.c`) now exports
+  `IKE_COOKIE`, racoon's own ISAKMP cookie pair for the negotiation —
+  unique per Phase 1 attempt, stable from `SCRIPT_PHASE1_UP` through
+  `SCRIPT_PHASE1_DOWN` for the same `iph1` handle — and
+  `rhook_state_own_generation()` matches on it exactly rather than by
+  arrival order. `tests/hooks/test-phase1-roundtrip.sh`'s "lifo" scenario
+  reproduces the exact failure mode at the fixture level (an orphaned
+  generation and a same-peer teardown arriving out of arrival order).
+  Confirming this against a real accumulated-orphan live host (the
+  original Arch reproduction, re-run with the fix) is still an open
+  follow-up — see the issue for tracking.
 - **A handful of `# UNVERIFIED:` markers remain in `racoon-hook-lib.sh`**,
   each already mitigated defensively rather than left as a blind
   assumption — feature-probed instead of version-gated, or tolerant of

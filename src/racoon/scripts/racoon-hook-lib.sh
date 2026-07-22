@@ -201,13 +201,9 @@ rhook_ensure_state_dir() {
 }
 
 # --------------------------------------------------------------------------
-# Connection identity.  Racoon's script hooks receive no explicit
-# "connection id" and export no ISAKMP SPI to hooks at all (confirmed
-# against src/racoon/isakmp.c's script_hook(): it sets only LOCAL_ADDR,
-# LOCAL_PORT, REMOTE_ADDR, REMOTE_PORT and REMOTE_ID -- no cookie pair,
-# in any of the three call sites, phase1-up/phase1-down/phase1-dead
-# alike). REMOTE_ADDR alone identifies the peer, sanitized to a token
-# safe for use in a filename.
+# Connection identity.  REMOTE_ADDR alone identifies the peer for the
+# state directory layout (one generation sequence per address), sanitized
+# to a token safe for use in a filename.
 #
 # REMOTE_PORT is deliberately NOT part of this (brief 3 §D, superseding
 # brief 2 §C's "REMOTE_ADDR + single-file fallback" recommendation): it
@@ -216,12 +212,27 @@ rhook_ensure_state_dir() {
 # its replacement running within one second of each other for the same
 # peer address -- a single-file-per-identity scheme (with or without the
 # port) can match a teardown to the wrong generation and dismantle a
-# tunnel that just came up. See rhook_state_file()/
-# rhook_state_oldest_unconsumed() below for the FIFO generation scheme
-# that replaces it.
+# tunnel that just came up. See rhook_state_file()/rhook_state_reset()
+# below for the generation scheme that replaces it, and
+# rhook_state_own_generation() for *which* generation a given
+# phase1-down.sh run actually owns.
 # --------------------------------------------------------------------------
 rhook_conn_addr() {
 	printf '%s' "${REMOTE_ADDR:-unknown}" | tr -c 'A-Za-z0-9._-' '_'
+}
+
+# racoon's own per-negotiation session token (issue #90): script_hook()
+# (src/racoon/isakmp.c) exports IKE_COOKIE as the ISAKMP cookie pair
+# (i_ck:r_ck), unique per Phase 1 negotiation and stable from
+# SCRIPT_PHASE1_UP through SCRIPT_PHASE1_DOWN for the same connection
+# attempt -- unlike REMOTE_ADDR/REMOTE_PORT, this lets phase1-down.sh
+# identify its *own* generation instead of guessing from file order. See
+# rhook_state_own_generation() below. Sanitized the same way
+# rhook_conn_addr() sanitizes REMOTE_ADDR; empty if IKE_COOKIE is unset
+# (e.g. a SCRIPT_PHASE1_DEAD invocation -- this project's own configs
+# never wire phase1_dead to phase1-down.sh in the first place).
+rhook_conn_cookie() {
+	printf '%s' "${IKE_COOKIE:-}" | tr -c 'A-Za-z0-9:_-' '_'
 }
 
 rhook_state_file_prefix() {
@@ -293,16 +304,29 @@ rhook_state_reset() {
 	done
 	RHOOK_STATE_GENERATION=$(( $(rhook_state_max_generation) + 1 ))
 	: > "$(rhook_state_file)"
+	# issue #90: record this generation's own IKE_COOKIE (racoon's
+	# per-negotiation session token) in a sidecar file next to the state
+	# file itself, so rhook_state_own_generation() can find it by exact
+	# match later. Kept as a separate file rather than a header line
+	# inside the state file: rhook_undo_replay() rewrites the state file
+	# from scratch on a partial-failure retry (only the still-failing
+	# entries survive), which would silently drop a header line on the
+	# first retry.
+	rhook_conn_cookie > "$(rhook_state_file).cookie" 2>/dev/null
 	rmdir "$rhook_lock" 2>/dev/null
 }
 
 # The oldest (lowest generation number) live state file for this peer
 # address, or empty if none. This -- not mtime, not the order `ls`
-# happens to return -- is what makes phase1-down.sh's FIFO matching
-# correct under overlap in either ordering: generation numbers are
-# allocated under the same lock rhook_state_reset() uses, so their
-# ordering is exact and unambiguous regardless of clock resolution or
-# how close together two phase1-up runs happen.
+# happens to return -- gives a deterministic, race-free existence check
+# (rhook_state_exists()): generation numbers are allocated under the same
+# lock rhook_state_reset() uses, so their ordering is exact and
+# unambiguous regardless of clock resolution or how close together two
+# phase1-up runs happen. NOT used by phase1-down.sh to pick which
+# generation to undo any more -- oldest-first can pick an orphaned
+# generation from an earlier, never-cleanly-torn-down session for the same
+# peer instead of the current teardown's own one (issue #90); see
+# rhook_state_own_generation() below for that.
 rhook_state_oldest_unconsumed() {
 	local rhook_prefix rhook_f rhook_gen rhook_oldest rhook_oldest_path
 	rhook_prefix=$(rhook_state_file_prefix)
@@ -310,7 +334,7 @@ rhook_state_oldest_unconsumed() {
 	rhook_oldest_path=""
 	for rhook_f in "$rhook_prefix".*; do
 		[ -f "$rhook_f" ] || continue
-		case "$rhook_f" in *.consumed|*.lock) continue ;; esac
+		case "$rhook_f" in *.consumed|*.lock|*.cookie) continue ;; esac
 		rhook_gen="${rhook_f#"$rhook_prefix".}"
 		case "$rhook_gen" in
 			''|*[!0-9]*) continue ;;
@@ -323,14 +347,46 @@ rhook_state_oldest_unconsumed() {
 	printf '%s' "$rhook_oldest_path"
 }
 
+# The live state file for this peer address whose recorded IKE_COOKIE
+# sidecar (written by rhook_state_reset() above) matches this process's
+# own $IKE_COOKIE, or empty if none does -- including the case where
+# $IKE_COOKIE itself is empty (nothing to match, so nothing is returned;
+# never falls back to guessing). This is phase1-down.sh's own generation
+# selector (issue #90): an exact match on racoon's own per-negotiation
+# session token, not a FIFO order that can only ever be a heuristic. A
+# peer address can legitimately have other live generations on disk at
+# the same time (an overlapping reconnect, or an orphan left behind by an
+# earlier session that was never cleanly torn down) -- this function
+# never returns any of those, only this exact connection attempt's own.
+rhook_state_own_generation() {
+	local rhook_prefix rhook_f rhook_want rhook_have
+	rhook_want=$(rhook_conn_cookie)
+	[ -n "$rhook_want" ] || return 0
+	rhook_prefix=$(rhook_state_file_prefix)
+	for rhook_f in "$rhook_prefix".*; do
+		[ -f "$rhook_f" ] || continue
+		case "$rhook_f" in *.consumed|*.lock|*.cookie) continue ;; esac
+		rhook_have=$(cat "${rhook_f}.cookie" 2>/dev/null)
+		if [ -n "$rhook_have" ] && [ "$rhook_have" = "$rhook_want" ]; then
+			printf '%s' "$rhook_f"
+			return 0
+		fi
+	done
+	return 0
+}
+
 # Marks a generation's state file consumed (successfully torn down)
 # rather than deleting it immediately, so the fact a teardown happened
 # is briefly visible on disk; rhook_state_reap() (called at every
 # phase1-up) is what actually deletes .consumed files, by count and age.
+# The IKE_COOKIE sidecar is deleted outright here, not renamed alongside
+# it -- rhook_state_own_generation() only ever looks at live generations,
+# so a consumed generation's sidecar serves no further purpose.
 rhook_state_mark_consumed() {
 	local rhook_path
 	rhook_path="$1"
 	[ -f "$rhook_path" ] || return 0
+	rm -f "${rhook_path}.cookie" 2>/dev/null
 	mv -f "$rhook_path" "$rhook_path.consumed" 2>/dev/null
 }
 

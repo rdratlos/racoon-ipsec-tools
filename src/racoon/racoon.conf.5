@@ -647,6 +647,16 @@ The remote address of the phase 1 SA.
 The remote port used for IKE for the phase 1 SA.
 .It Ev REMOTE_ID
 The remote identity received in IKE for the phase 1 SA.
+.It Ev IKE_COOKIE
+The ISAKMP cookie pair (initiator cookie, a colon, then responder
+cookie, each as 16 lowercase hex digits) identifying this Phase 1
+negotiation. Unique per negotiation and stable across the
+.Ic phase1_up
+and
+.Ic phase1_down
+invocations for the same connection attempt, so a script can tell its
+own session apart from any other concurrently-live one for the same
+peer instead of relying on invocation order.
 .El
 The following variables are only set if
 .Ic mode_cfg

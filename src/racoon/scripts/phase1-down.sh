@@ -44,29 +44,33 @@ trap rhook_exit_trap EXIT
 rhook_log step "phase1 down: remote=${REMOTE_ADDR:-?}:${REMOTE_PORT:-?} internal=${INTERNAL_ADDR4:-?}"
 
 # --------------------------------------------------------------------------
-# Brief 3 §D: state files are FIFO-matched per peer address (REMOTE_PORT
-# is not part of the identity -- it floats on a NAT-T rebind and changes
-# across a reconnect, and a live field test showed a teardown for an old
-# SA and the setup for its replacement running within one second of each
-# other for the same peer). This consumes the *oldest* still-live
-# generation for REMOTE_ADDR -- never REMOTE_PORT, never "the" state
-# file, since under overlap there can legitimately be more than one.
-# rhook_state_exists() / rhook_state_oldest_unconsumed() both do the
-# same underlying lookup; the former is used here purely for the
-# early-exit guard's readability.
+# Issue #90: state files are matched per peer address by an exact
+# IKE_COOKIE match, not by generation order. REMOTE_PORT is not part of
+# the identity either (it floats on a NAT-T rebind and changes across a
+# reconnect), and generation order alone is not enough: a live field test
+# showed a teardown for an old SA and the setup for its replacement
+# running within one second of each other for the same peer, and a
+# separate live host showed a session that was never cleanly torn down
+# leaving a permanent orphaned generation behind -- a later, unrelated
+# session's own teardown must not accidentally consume that orphan just
+# because it happens to be the oldest live one. IKE_COOKIE (exported by
+# racoon's own script_hook(), src/racoon/isakmp.c) is the ISAKMP cookie
+# pair, unique per Phase 1 negotiation and stable from this exact
+# session's own SCRIPT_PHASE1_UP through this SCRIPT_PHASE1_DOWN call --
+# rhook_state_own_generation() matches on it exactly, never guesses.
 #
-# No live generation at all means either phase1-up.sh never got far
-# enough to change anything (Mode Config was rejected, or every step
-# failed before any state was journaled), or every generation for this
-# peer has already been consumed. Either way there is nothing to undo,
-# and nothing here depends on INTERNAL_ADDR4/SPLIT_INCLUDE/etc. being
-# set at all (§3.4).
+# An empty result means either phase1-up.sh never got far enough to
+# change anything (Mode Config was rejected, or every step failed before
+# any state was journaled), this generation was already consumed, or (in
+# principle) IKE_COOKIE itself was unset. Either way there is nothing
+# *this session* can identify as its own to undo, and nothing here
+# depends on INTERNAL_ADDR4/SPLIT_INCLUDE/etc. being set at all (§3.4).
 # --------------------------------------------------------------------------
-if ! rhook_state_exists; then
-	rhook_log warn "no live state generation for remote=${REMOTE_ADDR:-unknown} -- nothing to undo"
+RHOOK_P1D_STATE_FILE=$(rhook_state_own_generation)
+if [ -z "$RHOOK_P1D_STATE_FILE" ]; then
+	rhook_log warn "no live state generation matches this session's own IKE_COOKIE for remote=${REMOTE_ADDR:-unknown} -- nothing to undo"
 	exit 0
 fi
-RHOOK_P1D_STATE_FILE=$(rhook_state_oldest_unconsumed)
 
 rhook_report_init
 # shellcheck disable=SC2034  # read by rhook_emit_report() in the sourced library
@@ -83,9 +87,10 @@ RHOOK_P1D_RC=$?
 # itself -- so it behaves identically to "report" in this script; the
 # distinction only matters in phase1-up.sh. Either way rhook_undo_replay()
 # already retained this generation's state file for anything that failed
-# to undo, so a later phase1-down.sh run (or a manual retry) will pick up
-# this exact generation again -- still oldest among what remains
-# unconsumed -- rather than this exit code being the only record.
+# to undo, so a later phase1-down.sh run (or a manual retry) -- with the
+# same IKE_COOKIE, since it is the same underlying connection attempt --
+# will pick up this exact generation again by the same exact match,
+# rather than this exit code being the only record.
 if [ "$RHOOK_P1D_RC" -ne 0 ] && [ "$RHOOK_ON_DNS_FAILURE" != "warn" ]; then
 	exit 1
 fi

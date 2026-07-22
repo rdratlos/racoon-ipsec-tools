@@ -19,7 +19,12 @@
  *    ipsecdoi_id2str()'s documented OOM return) without needing a real
  *    vchar_t ID payload or OpenSSL.
  *  - privsep_script_exec(): the real implementation forks and execs the
- *    configured script. The stub just records that it was called.
+ *    configured script. The stub records that it was called and copies out
+ *    the IKE_COOKIE value it was handed (test_stub_last_ike_cookie, issue
+ *    #90's regression test in test_script_hook_leak.c) -- envp itself is
+ *    freed by script_hook() right after this call returns, so anything a
+ *    test wants to inspect afterward has to be copied out here, not held
+ *    as a pointer into envp.
  *  - isakmp_cfg_setenv(): only reachable under --enable-hybrid (the
  *    project's default); the real implementation pulls in most of
  *    isakmp_cfg.c (LDAP/PAM/RADIUS/Kerberos backends). script_hook()'s
@@ -33,6 +38,7 @@
 
 #include <sys/param.h>
 #include <resolv.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "var.h"
@@ -83,10 +89,29 @@ ipsecdoi_id2str(const vchar_t *id)
 
 int test_stub_privsep_script_exec_calls = 0;
 
+/* Copied out of envp's IKE_COOKIE entry, if present, each call; NULL if
+ * this call's envp carried no IKE_COOKIE. Owned by the test; the test is
+ * responsible for free()ing a non-NULL value. */
+char *test_stub_last_ike_cookie = NULL;
+
 int
 privsep_script_exec(char *script, int name, char * const envp[])
 {
+	int i;
+	static const char prefix[] = "IKE_COOKIE=";
+
 	test_stub_privsep_script_exec_calls++;
+
+	free(test_stub_last_ike_cookie);
+	test_stub_last_ike_cookie = NULL;
+	for (i = 0; envp[i] != NULL; i++) {
+		if (strncmp(envp[i], prefix, sizeof(prefix) - 1) == 0) {
+			test_stub_last_ike_cookie =
+			    strdup(envp[i] + sizeof(prefix) - 1);
+			break;
+		}
+	}
+
 	return 0;
 }
 
