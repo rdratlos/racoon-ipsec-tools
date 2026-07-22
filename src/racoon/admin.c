@@ -99,6 +99,39 @@ mode_t adminsock_mode = 0600;
 static struct sockaddr_un sunaddr;
 static int admin_process __P((int, char *));
 static int admin_reply __P((int, struct admin_com *, int, vchar_t *));
+static int mkdir_p __P((const char *, mode_t));
+
+/*
+ * Create a directory and all missing parents, like "mkdir -p".
+ * Pre-existing components (EEXIST) are not an error.
+ */
+static int
+mkdir_p(path, mode)
+	const char *path;
+	mode_t mode;
+{
+	char buf[MAXPATHLEN];
+	char *p;
+
+	if (strlcpy(buf, path, sizeof(buf)) >= sizeof(buf)) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+
+	for (p = buf + 1; *p != '\0'; p++) {
+		if (*p != '/')
+			continue;
+		*p = '\0';
+		if (mkdir(buf, mode) != 0 && errno != EEXIST)
+			return -1;
+		*p = '/';
+	}
+
+	if (mkdir(buf, mode) != 0 && errno != EEXIST)
+		return -1;
+
+	return 0;
+}
 
 static int
 admin_handler(ctx, fd)
@@ -717,6 +750,31 @@ admin_init()
 	sunaddr.sun_family = AF_UNIX;
 	snprintf(sunaddr.sun_path, sizeof(sunaddr.sun_path),
 		"%s", adminsock_path);
+
+	/*
+	 * The runtime directory (e.g. /var/run/racoon) may not exist yet:
+	 * systemd's RuntimeDirectory= only creates it while the unit is
+	 * running, and nothing recreates it when racoon is started
+	 * manually (e.g. in foreground, for debugging). Create it here so
+	 * admin_init() does not depend on external tooling.
+	 */
+	{
+		char dir[MAXPATHLEN];
+		char *slash;
+
+		strlcpy(dir, sunaddr.sun_path, sizeof(dir));
+		slash = strrchr(dir, '/');
+		if (slash != NULL && slash != dir) {
+			*slash = '\0';
+			if (mkdir_p(dir, 0755) != 0) {
+				plog(LLV_ERROR, LOCATION, NULL,
+					"failed to create admin socket "
+					"directory %s: %s\n",
+					dir, strerror(errno));
+				return -1;
+			}
+		}
+	}
 
 	lcconf->sock_admin = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (lcconf->sock_admin == -1) {
