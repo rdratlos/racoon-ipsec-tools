@@ -178,16 +178,19 @@ found two contamination sources in the script itself, both since fixed:
 Once both were fixed (a hard-stop guard, and waiting on the hook's
 *always-emitted* one-line `result: OK|PARTIAL` summary instead), the
 `ACQUIRE` stopped appearing — in all 8 subsequent runs, with no
-exceptions. The most parsimonious reading, consistent with everything
-else in this investigation: the original `ACQUIRE` was itself an artifact
-of test contamination (most plausibly the two racoon processes racing
-each other over the same PF_KEY namespace), not a genuine hook or racoon
-behavior. This is also consistent with F3/F4 above — that mechanism
-(an unscoped DNS server left registered, provoking real traffic toward an
-un-tunneled resolver) is real and was independently fixed by §A/§B, but
-was never actually needed to explain F1's original symptom once the
-teardown race and the ACQUIRE-provenance question were both settled
-directly.
+exceptions. That is not, by itself, proof of *which* defect caused the
+original `ACQUIRE`. The original archives had at least two sufficient
+causes present simultaneously: the dual-racoon/no-op-wait contamination
+above, and the F3/F4 unscoped-resolver path (real, source-confirmed,
+independently fixed by §A/§B). Both were closed off by the time the 8
+clean runs happened, so a clean result is consistent with either one (or
+both) having been the actual cause of the original symptom — this
+evidence cannot isolate which, and no capture exists with only one of the
+two fixes applied at a time, which is what isolating them would require.
+This does not matter for the verdict: Branch B rests on the current,
+fixed configuration's own SPD state and the absence of `ACQUIRE` after a
+clean teardown, not on settling which defect explains the original,
+already-resolved symptom.
 
 ### A related, separate finding surfaced during this investigation
 

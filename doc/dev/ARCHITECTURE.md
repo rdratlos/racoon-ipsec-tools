@@ -690,12 +690,14 @@ not more:
   backends both represented) all confirm no external mechanism reinstalls
   or leaves behind an SPD policy after a clean teardown — on-demand
   reconnection after disconnect simply isn't implemented, which is the
-  full explanation for what originally looked like a reconnect loop. See
-  `doc/dev/teardown-investigation.md`'s "§F resolved" section for the
-  method, the full per-run table, and why the very first two test
-  archives (before the investigation script itself was hardened) showed a
-  real `ACQUIRE` that turned out to be test contamination, not a genuine
-  finding.
+  full explanation for what originally looked like a reconnect loop. The
+  very first two test archives (before the investigation script itself
+  was hardened) did show a real `ACQUIRE`; two sufficient causes were
+  present in those archives (test-script contamination, and the F3/F4
+  unscoped-resolver path), both fixed before the 8 clean runs, and the
+  evidence cannot isolate which one actually explains the original
+  symptom — see `doc/dev/teardown-investigation.md`'s "§F resolved"
+  section for the full reasoning and why this doesn't affect the verdict.
 - **A FIFO generation-matching gap in `phase1-down.sh`'s state-file
   lookup, found but not yet exercised live.** `rhook_state_oldest_unconsumed()`
   picks the oldest *live* (never-consumed) state file for a peer, not
