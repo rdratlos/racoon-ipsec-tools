@@ -718,9 +718,19 @@ not more:
   arrival order. `tests/hooks/test-phase1-roundtrip.sh`'s "lifo" scenario
   reproduces the exact failure mode at the fixture level (an orphaned
   generation and a same-peer teardown arriving out of arrival order).
-  Confirming this against a real accumulated-orphan live host (the
-  original Arch reproduction, re-run with the fix) is still an open
-  follow-up — see the issue for tracking.
+  Live-confirmed on three distros (Noble, Arch, Bionic i386) via
+  `tools/racoon-hook-integration-test.sh`'s steps 3b/4b/5c: a synthetic
+  orphan injected before connect was left untouched by each real
+  teardown, `IKE_COOKIE` matched racoon's own logged SPI on every run
+  (confirming the daemon-side export is actually deployed, not just
+  present in source), and a direct `phase1-down.sh` invocation using the
+  orphan's own `IKE_COOKIE` correctly found and consumed it afterward. A
+  first run against an as-yet-unpatched host additionally reproduced the
+  bug's real-world impact directly: the orphan being wrongly consumed
+  meant the real session's own teardown never ran, its SPD survived, and
+  a provocation ping produced a genuine ACQUIRE with a changed SPI — see
+  `doc/dev/teardown-investigation.md`'s issue #90 update for the full
+  evidence chain.
 - **A handful of `# UNVERIFIED:` markers remain in `racoon-hook-lib.sh`**,
   each already mitigated defensively rather than left as a blind
   assumption — feature-probed instead of version-gated, or tolerant of
