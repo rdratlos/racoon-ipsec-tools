@@ -87,6 +87,7 @@ assert_eq "prefers resolvectl when both present" "$(rhook_dns_tool_detect)" "res
 PATH="$WORK/resolvectl-only:$BASE_PATH"
 assert_eq "resolvectl only" "$(rhook_dns_tool_detect)" "resolvectl"
 
+RACOON_HOOK_RESOLVECTL="/nonexistent/resolvectl"
 PATH="$WORK/systemd-resolve-only:$BASE_PATH"
 assert_eq "falls back to systemd-resolve (Bionic case)" "$(rhook_dns_tool_detect)" "systemd-resolve"
 
