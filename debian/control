@@ -21,6 +21,7 @@ Package: ipsec-tools
 Architecture: any
 Depends: ${misc:Depends},
          ${shlibs:Depends}
+Recommends: racoon
 Description: IPsec utilities
  IPsec (Internet Protocol security) offers end-to-end security for
  network traffic at the IP layer.
