@@ -24,10 +24,21 @@
 # Usage:
 #   sudo VPN_GATEWAY=<gateway-host-or-ip> \
 #        INTERNAL_DNS_SERVER=<internal-dns-ip> \
+#        [SCENARIO_LABEL="free text describing this run's network-management setup"] \
 #        [RACOON_SRC_DIR=/path/to/racoon-ipsec-tools] \
 #        [SETKEY_BIN=setkey] [RACOONCTL_BIN=racoonctl] [RACOON_BIN=racoon] \
 #        [STATE_DIR=/run/racoon] [RACOON_CONF=/etc/racoon/racoon.conf] \
 #        ./task-f-acquire-investigation.sh
+#
+# SCENARIO_LABEL is optional free text (e.g. "NM, rc-manager=unmanaged,
+# systemd-networkd also running" / "NM, rc-manager=auto" / "no NM, pure
+# systemd-networkd") -- it's just echoed into SUMMARY.md's header so
+# multiple runs stay identifiable after the fact. The script does NOT
+# trust it as ground truth: step 0b independently captures the real,
+# live NetworkManager/systemd-networkd/rc-manager state regardless of
+# what this label says, specifically so the three planned scenarios are
+# distinguishable from the evidence itself, not just from a hand-typed
+# tag.
 #
 # Everything is captured under a timestamped results directory printed at
 # the end -- tar it up and hand it back for the doc/dev/teardown-
@@ -48,8 +59,10 @@ RACOON_BIN="${RACOON_BIN:-racoon}"
 RACOON_CONF="${RACOON_CONF:-/etc/racoon/racoon.conf}"
 STATE_DIR="${STATE_DIR:-/run/racoon}"
 CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-30}"
+PHASE1_UP_WAIT_TIMEOUT="${PHASE1_UP_WAIT_TIMEOUT:-15}"
 PHASE1_DOWN_WAIT_TIMEOUT="${PHASE1_DOWN_WAIT_TIMEOUT:-15}"
 ACQUIRE_WATCH_SECONDS="${ACQUIRE_WATCH_SECONDS:-8}"
+SCENARIO_LABEL="${SCENARIO_LABEL:-<none given>}"
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="/root/task-f-results-${TS}"
@@ -75,7 +88,42 @@ fail_stop() {
 # always present, always noise for this investigation.
 # --------------------------------------------------------------------------
 filtered_spd() {
-	"$SETKEY_BIN" -DP 2>&1 | awk 'BEGIN{RS="";ORS="\n\n"} !/\(per-socket policy\)/'
+	"$SETKEY_BIN" -DPN 2>&1 | awk 'BEGIN{RS="";ORS="\n\n"} !/\(per-socket policy\)/'
+}
+
+# --------------------------------------------------------------------------
+# Waits for a hook's own one-line completion summary in the syslog
+# capture, scoped to lines appended after a given line-count marker (so a
+# stale line from an earlier phase in the same run, or a previous run's
+# leftover log, can't produce a false-positive match).
+#
+# Deliberately does NOT grep for the "racoon phase1-up/down report --"
+# header text: confirmed against racoon-hook-lib.sh (~line 122, ~768-775)
+# that header is part of the multi-line report block gated behind
+# `rhook_level >= 1`, and RHOOK_DEBUG_LEVEL defaults to 0 ("syslog only:
+# errors, warnings, the final one-line summary") -- under default
+# settings that header is never emitted at all, so waiting on it would
+# hang for the full timeout on every run, every time, not just
+# occasionally. The one-line "result: OK|PARTIAL" summary emitted via
+# `logger -t "racoon-${RHOOK_HOOK_NAME}"` (racoon-hook-lib.sh ~line 785)
+# is unconditional regardless of debug level -- that is the only
+# reliable completion signal available without changing the hooks'
+# configured verbosity.
+# --------------------------------------------------------------------------
+wait_for_hook_report() {
+	hook_name="$1"
+	since_line="$2"
+	timeout_s="$3"
+	i=0
+	while [ "$i" -lt "$timeout_s" ]; do
+		if tail -n "+$((since_line + 1))" "$RACOON_LOG" 2>/dev/null | \
+		   grep -qE "racoon-${hook_name}(\[[0-9]+\])?: result: (OK|PARTIAL)"; then
+			return 0
+		fi
+		sleep 1
+		i=$((i + 1))
+	done
+	return 1
 }
 
 # ==========================================================================
@@ -108,6 +156,65 @@ fi
 narrate "capability preflight passed: setkey -D works (see $OUT/00-preflight.log for full detail)"
 
 # ==========================================================================
+# Step 0b: network-management backend snapshot. Captures the REAL,
+# live state (NetworkManager/systemd-networkd/systemd-resolved active or
+# not, rc-manager, resolv.conf target) rather than trusting SCENARIO_LABEL
+# alone -- this is what makes the three planned scenarios (NM w/
+# rc-manager=unmanaged + networkd also running; NM w/ rc-manager=auto; no
+# NM at all) distinguishable from the evidence itself when comparing runs
+# later, independent of whether the label was typed correctly.
+# ==========================================================================
+narrate "=== Step 0b: network-management backend snapshot ==="
+{
+	echo "SCENARIO_LABEL=$SCENARIO_LABEL"
+	echo
+	echo "--- systemctl is-active NetworkManager / systemd-networkd / systemd-resolved ---"
+	if command -v systemctl >/dev/null 2>&1; then
+		for u in NetworkManager systemd-networkd systemd-resolved; do
+			printf '%s: ' "$u"
+			systemctl is-active "$u" 2>&1
+		done
+	else
+		echo "(systemctl not available)"
+	fi
+	echo
+	echo "--- busctl get-property org.freedesktop.NetworkManager (DnsManager Mode/RcManager) ---"
+	if command -v busctl >/dev/null 2>&1; then
+		busctl get-property org.freedesktop.NetworkManager /org/freedesktop/NetworkManager/DnsManager org.freedesktop.NetworkManager.DnsManager Mode 2>&1
+		busctl get-property org.freedesktop.NetworkManager /org/freedesktop/NetworkManager/DnsManager org.freedesktop.NetworkManager.DnsManager RcManager 2>&1
+	else
+		echo "(busctl not available -- NetworkManager likely not installed/running)"
+	fi
+	echo
+	echo "--- /etc/resolv.conf (readlink -f, and contents if a regular file) ---"
+	readlink -f /etc/resolv.conf 2>&1
+	if [ -L /etc/resolv.conf ]; then
+		echo "(symlink)"
+	elif [ -f /etc/resolv.conf ]; then
+		echo "(regular file) contents:"
+		cat /etc/resolv.conf 2>&1
+	fi
+	echo
+	echo "--- /etc/NetworkManager/conf.d/*.conf (any rc-manager/dns overrides) ---"
+	for f in /etc/NetworkManager/conf.d/*.conf; do
+		[ -f "$f" ] || continue
+		echo "=== $f ==="
+		cat "$f"
+		echo
+	done
+	echo
+	echo "--- resolvectl status (best effort, non-fatal if unavailable) ---"
+	if command -v resolvectl >/dev/null 2>&1; then
+		resolvectl status --no-pager 2>&1 | head -40
+	elif command -v systemd-resolve >/dev/null 2>&1; then
+		systemd-resolve --status 2>&1 | head -40
+	else
+		echo "(neither resolvectl nor systemd-resolve available)"
+	fi
+} > "$OUT/00b-network-backend-snapshot.log" 2>&1
+narrate "network-backend snapshot written to $OUT/00b-network-backend-snapshot.log -- verify it actually matches the scenario you intended to run before trusting the rest of this run's results"
+
+# ==========================================================================
 # Step 1: baseline. setkey -F is SAD only -- never touches SPD -- so a
 # non-empty filtered -DP result here is itself evidence, not noise to
 # clear away. Recorded, not auto-flushed.
@@ -133,14 +240,49 @@ fi
 # ==========================================================================
 narrate "=== Step 2: start racoon (daemonized, syslog-only) ==="
 
+# --------------------------------------------------------------------------
+# Guard against a pre-existing racoon instance. Both real Task F runs so
+# far showed two concurrent racoon PIDs -- the system's own racoon.service
+# (already running, foreground-mode log signature) plus this script's
+# freshly-started -f instance -- both registered as PF_KEY listeners at
+# once. That contaminates every SPD/SA observation this script makes: it
+# can no longer tell which process installed/owns what. Hard-stop rather
+# than silently proceeding with two daemons, matching step 0's own
+# precedent of refusing to produce evidence it can't vouch for.
+# --------------------------------------------------------------------------
+{
+	echo "--- pgrep -x racoon (any already-running racoon process) ---"
+	pgrep -a -x racoon 2>&1 || echo "(none found)"
+	echo
+	echo "--- racoonctl show-sa isakmp (before this script starts anything) ---"
+	"$RACOONCTL_BIN" show-sa isakmp 2>&1
+	echo
+	echo "--- systemctl status racoon.service (if applicable) ---"
+	command -v systemctl >/dev/null 2>&1 && systemctl status racoon.service 2>&1 | head -10 || echo "(systemctl not available or no racoon.service unit)"
+} > "$OUT/02-pre-existing-racoon-check.log" 2>&1
+
+if pgrep -x racoon >/dev/null 2>&1; then
+	fail_stop "a racoon process is already running (see $OUT/02-pre-existing-racoon-check.log) -- this invalidates PF_KEY/SPD attribution for the whole run. Stop it first (e.g. 'systemctl stop racoon.service' if that's what owns it, or 'killall racoon' otherwise) and confirm 'pgrep -x racoon' returns nothing, then re-run this script."
+fi
+narrate "no pre-existing racoon process found -- proceeding (see $OUT/02-pre-existing-racoon-check.log)"
+
 # Continuous background syslog capture for the rest of the run -- one
 # capture, referenced by timestamp/grep at each step, rather than
 # starting/stopping journalctl repeatedly.
 RACOON_LOG="$OUT/racoon-syslog.log"
 if command -v journalctl >/dev/null 2>&1; then
-	journalctl -f -t racoon --no-pager > "$RACOON_LOG" 2>&1 &
+	# Three -t values, not one: racoon's own plog() output goes out under
+	# syslog identifier "racoon", but the hooks' own one-line completion
+	# summaries go out separately under "racoon-phase1-up"/
+	# "racoon-phase1-down" (racoon-hook-lib.sh: `logger -t
+	# "racoon-${RHOOK_HOOK_NAME}"`) -- a plain `-t racoon` filter never
+	# sees those at all. journalctl ORs repeated -t values (matching its
+	# documented behaviour for repeated same-field filters, same as -u),
+	# so this captures all three streams into one interleaved,
+	# chronologically-ordered log.
+	journalctl -f -t racoon -t racoon-phase1-up -t racoon-phase1-down --no-pager > "$RACOON_LOG" 2>&1 &
 	JOURNAL_PID=$!
-	narrate "background log capture: journalctl -f -t racoon (pid $JOURNAL_PID) -> $RACOON_LOG"
+	narrate "background log capture: journalctl -f -t racoon -t racoon-phase1-up -t racoon-phase1-down (pid $JOURNAL_PID) -> $RACOON_LOG"
 else
 	: > "$RACOON_LOG"
 	narrate "WARNING: journalctl not found -- \$RACOON_LOG will stay empty unless you redirect racoon's own log there yourself; step 6's syslog watch depends on this"
@@ -195,11 +337,32 @@ narrate "no real policy present before connect, as expected -- continuing"
 # each stage, cross-referenced against the hook's own state file.
 # ==========================================================================
 narrate "=== Step 4: racoonctl vpn-connect $VPN_GATEWAY ==="
+PRE_CONNECT_LOGLINE_COUNT="$(wc -l < "$RACOON_LOG" 2>/dev/null || echo 0)"
 if ! timeout "$CONNECT_TIMEOUT" "$RACOONCTL_BIN" vpn-connect "$VPN_GATEWAY" > "$OUT/04-vpn-connect.log" 2>&1; then
 	cat "$OUT/04-vpn-connect.log"
 	fail_stop "racoonctl vpn-connect $VPN_GATEWAY did not complete within ${CONNECT_TIMEOUT}s -- see $OUT/04-vpn-connect.log and $RACOON_LOG"
 fi
 narrate "vpn-connect returned (blocks on EVT_PHASE1_MODE_CFG, so Mode Config is confirmed complete)"
+
+# --------------------------------------------------------------------------
+# Same ordering gap as phase1-down, mirrored: confirmed against
+# isakmp_cfg.c (script_hook(SCRIPT_PHASE1_UP) fires before
+# evt_phase1(EVT_PHASE1_MODE_CFG)) and isakmp.c/privsep.c (script_hook()
+# forks and returns immediately, never waits for the child). So
+# "vpn-connect returned" is not the same moment as "phase1-up.sh
+# finished" either -- confirmed empirically too: both earlier Bionic
+# archives show 04-connected-filtered-spd.log coming back 0 bytes despite
+# the hook's own state file (captured moments later) showing a fully
+# successful, later-consumed run. Wait explicitly before snapshotting.
+# --------------------------------------------------------------------------
+narrate "waiting for phase1-up.sh's own completion summary before snapshotting connected-state SPD/hook-state..."
+if wait_for_hook_report "phase1-up" "$PRE_CONNECT_LOGLINE_COUNT" "$PHASE1_UP_WAIT_TIMEOUT"; then
+	PHASE1_UP_CONFIRMED=1
+	narrate "phase1-up.sh's completion summary confirmed in syslog -- snapshotting now, at the correct moment"
+else
+	PHASE1_UP_CONFIRMED=0
+	narrate "WARNING: did not see phase1-up.sh's completion summary within ${PHASE1_UP_WAIT_TIMEOUT}s -- either the hook isn't wired into racoon.conf's remote block (check for 'script ... phase1_up;'), or it's taking unusually long. Snapshotting anyway, but treat 04-connected-filtered-spd.log/04-hook-state-*.log with the same caution this produced in earlier runs."
+fi
 
 # racoonctl show-sa isakmp is still captured below as useful evidence
 # (a populated table vs. empty after disconnect), but it is NOT the
@@ -225,6 +388,7 @@ done
 narrate "captured connected-state filtered SPD ($OUT/04-connected-filtered-spd.log) and hook state file(s) ($OUT/04-hook-state-content.log) -- cross-reference these two by hand: every non-per-socket selector in the SPD dump should have a matching spdadd undo (spddelete) line in the state file"
 
 narrate "=== disconnecting: racoonctl vpn-disconnect $VPN_GATEWAY ==="
+PRE_DISCONNECT_LOGLINE_COUNT="$(wc -l < "$RACOON_LOG" 2>/dev/null || echo 0)"
 if ! timeout "$CONNECT_TIMEOUT" "$RACOONCTL_BIN" vpn-disconnect "$VPN_GATEWAY" > "$OUT/04-vpn-disconnect.log" 2>&1; then
 	cat "$OUT/04-vpn-disconnect.log"
 	narrate "WARNING: racoonctl vpn-disconnect did not return cleanly within ${CONNECT_TIMEOUT}s -- continuing anyway, but treat step 5 with caution"
@@ -238,30 +402,24 @@ fi
 # script_hook(SCRIPT_PHASE1_DOWN), i.e. phase1-down.sh. So
 # "vpn-disconnect returned" is NOT the same moment as "phase1-down.sh
 # completed" -- there is a real ordering gap. Wait explicitly for the
-# hook's own completion marker (its report's "result:" summary line,
-# established throughout this whole engagement's live logs) rather than
-# trusting vpn-disconnect's return alone.
+# hook's own completion summary rather than trusting vpn-disconnect's
+# return alone. (Earlier version of this script grepped for the
+# "racoon phase1-down report --" header text; that header is part of the
+# multi-line report gated behind hook debug level >= 1, and the default
+# level is 0 -- under default settings it never appears at all, so that
+# check could never actually succeed. Fixed to use the same
+# always-emitted one-line summary the connect-side wait above uses.)
 # --------------------------------------------------------------------------
-narrate "vpn-disconnect returned -- this is EVT_PHASE1_DOWN, NOT phase1-down.sh's own completion (confirmed against isakmp_ph1delete()'s ordering: evt_phase1() fires before delph1() calls script_hook(SCRIPT_PHASE1_DOWN)). Waiting explicitly for the hook's own report line..."
+narrate "vpn-disconnect returned -- this is EVT_PHASE1_DOWN, NOT phase1-down.sh's own completion (confirmed against isakmp_ph1delete()'s ordering: evt_phase1() fires before delph1() calls script_hook(SCRIPT_PHASE1_DOWN)). Waiting explicitly for the hook's own completion summary..."
 
-PHASE1_DOWN_CONFIRMED=0
-i=0
-while [ "$i" -lt "$PHASE1_DOWN_WAIT_TIMEOUT" ]; do
-	if grep -q "racoon phase1-down report" "$RACOON_LOG" 2>/dev/null && \
-	   grep -qE "^\s*result: (OK|PARTIAL)" "$RACOON_LOG" 2>/dev/null; then
-		PHASE1_DOWN_CONFIRMED=1
-		break
-	fi
-	sleep 1
-	i=$((i + 1))
-done
-
-if [ "$PHASE1_DOWN_CONFIRMED" -eq 1 ]; then
-	narrate "phase1-down.sh's own report line confirmed in syslog after ${i}s -- proceeding to the fork-in-the-road check now, at the correct moment"
+if wait_for_hook_report "phase1-down" "$PRE_DISCONNECT_LOGLINE_COUNT" "$PHASE1_DOWN_WAIT_TIMEOUT"; then
+	PHASE1_DOWN_CONFIRMED=1
+	narrate "phase1-down.sh's completion summary confirmed in syslog -- proceeding to the fork-in-the-road check now, at the correct moment"
 else
-	narrate "WARNING: did not see phase1-down.sh's report line in syslog within ${PHASE1_DOWN_WAIT_TIMEOUT}s -- either the hook isn't wired into racoon.conf's remote block (check for 'script ... phase1_down;'), or it's taking unusually long, or -f's syslog output has a delay. Proceeding anyway since the task's own step 5 still needs a result, but flag this explicitly in the write-up rather than treating the timing as clean."
+	PHASE1_DOWN_CONFIRMED=0
+	narrate "WARNING: did not see phase1-down.sh's completion summary within ${PHASE1_DOWN_WAIT_TIMEOUT}s -- either the hook isn't wired into racoon.conf's remote block (check for 'script ... phase1_down;'), or it's taking unusually long. Proceeding anyway since the task's own step 5 still needs a result, but flag this explicitly in the write-up rather than treating the timing as clean."
 fi
-grep -A 30 "racoon phase1-down report" "$RACOON_LOG" > "$OUT/04-phase1-down-report.log" 2>/dev/null
+tail -n "+$((PRE_DISCONNECT_LOGLINE_COUNT + 1))" "$RACOON_LOG" 2>/dev/null | grep -E "racoon-phase1-down" > "$OUT/04-phase1-down-report.log" 2>/dev/null
 
 # ==========================================================================
 # Step 5: THE FORK IN THE ROAD. Filtered setkey -DP immediately after
@@ -282,9 +440,13 @@ fi
 {
 	echo "# Task F results -- $TS"
 	echo
+	echo "SCENARIO_LABEL=$SCENARIO_LABEL"
+	echo "(verify against $OUT/00b-network-backend-snapshot.log -- that file is the ground truth, this label is just a human-typed tag)"
+	echo
 	echo "VPN_GATEWAY=$VPN_GATEWAY"
 	echo "INTERNAL_DNS_SERVER=$INTERNAL_DNS_SERVER"
 	echo "Original connected ISAKMP-SA: ${ORIGINAL_SPI:-<not captured, see 04-show-sa-connected.log>}"
+	echo "phase1-up.sh completion confirmed via syslog: $([ "$PHASE1_UP_CONFIRMED" -eq 1 ] && echo yes || echo NO -- see warning above)"
 	echo "phase1-down.sh completion confirmed via syslog: $([ "$PHASE1_DOWN_CONFIRMED" -eq 1 ] && echo yes || echo NO -- see warning above)"
 	echo
 	echo "## Step 5 fork-in-the-road result: tentatively BRANCH $BRANCH"
