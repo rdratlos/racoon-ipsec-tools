@@ -91,3 +91,78 @@ Resolution:
 
 Full suite after this change: `make check` (1/1) plus all 8 hook fixture
 files (445 checks total) pass; `shellcheck` clean.
+
+## Row 29 -- validation-gaps table
+
+**Comment:** 5061097437 (+ the `review/pr-91-review-reports-and-proposed-fixes`
+doc). **Verdict:** Partly Accepted, explicitly requiring individual product
+judgment per sub-item rather than a blanket accept -- the existing
+validation's actual job (shell/`setkey` injection-safety) was already solid
+and verified; these three sub-items are additional *policy*-level
+restrictions, not injection fixes.
+
+### 29a -- RFC1918/bogon rejection for DNS server addresses
+
+`rhook_validate_dns_list()` already rejected `0.0.0.0`, loopback
+(`127.0.0.0/8`) and multicast (`224.0.0.0/4`) for DNS server addresses --
+confirmed by reading the code, not assumed from the brief. Extended to the
+rest of the never-legitimate ranges: `0.0.0.0/8` as a whole (not just the
+single address), link-local (`169.254.0.0/16`), and reserved/Class E plus
+the broadcast address (`240.0.0.0/4`).
+
+**RFC1918 private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`)
+are deliberately NOT rejected, and this must never change.** Every one of
+this project's own live-tested internal DNS servers uses one of these
+ranges (`10.66.0.6` throughout the issue #90 Task F evidence, the whole
+`nepomuc.de` topology) -- rejecting RFC1918 by default would reject the
+project's own primary confirmed-working scenario. Pinned down with a code
+comment and three permanent regression tests (`test-validation.sh`), not
+left as an implicit assumption.
+
+### 29b -- CIDR overlap / `0.0.0.0/0` rejection for split-include networks
+
+**`0.0.0.0/0` is not rejected**, and not specially rejected, warned about,
+or blocked in any dedicated way -- it is treated like any other CIDR:
+flagged only if it overlaps something else offered alongside it, exactly
+like any other overlapping pair, never rejected outright. This project has
+never taken a position on whether full-tunnel is a supported deployment
+mode; nothing in `doc/dev/ARCHITECTURE.md` addresses it either way. A
+`hooks.conf` opt-in/deny flag (mirroring the `allow_resolv_conf_overwrite`
+pattern) would be the right shape **if the maintainer decides full-tunnel
+needs deliberate gating** -- that determination was not made here, since it
+is a product-scope decision, not a validation-hardening one. Flagging this
+explicitly rather than silently declining it or silently implementing a
+guess.
+
+**CIDR overlap detection** is implemented as a warning, not a rejection:
+`rhook_build_plan()` now checks every pair of entries in the resolved
+`RHOOK_ROUTES` list (`SPLIT_INCLUDE_CIDR` unioned with DNS-server host
+routes) and logs `overlapping split ranges received from gateway: <a> and
+<b>` at `warn` level for any pair that shares an address, while still
+planning and routing both exactly as offered -- overlapping ranges are
+redundant, not unsafe. New helper `rhook_cidr_overlaps()` compares octet by
+octet rather than building one 32-bit integer per address (documented
+in-code why: `192.168.x.x`'s first octet alone, `192 * 16777216`, already
+exceeds a 32-bit signed integer's range on an unconfirmed-width shell).
+
+### 29c -- IDN/Punycode domain handling
+
+Checked first, rather than assumed: a raw Unicode homoglyph domain is
+already rejected as a side effect of `rhook_valid_domain()`'s
+`[A-Za-z0-9.-]` character-class check (confirmed with a direct test using
+a UTF-8-encoded label, not just reasoned about). Its Punycode-encoded
+(`xn--...`) equivalent is plain ASCII and passes that same check -- that is
+the actual residual gap, and it is a visibility gap, not a validation gap:
+syntactically an ACE-encoded domain is a perfectly valid string.
+
+`rhook_validate_domain_list()` now logs a `warn`-level line for any domain
+with a label starting with the `xn--` ACE prefix (case-insensitive,
+matching how DNS labels and ACE-prefix comparison are both defined),
+without rejecting it. No homoglyph/confusables-table detection was
+attempted -- out of proportion for this project's threat model here (a
+malicious or compromised gateway sending Mode Config attributes, not a
+sophisticated phishing scenario); surfacing the raw Punycode form to a
+human reviewing the report is the proportionate fix.
+
+Full suite after all three sub-items: `make check` (1/1) plus all 8 hook
+fixture files (476 checks total) pass; `shellcheck` clean.
