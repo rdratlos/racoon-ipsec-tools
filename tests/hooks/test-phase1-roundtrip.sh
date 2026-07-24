@@ -21,6 +21,17 @@ SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 HOOK_UP="$SCRIPT_DIR/../../src/racoon/scripts/phase1-up.sh"
 HOOK_DOWN="$SCRIPT_DIR/../../src/racoon/scripts/phase1-down.sh"
 
+# CI-found: real hook invocations below run under dash specifically (see
+# the §J rationale comment further down) -- but a host with no dash
+# package at all (the NetBSD CI job's vmactions runner in particular)
+# made every single one of them fail outright with "dash: not found"
+# rather than actually exercising the hooks. Falls back to "sh" (this
+# file's own interpreter, per its shebang/CI invocation) when dash isn't
+# on PATH -- on NetBSD that IS the strict target shell §J's denylist
+# trick is standing in for elsewhere, not an approximation there.
+RHOOK_HOOK_SHELL="dash"
+command -v "$RHOOK_HOOK_SHELL" >/dev/null 2>&1 || RHOOK_HOOK_SHELL="sh"
+
 TESTS_RUN=0
 TESTS_FAILED=0
 
@@ -48,18 +59,18 @@ assert_not_contains() {
 }
 
 # --------------------------------------------------------------------------
-# Brief 3 §J: every real `dash "$HOOK_UP"`/`dash "$HOOK_DOWN"` invocation
-# below is checked against a fixed denylist of shell-portability error
-# markers -- phrases a stricter shell (NetBSD's /bin/sh in particular)
-# emits for a construct it doesn't accept the way dash/bash do. A
-# scenario's own assertions only check for the specific substrings it
-# cares about; they would not by themselves catch a portability bug
-# whose extra noise on stderr happens not to break those substrings.
-# Verified (grep) that none of the shipped scripts' own log/error text
-# uses any denylisted phrase, so a match here is always either a real
-# portability bug or new legitimate text that needs a documented
-# exception in RHOOK_STDERR_ALLOWLIST below -- never remove a denylist
-# entry to make a real failure go away.
+# Brief 3 §J: every real `"$RHOOK_HOOK_SHELL" "$HOOK_UP"`/
+# `"$RHOOK_HOOK_SHELL" "$HOOK_DOWN"` invocation below is checked against a
+# fixed denylist of shell-portability error markers -- phrases a stricter
+# shell (NetBSD's /bin/sh in particular) emits for a construct it doesn't
+# accept the way dash/bash do. A scenario's own assertions only check for
+# the specific substrings it cares about; they would not by themselves
+# catch a portability bug whose extra noise on stderr happens not to
+# break those substrings. Verified (grep) that none of the shipped
+# scripts' own log/error text uses any denylisted phrase, so a match here
+# is always either a real portability bug or new legitimate text that
+# needs a documented exception in RHOOK_STDERR_ALLOWLIST below -- never
+# remove a denylist entry to make a real failure go away.
 # --------------------------------------------------------------------------
 RHOOK_STDERR_ALLOWLIST=""   # newline-separated fixed strings to excuse, if ever needed
 
@@ -162,7 +173,7 @@ reset_env() {
 # ==========================================================================
 reset_env clean
 export IKE_COOKIE="cookie-clean"
-up_out=$(dash "$HOOK_UP" 2>&1)
+up_out=$("$RHOOK_HOOK_SHELL" "$HOOK_UP" 2>&1)
 up_rc=$?
 assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up_out"
 assert_eq "phase1-up exits 0" "$up_rc" "0"
@@ -171,7 +182,7 @@ STATE_FILE="$WORK_RUN/hook-state.203.0.113.99.1"
 TESTS_RUN=$((TESTS_RUN + 1))
 [ -s "$STATE_FILE" ] || fail "phase1-up must leave a non-empty state file for phase1-down to consume"
 
-down_out=$(dash "$HOOK_DOWN" 2>&1)
+down_out=$("$RHOOK_HOOK_SHELL" "$HOOK_DOWN" 2>&1)
 down_rc=$?
 assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down_out"
 assert_eq "phase1-down exits 0" "$down_rc" "0"
@@ -246,14 +257,14 @@ export STUCK_MARKER="$WORK/stuck-marker"
 rm -f "$STUCK_MARKER"
 export IKE_COOKIE="cookie-retry"
 
-up_out=$(dash "$HOOK_UP" 2>&1)
+up_out=$("$RHOOK_HOOK_SHELL" "$HOOK_UP" 2>&1)
 up_rc=$?
 assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up_out"
 assert_eq "retry scenario: phase1-up exits 0" "$up_rc" "0"
 assert_contains "retry scenario: phase1-up's own report ran (sanity check on the fixture)" "$up_out" "phase1-up report"
 STATE_FILE="$WORK_RUN/hook-state.203.0.113.99.1"
 
-down_out1=$(dash "$HOOK_DOWN" 2>&1)
+down_out1=$("$RHOOK_HOOK_SHELL" "$HOOK_DOWN" 2>&1)
 down_rc1=$?
 assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down_out1"
 assert_eq "first phase1-down (one route del fails) exits 0 under warn policy" "$down_rc1" "0"
@@ -262,7 +273,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 [ -s "$STATE_FILE" ] || fail "state file must survive a partial-failure teardown for a retry"
 assert_contains "only the stuck route survives in the retained state" "$(cat "$STATE_FILE" 2>/dev/null)" "198.51.100.0/24"
 
-down_out2=$(dash "$HOOK_DOWN" 2>&1)
+down_out2=$("$RHOOK_HOOK_SHELL" "$HOOK_DOWN" 2>&1)
 down_rc2=$?
 assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down_out2"
 assert_eq "retry phase1-down (marker now set, ip succeeds) exits 0" "$down_rc2" "0"
@@ -277,7 +288,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 # -- rhook_state_own_generation() must return empty rather than guess.
 # ==========================================================================
 reset_env noop
-out=$(dash "$HOOK_DOWN" 2>&1)
+out=$("$RHOOK_HOOK_SHELL" "$HOOK_DOWN" 2>&1)
 rc=$?
 assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$out"
 assert_eq "phase1-down with no state exits 0" "$rc" "0"
@@ -303,7 +314,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 reset_env overlap
 export SPLIT_INCLUDE_CIDR="100.64.0.0/24"
 export IKE_COOKIE="cookie-overlap-sa1"
-up1_out=$(dash "$HOOK_UP" 2>&1)
+up1_out=$("$RHOOK_HOOK_SHELL" "$HOOK_UP" 2>&1)
 assert_eq "overlap: first phase1-up (SA1) exits 0" "$?" "0"
 assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up1_out"
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -311,7 +322,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 
 export SPLIT_INCLUDE_CIDR="100.64.1.0/24"
 export IKE_COOKIE="cookie-overlap-sa2"
-up2_out=$(dash "$HOOK_UP" 2>&1)
+up2_out=$("$RHOOK_HOOK_SHELL" "$HOOK_UP" 2>&1)
 assert_eq "overlap: second phase1-up (SA2, same peer, SA1 still up) exits 0" "$?" "0"
 assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up2_out"
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -323,7 +334,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 # generation .1 -- because it's the one whose IKE_COOKIE matches, not
 # because it's the oldest -- even though .2 also exists and is also live.
 export IKE_COOKIE="cookie-overlap-sa1"
-down1_out=$(dash "$HOOK_DOWN" 2>&1)
+down1_out=$("$RHOOK_HOOK_SHELL" "$HOOK_DOWN" 2>&1)
 assert_eq "overlap: first phase1-down exits 0" "$?" "0"
 assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down1_out"
 assert_contains "first phase1-down undid SA1's own route (100.64.0.0/24)" "$(cat "$IP_LOG")" "route del 100.64.0.0/24"
@@ -338,7 +349,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 # consume generation .2, the only one left.
 export IKE_COOKIE="cookie-overlap-sa2"
 : > "$IP_LOG"
-down2_out=$(dash "$HOOK_DOWN" 2>&1)
+down2_out=$("$RHOOK_HOOK_SHELL" "$HOOK_DOWN" 2>&1)
 assert_eq "overlap: second phase1-down exits 0" "$?" "0"
 assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down2_out"
 assert_contains "second phase1-down undid SA2's own route (100.64.1.0/24)" "$(cat "$IP_LOG")" "route del 100.64.1.0/24"
@@ -360,7 +371,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 reset_env lifo
 export SPLIT_INCLUDE_CIDR="100.64.10.0/24"
 export IKE_COOKIE="cookie-lifo-sa1"
-up1_out=$(dash "$HOOK_UP" 2>&1)
+up1_out=$("$RHOOK_HOOK_SHELL" "$HOOK_UP" 2>&1)
 assert_eq "lifo: first phase1-up (SA1, will be left orphaned) exits 0" "$?" "0"
 assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up1_out"
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -368,7 +379,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 
 export SPLIT_INCLUDE_CIDR="100.64.11.0/24"
 export IKE_COOKIE="cookie-lifo-sa2"
-up2_out=$(dash "$HOOK_UP" 2>&1)
+up2_out=$("$RHOOK_HOOK_SHELL" "$HOOK_UP" 2>&1)
 assert_eq "lifo: second phase1-up (SA2, same peer, SA1 still up) exits 0" "$?" "0"
 assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up2_out"
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -377,7 +388,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 # Tear down SA2 FIRST, by its own cookie -- the reverse of arrival order.
 export IKE_COOKIE="cookie-lifo-sa2"
 : > "$IP_LOG"
-down_out=$(dash "$HOOK_DOWN" 2>&1)
+down_out=$("$RHOOK_HOOK_SHELL" "$HOOK_DOWN" 2>&1)
 assert_eq "lifo: phase1-down for SA2 exits 0" "$?" "0"
 assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down_out"
 assert_contains "phase1-down undid SA2's own route (100.64.11.0/24), not SA1's" "$(cat "$IP_LOG")" "route del 100.64.11.0/24"
