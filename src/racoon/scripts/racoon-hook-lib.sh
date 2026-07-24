@@ -1679,16 +1679,38 @@ rhook_dns_emit_flush_caches() {
 
 # rhook_dns_emit_clear_dns / rhook_dns_emit_clear_domains <tool> <iface>
 #
-# Explicit per-setting fallback for when revert is unavailable or fails at
-# apply time (§6 point 6). Both tools document a single empty-string
-# argument to dns/domain (or --set-dns=""/--set-domain="") as clearing
-# that value list. NEVER use "~." here: that is the catch-all *routing*
-# domain, meaning "route every query with no better match to this link" --
-# the opposite of clearing it, and it promotes a DNS-less link to the
-# system-wide default resolver. This is a confirmed, previously-live bug
-# in this hook set's own teardown fallback: it produced a total resolution
-# outage on the very path meant to prevent one, reported by users as "the
-# VPN killed my internet".
+# Explicit per-setting undo for set_dns/set_domains (§6 point 6). NEVER use
+# "~." here: that is the catch-all *routing* domain, meaning "route every
+# query with no better match to this link" -- the opposite of clearing it,
+# and it promotes a DNS-less link to the system-wide default resolver.
+# This is a confirmed, previously-live bug in this hook set's own teardown
+# fallback: it produced a total resolution outage on the very path meant
+# to prevent one, reported by users as "the VPN killed my internet".
+#
+# resolvectl's empty-string form (`dns IFACE ""` / `domain IFACE ""`) is
+# genuinely valid -- confirmed against resolvectl.c's verb_dns()/
+# verb_domain()/call_dns(): an argv of a single empty string is special-
+# cased (`strv_equal(dns, STRV_MAKE(""))`) to bypass normal per-value
+# parsing and clear the setting. systemd-resolve's flag-based
+# --set-dns=""/--set-domain="" is NOT the equivalent, despite looking
+# like it should be: confirmed against systemd v237's own
+# resolve-tool.c that --set-dns requires a value that parses as an
+# address (in_addr_from_string_auto()) and --set-domain requires valid
+# domain syntax -- an empty string fails both, and the command errors
+# out rather than clearing anything. Found live on a real Bionic host
+# (systemd-resolve --interface=racoon0 --set-dns="" / --set-domain=""
+# both erroring), not merely inferred from source. --revert is that
+# tool's own documented way to clear all per-link settings; confirmed
+# idempotent by reading resolved's server-side D-Bus method
+# implementation (resolved-link-bus.c's bus_link_method_revert(), called
+# via resolved-bus.c's call_link_method()/get_any_link()): it
+# unconditionally calls link_flush_settings() and returns success
+# regardless of whether anything was actually set on the link, with the
+# only error paths being an unknown ifindex or an explicitly unmanaged
+# link -- neither applies to a dummy interface this hook set is actively
+# tearing down. Calling revert from both this function and
+# rhook_dns_emit_clear_domains() when both steps are in the same plan is
+# therefore redundant but harmless, not a bug to work around.
 rhook_dns_emit_clear_dns() {
 	local rhook_tool rhook_iface
 	rhook_tool="$1"; rhook_iface="$2"
@@ -1697,7 +1719,7 @@ rhook_dns_emit_clear_dns() {
 			printf '%s dns %s ""' "$RACOON_HOOK_RESOLVECTL" "$rhook_iface"
 			;;
 		systemd-resolve)
-			printf '%s --interface=%s --set-dns=""' "$RACOON_HOOK_SYSTEMD_RESOLVE" "$rhook_iface"
+			rhook_dns_emit_revert "$rhook_tool" "$rhook_iface"
 			;;
 		*)
 			return 1
@@ -1713,7 +1735,7 @@ rhook_dns_emit_clear_domains() {
 			printf '%s domain %s ""' "$RACOON_HOOK_RESOLVECTL" "$rhook_iface"
 			;;
 		systemd-resolve)
-			printf '%s --interface=%s --set-domain=""' "$RACOON_HOOK_SYSTEMD_RESOLVE" "$rhook_iface"
+			rhook_dns_emit_revert "$rhook_tool" "$rhook_iface"
 			;;
 		*)
 			return 1
@@ -2120,6 +2142,70 @@ rhook_plan_spd() {
 }
 
 # --------------------------------------------------------------------------
+# Idempotent dummy-interface creation.
+#
+# Found live (Ubuntu Bionic roadwarrior, no reboot between test runs):
+#   [trace]   command: ip link add "racoon0" type dummy && ip link set "racoon0" up
+#   [trace]   output: RTNETLINK answers: File exists
+# An incomplete prior teardown -- F2's SIGTERM/script_exec() race
+# (doc/dev/daemon-issues.md), or simply racoon restarting without a
+# clean phase1-down.sh having run first -- left racoon0 already present.
+# The unconditional `ip link add ... type dummy` this step used to run
+# then failed outright (ip exit 2), a *required* step, halting
+# phase1-up.sh before address, routes, SPD or DNS ever applied --
+# leaving the interface "hanging" from the prior run AND the new
+# connection completely unconfigured.
+#
+# Verified against real iproute2 behavior (this tree's own dev
+# container, iproute2 6.1.0) rather than assumed, and cross-checked
+# against iproute2 4.15.0's own source -- the exact release Ubuntu
+# Bionic ships -- via ipaddr_list_flush_or_save()/match_link_kind() in
+# ipaddress.c, confirming `ip link show dev IFACE type KIND` filtering
+# by the link's info_kind existed there too, not only in a newer
+# version:
+#   - a nonexistent device: `ip link show dev IFACE` (with or without a
+#     type filter) exits 1 with `Device "IFACE" does not exist.`
+#   - an existing device whose type does NOT match the filter: exits 0
+#     with EMPTY output -- the mismatch is silent, not an error, so
+#     exit status alone cannot distinguish "wrong type" from "matches";
+#     the output must be checked for content.
+#   - an existing device whose type DOES match: exits 0 with the normal
+#     link listing (non-empty).
+#
+# Never touches an existing interface this hook set cannot positively
+# identify as its own dummy-type creation -- reusing (never deleting or
+# reconfiguring) a same-named, wrong-type interface would violate R1
+# ("no persistent reconfiguration beyond the VPN session") far more
+# seriously than refusing to start.
+#
+# Known residual scope limit, not fixed here: this assumes a single
+# active session owns $RHOOK_DUMMY_IFACE at a time -- the same
+# assumption the networkmanager backend's nm_dummy_profile step already
+# makes via its own single hardcoded connection name. Two genuinely
+# concurrent generations for the same peer (brief 3 §D's overlap
+# scenario) sharing one physical dummy interface is a separate,
+# pre-existing design question this fix does not attempt to solve.
+# --------------------------------------------------------------------------
+rhook_ensure_dummy_iface() {
+	local rhook_edi_iface
+	rhook_edi_iface="$1"
+
+	if ! "$RACOON_HOOK_IP" link show dev "$rhook_edi_iface" >/dev/null 2>&1; then
+		"$RACOON_HOOK_IP" link add "$rhook_edi_iface" type dummy && "$RACOON_HOOK_IP" link set "$rhook_edi_iface" up
+		return $?
+	fi
+
+	if [ -n "$("$RACOON_HOOK_IP" -o link show dev "$rhook_edi_iface" type dummy 2>/dev/null)" ]; then
+		rhook_log warn "dummy interface $rhook_edi_iface already exists -- reusing it rather than failing (a prior session's teardown likely did not complete; see the Admin Guide's Split-DNS & Routing Hooks section, Leftover State After a Non-Clean Stop)"
+		"$RACOON_HOOK_IP" link set "$rhook_edi_iface" up
+		return $?
+	fi
+
+	echo "an interface named $rhook_edi_iface already exists and is not a dummy-type interface this hook set created -- refusing to touch it (set dummy_iface in hooks.conf to a different name, or resolve the conflict manually)" >&2
+	return 1
+}
+
+# --------------------------------------------------------------------------
 # Plan builder (§3.2). Pure construction -- calls rhook_plan_add only,
 # never anything that touches the system -- so --dry-run costs nothing to
 # support (§3.2: "Building the plan performs no changes").
@@ -2183,12 +2269,12 @@ rhook_build_plan() {
 		# never leaked either way.
 		rhook_plan_add dummy_iface create_dummy required \
 			"create dummy interface $RHOOK_DUMMY_IFACE" \
-			"$RACOON_HOOK_IP link add \"$RHOOK_DUMMY_IFACE\" type dummy && $RACOON_HOOK_IP link set \"$RHOOK_DUMMY_IFACE\" up" \
+			"rhook_ensure_dummy_iface \"$RHOOK_DUMMY_IFACE\"" \
 			"$RACOON_HOOK_NMCLI device delete \"$RHOOK_DUMMY_IFACE\" >/dev/null 2>&1 || $RACOON_HOOK_IP link del \"$RHOOK_DUMMY_IFACE\""
 	else
 		rhook_plan_add dummy_iface create_dummy required \
 			"create dummy interface $RHOOK_DUMMY_IFACE" \
-			"$RACOON_HOOK_IP link add \"$RHOOK_DUMMY_IFACE\" type dummy && $RACOON_HOOK_IP link set \"$RHOOK_DUMMY_IFACE\" up" \
+			"rhook_ensure_dummy_iface \"$RHOOK_DUMMY_IFACE\"" \
 			"$RACOON_HOOK_IP link del \"$RHOOK_DUMMY_IFACE\""
 	fi
 
@@ -2196,6 +2282,53 @@ rhook_build_plan() {
 		"add $RHOOK_INTERNAL_ADDR4/32 to $RHOOK_DUMMY_IFACE" \
 		"$RACOON_HOOK_IP addr replace \"$RHOOK_INTERNAL_ADDR4/32\" dev \"$RHOOK_DUMMY_IFACE\"" \
 		"$RACOON_HOOK_IP addr del \"$RHOOK_INTERNAL_ADDR4/32\" dev \"$RHOOK_DUMMY_IFACE\""
+
+	# Found live (Ubuntu Bionic and Arch/Manjaro roadwarriors, both with
+	# NetworkManager active): `ip route ... src $RHOOK_INTERNAL_ADDR4`
+	# below requires that address to already be assigned to *some* local
+	# interface -- confirmed directly against the kernel (RTM_NEWROUTE's
+	# own prefsrc validation, not an iproute2-side check): `ip route add
+	# ... src X` fails with exactly "Error: Invalid prefsrc address."
+	# (exit 2) whenever X is not currently configured anywhere on the
+	# host, and succeeds the moment it is, regardless of which interface
+	# it's on. For every other backend, dummy_iface/dummy_addr above
+	# already assigned that address before this point. For
+	# networkmanager, they are precondition-skipped (NM creates the
+	# interface itself) and the only step that actually assigns the
+	# address -- nm_dummy_profile, folded into rhook_plan_dns_networkmanager()
+	# -- used to be planned last, inside the DNS section, after routes
+	# and SPD. Routes therefore tried to reference an address nothing
+	# had assigned yet and failed outright on every real NetworkManager
+	# host tested, regardless of which DNS tool it delegates to
+	# (systemd-resolve on Bionic, resolvectl on Arch -- the failure never
+	# reached DNS-tool-specific code at all). Planning it here instead,
+	# right alongside dummy_iface/dummy_addr, fixes that without touching
+	# the resolved/resolvconf/dnsmasq/fallback backends' step order or
+	# DNS-tool selection at all -- see rhook_plan_dns()'s own comment for
+	# why the networkmanager case is a no-op there now.
+	#
+	# Trade-off, not hidden: nm_dummy_profile bundles interface, address
+	# and DNS configuration into one atomic `nmcli connection add`
+	# call -- deliberately, since Brief 1's own history found that
+	# creating the interface separately and configuring it afterward
+	# races NetworkManager's own policy audit ("modify while active").
+	# Moving that whole atomic step earlier necessarily moves its
+	# teardown later too (state file order follows actual apply order,
+	# reversed) -- for this backend only, DNS is no longer the first
+	# thing reverted on disconnect (R4), it is now reverted together
+	# with the interface, last. Splitting it to preserve R4's ordering
+	# exactly is the same "modify while active" race Brief 1 already
+	# found and rejected, so this fix keeps the atomic step and accepts
+	# the teardown-order trade-off rather than reintroducing that race.
+	#
+	# Known gap this does not address: if the gateway sends split-include
+	# routes but no internal DNS servers at all, RHOOK_DNS_SERVERS is
+	# empty and this call is skipped entirely (matching its pre-existing
+	# guard), so no interface gets created here either -- routes would
+	# still fail in that specific case, unchanged from before this fix.
+	if [ "$RHOOK_BACKEND_RESOLVED" = "networkmanager" ] && [ -n "$RHOOK_DNS_SERVERS" ]; then
+		rhook_plan_dns_networkmanager
+	fi
 
 	# R5: routes stay on the physical interface (that's what actually
 	# forwards packets); only src= comes from the dummy-anchored address.
@@ -2229,7 +2362,13 @@ rhook_build_plan() {
 
 rhook_plan_dns() {
 	case "$RHOOK_BACKEND_RESOLVED" in
-		networkmanager)   rhook_plan_dns_networkmanager ;;
+		networkmanager)
+			# Already planned earlier in rhook_build_plan(), right after
+			# dummy_iface/dummy_addr and before routes -- see that call
+			# site's own comment for why (routes need the address
+			# nm_dummy_profile assigns, and that step is atomic with
+			# interface creation). Nothing to do here for this backend.
+			;;
 		resolved)         rhook_plan_dns_resolved ;;
 		resolvconf)       rhook_plan_dns_resolvconf ;;
 		dnsmasq)          rhook_plan_dns_dnsmasq ;;
@@ -2278,7 +2417,21 @@ rhook_plan_dns_networkmanager() {
 		esac
 	fi
 
-	rhook_apply="$RACOON_HOOK_NMCLI connection delete racoon-vpn-dns >/dev/null 2>&1; $RACOON_HOOK_IP link del \"$RHOOK_DUMMY_IFACE\" >/dev/null 2>&1; $RACOON_HOOK_NMCLI connection add type dummy ifname \"$RHOOK_DUMMY_IFACE\" con-name racoon-vpn-dns autoconnect no ipv4.method manual ipv4.addresses \"$RHOOK_INTERNAL_ADDR4/32\" ipv4.dns \"$rhook_dns_csv\" ipv4.dns-search \"$rhook_search\" ipv4.dns-priority 50 ipv4.ignore-auto-dns yes ipv4.never-default yes ipv6.method disabled && $RACOON_HOOK_NMCLI connection up racoon-vpn-dns"
+	# ipv6.method: "ignore" not "disabled". Found live on Ubuntu Bionic
+	# (NetworkManager 1.10.6): `nmcli connection add ... ipv6.method
+	# disabled` fails outright -- "Error: failed to modify ipv6.method:
+	# 'disabled' not among [ignore, auto, dhcp, link-local, manual,
+	# shared]". Confirmed against that NM version's own source
+	# (libnm-core/nm-setting-ip6-config.c): NM_SETTING_IP6_CONFIG_METHOD_
+	# DISABLED does not exist there at all -- it was added later. "ignore"
+	# has been present since NM's oldest supported releases and is
+	# documented (current source, nm-setting-ip6-config.c) as meaning
+	# "IPv6 configuration is not done" -- weaker than "disabled" (which
+	# additionally turns IPv6 off at the kernel level), since the dummy
+	# interface may still pick up a kernel-assigned link-local address,
+	# but that's harmless here: this hook never routes IPv6 traffic
+	# through it, only anchors an IPv4 address for DNS/route src=.
+	rhook_apply="$RACOON_HOOK_NMCLI connection delete racoon-vpn-dns >/dev/null 2>&1; $RACOON_HOOK_IP link del \"$RHOOK_DUMMY_IFACE\" >/dev/null 2>&1; $RACOON_HOOK_NMCLI connection add type dummy ifname \"$RHOOK_DUMMY_IFACE\" con-name racoon-vpn-dns autoconnect no ipv4.method manual ipv4.addresses \"$RHOOK_INTERNAL_ADDR4/32\" ipv4.dns \"$rhook_dns_csv\" ipv4.dns-search \"$rhook_search\" ipv4.dns-priority 50 ipv4.ignore-auto-dns yes ipv4.never-default yes ipv6.method ignore && $RACOON_HOOK_NMCLI connection up racoon-vpn-dns"
 	rhook_undo="$RACOON_HOOK_NMCLI connection down racoon-vpn-dns >/dev/null 2>&1; $RACOON_HOOK_NMCLI connection delete racoon-vpn-dns >/dev/null 2>&1"
 
 	rhook_plan_add nm_dns nm_dummy_profile required \

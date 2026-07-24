@@ -171,8 +171,14 @@ assert_contains "phase1-down reports OK" "$down_out" "result: OK"
 TESTS_RUN=$((TESTS_RUN + 1))
 [ -s "$STATE_FILE" ] && fail "phase1-down must remove the state file after a clean teardown"
 
-# R4 end to end: the nmcli teardown call must be logged before the last
-# `ip route del` -- DNS torn down first, routes/interface last.
+# R4 end to end, both directions logged: teardown must actually reverse
+# both the DNS profile and the routes phase1-up added. Note this does NOT
+# assert relative order -- for backend=networkmanager specifically, R4's
+# usual "DNS torn down first" no longer holds since the route-ordering fix
+# (routes now depend on the address nm_dummy_profile assigns, so that step
+# applies early and is therefore undone last, not first; see
+# rhook_build_plan()'s own comment on that trade-off). Other backends are
+# unaffected and still tear DNS down first.
 nmcli_down_line=$(grep -n 'connection down racoon-vpn-dns' "$NMCLI_LOG" | head -1 | cut -d: -f1)
 last_route_del_line_in_ip_log=$(grep -n 'route del' "$IP_LOG" | tail -1)
 TESTS_RUN=$((TESTS_RUN + 1))

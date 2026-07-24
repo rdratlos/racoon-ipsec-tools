@@ -87,6 +87,17 @@ mkdir -p "$WORK/bin"
 # ip stub: answers `-4 route get <addr>` with a fixed interface, logs
 # every invocation, and lets link/addr/route subcommands succeed unless
 # IP_FAIL_LINK_ADD=1 is set (used by the failure-policy scenarios).
+#
+# `route ... src X` reproduces the real kernel's own prefsrc validation
+# (confirmed live against real iproute2/kernel behavior, not assumed):
+# it only succeeds once X has actually been "assigned" via
+# ASSIGNED_ADDRS_LOG, exactly like the real "Error: Invalid prefsrc
+# address." (exit 2) that a plan applying routes before anything ever
+# assigns their src address hits on a live host. `ip addr
+# replace/add/del` maintain that log directly; the nmcli stub below adds
+# to it too, since for backend=networkmanager nmcli's own `connection
+# add`+`connection up` -- not a separate `ip addr` call -- is what
+# assigns the address in real life.
 cat > "$WORK/bin/ip" <<'STUBEOF'
 #!/bin/sh
 echo "ip $*" >> "$IP_LOG"
@@ -97,15 +108,46 @@ case "$1 $2" in
 	"link add")
 		[ "${IP_FAIL_LINK_ADD:-0}" = "1" ] && exit 1
 		;;
+	"addr replace"|"addr add")
+		rhook_stub_addr="${3%%/*}"
+		echo "$rhook_stub_addr" >> "$ASSIGNED_ADDRS_LOG"
+		;;
+	"addr del")
+		rhook_stub_addr="${3%%/*}"
+		grep -vxF "$rhook_stub_addr" "$ASSIGNED_ADDRS_LOG" > "$ASSIGNED_ADDRS_LOG.tmp" 2>/dev/null
+		mv -f "$ASSIGNED_ADDRS_LOG.tmp" "$ASSIGNED_ADDRS_LOG" 2>/dev/null
+		;;
+	"route add"|"route replace")
+		rhook_stub_src=""
+		shift 2
+		while [ $# -gt 0 ]; do
+			[ "$1" = "src" ] && { shift; rhook_stub_src="$1"; }
+			shift
+		done
+		if [ -n "$rhook_stub_src" ] && ! grep -qxF "$rhook_stub_src" "$ASSIGNED_ADDRS_LOG" 2>/dev/null; then
+			echo "Error: Invalid prefsrc address." >&2
+			exit 2
+		fi
+		;;
 esac
 exit 0
 STUBEOF
 chmod +x "$WORK/bin/ip"
 
-# nmcli stub: just needs to succeed for `connection add`/`connection up`.
+# nmcli stub: succeeds for `connection add`/`connection up`, and -- like
+# the real nmcli/NetworkManager combination for this backend -- is what
+# actually "assigns" the profile's ipv4.addresses value (see the ip
+# stub's own comment above for why this matters to the route stub).
 cat > "$WORK/bin/nmcli" <<'STUBEOF'
 #!/bin/sh
 echo "nmcli $*" >> "$NMCLI_LOG"
+rhook_stub_prev=""
+for rhook_stub_arg in "$@"; do
+	if [ "$rhook_stub_prev" = "ipv4.addresses" ]; then
+		echo "${rhook_stub_arg%%/*}" >> "$ASSIGNED_ADDRS_LOG"
+	fi
+	rhook_stub_prev="$rhook_stub_arg"
+done
 exit 0
 STUBEOF
 chmod +x "$WORK/bin/nmcli"
@@ -155,9 +197,11 @@ reset_env() {
 	export IP_LOG="$WORK/ip.log.$1"
 	export NMCLI_LOG="$WORK/nmcli.log.$1"
 	export SETKEY_LOG="$WORK/setkey.log.$1"
+	export ASSIGNED_ADDRS_LOG="$WORK/assigned-addrs.$1"
 	: > "$IP_LOG"
 	: > "$NMCLI_LOG"
 	: > "$SETKEY_LOG"
+	: > "$ASSIGNED_ADDRS_LOG"
 	unset IP_FAIL_LINK_ADD OUTBOUND_IFACE
 	unset INTERNAL_ADDR4 LOCAL_ADDR LOCAL_PORT REMOTE_ADDR REMOTE_PORT
 	unset SPLIT_INCLUDE_CIDR SPLIT_INCLUDE INTERNAL_DNS4_LIST INTERNAL_DNS4
@@ -197,19 +241,40 @@ rc=$?
 assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"
 assert_eq "no-interface guard exits 0" "$rc" "0"
 assert_contains "no-interface guard logs why" "$out" "cannot determine outbound interface"
-# restore the working ip stub for the rest of the file
+# restore the working ip stub for the rest of the file -- same
+# prefsrc-simulating version installed above (this scenario's stub above
+# is intentionally the dumb no-op one, since it exists solely to test the
+# "no route found" guard before any interface/address logic runs)
 cat > "$WORK/bin/ip" <<'STUBEOF'
 #!/bin/sh
 echo "ip $*" >> "$IP_LOG"
 case "$1 $2" in
 	"-4 route")
-		if [ "$3" = "get" ]; then
-			echo "$4 dev eth0 src 192.168.1.5"
-			exit 0
-		fi
+		[ "$3" = "get" ] && { echo "$4 dev eth0 src 192.168.1.5"; exit 0; }
 		;;
 	"link add")
 		[ "${IP_FAIL_LINK_ADD:-0}" = "1" ] && exit 1
+		;;
+	"addr replace"|"addr add")
+		rhook_stub_addr="${3%%/*}"
+		echo "$rhook_stub_addr" >> "$ASSIGNED_ADDRS_LOG"
+		;;
+	"addr del")
+		rhook_stub_addr="${3%%/*}"
+		grep -vxF "$rhook_stub_addr" "$ASSIGNED_ADDRS_LOG" > "$ASSIGNED_ADDRS_LOG.tmp" 2>/dev/null
+		mv -f "$ASSIGNED_ADDRS_LOG.tmp" "$ASSIGNED_ADDRS_LOG" 2>/dev/null
+		;;
+	"route add"|"route replace")
+		rhook_stub_src=""
+		shift 2
+		while [ $# -gt 0 ]; do
+			[ "$1" = "src" ] && { shift; rhook_stub_src="$1"; }
+			shift
+		done
+		if [ -n "$rhook_stub_src" ] && ! grep -qxF "$rhook_stub_src" "$ASSIGNED_ADDRS_LOG" 2>/dev/null; then
+			echo "Error: Invalid prefsrc address." >&2
+			exit 2
+		fi
 		;;
 esac
 exit 0
@@ -319,6 +384,12 @@ export LOCAL_PORT="$(printf '500]-1.2.3.4[9\nspdflush;')"
 export REMOTE_ADDR="203.0.113.99"
 export REMOTE_PORT="500"
 export SPLIT_INCLUDE_CIDR="198.51.100.0/24"
+# INTERNAL_DNS4_LIST: networkmanager's own nm_dns step is what assigns
+# INTERNAL_ADDR4 to an interface at all (its `ip route ... src` guard is
+# skipped when RHOOK_DNS_SERVERS is empty, a pre-existing, documented gap
+# unrelated to what this scenario tests) -- set it so the route step this
+# scenario depends on actually succeeds, same as the happy-path fixture.
+export INTERNAL_DNS4_LIST="198.51.100.53"
 out=$(run_hook)
 rc=$?
 assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"
@@ -415,6 +486,11 @@ export LOCAL_ADDR="203.0.113.1"
 export REMOTE_ADDR="203.0.113.99"
 export REMOTE_PORT="500"
 export SPLIT_INCLUDE_CIDR="198.51.100.0/24 198.51.100.128/25"
+# INTERNAL_DNS4_LIST: see the spd-port-injection scenario's comment above --
+# without it, nm_dns is skipped and INTERNAL_ADDR4 is never assigned
+# anywhere, so both route steps below would fail on the unrelated,
+# pre-existing "no DNS servers" gap before rollback logic is ever reached.
+export INTERNAL_DNS4_LIST="198.51.100.53"
 out=$(run_hook)
 rc=$?
 assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$out"

@@ -95,7 +95,7 @@ PLAN="$(rhook_plan_file)"
 
 assert_eq "dummy_iface: criticality" "$(plan_field dummy_iface 3 "$PLAN")" "required"
 assert_eq "dummy_iface: command" "$(plan_field dummy_iface 5 "$PLAN")" \
-	'ip link add "racoon0" type dummy && ip link set "racoon0" up'
+	'rhook_ensure_dummy_iface "racoon0"'
 assert_eq "dummy_iface: undo (NetworkManager inactive -- plain iproute owner)" "$(plan_field dummy_iface 6 "$PLAN")" \
 	'ip link del "racoon0"'
 assert_eq "RHOOK_DUMMY_OWNER reflects iproute when NetworkManager is inactive" "$RHOOK_DUMMY_OWNER" "iproute"
@@ -121,7 +121,7 @@ assert_eq "dummy_iface: undo (NetworkManager active -- nmcli first, ip link del 
 	'nmcli device delete "racoon0" >/dev/null 2>&1 || ip link del "racoon0"'
 assert_eq "dummy_iface: apply command is unaffected by the owner branch" \
 	"$(plan_field dummy_iface 5 "$PLAN")" \
-	'ip link add "racoon0" type dummy && ip link set "racoon0" up'
+	'rhook_ensure_dummy_iface "racoon0"'
 
 RACOON_HOOK_SYSTEMCTL="$WORK/bin/systemctl-nm-inactive"
 cat > "$RACOON_HOOK_SYSTEMCTL" <<'EOF'
@@ -225,6 +225,29 @@ PLAN="$(rhook_plan_file)"
 assert_eq "dummy_iface step is still planned (precondition gates it, not the plan)" \
 	"$(plan_field dummy_iface 3 "$PLAN")" "required"
 
+# Found live (Ubuntu Bionic and Arch/Manjaro roadwarriors, both with
+# NetworkManager active): `ip route ... src $RHOOK_INTERNAL_ADDR4` requires
+# that address to already be assigned locally -- confirmed against the
+# kernel directly (RTM_NEWROUTE's own prefsrc validation), not merely
+# assumed. nm_dns (nm_dummy_profile) is the *only* step that assigns it
+# for this backend (dummy_iface/dummy_addr are precondition-skipped), so
+# it must appear in the plan file *before* every route_* step, not after
+# SPD/DNS as originally implemented -- that ordering bug failed outright
+# on both real hosts tested, regardless of DNS tool (systemd-resolve on
+# Bionic, resolvectl on Arch).
+nm_dns_lineno=$(grep -n '^nm_dns	' "$PLAN" | cut -d: -f1)
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ -z "$nm_dns_lineno" ]; then
+	fail "nm_dns step must be present in the plan"
+fi
+for rhook_route_id in 'route_10.0.12.0/24' 'route_192.168.66.0/24'; do
+	rhook_route_lineno=$(grep -n "^${rhook_route_id}	" "$PLAN" | cut -d: -f1)
+	TESTS_RUN=$((TESTS_RUN + 1))
+	if [ -z "$rhook_route_lineno" ] || [ -z "$nm_dns_lineno" ] || [ "$nm_dns_lineno" -ge "$rhook_route_lineno" ]; then
+		fail "nm_dns (line $nm_dns_lineno) must be planned before $rhook_route_id (line $rhook_route_lineno) -- routes need the address nm_dns assigns"
+	fi
+done
+
 nm_cmd=$(plan_field nm_dns 5 "$PLAN")
 assert_contains "nm profile: dns-priority is 50 (small positive), not negative" "$nm_cmd" "ipv4.dns-priority 50"
 assert_not_contains "nm profile: never a negative dns-priority" "$nm_cmd" "dns-priority -"
@@ -235,6 +258,16 @@ assert_contains "nm profile: never-default so the physical uplink stays the defa
 	"$nm_cmd" "ipv4.never-default yes"
 assert_contains "nm profile: single connection add call (fully configured before first activation)" \
 	"$nm_cmd" "connection add type dummy"
+# Found live on Ubuntu Bionic (NetworkManager 1.10.6): "ipv6.method
+# disabled" is rejected outright -- that NM version's own
+# NM_SETTING_IP6_CONFIG_METHOD_* enum has no DISABLED member yet, only
+# ignore/auto/dhcp/link-local/manual/shared (confirmed against that
+# version's source). "ignore" is the value present since NM's oldest
+# supported releases and portable across all of them.
+assert_contains "nm profile: ipv6.method is ignore, not disabled (unsupported on NM 1.10.x / Ubuntu Bionic)" \
+	"$nm_cmd" "ipv6.method ignore"
+assert_not_contains "nm profile: never ipv6.method disabled (rejected by NM 1.10.x / Ubuntu Bionic)" \
+	"$nm_cmd" "ipv6.method disabled"
 nm_undo=$(plan_field nm_dns 6 "$PLAN")
 assert_contains "nm profile undo: tears down the profile" "$nm_undo" "connection delete racoon-vpn-dns"
 
@@ -327,6 +360,17 @@ PLAN="$(rhook_plan_file)"
 assert_eq "systemd-resolve: resolved_dns command uses --set-dns grammar" \
 	"$(plan_field resolved_dns 5 "$PLAN")" \
 	"$RACOON_HOOK_SYSTEMD_RESOLVE --interface=racoon0 --set-dns=10.0.12.53 --interface=racoon0 --set-dns=10.0.12.54"
+# --set-dns=""/--set-domain="" are not valid systemd-resolve syntax
+# (confirmed against systemd v237's own resolve-tool.c -- found live,
+# erroring on a real Bionic host); --revert is the correct undo for
+# this tool, confirmed idempotent against resolved's own server-side
+# bus_link_method_revert().
+assert_eq "systemd-resolve: resolved_dns undo uses --revert, not the invalid --set-dns=\"\"" \
+	"$(plan_field resolved_dns 6 "$PLAN")" \
+	"$RACOON_HOOK_SYSTEMD_RESOLVE --interface=racoon0 --revert"
+assert_eq "systemd-resolve: resolved_domains undo uses --revert, not the invalid --set-domain=\"\"" \
+	"$(plan_field resolved_domains 6 "$PLAN")" \
+	"$RACOON_HOOK_SYSTEMD_RESOLVE --interface=racoon0 --revert"
 TESTS_RUN=$((TESTS_RUN + 1))
 reason=$(rhook_precond_default_route)
 case "$reason" in
