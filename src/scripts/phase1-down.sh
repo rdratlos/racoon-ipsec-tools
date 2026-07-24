@@ -44,31 +44,45 @@ trap rhook_exit_trap EXIT
 rhook_log step "phase1 down: remote=${REMOTE_ADDR:-?}:${REMOTE_PORT:-?} internal=${INTERNAL_ADDR4:-?}"
 
 # --------------------------------------------------------------------------
-# The state file is the sole guard: no state for this connection id means
-# either phase1-up.sh never got far enough to change anything (Mode
-# Config was rejected, or every step failed before any state was
-# journaled), or teardown already ran. Either way there is nothing to
-# undo, and nothing here depends on INTERNAL_ADDR4/SPLIT_INCLUDE/etc.
-# being set at all (§3.4).
+# Brief 3 §D: state files are FIFO-matched per peer address (REMOTE_PORT
+# is not part of the identity -- it floats on a NAT-T rebind and changes
+# across a reconnect, and a live field test showed a teardown for an old
+# SA and the setup for its replacement running within one second of each
+# other for the same peer). This consumes the *oldest* still-live
+# generation for REMOTE_ADDR -- never REMOTE_PORT, never "the" state
+# file, since under overlap there can legitimately be more than one.
+# rhook_state_exists() / rhook_state_oldest_unconsumed() both do the
+# same underlying lookup; the former is used here purely for the
+# early-exit guard's readability.
+#
+# No live generation at all means either phase1-up.sh never got far
+# enough to change anything (Mode Config was rejected, or every step
+# failed before any state was journaled), or every generation for this
+# peer has already been consumed. Either way there is nothing to undo,
+# and nothing here depends on INTERNAL_ADDR4/SPLIT_INCLUDE/etc. being
+# set at all (§3.4).
 # --------------------------------------------------------------------------
 if ! rhook_state_exists; then
-	rhook_log warn "no state file for remote=${REMOTE_ADDR:-unknown}:${REMOTE_PORT:-0} -- nothing to undo"
+	rhook_log warn "no live state generation for remote=${REMOTE_ADDR:-unknown} -- nothing to undo"
 	exit 0
 fi
+RHOOK_P1D_STATE_FILE=$(rhook_state_oldest_unconsumed)
 
 rhook_report_init
 # shellcheck disable=SC2034  # read by rhook_emit_report() in the sourced library
-RHOOK_REPORT_HEADER="undo replay for remote=${REMOTE_ADDR:-?}:${REMOTE_PORT:-?} internal=${INTERNAL_ADDR4:-?}"
+RHOOK_REPORT_HEADER="undo replay for remote=${REMOTE_ADDR:-?} internal=${INTERNAL_ADDR4:-?} (state: $RHOOK_P1D_STATE_FILE)"
 
-rhook_undo_replay
+rhook_undo_replay "$RHOOK_P1D_STATE_FILE"
 RHOOK_P1D_RC=$?
 
 # Same policy, same rationale as phase1-up.sh: "abort" surfaces a
 # non-clean teardown via this script's own exit status (for whatever is
 # watching the process), "warn" (the default) always exits 0. Either way
-# rhook_undo_replay() already retained the state file for anything that
-# failed to undo, so the next phase1-up.sh run will notice and archive it
-# (§3.4) rather than this exit code being the only record.
+# rhook_undo_replay() already retained this generation's state file for
+# anything that failed to undo, so a later phase1-down.sh run (or a
+# manual retry) will pick up this exact generation again -- still oldest
+# among what remains unconsumed -- rather than this exit code being the
+# only record.
 if [ "$RHOOK_P1D_RC" -ne 0 ] && [ "$RHOOK_ON_DNS_FAILURE" = "abort" ]; then
 	exit 1
 fi

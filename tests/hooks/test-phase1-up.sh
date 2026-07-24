@@ -6,8 +6,8 @@
 # guard, outbound-interface detection, §4 input validation wired to
 # racoon's actual env var names (including the comma- vs space-separated
 # delimiter distinction verified against src/racoon's own C source), the
-# R7 no-routes refusal, stale-state archival, and the on_dns_failure exit
-# code policy.
+# R7 no-routes refusal, brief-3 §D's FIFO generation state scheme, and
+# the on_dns_failure exit code policy.
 #
 # Every scenario pins backend=networkmanager (nmcli stubbed) so no test
 # here ever executes the fallback backend's real /etc/resolv.conf write --
@@ -189,7 +189,11 @@ assert_contains "happy path reports PARTIAL (skips are expected, not failures)" 
 assert_contains "happy path has zero actually-failed steps" "$out" "3 ok, 2 skipped, 0 failed"
 assert_contains "comma-separated domains split correctly in the report header" "$out" "domains=corp.example.com internal.example.com"
 assert_contains "DNS-server host route added on top of split-include" "$out" "routes=198.51.100.0/24 198.51.100.53/32"
-STATE_FILE="$WORK_RUN/hook-state.203.0.113.99-500"
+# Generation .1: a fresh WORK_RUN dir means rhook_state_max_generation()
+# finds nothing, so the first ever run for this peer allocates .1
+# deterministically -- no REMOTE_PORT in the filename at all (brief 3
+# §D: it floats on NAT-T rebind and can't identify "the same peer").
+STATE_FILE="$WORK_RUN/hook-state.203.0.113.99.1"
 TESTS_RUN=$((TESTS_RUN + 1))
 [ -s "$STATE_FILE" ] || fail "happy path must leave a non-empty state file"
 assert_contains "state file journals the NM profile undo command" "$(cat "$STATE_FILE" 2>/dev/null)" "nmcli connection delete racoon-vpn-dns"
@@ -226,7 +230,7 @@ rc=$?
 assert_eq "no-routes with on_dns_failure=warn (default) exits 0" "$rc" "0"
 assert_contains "no-routes is reported as a failed required step" "$out" "[ FAILED    ] determine networks to route through the tunnel"
 TESTS_RUN=$((TESTS_RUN + 1))
-if grep -qE '^route_' "$WORK_RUN/hook-state.203.0.113.99-500" 2>/dev/null; then
+if grep -qE '^route_' "$WORK_RUN/hook-state.203.0.113.99.1" 2>/dev/null; then
 	fail "no route_* entries should be journaled when there is nothing to route"
 fi
 
@@ -247,27 +251,75 @@ backend = networkmanager
 EOF
 
 # ==========================================================================
-# §3.4: a state file left behind by an incomplete teardown is archived,
-# not silently overwritten or refused outright, and the run proceeds.
+# Brief 3 §D: an old, unconsumed generation left behind by an incomplete
+# teardown is left completely untouched (no archiving, no overwriting,
+# no rewriting) by a new phase1-up run for the same peer -- a fresh
+# generation is simply allocated alongside it, for a future
+# phase1-down.sh to consume in its own turn (oldest first). This
+# replaces brief 1's "archive as .stale.$$ and start fresh" behavior
+# entirely: FIFO generation numbering means there is nothing to archive
+# -- an old, never-consumed generation was never going to collide with a
+# new one in the first place.
 # ==========================================================================
-reset_env stale
+reset_env fifo-old-gen
 export INTERNAL_ADDR4="192.0.2.44"
 export LOCAL_ADDR="203.0.113.1"
 export REMOTE_ADDR="203.0.113.99"
 export REMOTE_PORT="500"
 export SPLIT_INCLUDE_CIDR="198.51.100.0/24"
 mkdir -p "$WORK_RUN"
-printf 'leftover_step\tcreate_dummy\tok\tip link del racoon0\n' > "$WORK_RUN/hook-state.203.0.113.99-500"
+printf 'leftover_step\tcreate_dummy\tok\tip link del racoon0\n' > "$WORK_RUN/hook-state.203.0.113.99.1"
 out=$(run_hook)
 rc=$?
-assert_eq "stale-state run still exits 0" "$rc" "0"
-assert_contains "stale state file archival is logged" "$out" "stale state file"
+assert_eq "run with an old unconsumed generation present still exits 0" "$rc" "0"
 TESTS_RUN=$((TESTS_RUN + 1))
-find "$WORK_RUN" -name 'hook-state.*.stale.*' | grep -q . || fail "stale state file must be archived under a .stale. suffix, not deleted"
-STATE_FILE="$WORK_RUN/hook-state.203.0.113.99-500"
+if [ -f "$WORK_RUN/hook-state.203.0.113.99.1" ] && grep -q 'leftover_step' "$WORK_RUN/hook-state.203.0.113.99.1" 2>/dev/null; then
+	:
+else
+	fail "the old unconsumed generation must be left exactly as it was, not archived or modified"
+fi
 TESTS_RUN=$((TESTS_RUN + 1))
-if grep -q 'leftover_step' "$STATE_FILE" 2>/dev/null; then
-	fail "the fresh state file must not contain the archived run's entries"
+if [ -s "$WORK_RUN/hook-state.203.0.113.99.2" ]; then
+	:
+else
+	fail "a new generation (.2) should have been allocated alongside the untouched old one (.1)"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if find "$WORK_RUN" -name 'hook-state.*.stale.*' | grep -q .; then
+	fail "brief 3 replaces stale-state archival entirely -- no .stale. files should ever be created"
+fi
+
+# ==========================================================================
+# rhook_state_reap() runs at every phase1-up: .consumed generations for
+# this peer beyond the newest RHOOK_REAP_MAX_COUNT (5) are deleted,
+# oldest first; live (unconsumed) generations are never touched by it.
+# ==========================================================================
+reset_env reap
+export INTERNAL_ADDR4="192.0.2.44"
+export LOCAL_ADDR="203.0.113.1"
+export REMOTE_ADDR="203.0.113.99"
+export REMOTE_PORT="500"
+export SPLIT_INCLUDE_CIDR="198.51.100.0/24"
+mkdir -p "$WORK_RUN"
+i=1
+while [ "$i" -le 7 ]; do
+	printf 'old_step\tcreate_dummy\tok\ttrue\n' > "$WORK_RUN/hook-state.203.0.113.99.$i.consumed"
+	i=$((i + 1))
+done
+out=$(run_hook)
+rc=$?
+assert_eq "run with 7 pre-existing consumed generations still exits 0" "$rc" "0"
+remaining=$(find "$WORK_RUN" -name 'hook-state.203.0.113.99.*.consumed' | wc -l | tr -d ' ')
+assert_eq "reaping down from 7 consumed generations keeps exactly the newest 5" "$remaining" "5"
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ -f "$WORK_RUN/hook-state.203.0.113.99.1.consumed" ] || [ -f "$WORK_RUN/hook-state.203.0.113.99.2.consumed" ]; then
+	fail "the two oldest consumed generations (1, 2) should have been reaped"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ -f "$WORK_RUN/hook-state.203.0.113.99.7.consumed" ]; then
+	:
+else
+	fail "the newest consumed generation (7) should be kept, not reaped"
 fi
 
 echo ""

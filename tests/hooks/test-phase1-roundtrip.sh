@@ -39,6 +39,14 @@ assert_contains() {
 	esac
 }
 
+assert_not_contains() {
+	TESTS_RUN=$((TESTS_RUN + 1))
+	case "$2" in
+		*"$3"*) fail "$1 -- '$3' unexpectedly found in output" ;;
+		*) ;;
+	esac
+}
+
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/racoon-phase1-roundtrip.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin"
@@ -104,7 +112,7 @@ up_out=$(dash "$HOOK_UP" 2>&1)
 up_rc=$?
 assert_eq "phase1-up exits 0" "$up_rc" "0"
 assert_contains "phase1-up's own report ran (sanity check on the fixture)" "$up_out" "phase1-up report"
-STATE_FILE="$WORK_RUN/hook-state.203.0.113.99-500"
+STATE_FILE="$WORK_RUN/hook-state.203.0.113.99.1"
 TESTS_RUN=$((TESTS_RUN + 1))
 [ -s "$STATE_FILE" ] || fail "phase1-up must leave a non-empty state file for phase1-down to consume"
 
@@ -167,7 +175,7 @@ up_out=$(dash "$HOOK_UP" 2>&1)
 up_rc=$?
 assert_eq "retry scenario: phase1-up exits 0" "$up_rc" "0"
 assert_contains "retry scenario: phase1-up's own report ran (sanity check on the fixture)" "$up_out" "phase1-up report"
-STATE_FILE="$WORK_RUN/hook-state.203.0.113.99-500"
+STATE_FILE="$WORK_RUN/hook-state.203.0.113.99.1"
 
 down_out1=$(dash "$HOOK_DOWN" 2>&1)
 down_rc1=$?
@@ -195,6 +203,55 @@ assert_eq "phase1-down with no state exits 0" "$rc" "0"
 assert_contains "phase1-down with no state explains why" "$out" "nothing to undo"
 TESTS_RUN=$((TESTS_RUN + 1))
 [ -s "$IP_LOG" ] && fail "phase1-down must never invoke ip when there is no state to replay"
+
+# ==========================================================================
+# Brief 3 §D / F1: the exact overlap the live Bionic test showed --
+# phase1-down for an old SA and phase1-up for its replacement running
+# within about a second of each other, for the *same peer address*. A
+# single-file (or REMOTE_ADDR+REMOTE_PORT) identity scheme can match a
+# teardown to the wrong generation and dismantle a tunnel that just came
+# up; FIFO generation numbering must get this right in both call orders.
+# Two split-include networks (100.64.0.0/24 for the first session,
+# 100.64.1.0/24 for the second) make each generation's own routes
+# individually identifiable in the ip.log.
+# ==========================================================================
+reset_env overlap
+export SPLIT_INCLUDE_CIDR="100.64.0.0/24"
+up1_out=$(dash "$HOOK_UP" 2>&1)
+assert_eq "overlap: first phase1-up (SA1) exits 0" "$?" "0"
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -s "$WORK_RUN/hook-state.203.0.113.99.1" ] || fail "SA1 should have journaled generation .1"
+
+export SPLIT_INCLUDE_CIDR="100.64.1.0/24"
+up2_out=$(dash "$HOOK_UP" 2>&1)
+assert_eq "overlap: second phase1-up (SA2, same peer, SA1 still up) exits 0" "$?" "0"
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -s "$WORK_RUN/hook-state.203.0.113.99.2" ] || fail "SA2 should have journaled a *new* generation .2, not reused .1"
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -s "$WORK_RUN/hook-state.203.0.113.99.1" ] || fail "SA1's generation .1 must still be untouched while SA2 is also live"
+
+# First phase1-down (tearing down SA1, the *older* session) must consume
+# generation .1 -- oldest first -- even though .2 also exists and is
+# also live.
+down1_out=$(dash "$HOOK_DOWN" 2>&1)
+assert_eq "overlap: first phase1-down exits 0" "$?" "0"
+assert_contains "first phase1-down undid SA1's own route (100.64.0.0/24)" "$(cat "$IP_LOG")" "route del 100.64.0.0/24"
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ -f "$WORK_RUN/hook-state.203.0.113.99.1" ]; then
+	fail "generation .1 (SA1) should be consumed (renamed away) after the first phase1-down"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -s "$WORK_RUN/hook-state.203.0.113.99.2" ] || fail "generation .2 (SA2) must still be live -- the first phase1-down must not have touched it"
+
+# Second phase1-down (tearing down SA2, the survivor) must now consume
+# generation .2, the only one left.
+: > "$IP_LOG"
+down2_out=$(dash "$HOOK_DOWN" 2>&1)
+assert_eq "overlap: second phase1-down exits 0" "$?" "0"
+assert_contains "second phase1-down undid SA2's own route (100.64.1.0/24)" "$(cat "$IP_LOG")" "route del 100.64.1.0/24"
+assert_not_contains "second phase1-down never re-touches SA1's already-undone route" "$(cat "$IP_LOG")" "100.64.0.0/24"
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -f "$WORK_RUN/hook-state.203.0.113.99.2" ] && fail "generation .2 (SA2) should be consumed after the second phase1-down"
 
 echo ""
 echo "$TESTS_RUN checks run, $TESTS_FAILED failed"

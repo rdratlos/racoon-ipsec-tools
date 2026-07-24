@@ -180,36 +180,188 @@ rhook_ensure_state_dir() {
 
 # --------------------------------------------------------------------------
 # Connection identity.  Racoon's script hooks receive no explicit
-# "connection id" -- REMOTE_ADDR/REMOTE_PORT identify the phase1 uniquely
-# for a roadwarrior client (one active gateway per racoon instance in the
-# supported topology), sanitized to a token safe for use in a filename.
-# Recorded verbatim in the state file so phase1-down never has to
-# re-derive it either.
+# "connection id" and export no ISAKMP SPI to hooks at all (confirmed
+# against src/racoon/isakmp.c's script_hook(): it sets only LOCAL_ADDR,
+# LOCAL_PORT, REMOTE_ADDR, REMOTE_PORT and REMOTE_ID -- no cookie pair,
+# in any of the three call sites, phase1-up/phase1-down/phase1-dead
+# alike). REMOTE_ADDR alone identifies the peer, sanitized to a token
+# safe for use in a filename.
+#
+# REMOTE_PORT is deliberately NOT part of this (brief 3 §D, superseding
+# brief 2 §C's "REMOTE_ADDR + single-file fallback" recommendation): it
+# floats 500->4500 on a NAT-T rebind and changes across a reconnect, and
+# a live field test showed phase1-down for an old SA and phase1-up for
+# its replacement running within one second of each other for the same
+# peer address -- a single-file-per-identity scheme (with or without the
+# port) can match a teardown to the wrong generation and dismantle a
+# tunnel that just came up. See rhook_state_file()/
+# rhook_state_oldest_unconsumed() below for the FIFO generation scheme
+# that replaces it.
 # --------------------------------------------------------------------------
-rhook_conn_id() {
-	printf '%s-%s' "${REMOTE_ADDR:-unknown}" "${REMOTE_PORT:-0}" \
-		| tr -c 'A-Za-z0-9._-' '_'
+rhook_conn_addr() {
+	printf '%s' "${REMOTE_ADDR:-unknown}" | tr -c 'A-Za-z0-9._-' '_'
 }
 
+rhook_state_file_prefix() {
+	printf '%s/hook-state.%s' "$RHOOK_STATE_DIR" "$(rhook_conn_addr)"
+}
+
+# Highest existing generation number for this peer address, counting
+# both live and .consumed files (a consumed file's number is never
+# reused -- reusing a number would defeat the FIFO ordering the moment a
+# consumed file is later reaped), or 0 if none exist yet.
+rhook_state_max_generation() {
+	local rhook_prefix rhook_f rhook_gen rhook_max
+	rhook_prefix=$(rhook_state_file_prefix)
+	rhook_max=0
+	for rhook_f in "$rhook_prefix".*; do
+		[ -e "$rhook_f" ] || continue
+		rhook_gen="${rhook_f#"$rhook_prefix".}"
+		rhook_gen="${rhook_gen%.consumed}"
+		case "$rhook_gen" in
+			''|*[!0-9]*) continue ;;
+		esac
+		if [ "$rhook_gen" -gt "$rhook_max" ] 2>/dev/null; then
+			rhook_max="$rhook_gen"
+		fi
+	done
+	printf '%s' "$rhook_max"
+}
+
+# RHOOK_STATE_GENERATION is allocated once per process by rhook_state_reset()
+# (called once, early, by phase1-up.sh) and cached here -- rhook_state_file()
+# must return the *same* path on every call within one run; re-deriving a
+# fresh generation number on every call would defeat the whole point of
+# numbering them; phase1-down.sh never calls rhook_state_reset() at all,
+# since it consumes an existing generation rather than writing a new one
+# (see rhook_state_oldest_unconsumed() below).
+RHOOK_STATE_GENERATION=""
 rhook_state_file() {
-	printf '%s/hook-state.%s' "$RHOOK_STATE_DIR" "$(rhook_conn_id)"
+	printf '%s.%s' "$(rhook_state_file_prefix)" "$RHOOK_STATE_GENERATION"
 }
 
-# A pre-existing, non-empty state file when phase1-up starts means a prior
-# teardown never completed (§3.4: the state file is deleted only after a
-# successful teardown). phase1-up must decide what to do about that itself
-# -- log and refuse, or archive and proceed -- this only reports the fact.
+# True if at least one live (not yet consumed) generation exists for this
+# peer address -- i.e. there is something for phase1-down.sh to undo.
 rhook_state_exists() {
-	[ -s "$(rhook_state_file)" ]
+	[ -n "$(rhook_state_oldest_unconsumed)" ]
 }
 
+# Allocates a new generation for this peer address and creates its
+# (empty) state file, guarded by a short-lived mkdir lock so two
+# phase1-up runs racing for the same peer address cannot both compute
+# the same "next" generation number and silently clobber one another's
+# state (mkdir is atomic on every POSIX filesystem, unlike a plain
+# read-modify-write on a counter file). Capped retry: a held lock from a
+# process that died mid-allocation must not wedge every future
+# connection attempt to this peer forever -- past the cap, proceeds
+# anyway (best-effort, consistent with this codebase's "a hook problem
+# must never block a real VPN connection" rule) and logs why.
 rhook_state_reset() {
+	local rhook_lock rhook_tries
 	rhook_ensure_state_dir
+	rhook_lock="$(rhook_state_file_prefix).lock"
+	rhook_tries=0
+	while ! mkdir "$rhook_lock" 2>/dev/null; do
+		rhook_tries=$((rhook_tries + 1))
+		if [ "$rhook_tries" -ge 20 ]; then
+			rhook_log warn "generation lock for $(rhook_conn_addr) still held after ${rhook_tries}s -- proceeding without it (a concurrent phase1-up for this exact peer address may race)"
+			break
+		fi
+		sleep 1
+	done
+	RHOOK_STATE_GENERATION=$(( $(rhook_state_max_generation) + 1 ))
 	: > "$(rhook_state_file)"
+	rmdir "$rhook_lock" 2>/dev/null
+}
+
+# The oldest (lowest generation number) live state file for this peer
+# address, or empty if none. This -- not mtime, not the order `ls`
+# happens to return -- is what makes phase1-down.sh's FIFO matching
+# correct under overlap in either ordering: generation numbers are
+# allocated under the same lock rhook_state_reset() uses, so their
+# ordering is exact and unambiguous regardless of clock resolution or
+# how close together two phase1-up runs happen.
+rhook_state_oldest_unconsumed() {
+	local rhook_prefix rhook_f rhook_gen rhook_oldest rhook_oldest_path
+	rhook_prefix=$(rhook_state_file_prefix)
+	rhook_oldest=""
+	rhook_oldest_path=""
+	for rhook_f in "$rhook_prefix".*; do
+		[ -f "$rhook_f" ] || continue
+		case "$rhook_f" in *.consumed|*.lock) continue ;; esac
+		rhook_gen="${rhook_f#"$rhook_prefix".}"
+		case "$rhook_gen" in
+			''|*[!0-9]*) continue ;;
+		esac
+		if [ -z "$rhook_oldest" ] || [ "$rhook_gen" -lt "$rhook_oldest" ] 2>/dev/null; then
+			rhook_oldest="$rhook_gen"
+			rhook_oldest_path="$rhook_f"
+		fi
+	done
+	printf '%s' "$rhook_oldest_path"
+}
+
+# Marks a generation's state file consumed (successfully torn down)
+# rather than deleting it immediately, so the fact a teardown happened
+# is briefly visible on disk; rhook_state_reap() (called at every
+# phase1-up) is what actually deletes .consumed files, by count and age.
+rhook_state_mark_consumed() {
+	local rhook_path
+	rhook_path="$1"
+	[ -f "$rhook_path" ] || return 0
+	mv -f "$rhook_path" "$rhook_path.consumed" 2>/dev/null
+}
+
+RHOOK_REAP_MAX_COUNT=5
+RHOOK_REAP_MAX_AGE_SECONDS=86400
+
+# Deletes .consumed generation files for this peer address beyond the
+# newest RHOOK_REAP_MAX_COUNT, and any older than RHOOK_REAP_MAX_AGE_SECONDS
+# regardless of count. Deliberately never touches *live* (unconsumed)
+# files -- those represent real, possibly-outstanding undo state, and
+# §3.4's "state file is the sole teardown guard" principle means only a
+# successful phase1-down replay (rhook_state_mark_consumed) or an admin
+# removes one, never an automatic age/count sweep. Called once, early,
+# by phase1-up.sh -- "reap ... at every phase1-up" per the brief.
+rhook_state_reap() {
+	local rhook_prefix rhook_f rhook_now rhook_mtime rhook_age
+	local rhook_gens rhook_gen rhook_count
+	rhook_prefix=$(rhook_state_file_prefix)
+	rhook_now=$("$RACOON_HOOK_DATE" +%s 2>/dev/null)
+	[ -n "$rhook_now" ] || return 0
+
+	for rhook_f in "$rhook_prefix".*.consumed; do
+		[ -f "$rhook_f" ] || continue
+		rhook_mtime=$(rhook_survey_mtime "$rhook_f")
+		[ -n "$rhook_mtime" ] || continue
+		rhook_age=$((rhook_now - rhook_mtime))
+		if [ "$rhook_age" -gt "$RHOOK_REAP_MAX_AGE_SECONDS" ] 2>/dev/null; then
+			rm -f "$rhook_f" 2>/dev/null
+		fi
+	done
+
+	rhook_gens=""
+	for rhook_f in "$rhook_prefix".*.consumed; do
+		[ -f "$rhook_f" ] || continue
+		rhook_gen="${rhook_f#"$rhook_prefix".}"
+		rhook_gen="${rhook_gen%.consumed}"
+		case "$rhook_gen" in ''|*[!0-9]*) continue ;; esac
+		rhook_gens="${rhook_gens:+$rhook_gens }$rhook_gen"
+	done
+	rhook_count=0
+	for rhook_gen in $rhook_gens; do rhook_count=$((rhook_count + 1)); done
+	if [ "$rhook_count" -gt "$RHOOK_REAP_MAX_COUNT" ]; then
+		# shellcheck disable=SC2086 # word-splitting the generation list on purpose
+		printf '%s\n' $rhook_gens | sort -rn | awk -v keep="$RHOOK_REAP_MAX_COUNT" 'NR > keep' \
+			| while IFS= read -r rhook_old_gen; do
+				[ -n "$rhook_old_gen" ] || continue
+				rm -f "${rhook_prefix}.${rhook_old_gen}.consumed" 2>/dev/null
+			done
+	fi
 }
 
 rhook_plan_file() {
-	printf '%s/plan.%s' "$RHOOK_STATE_DIR" "$(rhook_conn_id)"
+	printf '%s/plan.%s.%s' "$RHOOK_STATE_DIR" "$(rhook_conn_addr)" "$$"
 }
 
 # --------------------------------------------------------------------------
@@ -251,7 +403,7 @@ RHOOK_REPORT_FILE=""
 
 rhook_report_init() {
 	rhook_ensure_state_dir
-	RHOOK_REPORT_FILE="$RHOOK_STATE_DIR/report.$(rhook_conn_id).$$"
+	RHOOK_REPORT_FILE="$RHOOK_STATE_DIR/report.$(rhook_conn_addr).$$"
 	: > "$RHOOK_REPORT_FILE" 2>/dev/null
 }
 
@@ -474,8 +626,17 @@ $rhook_dns_applied"
 # file afterwards (in their original apply-chronological relative order,
 # so a later retry's own reversal still undoes them in the right
 # sequence) -- successfully undone entries are dropped. The state file is
-# removed entirely only once nothing is left to undo (§3.4: "the state
-# file is deleted only after a successful teardown").
+# marked consumed (never deleted outright here -- rhook_state_reap()
+# does that later, by count/age) only once nothing is left to undo
+# (§3.4: "the state file is deleted only after a successful teardown";
+# brief 3 §D changes *when* that deletion actually happens, not this
+# function's own success condition for triggering it).
+#
+# rhook_undo_replay <state-file-path>: operates on exactly the file the
+# caller names -- brief 3's FIFO generation scheme means "which state
+# file" is now phase1-down.sh's own decision
+# (rhook_state_oldest_unconsumed()), not something this function
+# re-derives from the environment the way it used to.
 #
 # Returns 0 if every undo succeeded (or there was nothing to undo), 1 if
 # at least one failed.
@@ -485,8 +646,8 @@ rhook_undo_replay() {
 	local rhook_outcome rhook_undo rhook_out rhook_rc rhook_had_failure
 	local rhook_kept_lines
 
-	rhook_state="$(rhook_state_file)"
-	[ -s "$rhook_state" ] || return 0
+	rhook_state="$1"
+	[ -n "$rhook_state" ] && [ -s "$rhook_state" ] || return 0
 
 	rhook_had_failure=0
 	rhook_kept_lines=""
@@ -533,7 +694,7 @@ $rhook_kept_lines"
 		printf '%s\n' "$rhook_kept_lines" > "$rhook_state"
 		rhook_log warn "some teardown steps failed to undo; state file retained for a future retry: $rhook_state"
 	else
-		rm -f "$rhook_state" 2>/dev/null
+		rhook_state_mark_consumed "$rhook_state"
 	fi
 	[ "$rhook_had_failure" -eq 0 ]
 }
