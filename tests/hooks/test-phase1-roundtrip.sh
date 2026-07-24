@@ -47,6 +47,39 @@ assert_not_contains() {
 	esac
 }
 
+# --------------------------------------------------------------------------
+# Brief 3 §J: every real `dash "$HOOK_UP"`/`dash "$HOOK_DOWN"` invocation
+# below is checked against a fixed denylist of shell-portability error
+# markers -- phrases a stricter shell (NetBSD's /bin/sh in particular)
+# emits for a construct it doesn't accept the way dash/bash do. A
+# scenario's own assertions only check for the specific substrings it
+# cares about; they would not by themselves catch a portability bug
+# whose extra noise on stderr happens not to break those substrings.
+# Verified (grep) that none of the shipped scripts' own log/error text
+# uses any denylisted phrase, so a match here is always either a real
+# portability bug or new legitimate text that needs a documented
+# exception in RHOOK_STDERR_ALLOWLIST below -- never remove a denylist
+# entry to make a real failure go away.
+# --------------------------------------------------------------------------
+RHOOK_STDERR_ALLOWLIST=""   # newline-separated fixed strings to excuse, if ever needed
+
+assert_stderr_clean() {
+	# $1 = description  $2 = captured output (stdout+stderr merged)
+	rhook_asc_out="$2"
+	TESTS_RUN=$((TESTS_RUN + 1))
+	if [ -n "$RHOOK_STDERR_ALLOWLIST" ]; then
+		rhook_asc_tmp=$(mktemp "${TMPDIR:-/tmp}/racoon-hook-allowlist.XXXXXX")
+		printf '%s\n' "$RHOOK_STDERR_ALLOWLIST" > "$rhook_asc_tmp"
+		rhook_asc_out=$(printf '%s\n' "$rhook_asc_out" | grep -vFf "$rhook_asc_tmp")
+		rm -f "$rhook_asc_tmp"
+	fi
+	case "$rhook_asc_out" in
+		*"command not found"*|*": not found"*|*"Illegal number"*|*"Syntax error"*|*"bad substitution"*|*"Bad substitution"*|*"parameter not set"*|*"unbound variable"*|*"arithmetic syntax error"*|*"divide by zero"*|*"Illegal option"*)
+			fail "$1 -- shell-portability error marker found in captured output (possible dash/bash/NetBSD-sh divergence): $rhook_asc_out"
+			;;
+	esac
+}
+
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/racoon-phase1-roundtrip.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin"
@@ -123,6 +156,7 @@ reset_env() {
 reset_env clean
 up_out=$(dash "$HOOK_UP" 2>&1)
 up_rc=$?
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up_out"
 assert_eq "phase1-up exits 0" "$up_rc" "0"
 assert_contains "phase1-up's own report ran (sanity check on the fixture)" "$up_out" "phase1-up report"
 STATE_FILE="$WORK_RUN/hook-state.203.0.113.99.1"
@@ -131,6 +165,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 
 down_out=$(dash "$HOOK_DOWN" 2>&1)
 down_rc=$?
+assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down_out"
 assert_eq "phase1-down exits 0" "$down_rc" "0"
 assert_contains "phase1-down reports OK" "$down_out" "result: OK"
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -198,12 +233,14 @@ rm -f "$STUCK_MARKER"
 
 up_out=$(dash "$HOOK_UP" 2>&1)
 up_rc=$?
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up_out"
 assert_eq "retry scenario: phase1-up exits 0" "$up_rc" "0"
 assert_contains "retry scenario: phase1-up's own report ran (sanity check on the fixture)" "$up_out" "phase1-up report"
 STATE_FILE="$WORK_RUN/hook-state.203.0.113.99.1"
 
 down_out1=$(dash "$HOOK_DOWN" 2>&1)
 down_rc1=$?
+assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down_out1"
 assert_eq "first phase1-down (one route del fails) exits 0 under warn policy" "$down_rc1" "0"
 assert_contains "first phase1-down reports the failure" "$down_out1" "result: PARTIAL"
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -212,6 +249,7 @@ assert_contains "only the stuck route survives in the retained state" "$(cat "$S
 
 down_out2=$(dash "$HOOK_DOWN" 2>&1)
 down_rc2=$?
+assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down_out2"
 assert_eq "retry phase1-down (marker now set, ip succeeds) exits 0" "$down_rc2" "0"
 assert_contains "retry phase1-down reports OK" "$down_out2" "result: OK"
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -224,6 +262,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 reset_env noop
 out=$(dash "$HOOK_DOWN" 2>&1)
 rc=$?
+assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$out"
 assert_eq "phase1-down with no state exits 0" "$rc" "0"
 assert_contains "phase1-down with no state explains why" "$out" "nothing to undo"
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -244,12 +283,14 @@ reset_env overlap
 export SPLIT_INCLUDE_CIDR="100.64.0.0/24"
 up1_out=$(dash "$HOOK_UP" 2>&1)
 assert_eq "overlap: first phase1-up (SA1) exits 0" "$?" "0"
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up1_out"
 TESTS_RUN=$((TESTS_RUN + 1))
 [ -s "$WORK_RUN/hook-state.203.0.113.99.1" ] || fail "SA1 should have journaled generation .1"
 
 export SPLIT_INCLUDE_CIDR="100.64.1.0/24"
 up2_out=$(dash "$HOOK_UP" 2>&1)
 assert_eq "overlap: second phase1-up (SA2, same peer, SA1 still up) exits 0" "$?" "0"
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up2_out"
 TESTS_RUN=$((TESTS_RUN + 1))
 [ -s "$WORK_RUN/hook-state.203.0.113.99.2" ] || fail "SA2 should have journaled a *new* generation .2, not reused .1"
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -260,6 +301,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 # also live.
 down1_out=$(dash "$HOOK_DOWN" 2>&1)
 assert_eq "overlap: first phase1-down exits 0" "$?" "0"
+assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down1_out"
 assert_contains "first phase1-down undid SA1's own route (100.64.0.0/24)" "$(cat "$IP_LOG")" "route del 100.64.0.0/24"
 TESTS_RUN=$((TESTS_RUN + 1))
 if [ -f "$WORK_RUN/hook-state.203.0.113.99.1" ]; then
@@ -273,6 +315,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 : > "$IP_LOG"
 down2_out=$(dash "$HOOK_DOWN" 2>&1)
 assert_eq "overlap: second phase1-down exits 0" "$?" "0"
+assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down2_out"
 assert_contains "second phase1-down undid SA2's own route (100.64.1.0/24)" "$(cat "$IP_LOG")" "route del 100.64.1.0/24"
 assert_not_contains "second phase1-down never re-touches SA1's already-undone route" "$(cat "$IP_LOG")" "100.64.0.0/24"
 TESTS_RUN=$((TESTS_RUN + 1))
