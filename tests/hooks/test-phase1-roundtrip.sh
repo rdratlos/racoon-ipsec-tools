@@ -400,6 +400,136 @@ fi
 TESTS_RUN=$((TESTS_RUN + 1))
 [ -s "$WORK_RUN/hook-state.203.0.113.99.1" ] || fail "generation .1 (SA1, the orphan) must remain live and untouched -- exact IKE_COOKIE matching, not FIFO order, decides which generation gets consumed"
 
+# ==========================================================================
+# PR #91 review row 23 (comment 5061097437): the "overlap"/"lifo" scenarios
+# above both let phase1-up.sh run to a normal, complete exit -- neither
+# exercises the actual crash scenario the exact-IKE_COOKIE-match fix is
+# for: a phase1-up.sh SIGKILLed mid-run (OOM-kill, or any signal a shell
+# trap cannot intercept), leaving a live state file that is genuinely
+# incomplete rather than just "an earlier session's complete file".
+#
+# Proves two things the fix depends on that the scenarios above cannot:
+#   1. the IKE_COOKIE sidecar is written by rhook_state_reset() before any
+#      step ever runs, so a crashed generation's own phase1-down can still
+#      find it by exact match, even though its state file only has a
+#      partial list of completed steps;
+#   2. an unrelated, fully-normal session for the *same peer* is entirely
+#      unaffected by the crashed orphan sitting on disk, and the crashed
+#      orphan's own eventual teardown replays only what it actually
+#      completed -- not double-consumed, not silently lost.
+#
+# The reviewer's claimed *mechanism* for this row ("NAT-T rebind causes
+# IKE_COOKIE reuse") is wrong and not what this scenario tests -- see the
+# comment on rhook_conn_cookie() in racoon-hook-lib.sh for why a NAT-T port
+# float cannot change the ISAKMP cookie pair. What IS real, and what this
+# scenario covers, is the plain "crashed phase1-up leaves a live orphan"
+# case the exact-match fix was built to handle regardless of cause.
+# ==========================================================================
+# The "retry" scenario above replaced $WORK/bin/ip with its own stuck-route
+# variant, which stays in effect for every scenario after it (this file
+# never restores the original stub) -- the "overlap"/"lifo" scenarios above
+# don't need anything the original stub had that the retry one dropped, but
+# this scenario does, so it gets its own tailored stub the same way "retry"
+# did rather than silently depending on a version of $WORK/bin/ip that's no
+# longer the one actually installed by this point in the file.
+cat > "$WORK/bin/ip" <<'STUBEOF'
+#!/bin/sh
+echo "ip $*" >> "$IP_LOG"
+case "$1 $2" in
+	"-4 route")
+		[ "$3" = "get" ] && { echo "$4 dev eth0 src 192.168.1.5"; exit 0; }
+		;;
+	"route replace")
+		# Hangs here (after nm_dns has already journaled an "ok" entry,
+		# before this step's own entry is written) so the crash scenario
+		# below can SIGKILL phase1-up.sh mid-run and inspect the resulting
+		# incomplete-but-non-empty state file.
+		if [ "${IP_HANG_ROUTE_REPLACE:-0}" = "1" ]; then
+			: > "${IP_HANG_MARKER:-/dev/null}"
+			sleep 5
+		fi
+		;;
+esac
+exit 0
+STUBEOF
+chmod +x "$WORK/bin/ip"
+
+reset_env crash
+export SPLIT_INCLUDE_CIDR="100.64.20.0/24"
+export IKE_COOKIE="cookie-crash-sa1"
+export IP_HANG_ROUTE_REPLACE=1
+export IP_HANG_MARKER="$WORK/ip-hang-marker.crash"
+rm -f "$IP_HANG_MARKER"
+"$RHOOK_HOOK_SHELL" "$HOOK_UP" >"$WORK/crash-up.log" 2>&1 &
+crash_pid=$!
+
+crash_waited=0
+while [ ! -e "$IP_HANG_MARKER" ]; do
+	crash_waited=$((crash_waited + 1))
+	if [ "$crash_waited" -ge 10 ]; then
+		fail "crash: phase1-up.sh never reached the hung 'ip route replace' step within 10s"
+		break
+	fi
+	sleep 1
+done
+
+# A real crash gives no chance for any cleanup, trap-driven or otherwise
+# -- SIGKILL, not a graceful stop, is the only faithful way to simulate
+# one. The orphaned "ip" stub left sleeping in the background after this
+# is harmless (it touches nothing else and exits on its own a few seconds
+# later); reaping it here would only add flaky process-tree bookkeeping
+# for no assertion that needs it.
+kill -KILL "$crash_pid" 2>/dev/null
+wait "$crash_pid" 2>/dev/null
+unset IP_HANG_ROUTE_REPLACE IP_HANG_MARKER
+
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -s "$WORK_RUN/hook-state.203.0.113.99.1" ] || fail "crash: killed generation .1 should still have a state file -- incomplete, but present"
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -s "$WORK_RUN/hook-state.203.0.113.99.1.cookie" ] || fail "crash: killed generation .1's IKE_COOKIE sidecar must survive the crash -- rhook_state_reset() writes it before any step runs"
+TESTS_RUN=$((TESTS_RUN + 1))
+grep -q "^nm_dns	nm_dummy_profile	ok	" "$WORK_RUN/hook-state.203.0.113.99.1" || fail "crash: the nm_dns step that completed before the hang should be journaled with outcome 'ok'"
+TESTS_RUN=$((TESTS_RUN + 1))
+grep -q "^route_100.64.20.0/24	" "$WORK_RUN/hook-state.203.0.113.99.1" && fail "crash: the route step phase1-up.sh was killed inside must NOT appear as a completed journal entry"
+
+# A brand-new session for the SAME peer must come up and tear down
+# normally, completely ignoring the crashed orphan sitting on disk.
+export SPLIT_INCLUDE_CIDR="100.64.21.0/24"
+export IKE_COOKIE="cookie-crash-sa2"
+: > "$IP_LOG"
+: > "$NMCLI_LOG"
+up2_out=$("$RHOOK_HOOK_SHELL" "$HOOK_UP" 2>&1)
+assert_eq "crash: fresh phase1-up (SA2, same peer as the orphan) exits 0" "$?" "0"
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up2_out"
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -s "$WORK_RUN/hook-state.203.0.113.99.2" ] || fail "crash: SA2 should get a new generation .2, not reuse or touch the orphaned .1"
+
+export IKE_COOKIE="cookie-crash-sa2"
+: > "$IP_LOG"
+down2_out=$("$RHOOK_HOOK_SHELL" "$HOOK_DOWN" 2>&1)
+assert_eq "crash: phase1-down for SA2 exits 0" "$?" "0"
+assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down2_out"
+assert_contains "phase1-down for SA2 undid its own route (100.64.21.0/24)" "$(cat "$IP_LOG")" "route del 100.64.21.0/24"
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -f "$WORK_RUN/hook-state.203.0.113.99.2" ] && fail "generation .2 (SA2) should be consumed after its own phase1-down"
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -s "$WORK_RUN/hook-state.203.0.113.99.1" ] || fail "crash: orphaned generation .1 must remain completely untouched by SA2's phase1-down"
+
+# Finally: phase1-down for the crashed session's OWN cookie must still
+# find and replay it -- not double-consumed, not silently lost -- proving
+# the exact-match fix works even against an incomplete journal that only
+# ever recorded one completed step.
+export IKE_COOKIE="cookie-crash-sa1"
+: > "$NMCLI_LOG"
+: > "$IP_LOG"
+down1_out=$("$RHOOK_HOOK_SHELL" "$HOOK_DOWN" 2>&1)
+assert_eq "crash: phase1-down for the crashed orphan (SA1) exits 0" "$?" "0"
+assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down1_out"
+assert_contains "phase1-down replayed the orphan's one completed step (nm_dns teardown)" "$(cat "$NMCLI_LOG")" "connection delete racoon-vpn-dns"
+assert_not_contains "phase1-down never invokes a route undo for the step that never completed" "$(cat "$IP_LOG")" "route del"
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -f "$WORK_RUN/hook-state.203.0.113.99.1" ] && fail "crash: generation .1 should be consumed after its own (delayed) phase1-down"
+
 echo ""
 echo "$TESTS_RUN checks run, $TESTS_FAILED failed"
 [ "$TESTS_FAILED" -eq 0 ]
