@@ -40,6 +40,12 @@
 # distinguishable from the evidence itself, not just from a hand-typed
 # tag.
 #
+# KEEP_RACOON_RUNNING=1 leaves the racoon instance this script started
+# running at the end instead of terminating it (the default) -- only
+# useful for manually poking at steps 4-6 afterward; leave it unset for
+# back-to-back scenario runs, since step 2's pre-existing-racoon guard
+# will otherwise hard-stop the next run.
+#
 # Everything is captured under a timestamped results directory printed at
 # the end -- tar it up and hand it back for the doc/dev/teardown-
 # investigation.md write-up.
@@ -82,13 +88,38 @@ fail_stop() {
 }
 
 # --------------------------------------------------------------------------
-# The exact per-socket-policy filter from the task brief. per-socket
-# policies are the kernel's own transport-mode bookkeeping for local
-# sockets requesting IPsec, not anything the hook or racoon installed --
-# always present, always noise for this investigation.
+# per-socket policies are the kernel's own transport-mode bookkeeping for
+# local sockets requesting IPsec, not anything the hook or racoon
+# installed -- always present as soon as racoon is running (racoon's own
+# PF_KEY registration creates them automatically, confirmed empirically:
+# 03-post-start-filtered-spd.log has real content on every run from the
+# moment racoon starts, before any connect), always noise for this
+# investigation.
+#
+# Uses setkey's own native -N filter (confirmed present in this project's
+# setkey.c: f_nosock, getopt string "...N?" at setkey.c:190) rather than
+# the task brief's original suggested `setkey -DP | awk '!/(per-socket
+# policy)/'` -- the kernel-side filter is simpler and doesn't depend on
+# an awk regex staying in sync with setkey's own text formatting. This
+# supersedes that awk pattern; do not reintroduce it.
+#
+# The raw output is still written verbatim (not further edited) so the
+# artifact stays a faithful capture -- but setkey.c's postproc() (~713-819)
+# confirms two banner lines that mean "nothing real here" and must NOT be
+# treated as real content by callers:
+#   "No SPD entries."                                  (SADB_X_SPDDUMP/ENOENT)
+#   "<n> per-socket policy/policies not shown (filtered by -N)"
+# Use spd_file_has_real_policy() below instead of a plain `[ -s file ]`
+# test everywhere this matters -- a plain non-empty test would treat
+# either banner as "real" and produce a false Branch-A signal on every
+# single dump taken after racoon starts.
 # --------------------------------------------------------------------------
 filtered_spd() {
-	"$SETKEY_BIN" -DPN 2>&1 | awk 'BEGIN{RS="";ORS="\n\n"} !/\(per-socket policy\)/'
+	"$SETKEY_BIN" -DPN 2>&1
+}
+
+spd_file_has_real_policy() {
+	grep -v -E '^$|^No SPD entries\.$|^[0-9]+ per-socket (policy|policies) not shown \(filtered by -N\)$' "$1" 2>/dev/null | grep -q .
 }
 
 # --------------------------------------------------------------------------
@@ -223,10 +254,10 @@ narrate "=== Step 1: baseline ==="
 "$SETKEY_BIN" -F > "$OUT/01-setkey-F.log" 2>&1
 narrate "setkey -F (SAD flush) done"
 filtered_spd > "$OUT/01-baseline-filtered-spd.log"
-if [ -s "$OUT/01-baseline-filtered-spd.log" ]; then
+if spd_file_has_real_policy "$OUT/01-baseline-filtered-spd.log"; then
 	narrate "WARNING: baseline filtered SPD is NOT empty -- see $OUT/01-baseline-filtered-spd.log. This predates racoon even starting; if it's still present after phase1-down in step 5, it did NOT come from this test run's own connection."
 else
-	narrate "baseline filtered SPD is empty, as expected"
+	narrate "baseline filtered SPD is empty, as expected (nothing is running yet, so setkey -DPN has nothing to filter either -- expect the literal 'No SPD entries.' line in the file, that's normal)"
 fi
 
 # ==========================================================================
@@ -306,17 +337,31 @@ if ! "$RACOONCTL_BIN" show-sa isakmp > "$OUT/02-show-sa-after-start.log" 2>&1; t
 	cat "$OUT/02-show-sa-after-start.log"
 	fail_stop "racoonctl show-sa isakmp failed right after starting racoon -f -- the daemon did not actually come up (this is exactly the silent-failure mode step 2 warns about). Check $OUT/02-racoon-stdout.log and $RACOON_LOG."
 fi
-narrate "racoon -f is up and answering racoonctl show-sa isakmp"
+# Racoon daemonized (forked, detached, parent exited) -- the PID the shell
+# just ran is already gone. Capture the real daemon's PID now, while the
+# pre-existing-racoon guard above still guarantees there's exactly one,
+# so cleanup can terminate the right (and only) process later instead of
+# leaving it running for the next scenario run to trip over.
+RACOON_PID="$(pgrep -x racoon | head -1)"
+narrate "racoon -f is up (pid ${RACOON_PID:-unknown}) and answering racoonctl show-sa isakmp"
 
 # ==========================================================================
-# Step 3: filtered setkey -DP before any connect. If a real policy shows
-# up here, stop -- this is the single cleanest way to catch a
-# generate_policy or daemon-installed trap in the act, uncontaminated by
-# anything the hook does later.
+# Step 3: filtered setkey -DPN before any connect. If a real (non-
+# per-socket) policy shows up here, stop -- this is the single cleanest
+# way to catch a generate_policy or daemon-installed trap in the act,
+# uncontaminated by anything the hook does later.
+#
+# Per-socket policies themselves are EXPECTED here and are not a signal
+# of anything: racoon creates them automatically as soon as it starts
+# (confirmed empirically -- this file legitimately contains the "<n>
+# per-socket policy/policies not shown (filtered by -N)" banner on every
+# run from this step onward, never "No SPD entries." again once racoon
+# is up). spd_file_has_real_policy() already discounts that banner; do
+# not "fix" this step by expecting the raw file to be byte-empty.
 # ==========================================================================
 narrate "=== Step 3: filtered SPD immediately after racoon start, before connect ==="
 filtered_spd > "$OUT/03-post-start-filtered-spd.log"
-if [ -s "$OUT/03-post-start-filtered-spd.log" ]; then
+if spd_file_has_real_policy "$OUT/03-post-start-filtered-spd.log"; then
 	narrate "!!! Real (non-per-socket) policy present immediately after racoon start, before any connect !!!"
 	tee -a "$STEP_LOG" < "$OUT/03-post-start-filtered-spd.log"
 	{
@@ -330,7 +375,7 @@ if [ -s "$OUT/03-post-start-filtered-spd.log" ]; then
 	} >> "$SUMMARY"
 	fail_stop "real policy present before any connect -- see $OUT/03-post-start-filtered-spd.log and investigate before re-running (racoon.conf's own generate_policy setting, or a distro setkey.service, are the first two places to check per the task brief's step 7 -- see also 07-*.log below if you choose to continue manually)"
 fi
-narrate "no real policy present before connect, as expected -- continuing"
+narrate "no real (non-per-socket) policy present before connect, as expected -- continuing (see $OUT/03-post-start-filtered-spd.log -- a per-socket-only banner there is normal, not a finding)"
 
 # ==========================================================================
 # Step 4: full connect -> verified -> disconnect cycle, filtered -DP at
@@ -391,7 +436,20 @@ narrate "=== disconnecting: racoonctl vpn-disconnect $VPN_GATEWAY ==="
 PRE_DISCONNECT_LOGLINE_COUNT="$(wc -l < "$RACOON_LOG" 2>/dev/null || echo 0)"
 if ! timeout "$CONNECT_TIMEOUT" "$RACOONCTL_BIN" vpn-disconnect "$VPN_GATEWAY" > "$OUT/04-vpn-disconnect.log" 2>&1; then
 	cat "$OUT/04-vpn-disconnect.log"
-	narrate "WARNING: racoonctl vpn-disconnect did not return cleanly within ${CONNECT_TIMEOUT}s -- continuing anyway, but treat step 5 with caution"
+	# A fast, silent nonzero exit here (0-byte log, well under
+	# CONNECT_TIMEOUT) is NOT the same thing as an actual timeout, and is
+	# not by itself evidence that the disconnect failed: confirmed against
+	# this tree's own src/racoon/kmpstat.c com_recv() -- both its
+	# MSG_PEEK-failure and short-read paths (~149-154) `goto bad1` with no
+	# perror() at all, so if the admin socket EOFs before the
+	# EVT_PHASE1_DOWN event arrives over that specific connection,
+	# racoonctl's f_vc loop (racoonctl.c ~322-326) exits(1) completely
+	# silently while racoon's own teardown proceeds independently and
+	# usually still succeeds moments later. Only the explicit
+	# wait-for-phase1-down-completion check right below is authoritative;
+	# this message is a heads-up to look closer if that wait also fails,
+	# not a standalone failure verdict.
+	narrate "WARNING: racoonctl vpn-disconnect exited non-zero (see $OUT/04-vpn-disconnect.log, likely 0 bytes -- a known silent com_recv()/admin-socket race, not necessarily a real failure). Waiting for phase1-down.sh's own completion below is what actually decides this, not this exit code."
 fi
 
 # --------------------------------------------------------------------------
@@ -422,13 +480,13 @@ fi
 tail -n "+$((PRE_DISCONNECT_LOGLINE_COUNT + 1))" "$RACOON_LOG" 2>/dev/null | grep -E "racoon-phase1-down" > "$OUT/04-phase1-down-report.log" 2>/dev/null
 
 # ==========================================================================
-# Step 5: THE FORK IN THE ROAD. Filtered setkey -DP immediately after
+# Step 5: THE FORK IN THE ROAD. Filtered setkey -DPN immediately after
 # phase1-down.sh's own confirmed completion.
 # ==========================================================================
 narrate "=== Step 5: filtered SPD immediately after phase1-down.sh completion (the fork) ==="
 filtered_spd > "$OUT/05-post-teardown-filtered-spd.log"
 
-if [ -s "$OUT/05-post-teardown-filtered-spd.log" ]; then
+if spd_file_has_real_policy "$OUT/05-post-teardown-filtered-spd.log"; then
 	BRANCH="A"
 	narrate "*** BRANCH A signal: something remains in the SPD after phase1-down.sh completed ***"
 	tee -a "$STEP_LOG" < "$OUT/05-post-teardown-filtered-spd.log"
@@ -580,7 +638,7 @@ narrate "=== Step 7: Branch A narrowing checks (captured regardless of branch, f
 
 {
 	echo "--- comparing step 5's leftover SPD (if any) against the hook's state file ---"
-	if [ -s "$OUT/05-post-teardown-filtered-spd.log" ]; then
+	if spd_file_has_real_policy "$OUT/05-post-teardown-filtered-spd.log"; then
 		echo "leftover SPD selectors:"
 		grep -E "^src |^dst " "$OUT/05-post-teardown-filtered-spd.log" 2>/dev/null
 		echo
@@ -598,11 +656,33 @@ narrate "=== Step 7: Branch A narrowing checks (captured regardless of branch, f
 narrate "step 7 captures written: 07-generate-policy-grep.log, 07-distro-units.log, 07-spd-vs-state-file-compare.log"
 
 # ==========================================================================
-# Cleanup: stop the background log capture; leave racoon running or not,
-# investigator's call (left running here since a re-run of steps 4-6 by
-# hand may be useful before tearing the container down).
+# Cleanup: stop the background log capture, and terminate the racoon
+# instance this script started. Earlier runs left it running "for
+# convenience"; in practice that just meant the next run's own
+# pre-existing-racoon guard (step 2) hard-stopped, forcing a manual kill
+# before every subsequent scenario run. Terminate by default; set
+# KEEP_RACOON_RUNNING=1 to opt back into the old behaviour for manual
+# follow-up on this specific run.
 # ==========================================================================
 [ -n "${JOURNAL_PID:-}" ] && kill "$JOURNAL_PID" 2>/dev/null
+
+if [ "${KEEP_RACOON_RUNNING:-0}" = "1" ]; then
+	narrate "KEEP_RACOON_RUNNING=1 -- leaving racoon (pid ${RACOON_PID:-unknown}) running; stop it yourself before the next scenario run (pre-existing-racoon guard in step 2 will otherwise hard-stop)"
+elif [ -n "${RACOON_PID:-}" ] && kill -0 "$RACOON_PID" 2>/dev/null; then
+	kill "$RACOON_PID" 2>/dev/null
+	j=0
+	while [ "$j" -lt 5 ] && kill -0 "$RACOON_PID" 2>/dev/null; do
+		sleep 1
+		j=$((j + 1))
+	done
+	if kill -0 "$RACOON_PID" 2>/dev/null; then
+		narrate "WARNING: racoon (pid $RACOON_PID) did not exit within 5s of SIGTERM -- still running, check/kill it manually before the next scenario run"
+	else
+		narrate "racoon (pid $RACOON_PID) terminated"
+	fi
+else
+	narrate "racoon (pid ${RACOON_PID:-unknown}) already gone by cleanup time -- nothing to terminate"
+fi
 
 {
 	echo
