@@ -1,3 +1,7 @@
+etc/racoon/scripts/racoon-hook-lib.sh
+etc/racoon/scripts/phase1-up.sh
+etc/racoon/scripts/phase1-down.sh
+etc/racoon/scripts/racoon-dns-detect
 usr/include/libipsec/libpfkey.h
 usr/include/racoon/admin.h
 usr/include/racoon/evt.h

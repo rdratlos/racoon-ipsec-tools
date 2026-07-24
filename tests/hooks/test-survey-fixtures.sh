@@ -20,7 +20,7 @@
 set -u
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-LIB="$SCRIPT_DIR/../../src/scripts/racoon-hook-lib.sh"
+LIB="$SCRIPT_DIR/../../src/racoon/scripts/racoon-hook-lib.sh"
 FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 
 TESTS_RUN=0

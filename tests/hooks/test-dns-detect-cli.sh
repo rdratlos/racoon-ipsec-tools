@@ -11,7 +11,7 @@
 set -u
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-CLI="$SCRIPT_DIR/../../src/scripts/racoon-dns-detect"
+CLI="$SCRIPT_DIR/../../src/racoon/scripts/racoon-dns-detect"
 
 TESTS_RUN=0
 TESTS_FAILED=0
