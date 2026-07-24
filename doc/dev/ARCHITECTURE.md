@@ -335,17 +335,22 @@ either decision — it never feeds back into backend or tool selection at
 all — it's a standing check reported for human judgement when it
 disagrees with what the file-based survey concluded.
 
-**A live example of the `RC` branch: Arch Linux.** The `RC` decision at
-the top of the diagram only reaches `unmanaged` — the value that lets
-classification fall through past `networkmanager` to `resolved` — when
-NetworkManager's own `rc-manager` setting is `auto` and it has detected
-`systemd-resolved` as the active DNS plugin. Found live, comparing an
-Ubuntu Noble and an Arch roadwarrior with `dns=systemd-resolved`
-configured identically on both and `systemd-resolved` correctly enabled
-and running on both: Noble classified `resolved`, Arch stubbornly kept
-classifying `networkmanager`. `NetworkManager --print-config` on each
-explained it — a `#`-commented value in that output is NetworkManager's
-*effective default*, not something set in any config file:
+**A live example of the `RC` branch: not just Arch Linux.** The `RC`
+decision at the top of the diagram only reaches `unmanaged` — the value
+that lets classification fall through past `networkmanager` to
+`resolved` — when NetworkManager's own `rc-manager` setting is `auto`
+*and* it has detected `systemd-resolved` as the active DNS plugin (both
+conditions, confirmed against `src/core/dns/nm-dns-manager.c`'s
+`init_resolv_conf_mode()` — the `unmanaged` override lives entirely
+inside the branch handling `rc_manager == auto`; any other compiled or
+configured value skips that check unconditionally, regardless of what
+DNS plugin is actually active). Found live, comparing an Ubuntu Noble
+and an Arch roadwarrior with `dns=systemd-resolved` configured
+identically on both and `systemd-resolved` correctly enabled and running
+on both: Noble classified `resolved`, Arch stubbornly kept classifying
+`networkmanager`. `NetworkManager --print-config` on each explained it —
+a `#`-commented value in that output is NetworkManager's *effective
+default*, not something set in any config file:
 
 ```
 Ubuntu Noble  (NetworkManager 1.46.0):  # rc-manager=
@@ -355,18 +360,54 @@ Arch Linux    (NetworkManager 1.56.1):  # rc-manager=symlink
 Confirmed against NetworkManager's own build options
 (`meson_options.txt`'s `config_dns_rc_manager_default`: allowed values
 `auto`/`symlink`/`file`/`netconfig`/`resolvconf`, upstream default
-`auto`) and its source (`src/core/dns/nm-dns-manager.c`,
-`init_resolv_conf_mode()`): the check that resolves `rc-manager` to
-`unmanaged` when the DNS plugin is `systemd-resolved` only ever runs
-*inside* the branch handling `rc-manager == auto`. Arch's own
-`networkmanager` package is built with that default pinned to `symlink`
-instead of upstream's `auto`, so the branch — and the check inside it —
-is skipped unconditionally, regardless of what DNS plugin is actually
-active or how many times NetworkManager is reloaded. This is a packaging
-choice, not a bug in NetworkManager or in this hook set — but it silently
-caps a stock Arch install on the `networkmanager` backend's flat,
-non-isolated DNS (the "cannot be isolated" warning from section 4), even
-with `systemd-resolved` fully enabled and working.
+`auto`): Arch's own `networkmanager` package is built with that default
+pinned to `symlink` instead of upstream's `auto`. This is a packaging
+choice, not a bug in NetworkManager or in this hook set — but it
+silently caps a stock Arch install on the `networkmanager` backend's
+flat, non-isolated DNS (the "cannot be isolated" warning from section
+4), even with `systemd-resolved` fully enabled and working. **The same
+divergence was independently found on Ubuntu Bionic** during this
+project's own live roadwarrior testing (operator-confirmed, `rc-manager`
+compiled/pinned away from `auto` there too) — this is not an Arch
+peculiarity, and should be checked on any distro before assuming
+`resolved` classification will "just work" once `systemd-resolved` is
+enabled.
+
+*Why a packager would pin this at all*: traced to a real, public
+NetworkManager issue (freedesktop.org GitLab issue #629, first comment
+activity 10 Jan 2021, closed the same day as a config issue, then
+reopened by NM maintainer Thomas Haller on 4 Feb 2021 as "probably a
+packaging bug"; the issue's own creation date is not independently
+confirmed here, only the dated comment activity). The root cause: NM's
+`auto` mode resolves to "use `resolvconf`, if built with `resolvconf`
+support, unless `systemd-resolved` is detected" — when a distro ships an
+*optional* `systemd-resolvconf` package (providing `/usr/bin/resolvconf`)
+that a user has installed but left disabled, NM finds `resolvconf` in
+`$PATH`, assumes it's usable, and a DNS write fails outright. Haller's
+own fix guidance, quoted from that thread: *"For the distribution, when
+building the package you can select the default:
+`--with-config-dns-rc-manager-default` configure option... on the other
+hand, if you build NetworkManager with `--with-resolvconf=no`, then
+`auto` also doesn't mean that."* Fedora's own spec file (same repo,
+`contrib/fedora/rpm/NetworkManager.spec`) shows the range of choices
+downstream packagers actually made:
+
+```
+%if 0%{?fedora} || 0%{?rhel} > 7
+%if 0%{?fedora} || 0%{?rhel} > 8
+%global dns_rc_manager_default auto
+%else
+%global dns_rc_manager_default symlink    # RHEL 8 specifically
+%endif
+%else
+%global dns_rc_manager_default file       # generic non-Fedora/RHEL fallback
+%endif
+```
+
+— i.e. even within one packaging family, the compiled default varies by
+release. Arch's and Bionic's own choices of `symlink` are each that
+distro's own defensive reaction to the same 2021 ambiguity, not
+something forced on them by any upstream file.
 
 The fix is on the NetworkManager side, not this project's — pin
 `rc-manager` explicitly rather than relying on the compiled default:
@@ -379,16 +420,30 @@ rc-manager=unmanaged
 ```
 
 then `sudo systemctl restart NetworkManager` so it picks up the new
-file. Confirmed working end to end on a real Arch roadwarrior:
-`RcManager` reports `unmanaged`, `racoon-dns-detect --detect` classifies
-`resolved`, and `resolvectl status` shows the same `~domain`
-routing-only isolation on `racoon0` that Noble gets without any of this.
+file. Confirmed working end to end on real Arch, Noble, and Bionic
+roadwarriors: `RcManager` reports `unmanaged`, `racoon-dns-detect
+--detect` classifies `resolved`, and `resolvectl status` shows the same
+`~domain` routing-only isolation on `racoon0` on all three.
 
-Treat "Arch defaults to `symlink`" as a snapshot, not a guarantee — it's
-a packaging choice that could change in either direction on any distro.
-The durable, portable check is the method, not the fact:
-`NetworkManager --print-config | grep rc-manager` (or `busctl
-get-property org.freedesktop.NetworkManager
+**`rc-manager=auto` is not a distinct third option once
+`systemd-resolved` is your active DNS mode** — per `init_resolv_conf_mode()`
+above, `auto` collapses to exactly `unmanaged` in that case,
+deterministically. Confirmed live on Arch and Noble roadwarriors freshly
+rebooted with `rc-manager=auto` explicitly configured: `busctl
+get-property ... RcManager` still reported `"unmanaged"`, matching the
+source-level prediction exactly, not a stale-config artifact. Setting
+`rc-manager=unmanaged` explicitly (above) and leaving it at `auto` behave
+identically on any host where `systemd-resolved` is the active plugin;
+the explicit form is only strictly necessary on a host whose compiled
+default has been pinned away from `auto` in the first place (Arch,
+Bionic, RHEL 8, as above).
+
+Treat "this distro defaults to `symlink`" as a snapshot, not a
+guarantee — it's a packaging choice that could change in either direction
+on any distro, as the Fedora/RHEL table above already shows happening
+within a single packaging family. The durable, portable check is the
+method, not any one fact: `NetworkManager --print-config | grep
+rc-manager` (or `busctl get-property org.freedesktop.NetworkManager
 /org/freedesktop/NetworkManager/DnsManager
 org.freedesktop.NetworkManager.DnsManager RcManager` directly) tells you
 immediately which path your own host is on, whatever distro it is.
@@ -630,11 +685,31 @@ not more:
   behind `allow_resolv_conf_overwrite=yes`) backend have only ever been
   exercised against stubs in the test suite, never against the real
   tools on a live host.
-- **The ACQUIRE-provenance investigation is still open.** How a kernel
-  ACQUIRE message ends up triggering a Mode Config renegotiation in
-  practice hasn't been confirmed against a live host generating real
-  matching traffic — this needs a controlled environment that can script
-  exact traffic patterns, which hasn't been set up yet.
+- **The ACQUIRE-provenance investigation is resolved: Branch B.** 8 live
+  runs across Bionic, Noble, and Arch (`networkmanager` and `resolved`
+  backends both represented) all confirm no external mechanism reinstalls
+  or leaves behind an SPD policy after a clean teardown — on-demand
+  reconnection after disconnect simply isn't implemented, which is the
+  full explanation for what originally looked like a reconnect loop. The
+  very first two test archives (before the investigation script itself
+  was hardened) did show a real `ACQUIRE`; two sufficient causes were
+  present in those archives (test-script contamination, and the F3/F4
+  unscoped-resolver path), both fixed before the 8 clean runs, and the
+  evidence cannot isolate which one actually explains the original
+  symptom — see `doc/dev/teardown-investigation.md`'s "§F resolved"
+  section for the full reasoning and why this doesn't affect the verdict.
+- **A FIFO generation-matching gap in `phase1-down.sh`'s state-file
+  lookup, found but not yet exercised live.** `rhook_state_oldest_unconsumed()`
+  picks the oldest *live* (never-consumed) state file for a peer, not
+  necessarily the current session's own — `rhook_state_reap()`
+  deliberately never deletes live files, only aged `.consumed` ones, so a
+  session that's never cleanly torn down leaves a permanent orphan behind.
+  Found on a real, reused Arch host (5 accumulated generations, only 2
+  consumed); invisible in every test run so far because every session
+  used byte-identical `racoon.conf`, so consuming the "wrong" (orphaned)
+  generation still produced a correct real-world teardown. Whether this
+  is a real correctness risk under differing configs across sessions
+  hasn't been confirmed live yet — tracked separately from Task F.
 - **A handful of `# UNVERIFIED:` markers remain in `racoon-hook-lib.sh`**,
   each already mitigated defensively rather than left as a blind
   assumption — feature-probed instead of version-gated, or tolerant of
