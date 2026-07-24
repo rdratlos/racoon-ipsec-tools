@@ -197,7 +197,10 @@ rhook_log() {
 # their marker into a directory that didn't exist yet and silently lost it.
 # --------------------------------------------------------------------------
 rhook_ensure_state_dir() {
-	mkdir -p "$RHOOK_STATE_DIR" 2>/dev/null
+	# Reviewed (PR #91 comment #8): a failed mkdir here used to be
+	# swallowed outright -- every subsequent state/trace write would then
+	# fail the same silent way, with nothing anywhere explaining why.
+	mkdir -p "$RHOOK_STATE_DIR" 2>/dev/null || rhook_log warn "cannot create state directory $RHOOK_STATE_DIR -- state/trace files will not be written"
 }
 
 # --------------------------------------------------------------------------
@@ -725,7 +728,20 @@ rhook_undo_replay() {
 	local rhook_kept_lines
 
 	rhook_state="$1"
-	[ -n "$rhook_state" ] && [ -s "$rhook_state" ] || return 0
+	if [ -z "$rhook_state" ] || [ ! -s "$rhook_state" ]; then
+		return 0
+	fi
+	# Reviewed (PR #91 comment #4): an existing, non-empty state file that
+	# isn't readable (permissions, filesystem issue) must not fall through
+	# to the same "nothing to undo" path as a genuinely empty/absent one --
+	# that would silently report success while never having replayed a
+	# single undo command, leaving real routes/SPD/DNS entries stuck with
+	# no record of the failure anywhere. Warn and report failure instead,
+	# same as any other undo step that didn't run.
+	if [ ! -r "$rhook_state" ]; then
+		rhook_log warn "state file exists but is not readable, cannot replay its undo commands: $rhook_state"
+		return 1
+	fi
 
 	rhook_had_failure=0
 	rhook_kept_lines=""
