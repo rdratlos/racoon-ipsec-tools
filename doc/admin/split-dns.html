@@ -165,7 +165,7 @@ src/scripts/racoon-dns-detect    # standalone diagnostic CLI</code></pre>
 <thead><tr><th>Key</th><th>Default</th><th>Meaning</th></tr></thead>
 <tbody>
 <tr><td><code>backend</code></td><td><code>auto</code></td><td>Force a specific DNS backend, or let the hook detect one (see <a href="#backends">§4</a>).</td></tr>
-<tr><td><code>on_dns_failure</code></td><td><code>warn</code></td><td><code>warn</code> always exits 0; <code>abort</code> exits 1 when a required step fails (visible to whatever supervises the hook process — racoon itself does not reject a tunnel based on a hook's exit code).</td></tr>
+<tr><td><code>on_dns_failure</code></td><td><code>warn</code></td><td><code>warn</code> always exits 0; <code>report</code> exits 1 when a required step fails but leaves changes already applied in place; <code>rollback</code> does the same and additionally undoes every change that run applied first. None of the three reject the tunnel — racoon does not consult a hook's exit code for that. (<code>abort</code> is accepted as a deprecated alias for <code>report</code>.)</td></tr>
 <tr><td><code>debug_level</code></td><td><code>0</code></td><td>0–3, see <a href="#state">§6</a>. <code>RACOON_HOOK_DEBUG</code> in the environment overrides this without editing the file.</td></tr>
 <tr><td><code>dummy_iface</code></td><td><code>racoon0</code></td><td>Name of the dedicated interface carrying the VPN address and DNS profile.</td></tr>
 </tbody>

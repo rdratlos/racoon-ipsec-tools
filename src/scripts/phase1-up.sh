@@ -227,15 +227,35 @@ rhook_report_init
 rhook_apply_plan
 RHOOK_P1U_APPLY_RC=$?
 
-# The configured failure policy (hooks.conf on_dns_failure, R7's "report +
-# apply failure policy") governs this script's own exit status only --
-# racoon does not tear down an established Phase 1 SA based on a hook's
-# exit code, so "abort" here means "make the failure visible to whatever
-# is watching this process' exit status" (init supervisor, monitoring),
-# not "reject the tunnel". "warn" (the default) always exits 0: routes or
-# DNS steps that did apply stay in effect even if a later, non-fatal step
-# in the same plan failed.
-if [ "$RHOOK_P1U_APPLY_RC" -ne 0 ] && [ "$RHOOK_ON_DNS_FAILURE" = "abort" ]; then
-	exit 1
+# Brief 3 §H: the configured failure policy (hooks.conf on_dns_failure)
+# never rejects the tunnel -- racoon does not consult a hook's exit status
+# when deciding whether to keep an SA (no caller of script_hook() anywhere
+# in src/racoon inspects privsep_script_exec()'s return value for that
+# purpose), so nothing this script does here can make that happen. That is
+# exactly why "abort" (brief 1/2 naming) was renamed: it promised more than
+# a POSIX sh script running after the fact ever could. The three honest
+# choices are:
+#   warn     - always exit 0. Routes/DNS/SPD steps that did apply stay in
+#              effect even if a later, non-fatal step in the same plan
+#              failed. Default.
+#   report   - exit 1 when a required step failed, so whatever supervises
+#              this process (init, monitoring) can see it -- but changes
+#              already applied are left in place, exactly like "warn".
+#   rollback - additionally undo every change *this run* applied (via the
+#              same rhook_undo_replay() teardown path phase1-down.sh uses)
+#              before exiting 1, so a failed connection attempt does not
+#              leave a half-configured link -- but this is this script
+#              undoing its own work locally; it still cannot touch the SA
+#              racoon itself just established.
+# --------------------------------------------------------------------------
+if [ "$RHOOK_P1U_APPLY_RC" -ne 0 ]; then
+	if [ "$RHOOK_ON_DNS_FAILURE" = "rollback" ]; then
+		rhook_log warn "on_dns_failure=rollback: a required step failed -- undoing every change this run applied"
+		rhook_undo_replay "$(rhook_state_file)"
+		rhook_state_mark_consumed "$(rhook_state_file)"
+	fi
+	if [ "$RHOOK_ON_DNS_FAILURE" != "warn" ]; then
+		exit 1
+	fi
 fi
 exit 0

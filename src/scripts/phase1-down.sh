@@ -75,15 +75,18 @@ RHOOK_REPORT_HEADER="undo replay for remote=${REMOTE_ADDR:-?} internal=${INTERNA
 rhook_undo_replay "$RHOOK_P1D_STATE_FILE"
 RHOOK_P1D_RC=$?
 
-# Same policy, same rationale as phase1-up.sh: "abort" surfaces a
-# non-clean teardown via this script's own exit status (for whatever is
-# watching the process), "warn" (the default) always exits 0. Either way
-# rhook_undo_replay() already retained this generation's state file for
-# anything that failed to undo, so a later phase1-down.sh run (or a
-# manual retry) will pick up this exact generation again -- still oldest
-# among what remains unconsumed -- rather than this exit code being the
-# only record.
-if [ "$RHOOK_P1D_RC" -ne 0 ] && [ "$RHOOK_ON_DNS_FAILURE" = "abort" ]; then
+# Same policy, same rationale as phase1-up.sh (brief 3 §H): "report" and
+# "rollback" both surface a non-clean teardown via this script's own exit
+# status (for whatever is watching the process), "warn" (the default)
+# always exits 0. "rollback" has nothing extra to do here specifically --
+# a teardown has no "forward progress" left to undo beyond the teardown
+# itself -- so it behaves identically to "report" in this script; the
+# distinction only matters in phase1-up.sh. Either way rhook_undo_replay()
+# already retained this generation's state file for anything that failed
+# to undo, so a later phase1-down.sh run (or a manual retry) will pick up
+# this exact generation again -- still oldest among what remains
+# unconsumed -- rather than this exit code being the only record.
+if [ "$RHOOK_P1D_RC" -ne 0 ] && [ "$RHOOK_ON_DNS_FAILURE" != "warn" ]; then
 	exit 1
 fi
 exit 0
