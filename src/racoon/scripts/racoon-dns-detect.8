@@ -1,0 +1,151 @@
+.\" SPDX-License-Identifier: BSD-3-Clause
+.\" Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+.\" Part of rdratlos/racoon-ipsec-tools -- https://github.com/rdratlos/racoon-ipsec-tools
+.\"
+.Dd July 24, 2026
+.Dt RACOON-DNS-DETECT 8
+.Os
+.\"
+.Sh NAME
+.Nm racoon-dns-detect
+.Nd survey and preview the split-DNS/routing hooks' backend detection and plan
+.\"
+.Sh SYNOPSIS
+.Nm
+.Op Fl -detect | Fl -dry-run
+.Op Fl -explain
+.Op Fl -format Ns = Ns Cm kv
+.Op Fl -dns Ns = Ns Ar IP Ns Op , Ns Ar IP Ns ...
+.Op Fl -domains Ns = Ns Ar DOMAIN Ns Op , Ns Ar DOMAIN Ns ...
+.Op Fl -routes Ns = Ns Ar CIDR Ns Op , Ns Ar CIDR Ns ...
+.Op Fl -iface Ns = Ns Ar IFACE
+.Op Fl -internal-addr Ns = Ns Ar IP
+.Op Fl -help
+.\"
+.Sh DESCRIPTION
+.Nm
+is an administrator-facing diagnostic for the split-DNS/routing hooks
+.Pq Pa racoon-hook-lib.sh , phase1-up.sh , phase1-down.sh
+shipped with this project.
+None of the three have their own man pages — this page and the Admin
+Guide referenced under
+.Sx SEE ALSO
+are their documentation.
+It surveys the running system's
+.Pa resolv.conf
+landscape and DNS tool capabilities, classifies which backend the hooks
+would select, and — with
+.Fl -dry-run —
+builds and prints the exact step plan
+.Pa phase1-up.sh
+would apply for a given (or sample) set of Mode Config parameters.
+.Pp
+.Nm
+never changes anything on the system: it does not require root, and it
+never calls the library's apply machinery, only the survey and plan
+construction that precede it.
+Run it after editing
+.Pa hooks.conf
+or before troubleshooting a connection to see what the hooks would
+conclude without needing an active VPN session.
+.\"
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl -detect
+Survey
+.Pa resolv.conf ,
+probe the DNS tool capability matrix, and classify the backend.
+This is the default action.
+.It Fl -dry-run
+Also build and print the full step plan for the given (or sample) DNS
+parameters.
+Implies everything
+.Fl -detect
+reports.
+Never executes anything.
+.It Fl -explain
+Include the evidence behind each conclusion — the NetworkManager
+.Ic RcManager Ns / Ns Ic Mode
+D-Bus property values,
+.Pa nsswitch.conf
+handling, which file glibc's resolver actually reads, and the detected
+DNS tool's capability probe detail — instead of only the final answer.
+With
+.Fl -dry-run ,
+also prints each step's apply and undo commands.
+.It Fl -format Ns = Ns Cm kv
+Emit stable
+.Dq Li key=value
+lines (one per line, no quoting; consumers split on the first
+.Sq = )
+instead of the human-readable report, for scripting.
+The default format is human-readable text.
+.It Fl -dns Ns = Ns Ar IP Ns Op , Ns Ar IP Ns ...
+DNS server(s) to simulate with
+.Fl -dry-run .
+Defaults to an RFC 5737 documentation-reserved sample address if none
+of
+.Fl -dns , -domains ,
+or
+.Fl -routes
+is given.
+.It Fl -domains Ns = Ns Ar DOMAIN Ns Op , Ns Ar DOMAIN Ns ...
+Split-DNS domain(s) to simulate with
+.Fl -dry-run .
+.It Fl -routes Ns = Ns Ar CIDR Ns Op , Ns Ar CIDR Ns ...
+Split-include route(s) to simulate with
+.Fl -dry-run .
+.It Fl -iface Ns = Ns Ar IFACE
+Outbound physical interface to simulate.
+Defaults to
+.Li eth0 ,
+a placeholder — this is never auto-detected from the running system.
+.It Fl -internal-addr Ns = Ns Ar IP
+VPN-assigned internal address to simulate.
+Defaults to an RFC 6890 documentation-reserved sample address.
+.It Fl -help
+Print usage and exit.
+.El
+.\"
+.Sh FILES
+.Bl -tag -width Ds -compact
+.It Pa hooks.conf
+Configuration this tool reads the same way
+.Pa phase1-up.sh
+does — see
+.Xr racoon.conf 5
+and the Admin Guide.
+.It Pa racoon-hook-lib.sh
+The library this tool is a thin CLI wrapper over; installed alongside
+.Nm
+and read-only at runtime.
+.El
+.\"
+.Sh EXIT STATUS
+.Ex -std
+Exits non-zero only for an unrecognized option or a rejected
+.Fl -iface Ns / Ns Fl -internal-addr
+value; a completed survey or plan preview — including one that reports
+a
+.Ic DIVERGENT
+or
+.Ic PARALLEL_UNLINKED
+resolv.conf landscape — always exits 0, since reporting a problem is
+not itself a failure of this tool.
+.\"
+.Sh SEE ALSO
+.Xr racoon.conf 5 ,
+.Xr racoon 8 ,
+.Xr racoonctl 8
+.Pp
+See
+.Pa doc/admin/split-dns.html
+in the project source (or your distribution's documentation directory)
+for the full split-DNS/routing hooks admin guide, including this tool's
+own diagnostic workflow in more detail.
+.\"
+.Sh HISTORY
+.Nm
+was added along with the split-DNS/routing hook set for
+.Xr racoon 8
+roadwarrior connections.

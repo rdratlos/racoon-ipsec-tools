@@ -149,15 +149,24 @@ it exits with 0 if the configuration file is valid and 1 otherwise,
 without starting the daemon either way.
 .\"
 .Sh FILES
-.Bl -tag -width /etc/racoon.conf -compact
+.Bl -tag -width /etc/racoon/scripts -compact
 .It Pa /etc/racoon.conf
 default configuration file.
+.It Pa /etc/racoon/scripts
+the split-DNS/routing
+.Ic phase1_up Ns / Ns Ic phase1_down
+hook scripts shipped with this project and their
+.Pa hooks.conf ,
+with packaging defaults; see the Admin Guide
+.Pq Pa doc/admin/split-dns.html
+in the project source.
 .El
 .\"
 .Sh SEE ALSO
 .Xr ipsec 4 ,
 .Xr racoon.conf 5 ,
 .Xr syslog.conf 5 ,
+.Xr racoon-dns-detect 8 ,
 .Xr setkey 8 ,
 .Xr syslogd 8
 .\"
