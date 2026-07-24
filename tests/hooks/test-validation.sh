@@ -170,6 +170,24 @@ label63=$(printf 'a%.0s' $(seq 1 63))
 long_domain="${label63}.${label63}.${label63}.${label63}"
 assert_invalid "total over 253 bytes" rhook_valid_domain "$long_domain"
 
+# PR #91 review row 29c (comment 5061097437): confirmed, not assumed --
+# a raw Unicode homoglyph domain is already rejected as a side effect of
+# the [A-Za-z0-9.-] character class above (the multi-byte UTF-8 sequence
+# doesn't match it), while its Punycode-encoded (ASCII) equivalent passes.
+assert_invalid "raw Unicode homoglyph domain already rejected" \
+	rhook_valid_domain "$(printf 'xn--m\303\274nchen.example.com')"
+assert_valid   "Punycode-encoded equivalent is plain ASCII and passes" \
+	rhook_valid_domain "xn--mnchen-3ya.example.com"
+
+# ==========================================================================
+# rhook_domain_has_punycode_label
+# ==========================================================================
+assert_valid   "xn-- prefix detected"          rhook_domain_has_punycode_label "xn--mnchen-3ya.example.com"
+assert_valid   "xn-- prefix detected, mixed case" rhook_domain_has_punycode_label "XN--mnchen-3ya.example.com"
+assert_valid   "xn-- prefix on a non-leftmost label" rhook_domain_has_punycode_label "corp.xn--mnchen-3ya.example"
+assert_invalid "plain ASCII domain has no Punycode label" rhook_domain_has_punycode_label "example.com"
+assert_invalid "hyphenated label, not an xn-- prefix" rhook_domain_has_punycode_label "my-corp.example.com"
+
 # ==========================================================================
 # rhook_valid_port
 # ==========================================================================
@@ -237,6 +255,37 @@ while [ "$i" -lt 33 ]; do
 	i=$((i + 1))
 done
 assert_list_invalid "more than max domains" rhook_validate_domain_list "$many_domains"
+
+# ==========================================================================
+# rhook_validate_domain_list -- Punycode visibility warning (PR #91 review
+# row 29c, comment 5061097437). A raw Unicode homoglyph domain is already
+# rejected by rhook_valid_domain()'s character-class check (it wouldn't
+# match [A-Za-z0-9.-] at all); Punycode-encoded (xn--) domains are plain
+# ASCII and pass -- the fix is a warn-level log line, not a rejection.
+# ==========================================================================
+assert_list_valid "Punycode domain still passes validation (warn, not block)" \
+	rhook_validate_domain_list "xn--mnchen-3ya.example.com"
+
+TESTS_RUN=$((TESTS_RUN + 1))
+punycode_warn=$(rhook_validate_domain_list "xn--mnchen-3ya.example.com" 2>&1 >/dev/null)
+case "$punycode_warn" in
+	*"Punycode-encoded"*) pass ;;
+	*) fail "Punycode domain should trigger a warn-level log line -- got: $punycode_warn" ;;
+esac
+
+TESTS_RUN=$((TESTS_RUN + 1))
+plain_warn=$(rhook_validate_domain_list "example.com" 2>&1 >/dev/null)
+case "$plain_warn" in
+	*"Punycode-encoded"*) fail "plain ASCII domain must not trigger the Punycode warning -- got: $plain_warn" ;;
+	*) pass ;;
+esac
+
+TESTS_RUN=$((TESTS_RUN + 1))
+mixed_warn=$(rhook_validate_domain_list "example.com xn--mnchen-3ya.example.com" 2>&1 >/dev/null)
+case "$mixed_warn" in
+	*"xn--mnchen-3ya.example.com"*) pass ;;
+	*) fail "mixed list must still warn about the Punycode entry -- got: $mixed_warn" ;;
+esac
 
 # ==========================================================================
 # rhook_validate_cidr_list -- the brief's named injection vector end to end,

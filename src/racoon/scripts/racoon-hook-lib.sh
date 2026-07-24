@@ -1057,6 +1057,28 @@ rhook_validate_dns_list() {
 	return 0
 }
 
+# rhook_domain_has_punycode_label <domain> -- true if any dot-separated
+# label starts with the "xn--" ACE prefix (RFC 3492/5890), case-
+# insensitively (DNS labels are case-insensitive, and so is ACE-prefix
+# comparison per RFC 3490). A pure predicate like rhook_valid_domain()
+# above: no I/O, no log line of its own -- rhook_validate_domain_list()
+# below decides what to do with the answer.
+rhook_domain_has_punycode_label() {
+	local rhook_dhp_tok rhook_dhp_label rhook_dhp_oldifs
+	rhook_dhp_tok="$1"
+	rhook_dhp_oldifs="$IFS"
+	IFS=.
+	# shellcheck disable=SC2086 # word-splitting on IFS=. is the point
+	set -- $rhook_dhp_tok
+	IFS="$rhook_dhp_oldifs"
+	for rhook_dhp_label in "$@"; do
+		case "$rhook_dhp_label" in
+			[Xx][Nn]--*) return 0 ;;
+		esac
+	done
+	return 1
+}
+
 # rhook_validate_domain_list <space-or-comma-separated tokens>
 # Callers normalize comma/space mixed lists to spaces before calling this
 # (racoon exports search domains comma-separated); kept as a single space-
@@ -1075,6 +1097,23 @@ rhook_validate_domain_list() {
 		if ! rhook_valid_domain "$rhook_tok"; then
 			RHOOK_VALIDATION_REASON="domain '$rhook_tok' failed validation"
 			return 1
+		fi
+		# PR #91 review row 29c (comment 5061097437): a raw Unicode
+		# homoglyph domain is already rejected as a side effect of the
+		# [A-Za-z0-9.-] character-class check in rhook_valid_domain()
+		# above -- it wouldn't match that class at all. Punycode-encoded
+		# domains (xn--...) ARE plain ASCII and pass that check; the
+		# residual gap is visibility, not validation: an operator has no
+		# way to notice an unexpected ACE-encoded (possible lookalike)
+		# domain from the report alone. Warns, never blocks -- comparing
+		# against a confusables table to detect an actual homoglyph is a
+		# much larger undertaking than this project's threat model here
+		# (a malicious or compromised gateway sending Mode Config
+		# attributes, not a sophisticated phishing scenario) warrants; a
+		# warning that surfaces the raw Punycode form to a human is
+		# sufficient for that threat model.
+		if rhook_domain_has_punycode_label "$rhook_tok"; then
+			rhook_log warn "split-DNS domain '$rhook_tok' is Punycode-encoded (ACE prefix xn--) -- passed validation, but worth reviewing: this could be a lookalike domain"
 		fi
 	done
 	printf '%s' "$rhook_list"
