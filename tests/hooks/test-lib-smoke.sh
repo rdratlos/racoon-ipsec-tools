@@ -517,6 +517,82 @@ case "$edi_out" in
 	*) fail "11c: refusal must explain why -- got: $edi_out" ;;
 esac
 
+# --------------------------------------------------------------------------
+# 11d: PR #91 review row 24 (comment 5061097437) -- two genuinely
+# concurrent invocations racing to create the same dummy interface.
+# Before rhook_dummy_iface_lock(), both could pass the "does it exist"
+# check before either created it. This stub deliberately widens that
+# window (a 1s sleep the first time "link show" finds nothing yet) so an
+# unserialized run would reliably lose the race within this test's
+# lifetime rather than only occasionally, on unlucky scheduling; with the
+# lock in place, the second invocation blocks for the whole
+# check-then-create section and only proceeds once the first has already
+# created the interface, landing on the reuse branch instead.
+# --------------------------------------------------------------------------
+cat > "$WORK/ip-stub-race" <<'STUBEOF'
+#!/bin/sh
+echo "ip $*" >> "$RACE_CALL_LOG"
+[ "$1" = "-o" ] && shift
+if [ "$1 $2" = "link show" ]; then
+	if [ ! -f "$RACE_STATE_FILE" ]; then
+		sleep 1
+	fi
+	if [ ! -f "$RACE_STATE_FILE" ]; then
+		echo "Device does not exist." >&2
+		exit 1
+	fi
+	echo "1: racoon0: <BROADCAST,NOARP,UP,LOWER_UP> mtu 1500 qdisc noqueue state UNKNOWN"
+	exit 0
+elif [ "$1 $2" = "link add" ]; then
+	: > "$RACE_STATE_FILE"
+	exit 0
+elif [ "$1 $2" = "link set" ]; then
+	exit 0
+fi
+exit 0
+STUBEOF
+chmod +x "$WORK/ip-stub-race"
+RACOON_HOOK_IP="$WORK/ip-stub-race"
+RACE_CALL_LOG="$WORK/race-calls.log"
+RACE_STATE_FILE="$WORK/race-state"
+export RACOON_HOOK_IP RACE_CALL_LOG RACE_STATE_FILE
+rm -f "$RACE_CALL_LOG" "$RACE_STATE_FILE"
+
+(
+	rhook_ensure_dummy_iface racoon0 >"$WORK/race-a.out" 2>&1
+	echo $? > "$WORK/race-a.rc"
+) &
+race_pid_a=$!
+(
+	rhook_ensure_dummy_iface racoon0 >"$WORK/race-b.out" 2>&1
+	echo $? > "$WORK/race-b.rc"
+) &
+race_pid_b=$!
+wait "$race_pid_a"
+wait "$race_pid_b"
+
+assert_eq "11d: concurrent invocation A exits 0" "$(cat "$WORK/race-a.rc")" "0"
+assert_eq "11d: concurrent invocation B exits 0" "$(cat "$WORK/race-b.rc")" "0"
+TESTS_RUN=$((TESTS_RUN + 1))
+race_add_count=$(grep -c "link add" "$RACE_CALL_LOG")
+if [ "$race_add_count" = "1" ]; then
+	pass "11d: exactly one 'ip link add' across both concurrent invocations"
+else
+	fail "11d: exactly one 'ip link add' expected under the dummy-iface lock, got $race_add_count -- $(cat "$RACE_CALL_LOG")"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if grep -q "already exists" "$WORK/race-a.out" "$WORK/race-b.out" 2>/dev/null; then
+	pass "11d: the loser of the race took the reuse branch, not a second create attempt"
+else
+	fail "11d: neither invocation logged the reuse path -- got A: $(cat "$WORK/race-a.out"); B: $(cat "$WORK/race-b.out")"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if grep -q "not a dummy-type interface" "$WORK/race-a.out" "$WORK/race-b.out" 2>/dev/null; then
+	fail "11d: no error should surface from either concurrent invocation"
+else
+	pass "11d: no error surfaced from either concurrent invocation"
+fi
+
 unset IFACE_STATE IP_CALL_LOG
 
 echo ""
