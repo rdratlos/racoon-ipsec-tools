@@ -51,6 +51,18 @@ check() {
   make check
 }
 
+# src/racoon/scripts/{racoon-hook-lib.sh,phase1-up.sh,phase1-down.sh,
+# racoon-dns-detect} (the road-warrior split-DNS/routing hooks) are a
+# real installed component (src/racoon/scripts/Makefile.am) -- `make
+# DESTDIR=... install` below places them at /etc/racoon/scripts/ given
+# this PKGBUILD's --sysconfdir=/etc/racoon, matching the `script`
+# directive paths documented in doc/admin/split-dns.html. Only
+# hooks.conf.sample and the split-DNS admin doc still need an explicit
+# install line here, the same way LICENSE/NEWS.md/README.md already do
+# below -- neither is part of the autotools install (this project's own
+# convention keeps *.sample and doc/ files EXTRA_DIST-only, packaged by
+# the distro's own rules, matching how Debian handles them via
+# debian/racoon.examples and debian/racoon.docs).
 package() {
   cd "racoon-ipsec-tools"
   make DESTDIR="$pkgdir" install
@@ -73,6 +85,8 @@ package() {
   install -Dm644 debian/racoon.conf "$pkgdir/etc/racoon/racoon.conf"
   install -Dm600 src/racoon/samples/psk.txt.sample "$pkgdir/etc/racoon/psk.txt"
   install -Dm644 debian/ipsec-tools.conf "$pkgdir/etc/ipsec-tools.conf"
+  install -Dm644 etc/racoon/hooks.conf.sample "$pkgdir/usr/share/doc/$pkgname/examples/hooks.conf.sample"
+  install -Dm644 doc/admin/split-dns.html "$pkgdir/usr/share/doc/$pkgname/split-dns.html"
 
   # systemd units + runtime plumbing
   install -Dm644 "$srcdir/racoon.service" "$pkgdir/usr/lib/systemd/system/racoon.service"

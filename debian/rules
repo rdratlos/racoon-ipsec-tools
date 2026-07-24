@@ -89,7 +89,11 @@ override_dh_installchangelogs:
 	dh_installchangelogs --no-trim NEWS.md
 
 override_dh_installexamples:
-	dh_installexamples -pracoon -X.in src/racoon/samples
+	# Glob the contents rather than passing the directory itself, so
+	# examples land at /usr/share/doc/racoon/examples/roadwarrior/... (as
+	# referenced by debian/racoon.conf) instead of being nested one level
+	# deeper under an extra .../examples/samples/... path segment.
+	dh_installexamples -pracoon -X.in src/racoon/samples/*
 	dh_installexamples
 
 override_dh_installman:

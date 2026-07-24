@@ -1,0 +1,7 @@
+#!/bin/sh
+prop="$5"
+case "$prop" in
+	RcManager) echo 's "symlink"' ;;
+	Mode) echo 's "default"' ;;
+esac
+exit 0

@@ -2,6 +2,13 @@
 # Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
 # SPDX-License-Identifier: BSD-3-Clause
 
+# scripts/ (the phase1-up/phase1-down split-DNS and routing hook set) is a
+# real installed component, not example material -- unlike samples/ below,
+# which stays EXTRA_DIST-only (dist-shipped, never installed). "." keeps
+# this directory's own targets (racoon/racoonctl/plainrsa-gen/eaytest)
+# building the way they always have; recursion is additive.
+SUBDIRS = . scripts
+
 sbin_PROGRAMS = racoon racoonctl plainrsa-gen
 noinst_PROGRAMS = eaytest
 include_racoon_HEADERS = racoonctl.h var.h vmbuf.h misc.h gcmalloc.h admin.h \

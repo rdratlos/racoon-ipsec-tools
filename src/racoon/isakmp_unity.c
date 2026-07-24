@@ -241,6 +241,24 @@ isakmp_unity_reply(iph1, attr)
 		break;
 	}
 	case UNITY_SPLITDNS_NAME:
+	{
+		if (alen) {
+			char *splitdns_data = racoon_malloc(alen + 1);
+			if (splitdns_data == NULL) {
+				plog(LLV_ERROR, LOCATION, NULL,
+				    "Cannot allocate memory for split DNS\n");
+				break;
+			}
+			memcpy(splitdns_data, (char *)(attr + 1), alen);
+			splitdns_data[alen] = '\0';
+			iph1->mode_cfg->split_dns = splitdns_data;
+			iph1->mode_cfg->flags |= ISAKMP_CFG_GOT_SPLIT_DNS;
+
+			plog(LLV_DEBUG, LOCATION, NULL,
+			     "Split DNS domains: %s\n", splitdns_data);
+		}
+		break;
+	}
 	case UNITY_BANNER:
 	case UNITY_SAVE_PASSWD:
 	case UNITY_NATT_PORT:

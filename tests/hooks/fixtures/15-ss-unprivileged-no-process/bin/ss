@@ -1,0 +1,6 @@
+#!/bin/sh
+# Matches real `ss -lntu` output when run without permission to see
+# process ownership: the Process column is simply empty, not omitted --
+# confirmed live (ss -lntu, no -p, as a non-root user) during development.
+echo "Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess"
+echo "udp   UNCONN 0      0         127.0.0.53:53        0.0.0.0:*          "

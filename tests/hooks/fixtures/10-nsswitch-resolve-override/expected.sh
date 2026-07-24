@@ -1,0 +1,5 @@
+DESC="nsswitch.conf 'resolve' overrides a file-based landscape (file contents irrelevant)"
+EXPECT_GLIBC_READER_SUFFIX="/etc/resolv.conf"
+EXPECT_NSS_RESOLVE="yes"
+EXPECT_DIVERGENT="no"
+EXPECT_PARALLEL_UNLINKED="no"

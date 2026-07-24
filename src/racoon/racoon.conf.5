@@ -647,6 +647,17 @@ The remote address of the phase 1 SA.
 The remote port used for IKE for the phase 1 SA.
 .It Ev REMOTE_ID
 The remote identity received in IKE for the phase 1 SA.
+.It Ev IKE_COOKIE
+The ISAKMP cookie pair (initiator cookie, a colon, then responder
+cookie, each as 16 lowercase hex digits) identifying this Phase 1
+negotiation.
+Unique per negotiation and stable across the
+.Ic phase1_up
+and
+.Ic phase1_down
+invocations for the same connection attempt, so a script can tell its
+own session apart from any other concurrently-live one for the same
+peer instead of relying on invocation order.
 .El
 The following variables are only set if
 .Ic mode_cfg
@@ -683,7 +694,24 @@ Same as SPLIT_INCLUDE, with netmasks in CIDR notation.
 Same as SPLIT_LOCAL, with netmasks in CIDR notation.
 .It DEFAULT_DOMAIN
 The DNS default domain name obtained by ISAKMP mode config.
+.It INTERNAL_SPLITDNS_DOMAINS
+The raw Unity split-DNS domain list
+.Pq Ic UNITY_SPLITDNS_NAME
+attribute payload obtained by ISAKMP mode config, copied verbatim from
+the peer.
 .El
+.Pp
+This project ships a ready-to-use
+.Ic phase1_up Ns / Ns Ic phase1_down
+script pair implementing split-DNS and split-routing configuration
+against several DNS resolver backends, driven by their own
+.Pa hooks.conf
+(distinct from this file).
+See the Admin Guide
+.Pq Pa doc/admin/split-dns.html
+in the project source for how to wire it up, and
+.Xr racoon-dns-detect 8
+to preview what it would do without an active VPN session.
 .\"
 .\"
 .It Ic send_cert (on | off) ;
@@ -1557,6 +1585,7 @@ foo.kame.net    hoge
 .\"
 .Sh SEE ALSO
 .Xr racoon 8 ,
+.Xr racoon-dns-detect 8 ,
 .Xr racoonctl 8 ,
 .Xr setkey 8
 .\"

@@ -3178,6 +3178,23 @@ script_hook(iph1, script)
 		racoon_free(idstr);
 	}
 
+	/*
+	 * ISAKMP cookie pair: unique per Phase 1 negotiation, and stable for
+	 * the lifetime of this iph1 -- SCRIPT_PHASE1_DOWN is fired by
+	 * delph1() on the very same iph1 whose SCRIPT_PHASE1_UP fired
+	 * earlier (a rekey allocates a fresh iph1/cookie pair instead of
+	 * reusing this one). Unlike REMOTE_ADDR/REMOTE_PORT, this lets a
+	 * hook script tell its own connection attempt apart from any other
+	 * live one for the same peer, instead of guessing from file order
+	 * (issue #90). isakmp_pindex() with msgid 0 renders exactly
+	 * "i_ck_hex:r_ck_hex", with no msgid suffix appended.
+	 */
+	if (script_env_append(&envp, &envc,
+	    "IKE_COOKIE", (char *)isakmp_pindex(&iph1->index, 0)) != 0) {
+		plog(LLV_ERROR, LOCATION, NULL, "Cannot set IKE_COOKIE\n");
+		goto out;
+	}
+
 	if (privsep_script_exec(iph1->rmconf->script[script]->v,
 	    script, envp) != 0)
 		plog(LLV_ERROR, LOCATION, NULL,
