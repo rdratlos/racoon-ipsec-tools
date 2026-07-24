@@ -325,6 +325,63 @@ narrate "=== Step 0b: network-management backend snapshot ==="
 narrate "network-backend snapshot written to $OUT/00b-network-backend-snapshot.log -- verify it actually matches the scenario you intended to run before trusting the rest of this run's results"
 
 # ==========================================================================
+# Step 0c: three environmental assumptions this script relies on, made
+# explicit as preflight checks instead of staying implicit (found via a
+# review pass on PR #91, comment #36). None of these are as clear-cut as
+# step 0/step 2's hard-stop guards, so none of them fail_stop:
+#
+# 1. A clean STATE_DIR for this peer -- step 3b's synthetic orphan is
+#    numbered relative to whatever's already on disk (peer_max_generation()),
+#    so it still lands correctly even with real leftovers present; what a
+#    hard-stop would miss is that pre-existing live generations are
+#    themselves worth knowing about (a previous run's own teardown that
+#    never happened), not something to silently work around.
+# 2. No other PF_KEY listener already running -- the same contamination
+#    concern step 2's pre-existing-racoon guard covers, extended to other
+#    IKE daemons. Deliberately checks for a *running process*
+#    (pgrep), not `systemctl is-active`: a one-shot setkey.service that
+#    loaded static SPD/SA at boot and exited reports "active (exited)"
+#    under systemd -- confirmed on our own live Noble/Bionic/Arch runs'
+#    own 07-distro-units.log captures -- and is not a competing listener
+#    at all; `is-active` alone would false-positive on exactly the hosts
+#    this script is meant to run on.
+# 3. VPN_GATEWAY resolves to the literal address hook-state filenames
+#    use -- upgrades the header comment's VPN_GATEWAY CAVEAT from
+#    documentation into something this run actually checks for itself.
+# ==========================================================================
+narrate "=== Step 0c: preflight assumption checks ==="
+{
+	echo "--- 1. live (non-.consumed, non-.cookie) hook-state generations already on disk for $VPN_GATEWAY ---"
+	rhook_preexisting_live=""
+	for f in "$(peer_state_prefix)".*; do
+		[ -f "$f" ] || continue
+		case "$f" in *.consumed|*.cookie|*.lock) continue ;; esac
+		echo "$f"
+		rhook_preexisting_live="${rhook_preexisting_live:+$rhook_preexisting_live }$f"
+	done
+	[ -n "$rhook_preexisting_live" ] || echo "(none)"
+	echo
+	echo "--- 2. running processes for other IKE/IPsec daemons (charon, pluto) ---"
+	pgrep -a -x charon 2>&1 || echo "(no charon)"
+	pgrep -a -x pluto 2>&1 || echo "(no pluto)"
+	echo
+	echo "--- 3. VPN_GATEWAY resolution ---"
+	rhook_resolved="$(getent ahostsv4 "$VPN_GATEWAY" 2>/dev/null | awk '{print $1; exit}')"
+	echo "VPN_GATEWAY=$VPN_GATEWAY resolves to=${rhook_resolved:-<getent lookup failed>}"
+} > "$OUT/00c-preflight-assumptions.log" 2>&1
+
+if [ -n "$rhook_preexisting_live" ]; then
+	narrate "WARNING: live hook-state generation(s) already on disk for $VPN_GATEWAY before this run touched anything -- an earlier session's own teardown may never have happened. Not stopping (step 3b's synthetic orphan still numbers correctly around them), but see $OUT/00c-preflight-assumptions.log and consider investigating separately from this run's own result."
+fi
+if pgrep -x charon >/dev/null 2>&1 || pgrep -x pluto >/dev/null 2>&1; then
+	fail_stop "another IKE daemon (charon or pluto) is already running -- this invalidates PF_KEY/SPD attribution for the whole run, same reasoning as step 2's pre-existing-racoon guard. Stop it first and confirm neither 'pgrep -x charon' nor 'pgrep -x pluto' finds anything, then re-run."
+fi
+if [ -n "$rhook_resolved" ] && [ "$rhook_resolved" != "$VPN_GATEWAY" ]; then
+	narrate "WARNING: VPN_GATEWAY=$VPN_GATEWAY resolves to $rhook_resolved -- racoon's own REMOTE_ADDR (and therefore every hook-state filename) will use $rhook_resolved, not the hostname you passed. Steps 5b/5c and the PRESUMED_OWN_GEN lookups below assume VPN_GATEWAY is already that literal address; re-run with VPN_GATEWAY=$rhook_resolved if those steps report 'none found' unexpectedly."
+fi
+narrate "preflight assumption checks done (see $OUT/00c-preflight-assumptions.log) -- continuing"
+
+# ==========================================================================
 # Step 1: baseline. setkey -F is SAD only -- never touches SPD -- so a
 # non-empty filtered -DP result here is itself evidence, not noise to
 # clear away. Recorded, not auto-flushed.

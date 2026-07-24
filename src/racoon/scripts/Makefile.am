@@ -52,8 +52,17 @@ hookscripts_SCRIPTS = \
 hookscripts_DATA = \
 	racoon-hook-lib.sh
 
-# automake does not distribute *_SCRIPTS/*_DATA files automatically the
-# way it does *_SOURCES -- these are plain, hand-written files (nothing
-# here is generated), so EXTRA_DIST is what makes `make dist`/
-# `make distcheck` actually ship them.
-EXTRA_DIST = $(hookscripts_SCRIPTS) $(hookscripts_DATA)
+# racoon-dns-detect's own man page, co-located with the script it
+# documents (PR #91 review, comment #38) -- man8_MANS installs to the
+# standard $(mandir)/man8 via automake's own MANS primary, not
+# hookscriptsdir above; a man page belongs in the system man tree
+# regardless of where the script itself is installed.
+man8_MANS = racoon-dns-detect.8
+
+# automake does not distribute *_SCRIPTS/*_DATA/*_MANS files
+# automatically the way it does *_SOURCES -- these are plain,
+# hand-written files (nothing here is generated), so EXTRA_DIST is what
+# makes `make dist`/`make distcheck` actually ship them. Verified
+# directly (not assumed): a plain `make distdir` in this directory
+# omits racoon-dns-detect.8 without this line.
+EXTRA_DIST = $(hookscripts_SCRIPTS) $(hookscripts_DATA) $(man8_MANS)
