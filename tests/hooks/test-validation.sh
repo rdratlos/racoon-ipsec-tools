@@ -116,6 +116,37 @@ assert_invalid "route argument injection"      rhook_valid_cidr4 "default via 10
 assert_invalid "route injection, no spaces"    rhook_valid_cidr4 "10.0.12.0/24;ip route add default via 10.6.6.6"
 
 # ==========================================================================
+# rhook_cidr_overlaps -- PR #91 review row 29b (comment 5061097437)
+# ==========================================================================
+assert_cidr_overlap() {
+	# $1 = description  $2 = cidr1  $3 = cidr2
+	TESTS_RUN=$((TESTS_RUN + 1))
+	if rhook_cidr_overlaps "$2" "$3"; then
+		pass
+	else
+		fail "$1 -- expected '$2' and '$3' to overlap, but they did not"
+	fi
+}
+
+assert_cidr_disjoint() {
+	TESTS_RUN=$((TESTS_RUN + 1))
+	if rhook_cidr_overlaps "$2" "$3"; then
+		fail "$1 -- expected '$2' and '$3' to be disjoint, but they overlapped"
+	else
+		pass
+	fi
+}
+
+assert_cidr_overlap   "one CIDR contains the other" "192.168.1.0/24" "192.168.1.128/25"
+assert_cidr_disjoint  "same-size, different networks" "192.168.1.0/24" "192.168.2.0/24"
+assert_cidr_overlap   "large range containing a host route" "10.0.0.0/8" "10.66.0.6/32"
+assert_cidr_overlap   "0.0.0.0/0 overlaps everything" "0.0.0.0/0" "203.0.113.0/24"
+assert_cidr_disjoint  "adjacent, non-overlapping halves" "203.0.113.0/25" "203.0.113.128/25"
+assert_cidr_overlap   "identical CIDR" "198.51.100.0/24" "198.51.100.0/24"
+assert_cidr_overlap   "large range containing another /32" "172.16.0.0/12" "172.31.255.255/32"
+assert_cidr_disjoint  "just outside a large range" "172.16.0.0/12" "172.32.0.0/16"
+
+# ==========================================================================
 # rhook_valid_domain
 # ==========================================================================
 assert_valid   "simple domain"                 rhook_valid_domain "example.com"
@@ -139,6 +170,24 @@ label63=$(printf 'a%.0s' $(seq 1 63))
 long_domain="${label63}.${label63}.${label63}.${label63}"
 assert_invalid "total over 253 bytes" rhook_valid_domain "$long_domain"
 
+# PR #91 review row 29c (comment 5061097437): confirmed, not assumed --
+# a raw Unicode homoglyph domain is already rejected as a side effect of
+# the [A-Za-z0-9.-] character class above (the multi-byte UTF-8 sequence
+# doesn't match it), while its Punycode-encoded (ASCII) equivalent passes.
+assert_invalid "raw Unicode homoglyph domain already rejected" \
+	rhook_valid_domain "$(printf 'xn--m\303\274nchen.example.com')"
+assert_valid   "Punycode-encoded equivalent is plain ASCII and passes" \
+	rhook_valid_domain "xn--mnchen-3ya.example.com"
+
+# ==========================================================================
+# rhook_domain_has_punycode_label
+# ==========================================================================
+assert_valid   "xn-- prefix detected"          rhook_domain_has_punycode_label "xn--mnchen-3ya.example.com"
+assert_valid   "xn-- prefix detected, mixed case" rhook_domain_has_punycode_label "XN--mnchen-3ya.example.com"
+assert_valid   "xn-- prefix on a non-leftmost label" rhook_domain_has_punycode_label "corp.xn--mnchen-3ya.example"
+assert_invalid "plain ASCII domain has no Punycode label" rhook_domain_has_punycode_label "example.com"
+assert_invalid "hyphenated label, not an xn-- prefix" rhook_domain_has_punycode_label "my-corp.example.com"
+
 # ==========================================================================
 # rhook_valid_port
 # ==========================================================================
@@ -159,6 +208,24 @@ assert_list_invalid "loopback rejected"         rhook_validate_dns_list "127.0.0
 assert_list_invalid "multicast low rejected"    rhook_validate_dns_list "224.0.0.1"
 assert_list_invalid "multicast high rejected"   rhook_validate_dns_list "239.255.255.255"
 assert_list_valid   "just below multicast ok"   rhook_validate_dns_list "223.255.255.255"
+
+# PR #91 review row 29a (comment 5061097437): 0.0.0.0/8 (not just the one
+# address), link-local, and reserved/Class E/broadcast are bogon ranges
+# that are never a valid DNS server regardless of deployment -- added
+# alongside the pre-existing 0.0.0.0/loopback/multicast checks above.
+assert_list_invalid "0.0.0.0/8 (not just 0.0.0.0) rejected" rhook_validate_dns_list "0.1.2.3"
+assert_list_invalid "link-local rejected"        rhook_validate_dns_list "169.254.1.1"
+assert_list_invalid "reserved (Class E) rejected" rhook_validate_dns_list "240.0.0.1"
+assert_list_invalid "broadcast address rejected" rhook_validate_dns_list "255.255.255.255"
+
+# RFC1918 private ranges must remain fully, unconditionally allowed --
+# they are the address family every one of this project's own
+# live-tested internal DNS servers actually uses. Not a policy nuance:
+# rejecting these would break the project's own primary confirmed-
+# working scenario, so this must never regress.
+assert_list_valid   "RFC1918 10/8 allowed"       rhook_validate_dns_list "10.66.0.6"
+assert_list_valid   "RFC1918 172.16/12 allowed"  rhook_validate_dns_list "172.16.0.53"
+assert_list_valid   "RFC1918 192.168/16 allowed" rhook_validate_dns_list "192.168.1.53"
 
 # semicolon vector: not IFS, stays attached to a token, fails char whitelist
 assert_list_invalid "semicolon injection vector" rhook_validate_dns_list "10.0.12.53;rm -rf /"
@@ -188,6 +255,37 @@ while [ "$i" -lt 33 ]; do
 	i=$((i + 1))
 done
 assert_list_invalid "more than max domains" rhook_validate_domain_list "$many_domains"
+
+# ==========================================================================
+# rhook_validate_domain_list -- Punycode visibility warning (PR #91 review
+# row 29c, comment 5061097437). A raw Unicode homoglyph domain is already
+# rejected by rhook_valid_domain()'s character-class check (it wouldn't
+# match [A-Za-z0-9.-] at all); Punycode-encoded (xn--) domains are plain
+# ASCII and pass -- the fix is a warn-level log line, not a rejection.
+# ==========================================================================
+assert_list_valid "Punycode domain still passes validation (warn, not block)" \
+	rhook_validate_domain_list "xn--mnchen-3ya.example.com"
+
+TESTS_RUN=$((TESTS_RUN + 1))
+punycode_warn=$(rhook_validate_domain_list "xn--mnchen-3ya.example.com" 2>&1 >/dev/null)
+case "$punycode_warn" in
+	*"Punycode-encoded"*) pass ;;
+	*) fail "Punycode domain should trigger a warn-level log line -- got: $punycode_warn" ;;
+esac
+
+TESTS_RUN=$((TESTS_RUN + 1))
+plain_warn=$(rhook_validate_domain_list "example.com" 2>&1 >/dev/null)
+case "$plain_warn" in
+	*"Punycode-encoded"*) fail "plain ASCII domain must not trigger the Punycode warning -- got: $plain_warn" ;;
+	*) pass ;;
+esac
+
+TESTS_RUN=$((TESTS_RUN + 1))
+mixed_warn=$(rhook_validate_domain_list "example.com xn--mnchen-3ya.example.com" 2>&1 >/dev/null)
+case "$mixed_warn" in
+	*"xn--mnchen-3ya.example.com"*) pass ;;
+	*) fail "mixed list must still warn about the Punycode entry -- got: $mixed_warn" ;;
+esac
 
 # ==========================================================================
 # rhook_validate_cidr_list -- the brief's named injection vector end to end,
