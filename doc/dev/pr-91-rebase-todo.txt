@@ -1,0 +1,211 @@
+# PR #91 rebase-todo — paste this whole file as the buffer for
+#   git rebase -i 69d1129
+# replacing whatever git auto-generates. See doc/dev/pr-91-history-rewrite-plan.md
+# for the full analysis this is derived from. Do not run this yourself --
+# this file is the maintainer's to paste and execute.
+#
+# Verbs used: pick, squash, edit, drop (fixup is not used anywhere so every
+# squash stop still lets you see/edit the combined message, which is what
+# pr-91-rebase-messages.md gives you text for).
+#
+# Three commits below are NOT in their original chronological position:
+# d3b22d1, e517623, 52aa366. Each is marked "MOVED from position N" at its
+# original slot (now just a comment, no line) and at its new slot. See
+# "Reordering" in the plan doc, Step 3, for why each move is expected to be
+# conflict-free (or, for e517623, the one place a real conflict is plausible).
+
+# ── Target: DROP-UNRELATED ────────────────────────────────────────────────
+drop 516e03a debian: remove unsupported installation option --no-trim
+
+# ── Target 1: racoon: parse UNITY_SPLITDNS_NAME, export INTERNAL_SPLITDNS_DOMAINS ──
+edit 65db17b feat: add UNITY_SPLITDNS_NAME parsing, INTERNAL_SPLITDNS_DOMAINS env var, and modern resolver auto-detection
+# ^ STOP HERE: strip the false-start script hunks before continuing --
+#   git checkout HEAD^ -- src/racoon/samples/roadwarrior/client/phase1-up.sh src/racoon/samples/roadwarrior/client/phase1-down.sh
+#   git commit --amend --no-edit
+#   git rebase --continue
+
+# ── false start (DROP): a406293 ───────────────────────────────────────────
+drop a406293 refactor(phase1): merge split-route, SPD, DNS, and syslog logging into unified scripts
+
+# ── Target 2a: samples: modernize roadwarrior server/client racoon.conf ───
+pick 90bd018 samples: modernize roadwarrior server racoon.conf
+squash 034baf8 samples: add comprehensive admin guidance to roadwarrior server config
+squash cfdc769 samples: remove deprecated racoon.conf-radius sample
+squash d465e89 samples: modernize roadwarrior client racoon.conf
+
+# ── Target 2b: samples: fix server cert path, listen binding, client sainfo ──
+edit c448451 samples: fix server cert path, listen binding, client sainfo, script fallbacks
+# ^ STOP HERE: strip the false-start script hunks before continuing --
+#   git checkout HEAD^ -- src/racoon/samples/roadwarrior/client/phase1-up.sh src/racoon/samples/roadwarrior/client/phase1-down.sh
+#   git commit --amend --no-edit
+#   git rebase --continue
+
+# ── false start (DROP): a3679dd ───────────────────────────────────────────
+drop a3679dd scripts: fix NM dummy device DNS and remove redundant stderr echo
+
+squash 1c2ea12 samples: remove wrong adminsock path from client sample
+
+# ── false start (DROP): df73fd2, 7e8b118, 67defd1, 61f8303, e3bff59 ───────
+drop df73fd2 scripts: fix NM dummy device race by deactivating before configure
+drop 7e8b118 fix: set ipv4.method manual during NM conn add to avoid deactivation race
+drop 67defd1 fix: clean stale vpn0 device and fall back to resolv.conf on NM failure
+drop 61f8303 roadwarrior: replace NM dummy device with active connection modification
+drop e3bff59 roadwarrior: clear NM ipv4.dns before setting to avoid append
+
+# ── Target 2c: docs+debian: NetworkManager dns= note, default racoon.conf, drop racoon-tool ──
+edit 2786534 roadwarrior: fix DNS routing gap and rework NM split-DNS to a dedicated interface
+# ^ STOP HERE: strip the false-start script hunks, KEEP the client/racoon.conf
+#   NetworkManager dns= comment hunk, before continuing --
+#   git checkout HEAD^ -- src/racoon/samples/roadwarrior/client/phase1-up.sh src/racoon/samples/roadwarrior/client/phase1-down.sh
+#   git commit --amend --no-edit
+#   git rebase --continue
+
+# ── false start (DROP): 4c7d0cc, d6c0d0a, 4632dd3, 07d4e13 ────────────────
+drop 4c7d0cc roadwarrior: detect NetworkManager rc-manager=file by resolv.conf content
+drop d6c0d0a roadwarrior: query NetworkManager's D-Bus DnsManager for resolver identity
+drop 4632dd3 roadwarrior: treat NM's dns= as a plugin list, not a single value
+drop 07d4e13 roadwarrior: fix dns-priority exclusivity bug and NM_DNS_MODE data loss
+
+squash 9759847 debian: rewrite default racoon.conf as a roadwarrior-first onboarding stub
+squash d75eb8f samples,debian: drop racoon-tool reference, ship client sample inert by default
+
+# ── false start (DROP): 766faa9, 0db2023 ──────────────────────────────────
+drop 766faa9 roadwarrior: gate D-Bus DnsManager probe on NetworkManager already active
+drop 0db2023 roadwarrior: fix nm_dbus_prop() crashing the whole script under set -e
+
+# ── Target 3: hooks: add racoon-hook-lib.sh skeleton ──────────────────────
+# 1778093 is the false-start recovery point (see plan Step 2) -- folded here
+# rather than reviewed on its own, since its moved content is fully replaced
+# by Target 8/9 a few commits later and would otherwise land as a dead-end
+# intermediate commit with no lasting value.
+pick 1778093 scripts: manage phase1 up/down shell scripts in src folder
+squash 0591684 hooks: add racoon-hook-lib.sh skeleton (logging, run_step, state I/O)
+
+# ── Target 4 ───────────────────────────────────────────────────────────────
+pick dafd2cf hooks: add §4 input validation with injection-vector regression tests
+
+# ── Target 5 ───────────────────────────────────────────────────────────────
+pick 4b0ad39 hooks: add §7 resolv.conf landscape survey with 10 fixture tests
+
+# ── Target 6 ───────────────────────────────────────────────────────────────
+pick 2d0488e hooks: add §6 capability matrix and resolvectl/systemd-resolve emitters
+
+# ── Target 7 ───────────────────────────────────────────────────────────────
+pick 53cbcb0 hooks: add §3.2 plan builder, §7.4 postconditions, and racoon-dns-detect CLI
+
+# ── Target 8 ───────────────────────────────────────────────────────────────
+pick 72e307b hooks: replace phase1-up.sh with a thin wrapper over the plan/apply library
+
+# ── Target 9 ───────────────────────────────────────────────────────────────
+pick 5e407f3 hooks: replace phase1-down.sh with a pure undo replay of the state file
+
+# ── Target 10 ──────────────────────────────────────────────────────────────
+pick 15c5bdb docs/ci: add hooks.conf.sample, admin guide, CI workflow, shellcheck-clean
+squash cf6fd4b docs: add §12 final implementation report for the split-DNS hooks rewrite
+
+# ── Target 11 ──────────────────────────────────────────────────────────────
+pick 1fb4079 hooks: fix resolved-backend DNS effectiveness check + rollback/reorder DNS steps
+
+# ── Target 12 (brief 3 §C) ─────────────────────────────────────────────────
+pick 436d6fb hooks: add port 53 ownership survey as an equal-weight §7 input (brief 3 §C)
+
+# ── Target 13 (brief 3 §D) ─────────────────────────────────────────────────
+pick 6158721 hooks: FIFO generation-numbered state matching, supersedes stale-archival (brief 3 §D)
+
+# ── Target 14 (brief 3 §E, R2') ────────────────────────────────────────────
+pick e3fd36c hooks: install and own SPD entries for the tunnel (brief 3 §E, R2')
+
+# ── Target 15 (brief 3 §F/§G) ──────────────────────────────────────────────
+pick e2be159 docs: file daemon-side issues from live testing, record §F investigation status (brief 3 §F/§G)
+
+# ── Target 16 (brief 3 §H) ─────────────────────────────────────────────────
+pick 6c07e8a hooks: on_dns_failure=report|rollback replaces the overpromising "abort" (brief 3 §H)
+
+# ── Target 17 (brief 3 §I) ─────────────────────────────────────────────────
+pick bbb8619 hooks: gate the resolv.conf-overwrite fallback behind allow_resolv_conf_overwrite (brief 3 §I)
+
+# ── Target 18 (brief 3 §J) ─────────────────────────────────────────────────
+pick 76f5572 tests: assert stderr cleanliness on every real subprocess invocation (brief 3 §J)
+
+# ── Target 19 (brief 3 §K) ─────────────────────────────────────────────────
+pick 8ed9fea hooks: detect NetworkManager ownership before deleting the dummy interface (brief 3 §K)
+
+# ── Target 20 (brief 3 §L) ─────────────────────────────────────────────────
+pick 78ccd01 build: install the split-DNS hooks as a real package component (brief 3 §L)
+squash d3b22d1 build: install racoon-hook-lib.sh non-executable, fixing lintian executable-not-elf-or-script
+# ^ d3b22d1 MOVED here from its original chronological position (it would
+#   otherwise sit after debdc77, far below) -- see plan Step 3's
+#   "Reordering" note. Expected conflict-free (disjoint file: Makefile.am).
+
+# ── Target 21 (brief 3 §M) ─────────────────────────────────────────────────
+pick 5b22a40 docs: add split-DNS hooks section to the real Admin Guide (brief 3 §M)
+squash babaad2 docs: extend the implementation report with Brief 3's own §12-style summary
+squash e517623 docs: mark the implementation report as first draft (1d1- prefix)
+# ^ e517623 MOVED here from its original chronological position -- see plan
+#   Step 3's "Reordering" note. THIS is the one point in the whole plan most
+#   likely to show a real conflict: e517623 touches one cross-reference line
+#   in ARCHITECTURE.md that bfbfff5 (still ahead of this point) might also
+#   touch. If it conflicts, keep both changes -- they are not mutually
+#   exclusive edits to the same idea, just nearby lines.
+
+# ── Target 22: live bugs found in real-world testing ──────────────────────
+pick ec38f74 hooks: make dummy-interface creation idempotent (live bug: racoon0 hangs after a non-clean stop)
+squash 2630265 hooks: fix invalid systemd-resolve clear commands, use --revert instead
+squash 163fbdd hooks: plan the NetworkManager DNS profile before routes (live bug: Invalid prefsrc address)
+squash 64ef546 hooks: use ipv6.method ignore instead of disabled for the NM DNS profile
+
+# ── Target 23: docs: add ARCHITECTURE.md ──────────────────────────────────
+pick 7ec2ec6 docs: add doc/dev/ARCHITECTURE.md, a tutorial for the split-DNS/routing hooks
+squash 472f77e docs: fix ARCHITECTURE.md numbering collision, undercount, and unflagged version claim
+# (d3b22d1 was originally here -- MOVED up to Target 20, see above)
+squash bfbfff5 hooks: recheck systemd-version comments against the full NEWS file, update two
+# (e517623 was originally here -- MOVED up to Target 21, see above)
+squash debdc77 docs: add an Arch Linux note to the decision-tree section (RcManager compiled default)
+
+# ── Target 24: docs: close out Task F ACQUIRE-provenance investigation ────
+pick a40fef6 docs: close out Task F ACQUIRE-provenance investigation (Branch B)
+squash 1bf0d9e docs: soften the Task F original-ACQUIRE causal claim to what the evidence actually supports
+
+# ── Target 25: hooks: match phase1-down.sh's own generation by IKE_COOKIE (issue #90) ──
+pick 9dfd5b8 hooks: match phase1-down.sh's own generation by IKE_COOKIE, not FIFO order (issue #90)
+squash 52aa366 docs: record issue #90's live confirmation across three distros
+# ^ 52aa366 MOVED here from its original chronological position (it would
+#   otherwise sit after the four Task F tool commits below) -- see plan
+#   Step 3's "Reordering" note. Expected conflict-free (disjoint files: the
+#   tool commits only touch tools/task-f-acquire-investigation.sh).
+
+# ── Targets 26-29: Task F tooling, kept as 4 separate commits ─────────────
+pick b3caa65 tools: add task-f-acquire-investigation.sh (v1)
+pick 09b3a15 tools: harden task-f-acquire-investigation.sh against two contamination sources (v2)
+pick 5f92c69 tools: filter per-socket SPD noise, terminate racoon by default (v3)
+pick 40c33ad tools: add issue #90 live checks, rename to racoon-hook-integration-test.sh
+# (52aa366 was originally here -- MOVED up to Target 25, see above)
+
+# ── Target 30 ──────────────────────────────────────────────────────────────
+pick 6c3870f doc: add split DNS NM integration development report 1d1
+
+# ── Target 31: tests: fix 2 CI failures found in PR #91 review ────────────
+pick 8e946d2 tests: isolate RACOON_HOOK_RESOLVECTL in the systemd-resolve-only scenario
+squash 2cb972a tests: fall back to sh when dash isn't installed (NetBSD CI job)
+
+# ── Target 32: docs+hooks: apply PR #91 review items #4/#8, #11-16/#30, #36, #38 ──
+pick 8d11d6c hooks: surface state-dir creation and unreadable-state-file failures (PR #91 #4/#8)
+squash 69a6659 docs: precise PARALLEL_UNLINKED definition, capability matrix, rollback/orphan tradeoffs (PR #91)
+squash 53a8f53 docs: add racoon-dns-detect.8, document hooks.conf in racoon.conf.5/racoon.8 (PR #91 #38)
+squash 7c16c4f tools: add 3 preflight assumption checks to the integration test (PR #91 #36)
+
+# ── Target 33 (PR #91 row 23) ──────────────────────────────────────────────
+pick 5d7efe9 tests: cover a crashed phase1-up.sh's incomplete state file (PR #91 #23)
+
+# ── Target 34 (PR #91 row 24) ──────────────────────────────────────────────
+pick 655caf5 hooks: close the dummy-interface check-then-create race (PR #91 #24)
+squash a4b0f4e docs: record row 24 disposition in the PR #91 review-response doc
+
+# ── Target 35 (PR #91 row 29) ──────────────────────────────────────────────
+pick de83380 hooks: reject bogon DNS server ranges beyond the pre-existing set (PR #91 #29a)
+squash fde49e9 hooks: warn (not reject) on overlapping split-include CIDRs (PR #91 #29b)
+squash 9731af3 hooks: warn on Punycode-encoded split-DNS domains (PR #91 #29c)
+squash 16fc058 docs: record row 29 disposition in the PR #91 review-response doc
+
+# ── Target 36 (PR #91 row 41) ──────────────────────────────────────────────
+pick 84990be docs: lead user-facing prose with "phase1-up/phase1-down scripts" (PR #91 #41)
