@@ -1,0 +1,4 @@
+#!/bin/sh
+echo "Netid State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess"
+echo "udp   UNCONN 0      0         127.0.0.53:53        0.0.0.0:*    users:((\"systemd-resolve\",pid=100,fd=3))"
+echo "udp   UNCONN 0      0         127.0.0.1:53          0.0.0.0:*    users:((\"unbound\",pid=300,fd=5))"

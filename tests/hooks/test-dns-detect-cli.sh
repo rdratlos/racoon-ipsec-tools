@@ -132,6 +132,50 @@ rc=$?
 assert_eq "valid explicit simulation parameters exit 0" "$rc" "0"
 assert_contains "explicit iface is reflected in the plan (route dev)" "$out" "plan_step_3_id=route_203.0.113.0/24"
 
+# ==========================================================================
+# §C (brief 3): port 53 ownership survey shows up in --detect output,
+# and a disagreement against the file/D-Bus classification is reported
+# explicitly rather than resolved silently in favor of either side.
+# ==========================================================================
+mkdir -p "$WORK/port53/bin" "$WORK/port53/proc/200"
+cat > "$WORK/port53/bin/ss" <<'EOF'
+#!/bin/sh
+echo "Netid State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess"
+echo "udp   UNCONN 0      0         127.0.0.1:53        0.0.0.0:*    users:((\"dnsmasq\",pid=200,fd=6))"
+EOF
+chmod +x "$WORK/port53/bin/ss"
+ln -sf /usr/sbin/dnsmasq "$WORK/port53/proc/200/exe"
+
+export RACOON_HOOK_FS_ROOT="$WORK/port53"
+export RACOON_HOOK_SS="$WORK/port53/bin/ss"
+
+out=$(sh "$CLI" --detect --explain 2>&1)
+rc=$?
+assert_eq "--detect with a port53 listener exits 0" "$rc" "0"
+assert_contains "port53 listener is reported with its pid and resolved owner binary" "$out" "127.0.0.1:53 -- pid=200 owner=/usr/sbin/dnsmasq class=forwarder"
+assert_contains "disagreement is reported when file survey says static but a forwarder is live" "$out" "DISAGREEMENT: port 53 survey vs. file/D-Bus classification"
+assert_contains "disagreement shows the file/D-Bus conclusion" "$out" "file/D-Bus survey concluded: backend=static"
+assert_contains "disagreement shows the port53 conclusion with evidence" "$out" "port 53 survey concluded:    a live resolver (owner /usr/sbin/dnsmasq)"
+
+out=$(sh "$CLI" --detect --format=kv 2>&1)
+assert_contains "kv output includes the listener fields" "$out" "port53_listener_1_owner=/usr/sbin/dnsmasq"
+assert_contains "kv output includes the disagreement flag" "$out" "port53_disagreement=yes"
+
+# No listener at all -> no disagreement section, no false positive.
+cat > "$WORK/port53/bin/ss" <<'EOF'
+#!/bin/sh
+echo "Netid State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess"
+EOF
+chmod +x "$WORK/port53/bin/ss"
+out=$(sh "$CLI" --detect 2>&1)
+assert_contains "no listeners at all is reported plainly" "$out" "(none detected)"
+TESTS_RUN=$((TESTS_RUN + 1))
+if printf '%s' "$out" | grep -q "DISAGREEMENT"; then
+	fail "no port53 listener at all must not produce a disagreement finding"
+fi
+
+unset RACOON_HOOK_FS_ROOT RACOON_HOOK_SS
+
 echo ""
 echo "$TESTS_RUN checks run, $TESTS_FAILED failed"
 [ "$TESTS_FAILED" -eq 0 ]

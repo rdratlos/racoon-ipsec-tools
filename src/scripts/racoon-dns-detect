@@ -185,6 +185,99 @@ if [ -n "$RD_DNS_TOOL" ]; then
 fi
 
 # --------------------------------------------------------------------------
+# §C (brief 3): port 53 ownership. Equal-weight survey input, not an
+# override of the file/D-Bus-based classification above -- printed
+# alongside it, and any disagreement between the two is reported
+# explicitly rather than silently resolved in favor of either one.
+# --------------------------------------------------------------------------
+RD_PORT53_SUMMARY=$(rhook_survey_port53_summary)
+RD_PORT53_IMPLIED=""
+RD_PORT53_EVIDENCE=""
+rd_line ""
+rd_line "Port 53 listeners:"
+if [ -z "$RD_PORT53_SUMMARY" ]; then
+	rd_line "  (none detected)"
+else
+	rd_p53_n=0
+	while IFS= read -r rd_p53_line || [ -n "$rd_p53_line" ]; do
+		[ -n "$rd_p53_line" ] || continue
+		rd_p53_kind=$(printf '%s' "$rd_p53_line" | cut -f1)
+		case "$rd_p53_kind" in
+			LISTENER)
+				rd_p53_n=$((rd_p53_n + 1))
+				rd_p53_proto=$(printf '%s' "$rd_p53_line" | cut -f2)
+				rd_p53_addr=$(printf '%s' "$rd_p53_line" | cut -f3)
+				rd_p53_port=$(printf '%s' "$rd_p53_line" | cut -f4)
+				rd_p53_pid=$(printf '%s' "$rd_p53_line" | cut -f5)
+				rd_p53_owner=$(printf '%s' "$rd_p53_line" | cut -f6)
+				rd_p53_class=$(printf '%s' "$rd_p53_line" | cut -f7)
+				rd_p53_tool=$(printf '%s' "$rd_p53_line" | cut -f8)
+				rd_line "  ${rd_p53_proto} ${rd_p53_addr}:${rd_p53_port} -- pid=${rd_p53_pid:-unknown} owner=${rd_p53_owner} class=${rd_p53_class} (via ${rd_p53_tool})"
+				rd_kv "port53_listener_${rd_p53_n}_proto" "$rd_p53_proto"
+				rd_kv "port53_listener_${rd_p53_n}_addr" "$rd_p53_addr"
+				rd_kv "port53_listener_${rd_p53_n}_pid" "$rd_p53_pid"
+				rd_kv "port53_listener_${rd_p53_n}_owner" "$rd_p53_owner"
+				rd_kv "port53_listener_${rd_p53_n}_class" "$rd_p53_class"
+				case "$rd_p53_class" in
+					stub)
+						RD_PORT53_IMPLIED="resolved"
+						RD_PORT53_EVIDENCE="a systemd-resolved stub is bound to ${rd_p53_addr}:${rd_p53_port} (owner ${rd_p53_owner})"
+						;;
+					forwarder|server)
+						if [ -z "$RD_PORT53_IMPLIED" ]; then
+							RD_PORT53_IMPLIED="forwarder-present"
+							RD_PORT53_EVIDENCE="a live resolver (owner ${rd_p53_owner}) is bound to ${rd_p53_addr}:${rd_p53_port}, class=${rd_p53_class}"
+						fi
+						;;
+				esac
+				;;
+			BROKEN)
+				rd_p53_broken_ns=$(printf '%s' "$rd_p53_line" | cut -f2)
+				rd_line "  BROKEN: nothing is listening on port 53 at all, but the effective"
+				rd_line "          resolv.conf points at a loopback nameserver (${rd_p53_broken_ns}) --"
+				rd_line "          every lookup will fail until this is corrected."
+				rd_kv port53_broken "yes"
+				rd_kv port53_broken_nameserver "$rd_p53_broken_ns"
+				;;
+		esac
+	done <<-RDPORT53
+$RD_PORT53_SUMMARY
+RDPORT53
+	rd_kv port53_listener_count "$rd_p53_n"
+fi
+
+# Disagreement reporting (§C "standing"): only flagged in the two cases
+# port 53 evidence can actually settle -- a stub definitely present but
+# not classified as the resolved backend, or a live forwarder/server
+# present while the file survey concluded nothing is actively managing
+# DNS at all (backend=static or none). Both conclusions and their
+# evidence are printed; neither is treated as authoritative.
+case "$RD_PORT53_IMPLIED" in
+	resolved)
+		if [ "$RD_BACKEND" != "resolved" ]; then
+			rd_line ""
+			rd_line "DISAGREEMENT: port 53 survey vs. file/D-Bus classification"
+			rd_line "  file/D-Bus survey concluded: backend=${RD_BACKEND} (evidence: nss_uses_resolve=${RD_NSS_RESOLVE}, glibc reads ${RD_GLIBC_READER:-<none readable>})"
+			rd_line "  port 53 survey concluded:    ${RD_PORT53_EVIDENCE}"
+			rd_line "  Neither is authoritative here -- reported as found, not resolved automatically."
+			rd_kv port53_disagreement "yes"
+		fi
+		;;
+	forwarder-present)
+		case "$RD_BACKEND" in
+			static|none)
+				rd_line ""
+				rd_line "DISAGREEMENT: port 53 survey vs. file/D-Bus classification"
+				rd_line "  file/D-Bus survey concluded: backend=${RD_BACKEND} (no resolver manager recognized from file layout or D-Bus)"
+				rd_line "  port 53 survey concluded:    ${RD_PORT53_EVIDENCE}"
+				rd_line "  Neither is authoritative here -- reported as found, not resolved automatically."
+				rd_kv port53_disagreement "yes"
+				;;
+		esac
+		;;
+esac
+
+# --------------------------------------------------------------------------
 # --dry-run: build the plan the hook would apply, using either the
 # caller-supplied simulation parameters or clearly-marked RFC 5737/6890
 # documentation-reserved sample values (§4: whitelist-validated exactly
