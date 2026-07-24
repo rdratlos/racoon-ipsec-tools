@@ -2361,50 +2361,31 @@ rhook_plan_spd() {
 # reusing" branch, not a crash) but still a real race worth closing since
 # closing it is cheap.
 #
-# flock(1)'s file-descriptor form is the primary mechanism: `exec N>file`
-# opens a plain fd on the lock file, `flock N` blocks until it is free (or
-# `-w` times out), and `flock -u N` releases it deterministically -- this
-# holds the lock exactly across the critical section, including on an
-# early return, without a wrapper process to clean up after. Verified
-# against flock(1) itself (util-linux 2.39.3, this tree's own dev
-# container) rather than assumed: `flock [options] <file descriptor
-# number>` is documented there as exactly this fd-operating form.
-#
-# UNVERIFIED: whether flock(1) ships in NetBSD's base install -- unlike
-# the Linux case above, no NetBSD environment was available here to check
-# directly, and this project has been bitten by exactly this kind of
-# unverified BSD/Linux tool-availability assumption before (the `dash`
-# CI fix). Rather than assume either way, this falls back to the same
-# mkdir-based retry-and-cap lock rhook_state_reset() already uses above
-# when `flock` isn't on PATH -- mkdir is atomic on every POSIX
-# filesystem, so the fallback needs no new locking primitive and a lock
-# held by a process that died mid-section still cannot wedge every
-# future connection attempt forever. This project's own NetBSD CI job is
-# what actually exercises whichever path applies there.
+# mkdir is the only mechanism, deliberately -- flock(1) was tried first
+# (file-descriptor form: `exec N>file`, `flock N`, `flock -u N`) and
+# worked against util-linux's flock (2.39.3, this tree's own dev
+# container), but this project's NetBSD CI job is what actually settled
+# the question the original comment here left UNVERIFIED ("whether
+# flock(1) ships in NetBSD's base install"): something named `flock` is
+# on PATH there, but it does not implement the fd-operating form the
+# same way -- `flock -w 20 9` returned failure almost immediately rather
+# than actually blocking (confirmed from the CI log's own timestamps:
+# both concurrent invocations logged "still held after 20s" within
+# about 1.2 real seconds of each other, which a genuine 20-second wait
+# cannot do), silently turning the lock into a no-op and reproducing
+# exactly the race this function exists to close. Rather than try to
+# detect or work around whichever incompatible `flock` that is, this
+# drops the dependency entirely and always uses the same mkdir-based
+# retry-and-cap lock rhook_state_reset() already relies on above --
+# mkdir is atomic on every POSIX filesystem, needs no external tool,
+# and a lock held by a process that died mid-section still cannot wedge
+# every future connection attempt forever.
 # --------------------------------------------------------------------------
-RHOOK_DUMMY_IFACE_LOCK_FD=""
 rhook_dummy_iface_lock() {
 	local rhook_edil_iface rhook_edil_lock rhook_edil_tries
 	rhook_edil_iface=$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_')
 	rhook_ensure_state_dir
 	rhook_edil_lock="$RHOOK_STATE_DIR/dummy-iface.$rhook_edil_iface.lock"
-
-	if command -v flock >/dev/null 2>&1; then
-		# Probed in a subshell first, deliberately -- a bare `exec N>file`
-		# redirection that fails aborts the *whole* (non-interactive)
-		# shell in dash/bash, not just this line, and putting `2>/dev/null`
-		# directly on that exec would silence every later stderr message
-		# in this process for the rest of its life (found the hard way:
-		# it made rhook_ensure_dummy_iface()'s own log/refusal messages
-		# vanish from tests 11b/11c below). A subshell's own redirection
-		# failure and stderr stay contained to that subshell.
-		if ( : 9>"$rhook_edil_lock" ) 2>/dev/null; then
-			exec 9>"$rhook_edil_lock"
-			flock -w 20 9 || rhook_log warn "dummy interface lock for $rhook_edil_iface still held after 20s -- proceeding without it (a concurrent phase1-up racing for the same dummy interface name may hit the idempotent-reuse path instead of a clean create)"
-			RHOOK_DUMMY_IFACE_LOCK_FD=9
-		fi
-		return 0
-	fi
 
 	rhook_edil_tries=0
 	while ! mkdir "$rhook_edil_lock.d" 2>/dev/null; do
@@ -2422,21 +2403,6 @@ rhook_dummy_iface_unlock() {
 	local rhook_edil_iface rhook_edil_lock
 	rhook_edil_iface=$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_')
 	rhook_edil_lock="$RHOOK_STATE_DIR/dummy-iface.$rhook_edil_iface.lock"
-
-	if [ -n "$RHOOK_DUMMY_IFACE_LOCK_FD" ]; then
-		flock -u 9 2>/dev/null
-		# No `2>/dev/null` on this bare `exec` (unlike its `flock -u`
-		# neighbor above): closing an already-open fd doesn't fail in
-		# practice, and attaching a redirection straight to a
-		# command-less `exec` applies it to the rest of this (sub)shell,
-		# not just this line -- that exact mistake on the matching
-		# lock-acquire exec once silenced every later stderr message in
-		# the process, including this function's own caller's refusal
-		# message (see rhook_dummy_iface_lock() above).
-		exec 9>&-
-		RHOOK_DUMMY_IFACE_LOCK_FD=""
-		return 0
-	fi
 
 	rmdir "$rhook_edil_lock.d" 2>/dev/null
 	return 0
