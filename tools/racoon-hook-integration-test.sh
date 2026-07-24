@@ -1,25 +1,48 @@
 #!/bin/bash
-# Task F: ACQUIRE-provenance investigation -- ready-to-run evidence capture
-# for doc/dev/teardown-investigation.md.
+# racoon-hook-integration-test.sh -- live-host integration test and
+# evidence-capture tool for the split-DNS/routing hooks
+# (racoon-hook-lib.sh, phase1-up.sh, phase1-down.sh).
 #
-# WHERE TO RUN THIS: a network-namespace-capable container with a real,
-# unmodified kernel IPsec stack (Incus, privileged Docker with
-# --cap-add=NET_ADMIN, or systemd-nspawn) -- NOT a minimal/stripped-kernel
-# sandbox. This script itself checks for that in step 0 and aborts with a
-# clear reason rather than producing a false negative if it's missing.
+# Drives a full connect/verify/disconnect cycle against a real gateway on
+# a real IPsec-capable host, capturing timestamped, reproducible evidence
+# at every stage: capability preflight, network-management backend
+# snapshot, SPD/SA/hook-state snapshots before and after each transition,
+# and a small set of built-in live checks for specific correctness
+# questions this project has needed to answer against real evidence
+# rather than a sandbox:
+#
+#   - Steps 5/6 ("Branch A"/"Branch B"): does any SPD policy survive a
+#     confirmed-complete phase1-down.sh, and does that provoke a kernel
+#     ACQUIRE / on-demand reconnection? Originated as the Task F
+#     ACQUIRE-provenance investigation (doc/dev/teardown-investigation.md);
+#     kept as a standing regression check, not a one-off.
+#   - Steps 3b/4b/5c (issue #90): does phase1-down.sh's state-file
+#     generation matching pick this run's own generation, by its
+#     IKE_COOKIE, or can it be fooled by an orphaned generation left
+#     behind by an earlier, never-cleanly-torn-down session for the same
+#     peer? A synthetic orphan is injected before connect (a fake
+#     IKE_COOKIE no real negotiation could produce, and an undo_command
+#     that only touches a marker file under $OUT) and its state is
+#     inspected after teardown.
+#
+# This tool does not fix anything -- it only observes and records. Add a
+# new built-in check here, following the same pattern, whenever a future
+# question needs the same kind of live, reproducible evidence; that is
+# the intent behind checking this in under version control rather than
+# treating it as a one-off script.
+#
+# WHERE TO RUN THIS: a network-namespace-capable container or host with a
+# real, unmodified kernel IPsec stack (Incus, privileged Docker with
+# --cap-add=NET_ADMIN, systemd-nspawn, or a real machine) -- NOT a
+# minimal/stripped-kernel sandbox. Step 0 checks for this itself and
+# aborts with a clear reason rather than producing a false negative if
+# it's missing (this repo's own CI sandbox cannot run PF_KEY at all).
 #
 # WHAT THIS ASSUMES IS ALREADY IN PLACE: a working racoon.conf + hooks.conf
-# on this host, already configured and already proven to connect to a real
-# gateway (exactly the setup used for the Bionic/Arch/Noble roadwarrior
-# testing earlier in this engagement) -- this script does not stand up a
-# new IKEv1 lab from scratch, it orchestrates and captures evidence around
-# your existing, already-working configuration.
-#
-# WHAT THIS SCRIPT DOES NOT DO: fix anything. It only observes and records.
-# Branch A (a real external mechanism found) or Branch B (nothing left to
-# find, on-demand reconnection is a design gap) are both valid, expected
-# outcomes -- do not "fix" either one; report back to Claude with the
-# results directory and let the write-up happen from real evidence.
+# on this host, already configured and already proven to connect to a
+# real gateway -- this script does not stand up a new IKEv1 lab from
+# scratch, it orchestrates and captures evidence around your existing,
+# already-working configuration.
 #
 # Usage:
 #   sudo VPN_GATEWAY=<gateway-host-or-ip> \
@@ -28,7 +51,8 @@
 #        [RACOON_SRC_DIR=/path/to/racoon-ipsec-tools] \
 #        [SETKEY_BIN=setkey] [RACOONCTL_BIN=racoonctl] [RACOON_BIN=racoon] \
 #        [STATE_DIR=/run/racoon] [RACOON_CONF=/etc/racoon/racoon.conf] \
-#        ./task-f-acquire-investigation.sh
+#        [PHASE1_DOWN_SCRIPT=/path/to/phase1-down.sh] \
+#        ./racoon-hook-integration-test.sh
 #
 # SCENARIO_LABEL is optional free text (e.g. "NM, rc-manager=unmanaged,
 # systemd-networkd also running" / "NM, rc-manager=auto" / "no NM, pure
@@ -36,19 +60,30 @@
 # multiple runs stay identifiable after the fact. The script does NOT
 # trust it as ground truth: step 0b independently captures the real,
 # live NetworkManager/systemd-networkd/rc-manager state regardless of
-# what this label says, specifically so the three planned scenarios are
+# what this label says, so different network-management scenarios are
 # distinguishable from the evidence itself, not just from a hand-typed
 # tag.
 #
 # KEEP_RACOON_RUNNING=1 leaves the racoon instance this script started
 # running at the end instead of terminating it (the default) -- only
 # useful for manually poking at steps 4-6 afterward; leave it unset for
-# back-to-back scenario runs, since step 2's pre-existing-racoon guard
-# will otherwise hard-stop the next run.
+# back-to-back runs, since step 2's pre-existing-racoon guard will
+# otherwise hard-stop the next run.
+#
+# VPN_GATEWAY CAVEAT (shared by step 5b and the issue #90 steps 3b/4b/5c):
+# hook-state filenames are built from racoon's own REMOTE_ADDR, the
+# resolved numeric peer address -- not necessarily the same string as
+# VPN_GATEWAY if you pass a hostname. Pass VPN_GATEWAY as the literal
+# address racoon.conf's remote{} block resolves to (check
+# 04-hook-state-listing.log's actual filenames against what you passed if
+# a step ever reports "none found" unexpectedly) for these checks to line
+# up exactly.
 #
 # Everything is captured under a timestamped results directory printed at
-# the end -- tar it up and hand it back for the doc/dev/teardown-
-# investigation.md write-up.
+# the end -- tar it up and hand it back for whoever is triaging the
+# question this particular run was investigating. See
+# doc/dev/teardown-investigation.md for the ACQUIRE-provenance
+# investigation this tool originated from.
 
 set -u
 
@@ -64,6 +99,11 @@ RACOONCTL_BIN="${RACOONCTL_BIN:-racoonctl}"
 RACOON_BIN="${RACOON_BIN:-racoon}"
 RACOON_CONF="${RACOON_CONF:-/etc/racoon/racoon.conf}"
 STATE_DIR="${STATE_DIR:-/run/racoon}"
+# Used only by step 5c's orphan cleanup/positive-path confirmation; empty
+# means "auto-detect from the 'script ... phase1_down;' line in
+# $RACOON_CONF", the same script racoon itself is already configured to
+# run.
+PHASE1_DOWN_SCRIPT="${PHASE1_DOWN_SCRIPT:-}"
 CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-30}"
 PHASE1_UP_WAIT_TIMEOUT="${PHASE1_UP_WAIT_TIMEOUT:-15}"
 PHASE1_DOWN_WAIT_TIMEOUT="${PHASE1_DOWN_WAIT_TIMEOUT:-15}"
@@ -155,6 +195,45 @@ wait_for_hook_report() {
 		i=$((i + 1))
 	done
 	return 1
+}
+
+# --------------------------------------------------------------------------
+# issue #90 live verification helpers (steps 3b/4b/5c below).
+#
+# peer_state_prefix() mirrors racoon-hook-lib.sh's rhook_state_file_prefix()
+# exactly (same "$STATE_DIR/hook-state.<addr>" shape) -- see the
+# VPN_GATEWAY CAVEAT in the header comment above for why this only lines
+# up when VPN_GATEWAY is the literal resolved address.
+#
+# peer_max_generation() mirrors rhook_state_max_generation() exactly
+# (counts both live and .consumed files; a .cookie sidecar or the .lock
+# directory both fail the trailing-numeric check below without needing
+# their own case arm, same as in the real implementation) -- so the
+# synthetic orphan step 3b injects lands one past whatever this peer's
+# real state already contains on disk, and this run's own real
+# generation (allocated independently by the actual rhook_state_reset()
+# when phase1-up.sh runs) lands one past THAT, preserving the original
+# live bug's exact ordering: orphan older/lower, real session newer/
+# higher.
+# --------------------------------------------------------------------------
+peer_state_prefix() {
+	printf '%s/hook-state.%s' "$STATE_DIR" "$VPN_GATEWAY"
+}
+
+peer_max_generation() {
+	local prefix f gen max=0
+	prefix="$(peer_state_prefix)"
+	for f in "$prefix".*; do
+		[ -e "$f" ] || continue
+		case "$f" in *.lock) continue ;; esac
+		gen="${f#"$prefix".}"
+		gen="${gen%.consumed}"
+		case "$gen" in ''|*[!0-9]*) continue ;; esac
+		if [ "$gen" -gt "$max" ] 2>/dev/null; then
+			max="$gen"
+		fi
+	done
+	printf '%s' "$max"
 }
 
 # ==========================================================================
@@ -378,6 +457,40 @@ fi
 narrate "no real (non-per-socket) policy present before connect, as expected -- continuing (see $OUT/03-post-start-filtered-spd.log -- a per-socket-only banner there is normal, not a finding)"
 
 # ==========================================================================
+# Step 3b: inject a synthetic orphan generation (issue #90 live setup).
+# See the header comment block and peer_state_prefix()/peer_max_generation()
+# above for the full rationale. Injected AFTER racoon has started (so
+# $STATE_DIR exists) and BEFORE this run's own connect (so this run's
+# real generation is allocated strictly after the synthetic one, exactly
+# like the live Arch host's own accumulated orphans in
+# doc/dev/teardown-investigation.md).
+#
+# The synthetic generation's single state-file line uses the same
+# id/type/outcome/undo_command shape rhook_state_append() writes
+# (racoon-hook-lib.sh); "outcome" must be exactly "ok" for
+# rhook_undo_replay() to ever consider running its undo_command at all,
+# and that undo_command only ever touches $ORPHAN_MARKER under $OUT --
+# never a real route/policy/DNS command -- so this is safe to actually
+# execute for real against a live host if the pre-fix bug is what's
+# still deployed here.
+# ==========================================================================
+narrate "=== Step 3b: injecting a synthetic orphan generation for issue #90 live verification ==="
+mkdir -p "$STATE_DIR" 2>/dev/null
+ORPHAN_GEN="$(( $(peer_max_generation) + 1 ))"
+ORPHAN_STATE_FILE="$(peer_state_prefix).${ORPHAN_GEN}"
+ORPHAN_MARKER="$OUT/03b-orphan-was-wrongly-consumed.marker"
+FAKE_COOKIE="deadbeefdeadbeef:cafefeedcafefeed"
+rm -f "$ORPHAN_MARKER"
+printf 'orphan_marker\ttest_synthetic\tok\ttouch "%s"\n' "$ORPHAN_MARKER" > "$ORPHAN_STATE_FILE" 2>/dev/null
+printf '%s' "$FAKE_COOKIE" > "${ORPHAN_STATE_FILE}.cookie" 2>/dev/null
+if [ -s "$ORPHAN_STATE_FILE" ] && [ -s "${ORPHAN_STATE_FILE}.cookie" ]; then
+	narrate "synthetic orphan generation $ORPHAN_GEN injected at $ORPHAN_STATE_FILE (fake IKE_COOKIE=$FAKE_COOKIE) -- this run's own real generation must land at $(( ORPHAN_GEN + 1 )) or higher, and this run's own phase1-down.sh must consume only that one, never this orphan"
+else
+	narrate "WARNING: could not write the synthetic orphan files under $STATE_DIR (permissions?) -- skipping the issue #90 live verification in steps 4b/5c below; everything else in this script is unaffected"
+	ORPHAN_GEN=""
+fi
+
+# ==========================================================================
 # Step 4: full connect -> verified -> disconnect cycle, filtered -DP at
 # each stage, cross-referenced against the hook's own state file.
 # ==========================================================================
@@ -431,6 +544,56 @@ for f in "$STATE_DIR"/hook-state.*; do
 	} >> "$OUT/04-hook-state-content.log"
 done
 narrate "captured connected-state filtered SPD ($OUT/04-connected-filtered-spd.log) and hook state file(s) ($OUT/04-hook-state-content.log) -- cross-reference these two by hand: every non-per-socket selector in the SPD dump should have a matching spdadd undo (spddelete) line in the state file"
+
+# --------------------------------------------------------------------------
+# Best-guess identifier for "this run's own" generation, for step 5b's
+# FIFO-consumption check below: the highest live (non-.consumed) generation
+# number for this exact peer, captured right now -- i.e. moments after this
+# run's own phase1-up.sh created it, before phase1-down.sh has had any
+# chance to touch anything. Not proof by itself (a concurrent unrelated
+# session for the same peer would break this assumption), just the best
+# available signal without changing the hooks' own state-file format.
+# --------------------------------------------------------------------------
+PRESUMED_OWN_GEN="$(
+	for f in "$STATE_DIR"/hook-state."$VPN_GATEWAY".*; do
+		[ -f "$f" ] || continue
+		case "$f" in *.consumed|*.lock) continue ;; esac
+		gen="${f##*.}"
+		case "$gen" in ''|*[!0-9]*) continue ;; esac
+		printf '%s\n' "$gen"
+	done | sort -n | tail -1
+)"
+narrate "presumed own generation for $VPN_GATEWAY (highest live one right now): ${PRESUMED_OWN_GEN:-<none found -- check $STATE_DIR/hook-state.* naming manually>}"
+
+# --------------------------------------------------------------------------
+# Step 4b: IKE_COOKIE cross-check (issue #90). script_hook()'s IKE_COOKIE
+# export (src/racoon/isakmp.c) and the "ISAKMP-SA established ...
+# spi:%s" log line (isakmp.c, log_ph1established()) are rendered from the
+# exact same call -- isakmp_pindex(&iph1->index, 0) -- so this run's own
+# .cookie sidecar must equal ORIGINAL_SPI's value verbatim if, and only
+# if, the racoon binary actually running on this host is the patched
+# one. This is the most direct live confirmation available that the
+# fix's daemon-side half is actually deployed here, not just present in
+# source -- everything downstream (rhook_state_own_generation()'s exact
+# match) depends on IKE_COOKIE existing at all.
+# --------------------------------------------------------------------------
+IKE_COOKIE_LIVE=""
+IKE_COOKIE_CHECK="not run (no presumed own generation found -- see 04-hook-state-listing.log)"
+if [ -n "$PRESUMED_OWN_GEN" ]; then
+	OWN_COOKIE_FILE="$(peer_state_prefix).${PRESUMED_OWN_GEN}.cookie"
+	if [ -s "$OWN_COOKIE_FILE" ]; then
+		IKE_COOKIE_LIVE="$(cat "$OWN_COOKIE_FILE" 2>/dev/null)"
+		SPI_BARE="${ORIGINAL_SPI#spi:}"
+		if [ -n "$SPI_BARE" ] && [ "$IKE_COOKIE_LIVE" = "$SPI_BARE" ]; then
+			IKE_COOKIE_CHECK="MATCH: IKE_COOKIE ($IKE_COOKIE_LIVE) equals racoon's own logged SPI -- this host is running the issue #90 patch"
+		else
+			IKE_COOKIE_CHECK="MISMATCH: IKE_COOKIE ($IKE_COOKIE_LIVE) does not equal racoon's own logged SPI (${SPI_BARE:-<not captured>}) -- see $RACOON_LOG and $OWN_COOKIE_FILE by hand"
+		fi
+	else
+		IKE_COOKIE_CHECK="NO .cookie SIDECAR FOUND at $OWN_COOKIE_FILE -- this host's racoon does not export IKE_COOKIE (pre-issue-90 build), or the hook library predates the fix. Steps 4b/5c below will show the pre-fix behaviour, if step 3b's injection succeeded."
+	fi
+fi
+narrate "IKE_COOKIE cross-check: $IKE_COOKIE_CHECK"
 
 narrate "=== disconnecting: racoonctl vpn-disconnect $VPN_GATEWAY ==="
 PRE_DISCONNECT_LOGLINE_COUNT="$(wc -l < "$RACOON_LOG" 2>/dev/null || echo 0)"
@@ -495,6 +658,123 @@ else
 	narrate "*** BRANCH B signal: filtered SPD is empty after phase1-down.sh completed ***"
 fi
 
+# ==========================================================================
+# Step 5b: hook-state listing after phase1-down.sh completion -- verifies
+# which generation phase1-down.sh's FIFO matching actually consumed.
+#
+# Added after finding, on a real, reused Arch host, that
+# rhook_state_oldest_unconsumed() (racoon-hook-lib.sh ~299-324) picks the
+# LOWEST live generation number for this peer -- not necessarily this
+# run's own. rhook_state_reap() deliberately never touches live (never
+# consumed) files, only aged .consumed ones, so an earlier session that
+# was never cleanly torn down leaves a permanent live orphan behind; if
+# one is already sitting there when this run's phase1-up creates its own
+# (higher-numbered) generation, phase1-down.sh may consume the OLD orphan
+# instead. This is invisible whenever every session's undo commands are
+# byte-identical (same racoon.conf every time) -- which is exactly why
+# step 5's empty-SPD result alone can't tell "own generation consumed"
+# apart from "a different, coincidentally-identical generation consumed
+# instead". This step makes that distinguishable directly.
+# ==========================================================================
+narrate "=== Step 5b: hook-state listing after teardown (FIFO generation verification) ==="
+ls -la "$STATE_DIR"/hook-state.* > "$OUT/05-hook-state-listing.log" 2>&1
+for f in "$STATE_DIR"/hook-state.*; do
+	[ -f "$f" ] || continue
+	{
+		echo "=== $f ==="
+		cat "$f"
+		echo
+	} >> "$OUT/05-hook-state-content.log"
+done
+
+NEWLY_CONSUMED="$(comm -13 \
+	<(grep -oE "hook-state\.[^ ]*\.consumed" "$OUT/04-hook-state-listing.log" 2>/dev/null | sort -u) \
+	<(grep -oE "hook-state\.[^ ]*\.consumed" "$OUT/05-hook-state-listing.log" 2>/dev/null | sort -u) 2>/dev/null)"
+
+{
+	echo "presumed own generation for $VPN_GATEWAY (highest live one seen right after this run's own phase1-up, step 4): ${PRESUMED_OWN_GEN:-<none found>}"
+	echo
+	echo "generation(s) that newly became .consumed between step 4 and step 5b (i.e. what phase1-down.sh actually replayed just now):"
+	if [ -n "$NEWLY_CONSUMED" ]; then
+		printf '%s\n' "$NEWLY_CONSUMED"
+	else
+		echo "(none detected -- either nothing changed, or hook-state.* filenames don't match the expected pattern; check 04/05-hook-state-listing.log by hand)"
+	fi
+} > "$OUT/05b-fifo-generation-check.log"
+
+FIFO_MATCH="unknown"
+if [ -n "$PRESUMED_OWN_GEN" ] && [ -n "$NEWLY_CONSUMED" ]; then
+	if printf '%s\n' "$NEWLY_CONSUMED" | grep -q "\\.${PRESUMED_OWN_GEN}\\.consumed$"; then
+		FIFO_MATCH="yes"
+		narrate "FIFO generation check: phase1-down.sh consumed this run's OWN generation ($PRESUMED_OWN_GEN) -- see $OUT/05b-fifo-generation-check.log"
+	else
+		FIFO_MATCH="no"
+		narrate "*** FIFO generation MISMATCH: phase1-down.sh consumed a DIFFERENT generation than this run's own ($PRESUMED_OWN_GEN) -- see $OUT/05b-fifo-generation-check.log. This run's own state file is now an orphan. If any earlier live generation for this peer used different routes/domains than this run, this would be a real correctness gap (wrong undo replayed), not just cosmetic -- worth checking $OUT/04-hook-state-content.log and $OUT/05-hook-state-content.log by hand for what each generation actually contains. ***"
+	fi
+else
+	narrate "FIFO generation check inconclusive (see $OUT/05b-fifo-generation-check.log) -- cross-reference 04/05-hook-state-*.log by hand"
+fi
+
+# ==========================================================================
+# Step 5c: issue #90 verdict -- did this run's real phase1-down.sh touch
+# the synthetic orphan step 3b injected? 5b above already shows whether
+# THIS run's own generation got consumed, but not by itself whether an
+# unrelated orphan also got touched (5b only compares against
+# PRESUMED_OWN_GEN, not every other live generation) -- the two together
+# are what distinguish "consumed correctly" from "consumed correctly AND
+# also stomped something else", which would be just as bad in
+# production as consuming the wrong thing outright.
+# ==========================================================================
+narrate "=== Step 5c: issue #90 verdict (orphan-untouched check) ==="
+ISSUE90_VERDICT="not applicable (step 3b's synthetic orphan injection did not run or failed -- see step 3b narration above)"
+if [ -n "${ORPHAN_GEN:-}" ]; then
+	if [ -f "$ORPHAN_MARKER" ]; then
+		ISSUE90_VERDICT="FAIL: the synthetic orphan (generation $ORPHAN_GEN, fake IKE_COOKIE) WAS consumed by this run's real phase1-down.sh -- its undo command ran for real (see $ORPHAN_MARKER). This is the pre-fix oldest-first bug, reproduced live. Cross-check against step 4b's IKE_COOKIE result above before concluding anything else."
+		narrate "*** ISSUE #90 LIVE VERDICT: FAIL -- see $ORPHAN_MARKER, the synthetic orphan's undo command ran for real ***"
+	elif [ -f "${ORPHAN_STATE_FILE}.consumed" ]; then
+		ISSUE90_VERDICT="FAIL: the synthetic orphan (generation $ORPHAN_GEN) was renamed to .consumed (see ${ORPHAN_STATE_FILE}.consumed) even though its marker command was not observed -- still means phase1-down.sh selected the wrong generation. Investigate before trusting anything else in this run."
+		narrate "*** ISSUE #90 LIVE VERDICT: FAIL -- ${ORPHAN_STATE_FILE}.consumed exists, the orphan was selected ***"
+	elif [ -f "$ORPHAN_STATE_FILE" ]; then
+		ISSUE90_VERDICT="PASS: the synthetic orphan (generation $ORPHAN_GEN) is still live and untouched after this run's real teardown -- phase1-down.sh matched its own generation by IKE_COOKIE and left the unrelated orphan alone, exactly as issue #90's fix intends."
+		narrate "ISSUE #90 LIVE VERDICT: PASS -- synthetic orphan (generation $ORPHAN_GEN) untouched, marker absent"
+	else
+		ISSUE90_VERDICT="INCONCLUSIVE: the synthetic orphan's state file ($ORPHAN_STATE_FILE) is gone entirely -- neither live nor .consumed. Unexpected; check $STATE_DIR by hand."
+		narrate "WARNING: issue #90 verdict inconclusive -- $ORPHAN_STATE_FILE missing entirely, check $STATE_DIR by hand"
+	fi
+
+	# Cleanup, and a positive-path confirmation in the same move: consume
+	# the synthetic orphan via a real phase1-down.sh invocation carrying
+	# its own matching REMOTE_ADDR/IKE_COOKIE, rather than just deleting
+	# the files. This exercises rhook_state_own_generation()'s positive
+	# ("this IS mine") path live, complementing the negative path just
+	# confirmed above, and leaves $STATE_DIR clean for the next run
+	# instead of accumulating fake orphans forever. Safe regardless of
+	# the verdict above: if the orphan was already consumed (the FAIL
+	# case), this is a harmless no-op -- there is nothing left matching
+	# $FAKE_COOKIE for it to find.
+	P1D_SCRIPT="$PHASE1_DOWN_SCRIPT"
+	if [ -z "$P1D_SCRIPT" ]; then
+		P1D_SCRIPT="$(grep -oE '/[^ "]*phase1-down\.sh' "$RACOON_CONF" 2>/dev/null | head -1)"
+	fi
+	if [ -n "$P1D_SCRIPT" ] && [ -x "$P1D_SCRIPT" ] && [ -f "$ORPHAN_STATE_FILE" ]; then
+		# RACOON_HOOK_STATE_DIR must match $STATE_DIR explicitly: racoon-hook-lib.sh
+		# defaults RHOOK_STATE_DIR to /run/racoon regardless of what this
+		# script's own STATE_DIR was overridden to, and a mismatch here would
+		# make this cleanup invocation look at the wrong directory entirely.
+		REMOTE_ADDR="$VPN_GATEWAY" IKE_COOKIE="$FAKE_COOKIE" RACOON_HOOK_STATE_DIR="$STATE_DIR" \
+			"$P1D_SCRIPT" > "$OUT/05c-orphan-cleanup-phase1-down.log" 2>&1
+		if [ -f "${ORPHAN_STATE_FILE}.consumed" ]; then
+			narrate "synthetic orphan cleaned up: a direct phase1-down.sh run with its own matching IKE_COOKIE consumed it correctly (positive-path confirmation) -- see $OUT/05c-orphan-cleanup-phase1-down.log"
+			rm -f "${ORPHAN_STATE_FILE}.consumed"
+		else
+			narrate "WARNING: the cleanup phase1-down.sh run did not consume the synthetic orphan as expected -- see $OUT/05c-orphan-cleanup-phase1-down.log, and remove ${ORPHAN_STATE_FILE}* by hand"
+		fi
+	elif [ -f "$ORPHAN_STATE_FILE" ]; then
+		narrate "could not locate an executable phase1-down.sh for cleanup (set PHASE1_DOWN_SCRIPT explicitly) -- remove ${ORPHAN_STATE_FILE}* by hand"
+	fi
+	rm -f "$ORPHAN_MARKER"
+fi
+
 {
 	echo "# Task F results -- $TS"
 	echo
@@ -506,6 +786,7 @@ fi
 	echo "Original connected ISAKMP-SA: ${ORIGINAL_SPI:-<not captured, see 04-show-sa-connected.log>}"
 	echo "phase1-up.sh completion confirmed via syslog: $([ "$PHASE1_UP_CONFIRMED" -eq 1 ] && echo yes || echo NO -- see warning above)"
 	echo "phase1-down.sh completion confirmed via syslog: $([ "$PHASE1_DOWN_CONFIRMED" -eq 1 ] && echo yes || echo NO -- see warning above)"
+	echo "FIFO generation check (did phase1-down.sh consume THIS run's own state, or an orphaned one?): $FIFO_MATCH -- see $OUT/05b-fifo-generation-check.log"
 	echo
 	echo "## Step 5 fork-in-the-road result: tentatively BRANCH $BRANCH"
 	echo
@@ -529,6 +810,17 @@ fi
 		echo "confirmation of Branch B, not an inconclusive result."
 	fi
 } > "$SUMMARY"
+
+# This must come AFTER the block above: that block opens $SUMMARY with
+# ">" (create/truncate), so anything appended before it would be wiped.
+{
+	echo
+	echo "## Issue #90 live verification (phase1-down.sh generation matching)"
+	echo
+	echo "IKE_COOKIE cross-check (step 4b): $IKE_COOKIE_CHECK"
+	echo
+	echo "Orphan-untouched check (steps 3b/5c): $ISSUE90_VERDICT"
+} >> "$SUMMARY"
 
 # ==========================================================================
 # Step 6: provoke the ACQUIRE deliberately, scripted rather than waiting
