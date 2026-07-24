@@ -208,9 +208,19 @@ assert_eq "resolved_domains: command uses ~ routing prefix" "$(plan_field resolv
 	"$RACOON_HOOK_RESOLVECTL domain racoon0 ~corp.example.com ~internal.example.com"
 assert_eq "resolved_domains: undo clears with empty string" "$(plan_field resolved_domains 6 "$PLAN")" \
 	"$RACOON_HOOK_RESOLVECTL domain racoon0 \"\""
-assert_eq "resolved_default_route: criticality is optional" "$(plan_field resolved_default_route 3 "$PLAN")" "optional"
+assert_eq "resolved_default_route: criticality is optional (domains already scope the link)" "$(plan_field resolved_default_route 3 "$PLAN")" "optional"
 assert_eq "resolved_default_route: command" "$(plan_field resolved_default_route 5 "$PLAN")" \
 	"$RACOON_HOOK_RESOLVECTL default-route racoon0 false"
+
+# §B.2: scope before servers -- the domains step must appear before the
+# dns (servers) step in the plan file's line order, not merely be present
+# somewhere in it.
+domains_lineno=$(grep -n '^resolved_domains	' "$PLAN" | cut -d: -f1)
+dns_lineno=$(grep -n '^resolved_dns	' "$PLAN" | cut -d: -f1)
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ -z "$domains_lineno" ] || [ -z "$dns_lineno" ] || [ "$domains_lineno" -ge "$dns_lineno" ]; then
+	fail "resolved_domains (line $domains_lineno) must be planned before resolved_dns (line $dns_lineno)"
+fi
 
 # rhook_precond_default_route: no warning when the tool is capable.
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -253,6 +263,7 @@ EOF
 chmod +x "$WORK/bin/status-ok/resolvectl"
 RACOON_HOOK_RESOLVECTL="$WORK/bin/status-ok/resolvectl"
 RHOOK_BACKEND_RESOLVED="resolved"
+RHOOK_DNS_TOOL="resolvectl"
 RHOOK_EXPECT_DNS="10.0.12.53 10.0.12.54"
 TESTS_RUN=$((TESTS_RUN + 1))
 reason=$(rhook_postcond_set_dns)
@@ -269,6 +280,76 @@ RACOON_HOOK_RESOLVECTL="$WORK/bin/status-empty/resolvectl"
 TESTS_RUN=$((TESTS_RUN + 1))
 reason=$(rhook_postcond_set_dns)
 [ -n "$reason" ] || fail "postcond_set_dns must report a reason when the expected server is absent from resolvectl status"
+
+# rhook_postcond_set_domains: same shape, for the domains step.
+RACOON_HOOK_RESOLVECTL="$WORK/bin/status-ok/resolvectl"
+RHOOK_EXPECT_DOMAINS="~corp.example.com"
+mkdir -p "$WORK/bin/status-with-domain"
+cat > "$WORK/bin/status-with-domain/resolvectl" <<'EOF'
+#!/bin/sh
+[ "$1" = "status" ] && { echo "Link 4 (racoon0)"; echo "   DNS Domain: ~corp.example.com"; exit 0; }
+exit 0
+EOF
+chmod +x "$WORK/bin/status-with-domain/resolvectl"
+RACOON_HOOK_RESOLVECTL="$WORK/bin/status-with-domain/resolvectl"
+TESTS_RUN=$((TESTS_RUN + 1))
+reason=$(rhook_postcond_set_domains)
+[ -z "$reason" ] || fail "postcond_set_domains should be silent when the domain is visible in status (tilde form), got '$reason'"
+RACOON_HOOK_RESOLVECTL="$WORK/bin/status-empty/resolvectl"
+TESTS_RUN=$((TESTS_RUN + 1))
+reason=$(rhook_postcond_set_domains)
+[ -n "$reason" ] || fail "postcond_set_domains must report a reason when the domain is absent from resolvectl status"
+RACOON_HOOK_RESOLVECTL="$WORK/bin/resolved-cap/resolvectl"
+
+# ==========================================================================
+# §B.2/§B.3: scope-before-servers ordering and the no-scoping-available
+# skip, both without any split-DNS domains from the gateway (the only
+# way default-route=no becomes the sole scoping mechanism).
+# ==========================================================================
+RHOOK_DOMAINS_SAVE_B="$RHOOK_DOMAINS"
+RHOOK_DOMAINS=""
+
+# No domains, resolvectl (default-route capable): default_route becomes
+# required (it is now the only thing that can scope this link), and is
+# still planned before the dns step.
+RACOON_HOOK_RESOLVECTL="$WORK/bin/resolved-cap/resolvectl"
+rhook_build_plan
+PLAN="$(rhook_plan_file)"
+assert_eq "no domains, default-route capable: default_route criticality is required" \
+	"$(plan_field resolved_default_route 3 "$PLAN")" "required"
+default_route_lineno=$(grep -n '^resolved_default_route	' "$PLAN" | cut -d: -f1)
+dns_lineno=$(grep -n '^resolved_dns	' "$PLAN" | cut -d: -f1)
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ -z "$default_route_lineno" ] || [ -z "$dns_lineno" ] || [ "$default_route_lineno" -ge "$dns_lineno" ]; then
+	fail "resolved_default_route (line $default_route_lineno) must be planned before resolved_dns (line $dns_lineno) when it is the sole scoping mechanism"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if grep -q '^resolved_dns	resolved_no_scope	' "$PLAN"; then
+	fail "resolved_dns must not be the unscopable-skip step when default-route capability is available"
+fi
+
+# No domains, systemd-resolve (no default-route capability at all):
+# neither scoping mechanism is available -- skip DNS configuration
+# entirely rather than register an unscoped server.
+RACOON_HOOK_RESOLVECTL="$WORK/bin/resolvectl-absent"
+RACOON_HOOK_SYSTEMD_RESOLVE="$WORK/bin/systemd-resolve-present"
+rhook_build_plan
+PLAN="$(rhook_plan_file)"
+assert_eq "no domains, no default-route cap: resolved_dns becomes the no-scope skip step" \
+	"$(plan_field resolved_dns 2 "$PLAN")" "resolved_no_scope"
+TESTS_RUN=$((TESTS_RUN + 1))
+if grep -qE '^resolved_(domains|default_route)	' "$PLAN"; then
+	fail "no domains step or default_route step should be planned when DNS configuration is skipped entirely"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+reason=$(rhook_precond_resolved_no_scope)
+case "$reason" in
+	*"no split-DNS domains"*"no default-route capability"*"resolver for ALL lookups"*) ;;
+	*) fail "resolved_no_scope precondition must state the exposure explicitly (brief 3 'impact line'), got '$reason'" ;;
+esac
+
+RACOON_HOOK_RESOLVECTL="$WORK/bin/resolved-cap/resolvectl"
+RHOOK_DOMAINS="$RHOOK_DOMAINS_SAVE_B"
 
 # ==========================================================================
 # resolvconf backend

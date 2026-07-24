@@ -257,6 +257,23 @@ rhook_state_append() {
 	printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >> "$(rhook_state_file)"
 }
 
+# Removes a single entry from the state file by exact id match (awk, not
+# grep -v, so a step id that happens to be a substring of another id's
+# text can never cause an over-broad removal). Used by the brief-3 §B.1
+# in-transaction DNS rollback: once a step's change has been undone
+# immediately (within the same apply run, not at teardown time), its
+# "ok" state entry must go with it -- otherwise phase1-down.sh's later
+# undo replay would run that step's undo command a second time, against
+# a resource the rollback already removed.
+rhook_state_remove_entry() {
+	local rhook_id rhook_state rhook_tmp
+	rhook_id="$1"
+	rhook_state="$(rhook_state_file)"
+	[ -f "$rhook_state" ] || return 0
+	rhook_tmp="${rhook_state}.tmp.$$"
+	awk -F'\t' -v id="$rhook_id" '$1 != id' "$rhook_state" > "$rhook_tmp" 2>/dev/null && mv "$rhook_tmp" "$rhook_state"
+}
+
 # Accumulates report lines only; rhook_emit_report() is the single place
 # that decides where the assembled report goes (stderr/trace/syslog),
 # based on debug level -- avoids double-emitting each line here as well as
@@ -273,8 +290,13 @@ rhook_report_line() {
 # file the moment the step succeeds.
 #
 # Returns 0 if the hook should continue, 1 if a required step failed and
-# the caller must stop (apply the failure policy).
+# the caller must stop (apply the failure policy). Also sets
+# RHOOK_LAST_STEP_OUTCOME to "ok"|"skipped"|"failed" -- the same value
+# just passed to rhook_state_append() -- so rhook_apply_plan() can tell
+# an actually-applied step from a merely-non-blocking one (skipped, or a
+# failed optional step) without re-reading the state file it just wrote.
 # --------------------------------------------------------------------------
+RHOOK_LAST_STEP_OUTCOME=""
 rhook_run_step() {
 	local rhook_line rhook_id rhook_type rhook_crit rhook_desc rhook_cmd rhook_undo
 	local rhook_precond_fn rhook_precond_reason rhook_postcond_fn rhook_postcond_reason rhook_out rhook_rc
@@ -293,6 +315,7 @@ rhook_run_step() {
 			rhook_report_line "[ SKIPPED   ] $rhook_desc"
 			rhook_report_line "              reason: $rhook_precond_reason"
 			rhook_state_append "$rhook_id" "$rhook_type" "skipped" ""
+			RHOOK_LAST_STEP_OUTCOME="skipped"
 			return 0
 		fi
 	fi
@@ -317,6 +340,7 @@ rhook_run_step() {
 				rhook_log trace "  command: $rhook_cmd"
 				rhook_log trace "  output: $rhook_out"
 				rhook_state_append "$rhook_id" "$rhook_type" "failed" ""
+				RHOOK_LAST_STEP_OUTCOME="failed"
 				[ "$rhook_crit" = "required" ] && return 1
 				return 0
 			fi
@@ -325,6 +349,7 @@ rhook_run_step() {
 		rhook_log trace "  command: $rhook_cmd"
 		rhook_log trace "  output: $rhook_out"
 		rhook_state_append "$rhook_id" "$rhook_type" "ok" "$rhook_undo"
+		RHOOK_LAST_STEP_OUTCOME="ok"
 		return 0
 	fi
 
@@ -332,17 +357,49 @@ rhook_run_step() {
 	rhook_log trace "  command: $rhook_cmd"
 	rhook_log trace "  output: $rhook_out"
 	rhook_state_append "$rhook_id" "$rhook_type" "failed" ""
+	RHOOK_LAST_STEP_OUTCOME="failed"
 
 	[ "$rhook_crit" = "required" ] && return 1
 	return 0
 }
 
+# True for every step type that changes a link's DNS configuration
+# (either backend). Used only to decide the brief-3 §B.1 in-transaction
+# rollback scope below -- dummy interface/address/route steps are
+# deliberately excluded: those represent network-layer connectivity that
+# stays valid regardless of whether DNS configuration succeeds, and
+# rolling them back too would tear down more than the failure actually
+# calls for.
+rhook_is_dns_group() {
+	case "$1" in
+		set_dns|set_domains|default_route|resolved_no_scope|nm_dummy_profile|resolvconf_record|dnsmasq_conf|fallback_backup|fallback_resolv)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
 # rhook_apply_plan: run every line of the current plan in order through
 # run_step().  Stops at the first failed *required* step, marking every
 # remaining step "not-attempted" in both the report and the state file.
+#
+# §B.1 (brief 3, F4): a partially-applied DNS configuration is worse than
+# none -- a server registered on a link with no routing-domain/default-
+# route scoping yet applied became the traffic source for the observed
+# reconnect loop. Every DNS-group step that actually applied ("ok", not
+# "skipped") during this run is remembered as it happens; if a later
+# required DNS-group step then fails, everything remembered so far is
+# undone immediately, in reverse order, before the usual not-attempted
+# bookkeeping runs -- the link ends the run either fully configured or
+# untouched, never half-configured. Steps outside the DNS group are
+# never part of this rollback (see rhook_is_dns_group() above).
 rhook_apply_plan() {
-	local rhook_stopped rhook_line rhook_id rhook_type rhook_desc
+	local rhook_stopped rhook_line rhook_id rhook_type rhook_desc rhook_undo
+	local rhook_dns_applied rhook_rb_line rhook_rb_id rhook_rb_undo rhook_rb_out rhook_rb_rc
 	rhook_stopped=0
+	rhook_dns_applied=""
 	while IFS= read -r rhook_line || [ -n "$rhook_line" ]; do
 		[ -z "$rhook_line" ] && continue
 		if [ "$rhook_stopped" -eq 1 ]; then
@@ -353,7 +410,41 @@ rhook_apply_plan() {
 			rhook_state_append "$rhook_id" "$rhook_type" "not-attempted" ""
 			continue
 		fi
-		if ! rhook_run_step "$rhook_line"; then
+
+		rhook_id=$(printf '%s' "$rhook_line" | cut -f1)
+		rhook_type=$(printf '%s' "$rhook_line" | cut -f2)
+		if rhook_run_step "$rhook_line"; then
+			if [ "$RHOOK_LAST_STEP_OUTCOME" = "ok" ] && rhook_is_dns_group "$rhook_type"; then
+				rhook_undo=$(printf '%s' "$rhook_line" | cut -f6)
+				if [ -n "$rhook_undo" ]; then
+					# Prepend (not append): entries accumulate in apply
+					# order, so reading top-to-bottom during rollback
+					# below is already the correct reverse-of-apply order.
+					rhook_dns_applied="$rhook_id	$rhook_undo
+$rhook_dns_applied"
+				fi
+			fi
+		else
+			if rhook_is_dns_group "$rhook_type" && [ -n "$rhook_dns_applied" ]; then
+				rhook_log warn "a required DNS step failed -- rolling back the DNS changes already applied to this link rather than leaving it half-configured"
+				printf '%s\n' "$rhook_dns_applied" | while IFS= read -r rhook_rb_line; do
+					[ -n "$rhook_rb_line" ] || continue
+					rhook_rb_id=$(printf '%s' "$rhook_rb_line" | cut -f1)
+					rhook_rb_undo=$(printf '%s' "$rhook_rb_line" | cut -f2)
+					rhook_log verbose "rollback undo $rhook_rb_id: $rhook_rb_undo"
+					rhook_rb_out=$(eval "$rhook_rb_undo" 2>&1)
+					rhook_rb_rc=$?
+					if [ "$rhook_rb_rc" -eq 0 ]; then
+						rhook_report_line "[ ok        ] rollback undo $rhook_rb_id"
+					else
+						rhook_report_line "[ FAILED    ] rollback undo $rhook_rb_id (exit $rhook_rb_rc)"
+					fi
+					rhook_log trace "  command: $rhook_rb_undo"
+					rhook_log trace "  output: $rhook_rb_out"
+					rhook_state_remove_entry "$rhook_rb_id"
+				done
+				rhook_dns_applied=""
+			fi
 			rhook_stopped=1
 		fi
 	done < "$(rhook_plan_file)"
@@ -1236,6 +1327,64 @@ rhook_dns_emit_clear_domains() {
 	esac
 }
 
+# rhook_dns_emit_status <tool> <iface>
+# Prints the command that dumps that tool's per-link status: `resolvectl
+# status <iface>` (bare verb) or `systemd-resolve --status <iface>`
+# (confirmed against systemd v237's own src/resolve/resolve-tool.c: MODE_STATUS
+# treats trailing positional arguments as interface names/indices, so the
+# older flag-based tool accepts the same positional-interface form as the
+# newer verb-based one -- this is not a guess).
+rhook_dns_emit_status() {
+	local rhook_tool rhook_iface
+	rhook_tool="$1"; rhook_iface="$2"
+	case "$rhook_tool" in
+		resolvectl)
+			printf '%s status %s' "$RACOON_HOOK_RESOLVECTL" "$rhook_iface"
+			;;
+		systemd-resolve)
+			printf '%s --status %s' "$RACOON_HOOK_SYSTEMD_RESOLVE" "$rhook_iface"
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+# rhook_dns_status_has <tool> <iface> <value>
+# §7.4 effectiveness check primitive shared by the DNS-server and domain
+# postconditions: does <value> appear anywhere in that link's status
+# output? A plain substring search, deliberately not a structural
+# line/field parser, because the output format is confirmed to differ
+# materially between tool generations:
+#   - systemd v237's systemd-resolve --status (confirmed against its own
+#     source, src/resolve/resolve-tool.c, status_ifindex()): plain text,
+#     one value per line, first line prefixed "DNS Servers:"/"DNS Domain:",
+#     continuation lines blank-padded to the same width.
+#   - systemd v255's resolvectl status (confirmed against its own source,
+#     src/resolve/resolvectl.c): a table_new_vertical()-rendered table
+#     with box-drawing characters via dump_list(..., "DNS Servers", ...),
+#     not line-oriented text at all.
+# UNVERIFIED: the exact byte-for-byte table layout of modern `resolvectl
+# status` (box-drawing characters, possible ANSI color codes, exact
+# column wrapping via TABLE_STRV_WRAPPED) was not confirmed against a
+# live run, nor was the systemd version boundary where the table format
+# was introduced. A structural parser tuned to either format would
+# silently stop matching on the other; a substring search over the
+# whole per-link block does not have that failure mode -- an IPv4/IPv6
+# address or domain name is not going to appear as a substring of box-
+# drawing/ANSI decoration -- so it is the more robust choice given the
+# confirmed format divergence, at the cost of being unable to confirm
+# *which* field the value came from. Settled by: capturing real output
+# from both tool generations and, if the table format proves stable
+# enough, adding a stricter per-format parser as a first attempt with
+# this substring check retained as the fallback.
+rhook_dns_status_has() {
+	local rhook_tool rhook_iface rhook_value rhook_cmd
+	rhook_tool="$1"; rhook_iface="$2"; rhook_value="$3"
+	rhook_cmd=$(rhook_dns_emit_status "$rhook_tool" "$rhook_iface") || return 1
+	eval "$rhook_cmd" 2>/dev/null | grep -qF -- "$rhook_value"
+}
+
 # --------------------------------------------------------------------------
 # Overall backend classification, synthesized from the survey signals
 # above. §3.1 lists "resolver backend" as a survey-record field; this
@@ -1330,7 +1479,7 @@ rhook_nm_dns_mode_union() {
 # --------------------------------------------------------------------------
 # Step preconditions/postconditions consulted by run_step(). These read
 # RHOOK_BACKEND_RESOLVED/RHOOK_DNS_TOOL/RHOOK_CAP_DEFAULT_ROUTE/
-# RHOOK_EXPECT_DNS, set once by rhook_build_plan() before any step runs
+# RHOOK_EXPECT_DNS/RHOOK_EXPECT_DOMAINS, set once by rhook_build_plan() before any step runs
 # (run_step's calling convention only passes the step id, not per-step
 # context, so shared decisions the plan already made live here as globals
 # rather than being re-derived per step).
@@ -1358,24 +1507,56 @@ rhook_precond_default_route() {
 	return 0
 }
 
-# §7.4 effectiveness check for the resolvectl/systemd-resolve DNS path:
-# a step that exited 0 but produced no observable change (wrote to a link
-# nothing reads, or a networkd-managed interface silently refused a
-# link-scoped resolved setting) must be reported as failed. Checks the
-# resolved-native path first (resolvectl status) when that's genuinely
-# the active backend, falling back to the file-content check otherwise
-# (§7: "resolvectl status <if> for the resolved path, content diff for
-# file-based paths").
+# §B.3 (brief 3): unconditional skip -- rhook_plan_dns_resolved() only
+# plans a resolved_no_scope step when it has already determined neither
+# routing domains nor default-route=no is available to scope this link,
+# so there is nothing to gate here beyond stating the exposure plainly
+# (the brief's explicit "impact line" requirement).
+rhook_precond_resolved_no_scope() {
+	printf 'no split-DNS domains from the gateway and %s has no default-route capability on this system -- registering DNS servers with neither would make them the resolver for ALL lookups on this link, not real split-DNS; skipping DNS configuration entirely. Internal names behind the tunnel will not resolve until this is addressed (add split-DNS domains at the gateway, or use a resolver tool with default-route support).' "${RHOOK_DNS_TOOL:-the detected resolver tool}"
+}
+
+# §7.4 effectiveness check for the DNS-server step: a step that exited 0
+# but produced no observable change (wrote to a link nothing reads, or a
+# networkd-managed interface silently refused a link-scoped resolved
+# setting) must be reported as failed.
+#
+# F3 (brief 3): the previous version of this check only special-cased
+# `resolvectl` -- gated on `command -v "$RACOON_HOOK_RESOLVECTL"` -- and
+# fell through to the file-content check for every other case, including
+# the *resolved* backend on a systemd-resolve-only system (no resolvectl
+# binary at all, e.g. Ubuntu Bionic/systemd 237). On such a system the
+# file-content fallback checks /run/systemd/resolve/stub-resolv.conf,
+# which by design only ever contains "nameserver 127.0.0.53" -- it can
+# never contain a real per-link server, so every resolved-backend run
+# reported FAILED regardless of whether the setting actually applied
+# (confirmed live: this false failure is what triggered the F4 reconnect
+# loop). Fixed by branching on the *tool* (RHOOK_DNS_TOOL), covering
+# both resolvectl and systemd-resolve identically via
+# rhook_dns_status_has(), not by which binary happens to also exist.
+#
+# The nss_uses_resolve() check below implements brief 3 §A's "if
+# nsswitch.conf contains a resolve entry, the resolved per-link state is
+# authoritative regardless of any file's content": normally
+# RHOOK_BACKEND_RESOLVED is already "resolved" whenever nss_uses_resolve
+# is true (rhook_survey_classify_backend picks it first, before any file
+# heuristic), *unless* hooks.conf explicitly overrides backend to
+# something else. In that override case file content is genuinely
+# irrelevant to what glibc actually reads, so checking it would let a
+# cosmetically-applied-but-functionally-inert configuration report "ok" --
+# checking resolved's own per-link status here, even though a different
+# backend was configured, correctly reports the mismatch as a failure
+# instead.
 rhook_postcond_set_dns() {
 	local rhook_first rhook_reader
 	[ -n "${RHOOK_EXPECT_DNS:-}" ] || return 0
 	rhook_first="${RHOOK_EXPECT_DNS%% *}"
 
-	if [ "$RHOOK_BACKEND_RESOLVED" = "resolved" ] && command -v "$RACOON_HOOK_RESOLVECTL" >/dev/null 2>&1; then
-		if "$RACOON_HOOK_RESOLVECTL" status "$RHOOK_DUMMY_IFACE" 2>/dev/null | grep -q "$rhook_first"; then
+	if [ "$RHOOK_BACKEND_RESOLVED" = "resolved" ] || rhook_survey_nss_uses_resolve; then
+		if [ -n "$RHOOK_DNS_TOOL" ] && rhook_dns_status_has "$RHOOK_DNS_TOOL" "$RHOOK_DUMMY_IFACE" "$rhook_first"; then
 			return 0
 		fi
-		printf 'resolvectl status %s does not list %s as a DNS server for this link' "$RHOOK_DUMMY_IFACE" "$rhook_first"
+		printf '%s status %s does not list %s as a DNS server for this link' "${RHOOK_DNS_TOOL:-resolvectl/systemd-resolve}" "$RHOOK_DUMMY_IFACE" "$rhook_first"
 		return 0
 	fi
 
@@ -1384,6 +1565,31 @@ rhook_postcond_set_dns() {
 	fi
 	rhook_reader=$(rhook_survey_glibc_reader)
 	printf '%s is not visible in %s, which is what name resolution actually reads' "$rhook_first" "$rhook_reader"
+	return 0
+}
+
+# §7.4 effectiveness check for the routing-domain step, new in brief 3
+# (previously the set_domains step type had no postcondition registered
+# at all). Checks the same per-link status output as rhook_postcond_set_dns
+# for the same reason (nss_uses_resolve authoritative-regardless-of-file
+# rule applies identically here).
+#
+# UNVERIFIED: whether a routing-only domain is echoed back in `status`
+# output *with* its leading '~' or without -- not confirmed against a
+# live resolved instance either way. Tolerates both forms by checking
+# for the domain with any leading '~' stripped from the expected value
+# before searching, since the bare domain name is a substring of the
+# tilde-prefixed form either way.
+rhook_postcond_set_domains() {
+	local rhook_first rhook_bare
+	[ -n "${RHOOK_EXPECT_DOMAINS:-}" ] || return 0
+	rhook_first="${RHOOK_EXPECT_DOMAINS%% *}"
+	rhook_bare="${rhook_first#\~}"
+
+	if [ -n "$RHOOK_DNS_TOOL" ] && rhook_dns_status_has "$RHOOK_DNS_TOOL" "$RHOOK_DUMMY_IFACE" "$rhook_bare"; then
+		return 0
+	fi
+	printf '%s status %s does not list %s as a domain for this link' "${RHOOK_DNS_TOOL:-resolvectl/systemd-resolve}" "$RHOOK_DUMMY_IFACE" "$rhook_bare"
 	return 0
 }
 
@@ -1547,11 +1753,27 @@ rhook_plan_dns_networkmanager() {
 		"$rhook_apply" "$rhook_undo"
 }
 
+# §B (brief 3, F4): a DNS server registered on a link with no scoping
+# applied yet becomes that link's resolver for every lookup, not just
+# the split-DNS domains -- exactly the exposure that produced the F1
+# reconnect loop (resolved queried a network address that only existed
+# behind the tunnel, which matched a `require` SPD policy with no
+# matching SA, triggering an ACQUIRE). Two independent mechanisms can
+# scope a link: a routing-only domain (queries for anything else never
+# go to this link's servers regardless of default-route), or
+# default-route=no (this link is never chosen for a query with no
+# better-matching domain). Order the plan so scoping is applied *before*
+# servers are registered wherever at least one mechanism is available,
+# and skip registering servers entirely when neither is -- see
+# rhook_plan_dns_resolved() below for how each case is decided.
 rhook_plan_dns_resolved() {
 	local rhook_dom rhook_domains_arg rhook_cmd rhook_undo rhook_domains_prefixed
+	local rhook_has_domains rhook_has_routing_cap rhook_can_scope rhook_default_route_crit
 
 	rhook_domains_prefixed=""
+	rhook_has_routing_cap=0
 	if rhook_dns_cap "$RHOOK_DNS_TOOL" routing_domains; then
+		rhook_has_routing_cap=1
 		for rhook_dom in $RHOOK_DOMAINS; do
 			rhook_domains_prefixed="$rhook_domains_prefixed ~$rhook_dom"
 		done
@@ -1560,27 +1782,78 @@ rhook_plan_dns_resolved() {
 	fi
 	rhook_domains_arg="$rhook_domains_prefixed"
 
-	RHOOK_EXPECT_DNS="$RHOOK_DNS_SERVERS"
-	# shellcheck disable=SC2086 # word-splitting into emitter positional args is the point
-	rhook_cmd=$(rhook_dns_emit_set_dns "$RHOOK_DNS_TOOL" "$RHOOK_DUMMY_IFACE" $RHOOK_DNS_SERVERS)
-	rhook_undo=$(rhook_dns_emit_clear_dns "$RHOOK_DNS_TOOL" "$RHOOK_DUMMY_IFACE")
-	rhook_plan_add resolved_dns set_dns required \
-		"set DNS $RHOOK_DNS_SERVERS on $RHOOK_DUMMY_IFACE ($RHOOK_DNS_TOOL)" \
-		"$rhook_cmd" "$rhook_undo"
+	rhook_has_domains=0
+	[ -n "$RHOOK_DOMAINS" ] && rhook_has_domains=1
 
-	if [ -n "$RHOOK_DOMAINS" ]; then
-		# shellcheck disable=SC2086
+	# domains scope on their own (routing-only, independent of
+	# default-route); absent domains, default-route=no is the only other
+	# scoping mechanism, and it is confirmed absent from systemd-resolve
+	# (systemd 237 and earlier -- rhook_dns_cap never reports it for that
+	# tool; resolvectl only, feature-probed, see §6).
+	rhook_can_scope=0
+	if [ "$rhook_has_domains" -eq 1 ] && [ "$rhook_has_routing_cap" -eq 1 ]; then
+		rhook_can_scope=1
+	elif [ "$RHOOK_CAP_DEFAULT_ROUTE" = "yes" ]; then
+		rhook_can_scope=1
+	fi
+
+	if [ "$rhook_can_scope" -eq 0 ]; then
+		# §B.3: neither scoping mechanism is available -- skip DNS
+		# configuration on this link entirely rather than register an
+		# unscoped server. rhook_precond_resolved_no_scope() always
+		# skips this step, and states the resulting exposure explicitly
+		# in the reason line (the brief's "impact line" requirement) --
+		# criticality is nominal here since a precondition-driven skip
+		# never reaches the required/optional pass-fail distinction.
+		rhook_plan_add resolved_dns resolved_no_scope optional \
+			"configure DNS on $RHOOK_DUMMY_IFACE via $RHOOK_DNS_TOOL" \
+			true ""
+		return 0
+	fi
+
+	# §B.2: scope before servers -- domains and default-route=no (when
+	# available) are planned first, DNS servers last, so there is no
+	# window in which the link is both populated and default-eligible.
+	if [ "$rhook_has_domains" -eq 1 ]; then
+		# shellcheck disable=SC2086 # word-splitting into emitter positional args is the point
 		rhook_cmd=$(rhook_dns_emit_set_domains "$RHOOK_DNS_TOOL" "$RHOOK_DUMMY_IFACE" $rhook_domains_arg)
 		rhook_undo=$(rhook_dns_emit_clear_domains "$RHOOK_DNS_TOOL" "$RHOOK_DUMMY_IFACE")
 		rhook_plan_add resolved_domains set_domains required \
 			"set routing domain(s)$rhook_domains_arg on $RHOOK_DUMMY_IFACE" \
 			"$rhook_cmd" "$rhook_undo"
+		RHOOK_EXPECT_DOMAINS="$rhook_domains_arg"
+		# default-route is a nice-to-have here: domains alone already
+		# scope the link, so a default-route failure does not leave
+		# anything unscoped and does not need to block the DNS step.
+		rhook_default_route_crit="optional"
+	else
+		# No domains at all: default-route=no is the *only* scoping
+		# mechanism reaching this point (rhook_can_scope already
+		# excluded the case where neither is available), so it must
+		# actually take effect before servers are registered -- required,
+		# not optional, here specifically.
+		rhook_default_route_crit="required"
 	fi
 
+	# Always planned, regardless of capability: rhook_precond_default_route
+	# (§5) is the single place that decides to skip it when the tool
+	# can't do it -- rhook_can_scope above already guarantees the
+	# capability is present whenever rhook_default_route_crit is
+	# "required" (that is the only way its elif branch could have set
+	# rhook_can_scope=1 with no domains), so this can never plan a
+	# required step the precondition will then skip.
 	rhook_cmd=$(rhook_dns_emit_default_route "$RHOOK_DNS_TOOL" "$RHOOK_DUMMY_IFACE" false)
-	rhook_plan_add resolved_default_route default_route optional \
+	rhook_plan_add resolved_default_route default_route "$rhook_default_route_crit" \
 		"mark $RHOOK_DUMMY_IFACE as non-default-route" \
 		"$rhook_cmd" ""
+
+	RHOOK_EXPECT_DNS="$RHOOK_DNS_SERVERS"
+	# shellcheck disable=SC2086
+	rhook_cmd=$(rhook_dns_emit_set_dns "$RHOOK_DNS_TOOL" "$RHOOK_DUMMY_IFACE" $RHOOK_DNS_SERVERS)
+	rhook_undo=$(rhook_dns_emit_clear_dns "$RHOOK_DNS_TOOL" "$RHOOK_DUMMY_IFACE")
+	rhook_plan_add resolved_dns set_dns required \
+		"set DNS $RHOOK_DNS_SERVERS on $RHOOK_DUMMY_IFACE ($RHOOK_DNS_TOOL)" \
+		"$rhook_cmd" "$rhook_undo"
 }
 
 rhook_plan_dns_resolvconf() {

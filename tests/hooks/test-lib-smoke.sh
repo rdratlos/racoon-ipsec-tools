@@ -309,6 +309,44 @@ else
 	pass "state file is gone once the retry finishes the job"
 fi
 
+# --------------------------------------------------------------------------
+# Test 8: in-transaction DNS-group rollback (§B.1, brief 3, F4) -- a
+# required DNS-group step failing mid-apply must immediately undo every
+# other DNS-group step already applied this run, but must leave
+# preceding non-DNS-group steps (dummy interface/address/routes) alone,
+# and the rolled-back entries must not linger in the state file.
+# --------------------------------------------------------------------------
+RHOOK_EXIT_HANDLED=0
+: > "$UNDO_LOG"
+rhook_state_reset
+rhook_plan_reset
+rhook_plan_add iface_up  create_dummy required "bring up the dummy iface" "true" "echo undo-iface >> \"$UNDO_LOG\""
+rhook_plan_add domains   set_domains  required "set routing domains"     "true" "echo undo-domains >> \"$UNDO_LOG\""
+rhook_plan_add dns_fail  set_dns      required "set DNS servers (fails)" "sh -c 'exit 9'" "echo undo-dns-SHOULD-NOT-RUN >> \"$UNDO_LOG\""
+rhook_report_init
+rhook_apply_plan
+apply_rc3=$?
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ "$apply_rc3" -ne 0 ]; then
+	pass "a failed required DNS-group step still stops the plan"
+else
+	fail "a failed required DNS-group step should have stopped the plan"
+fi
+assert_eq "rollback undoes the domains step immediately (before the failed step's own undo, which never ran)" \
+	"$(cat "$UNDO_LOG")" \
+	"undo-domains"
+TESTS_RUN=$((TESTS_RUN + 1))
+if grep -q '^iface_up	' "$(rhook_state_file)" 2>/dev/null; then
+	pass "the non-DNS-group step before the failure is left alone (not rolled back)"
+else
+	fail "iface_up should still be recorded ok -- only DNS-group steps roll back"
+fi
+STATE_FILE4=$(rhook_state_file)
+assert_file_not_contains "the rolled-back domains entry is removed from state, not left as ok" "$STATE_FILE4" "domains	set_domains	ok"
+assert_file_contains "the failed dns step itself is recorded failed" "$STATE_FILE4" "dns_fail	set_dns	failed"
+rhook_exit_trap 2>"$WORK/report5.log"
+assert_file_contains "the report shows the rollback undo succeeding" "$WORK/report5.log" "rollback undo domains"
+
 echo ""
 echo "$TESTS_RUN checks run, $TESTS_FAILED failed"
 [ "$TESTS_FAILED" -eq 0 ]
