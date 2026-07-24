@@ -43,3 +43,51 @@ Resolution:
 
 No functional change to `racoon-hook-lib.sh`'s behavior; this row's
 resolution is test coverage plus documentation.
+
+## Row 24 -- dummy-interface check-then-create TOCTOU
+
+**Comment:** 5061097437 (+ the `review/pr-91-review-reports-and-proposed-fixes`
+doc). **Verdict:** Partly Accepted, low priority, "bounded in practice."
+
+Real in theory, and worth closing since closing it is cheap even though the
+worst pre-fix outcome was already just a harmless "already exists, reusing"
+branch (the idempotent-reuse path added for the earlier "racoon0 hangs after
+non-clean stop" bug), not a crash. One correction to the row's own framing:
+the race is not scoped to "the same peer" -- `$RHOOK_DUMMY_IFACE` is a single
+fixed name from `hooks.conf`, not derived from the peer at all, so two
+concurrent sessions for *different* peers race on it exactly as much as two
+for the same peer would. The fix and its lock key (the interface name, not a
+peer identity or cookie) reflect that.
+
+Resolution:
+
+- Serialized `rhook_ensure_dummy_iface()`'s whole check-then-create body
+  with a new `rhook_dummy_iface_lock()`/`rhook_dummy_iface_unlock()` pair,
+  keyed by the (sanitized) interface name under `$RHOOK_STATE_DIR`.
+  Primary mechanism is `flock(1)`'s file-descriptor form (`exec N>file`,
+  `flock N`, `flock -u N`), verified against `flock(1)` itself (util-linux
+  2.39.3 on this dev container) rather than assumed.
+- **flock(1)'s availability on NetBSD could not be verified** -- no NetBSD
+  environment was available to check directly, and this project has been
+  bitten by an unverified BSD/Linux tool-availability assumption before
+  (the `dash`-on-NetBSD CI fix). Rather than guess, the fix falls back to
+  the same mkdir-based retry-and-cap lock `rhook_state_reset()` already
+  uses when `flock` isn't on `PATH` -- the project's own NetBSD CI job is
+  what actually exercises whichever path applies there.
+- Found and fixed one bug of my own along the way: a bare `exec N>file
+  2>/dev/null` (no command) applies its redirection to the rest of the
+  *current shell*, not just that line -- an early version of this fix
+  silenced every later stderr message in the process, including
+  `rhook_ensure_dummy_iface()`'s own reuse/refusal log lines, breaking
+  two pre-existing assertions (`test-lib-smoke.sh` 11b/11c). Fixed by
+  probing the lock file's openability in a subshell first, and by
+  dropping the redundant `2>/dev/null` from the plain `exec N>&-` close.
+- Added a regression test (`test-lib-smoke.sh`, new case 11d) that runs
+  two real, concurrent invocations of `rhook_ensure_dummy_iface()` against
+  a stubbed `ip` with a deliberately widened check-to-create window,
+  asserting exactly one `ip link add` call and no error from the loser.
+  Verified the test actually catches the pre-fix bug (temporarily disabled
+  the lock, confirmed the test fails; restored, confirmed it passes).
+
+Full suite after this change: `make check` (1/1) plus all 8 hook fixture
+files (445 checks total) pass; `shellcheck` clean.
