@@ -103,7 +103,7 @@ rhook_load_config() {
 		# "report" (identical behavior, honest name) rather than breaking
 		# an existing hooks.conf outright.
 		abort)
-			rhook_log warn "hooks.conf: on_dns_failure=abort is a deprecated alias for 'report' -- racoon does not reject a tunnel based on a hook's exit status, so 'abort' never aborted anything but this script's own exit code; use 'report' (same behavior) or 'rollback' (also undo this run's own changes before exiting) instead"
+			rhook_log warn "hooks.conf: on_dns_failure=abort is a deprecated alias for 'report' -- racoon does not reject a tunnel based on the script's exit status, so 'abort' never aborted anything but this script's own exit code; use 'report' (same behavior) or 'rollback' (also undo this run's own changes before exiting) instead"
 			RHOOK_ON_DNS_FAILURE="report"
 			;;
 		warn|report|rollback) ;;
@@ -173,7 +173,7 @@ rhook_log() {
 
 	case "$rhook_cat" in
 		error|warn|summary)
-			"$RACOON_HOOK_LOGGER" -t "racoon-${RHOOK_HOOK_NAME:-hook}" -- "[$rhook_cat] $rhook_msg" 2>/dev/null || true
+			"$RACOON_HOOK_LOGGER" -t "racoon-${RHOOK_HOOK_NAME:-script}" -- "[$rhook_cat] $rhook_msg" 2>/dev/null || true
 			rhook_min=0
 			;;
 		step)    rhook_min=1 ;;
@@ -855,14 +855,14 @@ rhook_emit_report() {
 	# warnings/errors, if any, when they happened.
 	if [ "$rhook_level" -ge 1 ] 2>/dev/null; then
 		{
-			printf 'racoon %s report -- %s\n' "${RHOOK_HOOK_NAME:-hook}" "$rhook_ts"
+			printf 'racoon %s report -- %s\n' "${RHOOK_HOOK_NAME:-script}" "$rhook_ts"
 			[ -n "${RHOOK_REPORT_HEADER:-}" ] && printf '%s\n' "$RHOOK_REPORT_HEADER"
 			cat "$RHOOK_REPORT_FILE"
 			printf '\n  %s\n' "$rhook_summary"
 		} >&2
 	fi
 	if [ "$rhook_level" -ge 2 ] 2>/dev/null; then
-		rhook_trace_write "racoon ${RHOOK_HOOK_NAME:-hook} report -- $rhook_ts"
+		rhook_trace_write "racoon ${RHOOK_HOOK_NAME:-script} report -- $rhook_ts"
 		[ -n "${RHOOK_REPORT_HEADER:-}" ] && rhook_trace_write "$RHOOK_REPORT_HEADER"
 		while IFS= read -r rhook_rline; do
 			rhook_trace_write "$rhook_rline"
@@ -870,7 +870,7 @@ rhook_emit_report() {
 		rhook_trace_write "$rhook_summary"
 	fi
 
-	"$RACOON_HOOK_LOGGER" -t "racoon-${RHOOK_HOOK_NAME:-hook}" -- "$rhook_summary" 2>/dev/null || true
+	"$RACOON_HOOK_LOGGER" -t "racoon-${RHOOK_HOOK_NAME:-script}" -- "$rhook_summary" 2>/dev/null || true
 
 	rm -f "$RHOOK_REPORT_FILE" 2>/dev/null
 	[ "$rhook_result" = "OK" ]
@@ -2456,7 +2456,7 @@ rhook_ensure_dummy_iface() {
 	fi
 
 	if [ -n "$("$RACOON_HOOK_IP" -o link show dev "$rhook_edi_iface" type dummy 2>/dev/null)" ]; then
-		rhook_log warn "dummy interface $rhook_edi_iface already exists -- reusing it rather than failing (a prior session's teardown likely did not complete; see the Admin Guide's Split-DNS & Routing Hooks section, Leftover State After a Non-Clean Stop)"
+		rhook_log warn "dummy interface $rhook_edi_iface already exists -- reusing it rather than failing (a prior session's teardown likely did not complete; see the Admin Guide's Split-DNS & Routing Scripts section, Leftover State After a Non-Clean Stop)"
 		"$RACOON_HOOK_IP" link set "$rhook_edi_iface" up
 		rhook_edi_rc=$?
 		rhook_dummy_iface_unlock "$rhook_edi_iface"
@@ -2464,7 +2464,7 @@ rhook_ensure_dummy_iface() {
 	fi
 
 	rhook_dummy_iface_unlock "$rhook_edi_iface"
-	echo "an interface named $rhook_edi_iface already exists and is not a dummy-type interface this hook set created -- refusing to touch it (set dummy_iface in hooks.conf to a different name, or resolve the conflict manually)" >&2
+	echo "an interface named $rhook_edi_iface already exists and is not a dummy-type interface phase1-up.sh created -- refusing to touch it (set dummy_iface in hooks.conf to a different name, or resolve the conflict manually)" >&2
 	return 1
 }
 

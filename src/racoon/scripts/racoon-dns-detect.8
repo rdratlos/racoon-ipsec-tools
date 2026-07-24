@@ -8,7 +8,7 @@
 .\"
 .Sh NAME
 .Nm racoon-dns-detect
-.Nd survey and preview the split-DNS/routing hooks' backend detection and plan
+.Nd survey and preview the split-DNS/routing scripts' backend detection and plan
 .\"
 .Sh SYNOPSIS
 .Nm
@@ -24,16 +24,19 @@
 .\"
 .Sh DESCRIPTION
 .Nm
-is an administrator-facing diagnostic for the split-DNS/routing hooks
-.Pq Pa racoon-hook-lib.sh , phase1-up.sh , phase1-down.sh
-shipped with this project.
+is an administrator-facing diagnostic for the
+.Pa phase1-up.sh Ns / Ns Pa phase1-down.sh
+scripts (also called hooks) and their shared library,
+.Pa racoon-hook-lib.sh ,
+all shipped with this project.
 None of the three have their own man pages — this page and the Admin
 Guide referenced under
 .Sx SEE ALSO
 are their documentation.
 It surveys the running system's
 .Pa resolv.conf
-landscape and DNS tool capabilities, classifies which backend the hooks
+landscape and DNS tool capabilities, classifies which backend
+.Pa phase1-up.sh
 would select, and — with
 .Fl -dry-run —
 builds and prints the exact step plan
@@ -46,8 +49,9 @@ never calls the library's apply machinery, only the survey and plan
 construction that precede it.
 Run it after editing
 .Pa hooks.conf
-or before troubleshooting a connection to see what the hooks would
-conclude without needing an active VPN session.
+or before troubleshooting a connection to see what
+.Pa phase1-up.sh
+would conclude without needing an active VPN session.
 .\"
 .Sh OPTIONS
 .Bl -tag -width Ds
@@ -141,11 +145,11 @@ not itself a failure of this tool.
 See
 .Pa doc/admin/split-dns.html
 in the project source (or your distribution's documentation directory)
-for the full split-DNS/routing hooks admin guide, including this tool's
+for the full split-DNS/routing scripts admin guide, including this tool's
 own diagnostic workflow in more detail.
 .\"
 .Sh HISTORY
 .Nm
-was added along with the split-DNS/routing hook set for
+was added along with the split-DNS/routing scripts for
 .Xr racoon 8
 roadwarrior connections.
