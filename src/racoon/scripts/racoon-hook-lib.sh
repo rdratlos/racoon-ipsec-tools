@@ -999,9 +999,22 @@ rhook_valid_domain() {
 }
 
 # rhook_validate_dns_list <space-separated tokens>
-# Rejects 0.0.0.0, loopback (127.0.0.0/8) and multicast (224.0.0.0/4) in
-# addition to plain address-format validation (§4: "Reject 0.0.0.0,
-# loopback, and multicast for DNS servers").
+# Rejects 0.0.0.0/8, loopback (127.0.0.0/8), link-local (169.254.0.0/16),
+# multicast (224.0.0.0/4) and reserved/broadcast (240.0.0.0/4, i.e. Class E
+# plus 255.255.255.255) in addition to plain address-format validation
+# (§4: "Reject 0.0.0.0, loopback, and multicast for DNS servers"; the
+# link-local and reserved/Class E ranges were added later -- PR #91 review
+# row 29a, comment 5061097437 -- these are bogon/reserved ranges that are
+# never a valid DNS server address regardless of deployment, unlike the
+# RFC1918 private ranges deliberately left alone below).
+#
+# RFC1918 private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) are
+# deliberately NOT rejected, and must never be: every one of this
+# project's own live-tested internal DNS servers uses one (10.66.0.6
+# throughout the issue #90 Task F evidence, the whole nepomuc.de test
+# topology) -- rejecting RFC1918 by default would reject the project's
+# own primary confirmed-working scenario. This is not a policy nuance
+# left for later, it is a permanent constraint on this function.
 rhook_validate_dns_list() {
 	local rhook_list rhook_tok rhook_count
 	rhook_list="$1"
@@ -1018,16 +1031,24 @@ rhook_validate_dns_list() {
 			return 1
 		fi
 		case "$rhook_tok" in
-			0.0.0.0)
-				RHOOK_VALIDATION_REASON="DNS server '$rhook_tok' is 0.0.0.0"
+			0.*)
+				RHOOK_VALIDATION_REASON="DNS server '$rhook_tok' is in the reserved 0.0.0.0/8 range"
 				return 1
 				;;
 			127.*)
 				RHOOK_VALIDATION_REASON="DNS server '$rhook_tok' is a loopback address"
 				return 1
 				;;
+			169.254.*)
+				RHOOK_VALIDATION_REASON="DNS server '$rhook_tok' is a link-local address"
+				return 1
+				;;
 			22[4-9].*|23[0-9].*)
 				RHOOK_VALIDATION_REASON="DNS server '$rhook_tok' is a multicast address"
+				return 1
+				;;
+			24[0-9].*|25[0-5].*)
+				RHOOK_VALIDATION_REASON="DNS server '$rhook_tok' is in the reserved 240.0.0.0/4 range or is the broadcast address"
 				return 1
 				;;
 		esac

@@ -160,6 +160,24 @@ assert_list_invalid "multicast low rejected"    rhook_validate_dns_list "224.0.0
 assert_list_invalid "multicast high rejected"   rhook_validate_dns_list "239.255.255.255"
 assert_list_valid   "just below multicast ok"   rhook_validate_dns_list "223.255.255.255"
 
+# PR #91 review row 29a (comment 5061097437): 0.0.0.0/8 (not just the one
+# address), link-local, and reserved/Class E/broadcast are bogon ranges
+# that are never a valid DNS server regardless of deployment -- added
+# alongside the pre-existing 0.0.0.0/loopback/multicast checks above.
+assert_list_invalid "0.0.0.0/8 (not just 0.0.0.0) rejected" rhook_validate_dns_list "0.1.2.3"
+assert_list_invalid "link-local rejected"        rhook_validate_dns_list "169.254.1.1"
+assert_list_invalid "reserved (Class E) rejected" rhook_validate_dns_list "240.0.0.1"
+assert_list_invalid "broadcast address rejected" rhook_validate_dns_list "255.255.255.255"
+
+# RFC1918 private ranges must remain fully, unconditionally allowed --
+# they are the address family every one of this project's own
+# live-tested internal DNS servers actually uses. Not a policy nuance:
+# rejecting these would break the project's own primary confirmed-
+# working scenario, so this must never regress.
+assert_list_valid   "RFC1918 10/8 allowed"       rhook_validate_dns_list "10.66.0.6"
+assert_list_valid   "RFC1918 172.16/12 allowed"  rhook_validate_dns_list "172.16.0.53"
+assert_list_valid   "RFC1918 192.168/16 allowed" rhook_validate_dns_list "192.168.1.53"
+
 # semicolon vector: not IFS, stays attached to a token, fails char whitelist
 assert_list_invalid "semicolon injection vector" rhook_validate_dns_list "10.0.12.53;rm -rf /"
 
