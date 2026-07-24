@@ -87,6 +87,15 @@ assert_eq "prefers resolvectl when both present" "$(rhook_dns_tool_detect)" "res
 PATH="$WORK/resolvectl-only:$BASE_PATH"
 assert_eq "resolvectl only" "$(rhook_dns_tool_detect)" "resolvectl"
 
+# CI-found (issue: real GitHub Actions Ubuntu runners ship a real
+# resolvectl in $BASE_PATH): rhook_dns_tool_detect() does
+# `command -v "$RACOON_HOOK_RESOLVECTL"`, which defaults to the bare
+# name "resolvectl" -- narrowing PATH to $WORK/systemd-resolve-only is
+# not enough to hide it, since command -v still finds the real one via
+# $BASE_PATH appended after it. Pin RACOON_HOOK_RESOLVECTL to a path
+# that cannot exist so this scenario actually tests "resolvectl absent",
+# not "resolvectl present but not the test's fake one".
+RACOON_HOOK_RESOLVECTL="/nonexistent/resolvectl"
 PATH="$WORK/systemd-resolve-only:$BASE_PATH"
 assert_eq "falls back to systemd-resolve (Bionic case)" "$(rhook_dns_tool_detect)" "systemd-resolve"
 

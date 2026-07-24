@@ -21,6 +21,17 @@ set -u
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 HOOK="$SCRIPT_DIR/../../src/racoon/scripts/phase1-up.sh"
 
+# CI-found: run_hook() below runs the real hook under dash specifically
+# (see the §J rationale comment further down) -- but a host with no dash
+# package at all (the NetBSD CI job's vmactions runner in particular)
+# made every invocation fail outright with "dash: not found" rather than
+# actually exercising the hook. Falls back to "sh" (this file's own
+# interpreter, per its shebang/CI invocation) when dash isn't on PATH --
+# on NetBSD that IS the strict target shell §J's denylist trick is
+# standing in for elsewhere, not an approximation there.
+RHOOK_HOOK_SHELL="dash"
+command -v "$RHOOK_HOOK_SHELL" >/dev/null 2>&1 || RHOOK_HOOK_SHELL="sh"
+
 TESTS_RUN=0
 TESTS_FAILED=0
 
@@ -48,18 +59,19 @@ assert_not_contains() {
 }
 
 # --------------------------------------------------------------------------
-# Brief 3 §J: every real `dash "$HOOK"` invocation this file makes goes
-# through run_hook() below, which checks the captured output against a
-# fixed denylist of shell-portability error markers -- phrases a stricter
-# shell (NetBSD's /bin/sh in particular) emits for a construct it doesn't
-# accept the way dash/bash do. A scenario's own assertions only check for
-# the specific substrings it cares about; they would not by themselves
-# catch a portability bug whose extra noise on stderr happens not to
-# break those substrings. Verified (grep) that none of the shipped
-# scripts' own log/error text uses any denylisted phrase, so a match here
-# is always either a real portability bug or new legitimate text that
-# needs a documented exception in RHOOK_STDERR_ALLOWLIST below -- never
-# remove a denylist entry to make a real failure go away.
+# Brief 3 §J: every real `"$RHOOK_HOOK_SHELL" "$HOOK"` invocation this
+# file makes goes through run_hook() below, which checks the captured
+# output against a fixed denylist of shell-portability error markers --
+# phrases a stricter shell (NetBSD's /bin/sh in particular) emits for a
+# construct it doesn't accept the way dash/bash do. A scenario's own
+# assertions only check for the specific substrings it cares about; they
+# would not by themselves catch a portability bug whose extra noise on
+# stderr happens not to break those substrings. Verified (grep) that none
+# of the shipped scripts' own log/error text uses any denylisted phrase,
+# so a match here is always either a real portability bug or new
+# legitimate text that needs a documented exception in
+# RHOOK_STDERR_ALLOWLIST below -- never remove a denylist entry to make a
+# real failure go away.
 # --------------------------------------------------------------------------
 RHOOK_STDERR_ALLOWLIST=""   # newline-separated fixed strings to excuse, if ever needed
 
@@ -178,7 +190,7 @@ run_hook() {
 	# exits. assert_stderr_clean() is therefore called by each caller
 	# explicitly, after capturing $out (and $rc, where checked), not from
 	# in here.
-	dash "$HOOK" 2>&1
+	"$RHOOK_HOOK_SHELL" "$HOOK" 2>&1
 }
 
 reset_env() {
