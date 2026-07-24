@@ -1514,11 +1514,17 @@ rhook_survey_nm_active() {
 # Capabilities are feature-probed, not version-sniffed (§6 point 7): dns/
 # domain/revert/flush-caches are confirmed present in both tools per the
 # NEWS entries above. The exact version resolvectl's "default-route"
-# subcommand first shipped in could not be confirmed -- checked the NEWS
-# files for v240, v244 and v248, none mention it -- so rather than assert
-# an unconfirmed "requires vN" cutoff, it is probed directly via
-# `resolvectl --help` output.
-# UNVERIFIED: resolvectl default-route's introduction version.
+# subcommand first shipped in could not be confirmed -- checked systemd's
+# own NEWS file across the full v234-v260 range (the entire file
+# available at the time of this check, not a handful of sampled
+# versions), and it is never mentioned there under that name -- so rather
+# than assert an unconfirmed "requires vN" cutoff, it is probed directly
+# via `resolvectl --help` output.
+# UNVERIFIED: resolvectl default-route's introduction version (a full
+# NEWS sweep rules out it ever being called out as a NEWS-worthy addition
+# by that name, but that's consistent with it either predating v234 or
+# simply never having earned its own bullet point -- not the same as a
+# confirmed introduction version).
 # UNVERIFIED: whether systemd-resolve's --set-dns=/--set-domain= accept
 # multiple values per flag occurrence or must be repeated once per value;
 # the emitters below repeat the flag once per value, which is the
@@ -1784,7 +1790,12 @@ rhook_dns_emit_status() {
 # status` (box-drawing characters, possible ANSI color codes, exact
 # column wrapping via TABLE_STRV_WRAPPED) was not confirmed against a
 # live run, nor was the systemd version boundary where the table format
-# was introduced. A structural parser tuned to either format would
+# was introduced -- checked systemd's own NEWS file across the full
+# v234-v260 range for it and found nothing (a rendering-format rewrite of
+# an existing verb's output is exactly the kind of change NEWS tends not
+# to call out at all, unlike a new flag or verb), so this stays open
+# rather than being narrowed to a version range. A structural parser
+# tuned to either format would
 # silently stop matching on the other; a substring search over the
 # whole per-link block does not have that failure mode -- an IPv4/IPv6
 # address or domain name is not going to appear as a substring of box-
