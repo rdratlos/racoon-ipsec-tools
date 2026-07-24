@@ -520,12 +520,15 @@ chmod +x "$WORK/bin/setkey"
 # Brief 3 §D: an old, unconsumed generation left behind by an incomplete
 # teardown is left completely untouched (no archiving, no overwriting,
 # no rewriting) by a new phase1-up run for the same peer -- a fresh
-# generation is simply allocated alongside it, for a future
-# phase1-down.sh to consume in its own turn (oldest first). This
-# replaces brief 1's "archive as .stale.$$ and start fresh" behavior
-# entirely: FIFO generation numbering means there is nothing to archive
-# -- an old, never-consumed generation was never going to collide with a
-# new one in the first place.
+# generation is simply allocated alongside it. This replaces brief 1's
+# "archive as .stale.$$ and start fresh" behavior entirely: generation
+# numbering means there is nothing to archive -- an old, never-consumed
+# generation was never going to collide with a new one in the first
+# place. (Whether that old generation is ever consumed depends on
+# rhook_state_own_generation()'s IKE_COOKIE match, issue #90 -- not on
+# arrival order; an orphan whose own session never calls phase1-down.sh
+# again stays live indefinitely, since rhook_state_reap() only ever
+# reaps aged .consumed files, never live ones.)
 # ==========================================================================
 reset_env fifo-old-gen
 export INTERNAL_ADDR4="192.0.2.44"

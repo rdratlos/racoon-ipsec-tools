@@ -139,6 +139,13 @@ reset_env() {
 	unset INTERNAL_ADDR4 LOCAL_ADDR LOCAL_PORT REMOTE_ADDR REMOTE_PORT
 	unset SPLIT_INCLUDE_CIDR SPLIT_INCLUDE INTERNAL_DNS4_LIST INTERNAL_DNS4
 	unset INTERNAL_SPLITDNS_DOMAINS DEFAULT_DOMAIN
+	# issue #90: IKE_COOKIE is racoon's own per-negotiation session token
+	# (exported by script_hook() in src/racoon/isakmp.c); every scenario
+	# below sets its own value explicitly around each phase1-up/
+	# phase1-down pair rather than getting a default here, since the
+	# whole point under test is that phase1-down.sh matches on this
+	# value, not on file order.
+	unset IKE_COOKIE
 	export INTERNAL_ADDR4="192.0.2.44"
 	export LOCAL_ADDR="203.0.113.1"
 	export LOCAL_PORT="500"
@@ -154,6 +161,7 @@ reset_env() {
 # up made, DNS (nmcli) first (R4), and leave no state file behind.
 # ==========================================================================
 reset_env clean
+export IKE_COOKIE="cookie-clean"
 up_out=$(dash "$HOOK_UP" 2>&1)
 up_rc=$?
 assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up_out"
@@ -236,6 +244,7 @@ STUBEOF
 chmod +x "$WORK/bin/ip"
 export STUCK_MARKER="$WORK/stuck-marker"
 rm -f "$STUCK_MARKER"
+export IKE_COOKIE="cookie-retry"
 
 up_out=$(dash "$HOOK_UP" 2>&1)
 up_rc=$?
@@ -263,7 +272,9 @@ TESTS_RUN=$((TESTS_RUN + 1))
 
 # ==========================================================================
 # phase1-down with no prior phase1-up run at all: nothing to undo, exits
-# 0, never invokes ip/nmcli.
+# 0, never invokes ip/nmcli. Also exercises IKE_COOKIE left unset (a
+# SCRIPT_PHASE1_DEAD-style invocation, or a not-yet-patched racoon build)
+# -- rhook_state_own_generation() must return empty rather than guess.
 # ==========================================================================
 reset_env noop
 out=$(dash "$HOOK_DOWN" 2>&1)
@@ -280,13 +291,18 @@ TESTS_RUN=$((TESTS_RUN + 1))
 # within about a second of each other, for the *same peer address*. A
 # single-file (or REMOTE_ADDR+REMOTE_PORT) identity scheme can match a
 # teardown to the wrong generation and dismantle a tunnel that just came
-# up; FIFO generation numbering must get this right in both call orders.
-# Two split-include networks (100.64.0.0/24 for the first session,
+# up. Each session gets its own IKE_COOKIE (issue #90); phase1-down.sh
+# must match on it exactly, in either teardown order -- this scenario
+# tears down in the same order the SAs came up (FIFO-compatible order,
+# by coincidence, not by reliance on it: see the "lifo" scenario below
+# for the order that would have broken the old oldest-first logic). Two
+# split-include networks (100.64.0.0/24 for the first session,
 # 100.64.1.0/24 for the second) make each generation's own routes
 # individually identifiable in the ip.log.
 # ==========================================================================
 reset_env overlap
 export SPLIT_INCLUDE_CIDR="100.64.0.0/24"
+export IKE_COOKIE="cookie-overlap-sa1"
 up1_out=$(dash "$HOOK_UP" 2>&1)
 assert_eq "overlap: first phase1-up (SA1) exits 0" "$?" "0"
 assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up1_out"
@@ -294,6 +310,7 @@ TESTS_RUN=$((TESTS_RUN + 1))
 [ -s "$WORK_RUN/hook-state.203.0.113.99.1" ] || fail "SA1 should have journaled generation .1"
 
 export SPLIT_INCLUDE_CIDR="100.64.1.0/24"
+export IKE_COOKIE="cookie-overlap-sa2"
 up2_out=$(dash "$HOOK_UP" 2>&1)
 assert_eq "overlap: second phase1-up (SA2, same peer, SA1 still up) exits 0" "$?" "0"
 assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up2_out"
@@ -302,9 +319,10 @@ TESTS_RUN=$((TESTS_RUN + 1))
 TESTS_RUN=$((TESTS_RUN + 1))
 [ -s "$WORK_RUN/hook-state.203.0.113.99.1" ] || fail "SA1's generation .1 must still be untouched while SA2 is also live"
 
-# First phase1-down (tearing down SA1, the *older* session) must consume
-# generation .1 -- oldest first -- even though .2 also exists and is
-# also live.
+# First phase1-down (tearing down SA1, by SA1's own cookie) must consume
+# generation .1 -- because it's the one whose IKE_COOKIE matches, not
+# because it's the oldest -- even though .2 also exists and is also live.
+export IKE_COOKIE="cookie-overlap-sa1"
 down1_out=$(dash "$HOOK_DOWN" 2>&1)
 assert_eq "overlap: first phase1-down exits 0" "$?" "0"
 assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down1_out"
@@ -316,8 +334,9 @@ fi
 TESTS_RUN=$((TESTS_RUN + 1))
 [ -s "$WORK_RUN/hook-state.203.0.113.99.2" ] || fail "generation .2 (SA2) must still be live -- the first phase1-down must not have touched it"
 
-# Second phase1-down (tearing down SA2, the survivor) must now consume
-# generation .2, the only one left.
+# Second phase1-down (tearing down SA2, by SA2's own cookie) must now
+# consume generation .2, the only one left.
+export IKE_COOKIE="cookie-overlap-sa2"
 : > "$IP_LOG"
 down2_out=$(dash "$HOOK_DOWN" 2>&1)
 assert_eq "overlap: second phase1-down exits 0" "$?" "0"
@@ -326,6 +345,49 @@ assert_contains "second phase1-down undid SA2's own route (100.64.1.0/24)" "$(ca
 assert_not_contains "second phase1-down never re-touches SA1's already-undone route" "$(cat "$IP_LOG")" "100.64.0.0/24"
 TESTS_RUN=$((TESTS_RUN + 1))
 [ -f "$WORK_RUN/hook-state.203.0.113.99.2" ] && fail "generation .2 (SA2) should be consumed after the second phase1-down"
+
+# ==========================================================================
+# Issue #90, the live-found bug itself: SA2 (the newer session) torn down
+# *before* SA1, which is left live and orphaned (as an incomplete-teardown
+# session on a real host would be). Before this fix,
+# rhook_state_oldest_unconsumed()'s pure FIFO order would have picked
+# generation .1 (SA1's orphan) here regardless of which session's
+# teardown actually ran -- consuming the wrong session's state and never
+# issuing the `ip route del` SA2's own teardown needed. Exact IKE_COOKIE
+# matching must instead consume SA2's own generation (.2) and leave SA1's
+# live orphan (.1) completely untouched.
+# ==========================================================================
+reset_env lifo
+export SPLIT_INCLUDE_CIDR="100.64.10.0/24"
+export IKE_COOKIE="cookie-lifo-sa1"
+up1_out=$(dash "$HOOK_UP" 2>&1)
+assert_eq "lifo: first phase1-up (SA1, will be left orphaned) exits 0" "$?" "0"
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up1_out"
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -s "$WORK_RUN/hook-state.203.0.113.99.1" ] || fail "SA1 should have journaled generation .1"
+
+export SPLIT_INCLUDE_CIDR="100.64.11.0/24"
+export IKE_COOKIE="cookie-lifo-sa2"
+up2_out=$(dash "$HOOK_UP" 2>&1)
+assert_eq "lifo: second phase1-up (SA2, same peer, SA1 still up) exits 0" "$?" "0"
+assert_stderr_clean "phase1-up.sh invocation is stderr-clean" "$up2_out"
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -s "$WORK_RUN/hook-state.203.0.113.99.2" ] || fail "SA2 should have journaled generation .2"
+
+# Tear down SA2 FIRST, by its own cookie -- the reverse of arrival order.
+export IKE_COOKIE="cookie-lifo-sa2"
+: > "$IP_LOG"
+down_out=$(dash "$HOOK_DOWN" 2>&1)
+assert_eq "lifo: phase1-down for SA2 exits 0" "$?" "0"
+assert_stderr_clean "phase1-down.sh invocation is stderr-clean" "$down_out"
+assert_contains "phase1-down undid SA2's own route (100.64.11.0/24), not SA1's" "$(cat "$IP_LOG")" "route del 100.64.11.0/24"
+assert_not_contains "phase1-down for SA2 never touches SA1's route" "$(cat "$IP_LOG")" "100.64.10.0/24"
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ -f "$WORK_RUN/hook-state.203.0.113.99.2" ]; then
+	fail "generation .2 (SA2) should be consumed after its own phase1-down"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+[ -s "$WORK_RUN/hook-state.203.0.113.99.1" ] || fail "generation .1 (SA1, the orphan) must remain live and untouched -- exact IKE_COOKIE matching, not FIFO order, decides which generation gets consumed"
 
 echo ""
 echo "$TESTS_RUN checks run, $TESTS_FAILED failed"

@@ -213,6 +213,55 @@ was added to the investigation script but has not yet caught this live
 rerun that added the check, clearing `/run` and resetting generation
 numbering to 1).
 
+**Update:** filed as issue #90, fixed, and now live-confirmed on three
+distros. `phase1-down.sh` no longer matches by generation order at all —
+`script_hook()` (`src/racoon/isakmp.c`) now exports `IKE_COOKIE`,
+racoon's own ISAKMP cookie pair for the negotiation, and
+`rhook_state_own_generation()` (`racoon-hook-lib.sh`) matches a teardown
+to its own generation by exact value instead of oldest-first.
+
+`task-f-acquire-investigation.sh` (now `tools/racoon-hook-integration-test.sh`,
+checked into the repo) gained steps 3b/4b/5c specifically to reproduce
+this live rather than relying on the fixture suite alone: a synthetic
+orphan generation (a fake `IKE_COOKIE`, an inert `undo_command`) is
+injected before connect, so a real host's teardown either does or does
+not touch it.
+
+The first live run, against an as-yet-unpatched Noble roadwarrior, both
+reproduced the bug *and* answered a question this document had left
+open. Generation `.1` (the synthetic orphan) was wrongly consumed;
+generation `.2` (this run's own, holding the real `spddelete`/`ip route
+del`/dummy-interface undo commands) was never touched. Step 5's
+post-teardown SPD dump matched generation `.2`'s own recorded selectors
+exactly, and step 6's provocation ping produced a genuine ACQUIRE with a
+changed SPI — a real, on-demand reconnection. In other words: on this
+run, the orphan-consumption bug is *why* the real session's own teardown
+never ran, which is *why* its SPD survived, which is *why* the ACQUIRE
+fired — a clean, single-variable causal chain, isolated on its own with
+nothing else present to confound it. This does not retroactively settle
+the "cannot isolate which... caused the original symptom" hedge above
+(that hedge is specifically about the *original two Bionic archives*,
+and no capture exists isolating their two contamination sources from
+each other — it still can't be settled after the fact). What this run
+adds is new: a third, independently demonstrated sufficient cause for
+the same class of symptom — the orphan-consumption bug alone, with no
+F3/F4 unscoped-resolver path involved at all, is enough to reproduce a
+real ACQUIRE. All three explanations (the original test-script
+contamination, F3/F4, and now orphan-consumption) remain independently
+real and independently fixed; this only adds one more confirmed way the
+same observable symptom can arise, on top of the ones already closed.
+
+Three subsequent runs against the patched build — Noble, Arch, and
+Bionic i386, all against the same `10.77.254.7` gateway — came back
+clean on every axis: `IKE_COOKIE` matched racoon's own logged SPI on
+each (confirming the daemon-side export is actually deployed, not just
+present in source), the synthetic orphan was left untouched by the real
+teardown on each, and a direct `phase1-down.sh` invocation using the
+orphan's own `IKE_COOKIE` correctly found and consumed it afterward
+(confirming `rhook_state_own_generation()`'s positive match, not just
+its negative one). All three also independently reconfirmed Branch B
+(clean SPD, no ACQUIRE) end to end.
+
 ### Also surfaced: a daemon-side silent-exit quirk
 
 `racoonctl vpn-disconnect` exited non-zero with zero output in **every
