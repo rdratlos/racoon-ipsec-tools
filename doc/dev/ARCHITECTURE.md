@@ -684,7 +684,20 @@ not more:
   and the opt-in `fallback` (direct `/etc/resolv.conf` overwrite, gated
   behind `allow_resolv_conf_overwrite=yes`) backend have only ever been
   exercised against stubs in the test suite, never against the real
-  tools on a live host.
+  tools on a live host. Concretely, and not by oversight but as the
+  direct consequence of that: none of the three have a
+  `rhook_postcond_*` function (confirmed: no such function exists for
+  `resolvconf_record`, `dnsmasq_conf`, or `fallback_resolv`), so the
+  §7.4 "reported success but had no observable effect" check that
+  `resolved`/`networkmanager` steps get does not apply to them, and each
+  backend's own `\|\| true` fallback path (a `systemctl reload dnsmasq`
+  or `resolv.conf` backup/restore that fails) is not caught by anything
+  short of manually inspecting the system afterward. This is the same
+  known gap as the line above, stated at the mechanism level rather than
+  just "not live-tested" — adding real postcondition checks for these
+  three needs the same live verification this document keeps insisting
+  on everywhere else, not a speculative fix against paths nothing here
+  has ever run for real.
 - **The ACQUIRE-provenance investigation is resolved: Branch B.** 8 live
   runs across Bionic, Noble, and Arch (`networkmanager` and `resolved`
   backends both represented) all confirm no external mechanism reinstalls
