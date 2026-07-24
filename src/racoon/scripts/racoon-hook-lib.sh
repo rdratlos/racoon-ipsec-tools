@@ -2429,6 +2429,74 @@ rhook_ensure_dummy_iface() {
 	return 1
 }
 
+# rhook_cidr_overlaps <cidr1> <cidr2> -- true (0) if the two IPv4 CIDRs'
+# address ranges share at least one address. Compares both networks'
+# leading bits up to the *shorter* of the two prefix lengths (the only
+# prefix length both are guaranteed to agree on if they overlap at all),
+# octet by octet -- never combining all 4 octets into one integer the way
+# an IP-to-int helper normally would, since e.g. 192.168.0.0's first
+# octet alone (192 * 16777216) already exceeds a 32-bit signed integer's
+# range, and this project has no confirmed guarantee every supported
+# shell's arithmetic is wider than that. Every value handled here (each
+# octet 0-255, each mask at most 8 bits) stays trivially within range on
+# any integer width.
+rhook_cidr_overlaps() {
+	local rhook_co_a rhook_co_b rhook_co_lena rhook_co_lenb rhook_co_minlen
+	local rhook_co_oldifs rhook_co_full rhook_co_rem rhook_co_mask rhook_co_i
+	local rhook_co_ao1 rhook_co_ao2 rhook_co_ao3 rhook_co_ao4
+	local rhook_co_bo1 rhook_co_bo2 rhook_co_bo3 rhook_co_bo4
+
+	rhook_co_a="${1%%/*}"; rhook_co_lena="${1#*/}"
+	rhook_co_b="${2%%/*}"; rhook_co_lenb="${2#*/}"
+
+	if [ "$rhook_co_lena" -le "$rhook_co_lenb" ]; then
+		rhook_co_minlen="$rhook_co_lena"
+	else
+		rhook_co_minlen="$rhook_co_lenb"
+	fi
+
+	rhook_co_oldifs="$IFS"
+	IFS=.
+	# shellcheck disable=SC2086 # word-splitting on IFS=. is the point
+	set -- $rhook_co_a
+	IFS="$rhook_co_oldifs"
+	rhook_co_ao1="$1"; rhook_co_ao2="$2"; rhook_co_ao3="$3"; rhook_co_ao4="$4"
+
+	rhook_co_oldifs="$IFS"
+	IFS=.
+	# shellcheck disable=SC2086 # word-splitting on IFS=. is the point
+	set -- $rhook_co_b
+	IFS="$rhook_co_oldifs"
+	rhook_co_bo1="$1"; rhook_co_bo2="$2"; rhook_co_bo3="$3"; rhook_co_bo4="$4"
+
+	rhook_co_full=$((rhook_co_minlen / 8))
+	rhook_co_rem=$((rhook_co_minlen % 8))
+
+	rhook_co_i=1
+	while [ "$rhook_co_i" -le "$rhook_co_full" ]; do
+		case "$rhook_co_i" in
+			1) [ "$rhook_co_ao1" -eq "$rhook_co_bo1" ] || return 1 ;;
+			2) [ "$rhook_co_ao2" -eq "$rhook_co_bo2" ] || return 1 ;;
+			3) [ "$rhook_co_ao3" -eq "$rhook_co_bo3" ] || return 1 ;;
+			4) [ "$rhook_co_ao4" -eq "$rhook_co_bo4" ] || return 1 ;;
+		esac
+		rhook_co_i=$((rhook_co_i + 1))
+	done
+
+	if [ "$rhook_co_rem" -gt 0 ] && [ "$rhook_co_full" -lt 4 ]; then
+		rhook_co_mask=$(( (255 << (8 - rhook_co_rem)) & 255 ))
+		rhook_co_i=$((rhook_co_full + 1))
+		case "$rhook_co_i" in
+			1) [ $((rhook_co_ao1 & rhook_co_mask)) -eq $((rhook_co_bo1 & rhook_co_mask)) ] || return 1 ;;
+			2) [ $((rhook_co_ao2 & rhook_co_mask)) -eq $((rhook_co_bo2 & rhook_co_mask)) ] || return 1 ;;
+			3) [ $((rhook_co_ao3 & rhook_co_mask)) -eq $((rhook_co_bo3 & rhook_co_mask)) ] || return 1 ;;
+			4) [ $((rhook_co_ao4 & rhook_co_mask)) -eq $((rhook_co_bo4 & rhook_co_mask)) ] || return 1 ;;
+		esac
+	fi
+
+	return 0
+}
+
 # --------------------------------------------------------------------------
 # Plan builder (§3.2). Pure construction -- calls rhook_plan_add only,
 # never anything that touches the system -- so --dry-run costs nothing to
@@ -2454,6 +2522,7 @@ rhook_ensure_dummy_iface() {
 # --------------------------------------------------------------------------
 rhook_build_plan() {
 	local rhook_net
+	local rhook_ci_a rhook_ci_b rhook_ci_a_idx rhook_ci_b_idx
 
 	RHOOK_BACKEND_RESOLVED=$(rhook_survey_classify_backend "$RHOOK_BACKEND")
 	RHOOK_DNS_TOOL=$(rhook_dns_tool_detect)
@@ -2553,6 +2622,33 @@ rhook_build_plan() {
 	if [ "$RHOOK_BACKEND_RESOLVED" = "networkmanager" ] && [ -n "$RHOOK_DNS_SERVERS" ]; then
 		rhook_plan_dns_networkmanager
 	fi
+
+	# PR #91 review row 29b (comment 5061097437): configuration-hygiene
+	# check, not a security boundary -- two split-include ranges
+	# overlapping isn't unsafe, just redundant (the overlap only needs
+	# routing once), so this warns and proceeds with both rather than
+	# rejecting either. Deliberately does not single out or reject
+	# 0.0.0.0/0 (an intentional full-tunnel route): it's flagged like any
+	# other CIDR only if it overlaps something else offered alongside it,
+	# never rejected outright. This project has never taken a position on
+	# whether full-tunnel is a supported deployment mode -- nothing in
+	# doc/dev/ARCHITECTURE.md addresses it either way -- so an outright
+	# prohibition here would be a unilateral product decision this fix
+	# does not make; a hooks.conf opt-in/deny flag would be the right
+	# shape if the maintainer decides full-tunnel needs deliberate
+	# gating, but that is their call, not a default to assume here.
+	rhook_ci_a_idx=0
+	for rhook_ci_a in $RHOOK_ROUTES; do
+		rhook_ci_a_idx=$((rhook_ci_a_idx + 1))
+		rhook_ci_b_idx=0
+		for rhook_ci_b in $RHOOK_ROUTES; do
+			rhook_ci_b_idx=$((rhook_ci_b_idx + 1))
+			[ "$rhook_ci_b_idx" -gt "$rhook_ci_a_idx" ] || continue
+			if rhook_cidr_overlaps "$rhook_ci_a" "$rhook_ci_b"; then
+				rhook_log warn "overlapping split ranges received from gateway: $rhook_ci_a and $rhook_ci_b"
+			fi
+		done
+	done
 
 	# R5: routes stay on the physical interface (that's what actually
 	# forwards packets); only src= comes from the dummy-anchored address.

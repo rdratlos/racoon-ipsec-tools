@@ -116,6 +116,37 @@ assert_invalid "route argument injection"      rhook_valid_cidr4 "default via 10
 assert_invalid "route injection, no spaces"    rhook_valid_cidr4 "10.0.12.0/24;ip route add default via 10.6.6.6"
 
 # ==========================================================================
+# rhook_cidr_overlaps -- PR #91 review row 29b (comment 5061097437)
+# ==========================================================================
+assert_cidr_overlap() {
+	# $1 = description  $2 = cidr1  $3 = cidr2
+	TESTS_RUN=$((TESTS_RUN + 1))
+	if rhook_cidr_overlaps "$2" "$3"; then
+		pass
+	else
+		fail "$1 -- expected '$2' and '$3' to overlap, but they did not"
+	fi
+}
+
+assert_cidr_disjoint() {
+	TESTS_RUN=$((TESTS_RUN + 1))
+	if rhook_cidr_overlaps "$2" "$3"; then
+		fail "$1 -- expected '$2' and '$3' to be disjoint, but they overlapped"
+	else
+		pass
+	fi
+}
+
+assert_cidr_overlap   "one CIDR contains the other" "192.168.1.0/24" "192.168.1.128/25"
+assert_cidr_disjoint  "same-size, different networks" "192.168.1.0/24" "192.168.2.0/24"
+assert_cidr_overlap   "large range containing a host route" "10.0.0.0/8" "10.66.0.6/32"
+assert_cidr_overlap   "0.0.0.0/0 overlaps everything" "0.0.0.0/0" "203.0.113.0/24"
+assert_cidr_disjoint  "adjacent, non-overlapping halves" "203.0.113.0/25" "203.0.113.128/25"
+assert_cidr_overlap   "identical CIDR" "198.51.100.0/24" "198.51.100.0/24"
+assert_cidr_overlap   "large range containing another /32" "172.16.0.0/12" "172.31.255.255/32"
+assert_cidr_disjoint  "just outside a large range" "172.16.0.0/12" "172.32.0.0/16"
+
+# ==========================================================================
 # rhook_valid_domain
 # ==========================================================================
 assert_valid   "simple domain"                 rhook_valid_domain "example.com"

@@ -594,6 +594,37 @@ if grep -q '^no_routes	' "$PLAN"; then
 fi
 
 # ==========================================================================
+# PR #91 review row 29b (comment 5061097437): overlapping split-include
+# CIDRs are a configuration-hygiene warning, not a rejection -- both
+# overlapping entries are still planned and routed exactly as offered.
+# ==========================================================================
+RHOOK_ROUTES="192.168.1.0/24 192.168.1.128/25 10.0.0.0/8"
+rhook_build_plan 2>"$WORK/overlap-warn.log"
+PLAN="$(rhook_plan_file)"
+assert_contains "overlap: warning names both overlapping CIDRs" "$(cat "$WORK/overlap-warn.log")" \
+	"overlapping split ranges received from gateway: 192.168.1.0/24 and 192.168.1.128/25"
+assert_not_contains "overlap: disjoint pair (10.0.0.0/8, 192.168.1.0/24) not warned about" \
+	"$(cat "$WORK/overlap-warn.log")" "192.168.1.0/24 and 10.0.0.0/8"
+TESTS_RUN=$((TESTS_RUN + 1))
+if grep -q '^route_192.168.1.0/24	' "$PLAN" && grep -q '^route_192.168.1.128/25	' "$PLAN"; then
+	:
+else
+	fail "overlap: both overlapping CIDRs must still be planned as routes, never rejected"
+fi
+
+# 0.0.0.0/0 (full-tunnel) must never be rejected outright -- flagged like
+# any other CIDR only if it overlaps something else offered alongside it.
+RHOOK_ROUTES="0.0.0.0/0 203.0.113.0/24"
+rhook_build_plan 2>"$WORK/overlap-full-tunnel.log"
+PLAN="$(rhook_plan_file)"
+assert_contains "overlap: 0.0.0.0/0 flagged like any other CIDR when it overlaps" \
+	"$(cat "$WORK/overlap-full-tunnel.log")" "overlapping split ranges received from gateway: 0.0.0.0/0 and 203.0.113.0/24"
+assert_eq "overlap: 0.0.0.0/0 route step is still planned, required, never rejected" \
+	"$(plan_field 'route_0.0.0.0/0' 3 "$PLAN")" "required"
+
+RHOOK_ROUTES="$RHOOK_ROUTES_SAVE"
+
+# ==========================================================================
 # rhook_survey_classify_backend: admin override always wins, "auto" runs
 # the actual classification.
 # ==========================================================================
