@@ -234,6 +234,22 @@ rhook_conn_addr() {
 # rhook_conn_addr() sanitizes REMOTE_ADDR; empty if IKE_COOKIE is unset
 # (e.g. a SCRIPT_PHASE1_DEAD invocation -- this project's own configs
 # never wire phase1_dead to phase1-down.sh in the first place).
+#
+# PR #91 review row 23 (comment 5061097437): raised a concern that a
+# NAT-T port float could cause IKE_COOKIE reuse across sessions. Not
+# possible: the cookie pair is set once, from the negotiation's first
+# packet, when the Phase 1 handle is created (isakmp.c, `iph1 =
+# newph1()` followed by `memcpy(&iph1->index.i_ck, &isakmp->i_ck,
+# ...)`) and is never touched again for that handle's lifetime -- RFC
+# 2408 defines the cookie pair as identifying the SA for its whole
+# duration. A NAT-T port
+# float is tracked entirely separately, as a bit in `iph1->natt_flags`
+# (`NAT_PORTS_CHANGED`, set right next to the cookie copy above but never
+# written into `iph1->index`) -- it changes which UDP port the exchange
+# rides on, not the SA's identity. What the general "crashed phase1-up
+# leaves a live orphan" observation in that same row does describe is
+# real and already handled; see the "crash" scenario in
+# test-phase1-roundtrip.sh.
 rhook_conn_cookie() {
 	printf '%s' "${IKE_COOKIE:-}" | tr -c 'A-Za-z0-9:_-' '_'
 }
