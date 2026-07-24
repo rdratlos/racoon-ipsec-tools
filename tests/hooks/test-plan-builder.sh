@@ -61,6 +61,8 @@ export RACOON_HOOK_STATE_DIR RACOON_HOOK_CONF
 # shellcheck disable=SC2034  # REMOTE_ADDR/REMOTE_PORT/RHOOK_* below are read by the sourced library, not this file
 . "$LIB"
 
+LOCAL_ADDR="198.51.100.5"
+LOCAL_PORT="4500"
 REMOTE_ADDR="203.0.113.7"
 REMOTE_PORT="500"
 RHOOK_IFACE="eth0"
@@ -98,6 +100,43 @@ assert_eq "route step: undo" \
 	'ip route del "10.0.12.0/24" dev "eth0" src "10.0.12.44"'
 assert_eq "second route step also present" \
 	"$(plan_field 'route_192.168.66.0/24' 3 "$PLAN")" "required"
+
+# --------------------------------------------------------------------------
+# Brief 3 §E: one required in/out spd_entry pair per RHOOK_ROUTES entry,
+# ports included (both LOCAL_PORT and REMOTE_PORT set above) per
+# src/libipsec/policy_parse.y's confirmed bracket-port grammar.
+# --------------------------------------------------------------------------
+assert_eq "spd_out: criticality" "$(plan_field 'spd_out_10.0.12.0/24' 3 "$PLAN")" "required"
+assert_eq "spd_out: command" "$(plan_field 'spd_out_10.0.12.0/24' 5 "$PLAN")" \
+	"printf '%s\n' 'spdadd 10.0.12.44/32 10.0.12.0/24 any -P out ipsec esp/tunnel/198.51.100.5[4500]-203.0.113.7[500]/require;' | setkey -c"
+assert_eq "spd_out: undo is the exact reconstructed spddelete" \
+	"$(plan_field 'spd_out_10.0.12.0/24' 6 "$PLAN")" \
+	"printf '%s\n' 'spddelete 10.0.12.44/32 10.0.12.0/24 any -P out;' | setkey -c"
+assert_eq "spd_in: criticality" "$(plan_field 'spd_in_10.0.12.0/24' 3 "$PLAN")" "required"
+assert_eq "spd_in: command uses the reversed endpoint pair" \
+	"$(plan_field 'spd_in_10.0.12.0/24' 5 "$PLAN")" \
+	"printf '%s\n' 'spdadd 10.0.12.0/24 10.0.12.44/32 any -P in ipsec esp/tunnel/203.0.113.7[500]-198.51.100.5[4500]/require;' | setkey -c"
+assert_eq "spd_in: undo is the exact reconstructed spddelete" \
+	"$(plan_field 'spd_in_10.0.12.0/24' 6 "$PLAN")" \
+	"printf '%s\n' 'spddelete 10.0.12.0/24 10.0.12.44/32 any -P in;' | setkey -c"
+assert_eq "second route's spd_out pair also present" \
+	"$(plan_field 'spd_out_192.168.66.0/24' 3 "$PLAN")" "required"
+
+# Endpoint helper directly: bare address-address form when ports are unknown
+# (rhook_spd_tunnel_endpoints() treats this as a normal case, not degraded).
+assert_eq "tunnel endpoints: bracket-port form when both ports known" \
+	"$(rhook_spd_tunnel_endpoints "198.51.100.5" "4500" "203.0.113.7" "500")" \
+	"esp/tunnel/198.51.100.5[4500]-203.0.113.7[500]/require"
+assert_eq "tunnel endpoints: bare form when a port is missing" \
+	"$(rhook_spd_tunnel_endpoints "198.51.100.5" "" "203.0.113.7" "500")" \
+	"esp/tunnel/198.51.100.5-203.0.113.7/require"
+
+# spd_entry is not part of the DNS rollback group (persists across a DNS
+# failure, like routes -- see rhook_is_dns_group()'s own header comment).
+TESTS_RUN=$((TESTS_RUN + 1))
+if rhook_is_dns_group spd_entry; then
+	fail "spd_entry must not be classified as a DNS-group step type"
+fi
 
 # rhook_precond_create_dummy: not skipped for a non-networkmanager backend.
 TESTS_RUN=$((TESTS_RUN + 1))

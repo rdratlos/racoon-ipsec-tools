@@ -73,6 +73,16 @@ exit 0
 STUBEOF
 chmod +x "$WORK/bin/nmcli"
 
+# setkey stub (brief 3 §E): logs the exact line piped to `setkey -c` on
+# stdin, so spd_entry apply/undo commands round-trip verifiably like
+# every other step type in this file.
+cat > "$WORK/bin/setkey" <<'STUBEOF'
+#!/bin/sh
+{ printf 'setkey %s: ' "$*"; cat; } >> "$SETKEY_LOG"
+exit 0
+STUBEOF
+chmod +x "$WORK/bin/setkey"
+
 cat > "$WORK/hooks.conf" <<'EOF'
 backend = networkmanager
 EOF
@@ -84,11 +94,14 @@ reset_env() {
 	export RACOON_HOOK_CONF="$WORK/hooks.conf"
 	export RACOON_HOOK_IP="$WORK/bin/ip"
 	export RACOON_HOOK_NMCLI="$WORK/bin/nmcli"
+	export RACOON_HOOK_SETKEY="$WORK/bin/setkey"
 	export RACOON_HOOK_DEBUG=1
 	export IP_LOG="$WORK/ip.log.$1"
 	export NMCLI_LOG="$WORK/nmcli.log.$1"
+	export SETKEY_LOG="$WORK/setkey.log.$1"
 	: > "$IP_LOG"
 	: > "$NMCLI_LOG"
+	: > "$SETKEY_LOG"
 	unset IP_FAIL_LINK_DEL
 	unset INTERNAL_ADDR4 LOCAL_ADDR LOCAL_PORT REMOTE_ADDR REMOTE_PORT
 	unset SPLIT_INCLUDE_CIDR SPLIT_INCLUDE INTERNAL_DNS4_LIST INTERNAL_DNS4
@@ -140,6 +153,18 @@ fi
 # has already stripped phase1-up's own quoting around the eval'd undo
 # command, so no literal quotes are expected here.
 assert_contains "route 198.51.100.0/24 undone" "$(cat "$IP_LOG")" "route del 198.51.100.0/24"
+
+# Brief 3 §E round trip: phase1-up installed SPD via setkey -c, and
+# phase1-down's undo replay must have issued the exact reconstructed
+# spddelete for both directions -- never spdflush, never `setkey -F`.
+assert_contains "phase1-up installed the outbound SPD entry" "$(cat "$SETKEY_LOG")" \
+	"spdadd 192.0.2.44/32 198.51.100.0/24 any -P out ipsec esp/tunnel/"
+assert_contains "phase1-down undid the outbound SPD entry with the exact selector" "$(cat "$SETKEY_LOG")" \
+	"spddelete 192.0.2.44/32 198.51.100.0/24 any -P out;"
+assert_contains "phase1-down undid the inbound SPD entry with the exact selector" "$(cat "$SETKEY_LOG")" \
+	"spddelete 198.51.100.0/24 192.0.2.44/32 any -P in;"
+assert_not_contains "teardown never uses spdflush" "$(cat "$SETKEY_LOG")" "spdflush"
+assert_not_contains "teardown never uses setkey -F" "$(cat "$SETKEY_LOG")" "setkey -F: "
 
 # ==========================================================================
 # Stuck teardown, then a successful retry: simulate `ip link del` failing

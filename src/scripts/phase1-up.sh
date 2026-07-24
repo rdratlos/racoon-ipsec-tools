@@ -15,11 +15,19 @@
 # racoon-hook-lib.sh so phase1-down.sh never has to re-derive a decision
 # this script already made.
 #
-# R2: this script never touches the SAD/SPD (no setkey, no spd.conf) --
-# that is racoon's own job, configured via racoon.conf. R1: nothing here
-# is a *persistent* system reconfiguration beyond the current VPN session
-# (no /etc edits, no service enablement) -- see racoon-hook-lib.sh's
-# per-backend plan builders for what "reconfiguration" is limited to.
+# R2' (brief 3 §E, superseding brief 1's R2): this script *does* install
+# SPD entries via setkey now -- verified against this tree's own
+# src/racoon sources that no code path installs SPD for a Mode Config
+# initiator (SPD generation is responder-only, isakmp_quick.c's
+# get_proposal_r()/quick_r1recv()), so without this the split-include
+# routes below have nothing telling the kernel to encrypt that traffic,
+# which is what produced the F1/F4 reconnect loop. It owns exactly what it
+# installs (rhook_plan_spd() in racoon-hook-lib.sh) and never spdflush /
+# `setkey -F`. R1 is unchanged: nothing here is a *persistent* system
+# reconfiguration beyond the current VPN session (no /etc edits, no
+# service enablement, and SPD entries are torn down on phase1-down just
+# like every other step) -- see racoon-hook-lib.sh's per-backend plan
+# builders for what "reconfiguration" is limited to.
 #
 # POSIX sh only (dash / bash / NetBSD /bin/sh); see racoon-hook-lib.sh's
 # header for the shared portability rules.
@@ -53,6 +61,39 @@ if [ -z "${INTERNAL_ADDR4:-}" ] || [ -z "${LOCAL_ADDR:-}" ] || [ -z "${REMOTE_AD
 fi
 
 rhook_log step "phase1 up: local=${LOCAL_ADDR}:${LOCAL_PORT:-?} remote=${REMOTE_ADDR}:${REMOTE_PORT:-?} internal=${INTERNAL_ADDR4}"
+
+# --------------------------------------------------------------------------
+# Brief 3 §E: LOCAL_ADDR/REMOTE_ADDR/LOCAL_PORT/REMOTE_PORT feed directly
+# into the SPD tunnel-endpoint selector text that rhook_plan_spd() builds
+# (racoon-hook-lib.sh) -- and, unlike the "ip route get" use of REMOTE_ADDR
+# above (a plain quoted argument), that selector text is later run through
+# eval by rhook_run_step(). A newline or shell metacharacter smuggled in
+# here would inject arbitrary setkey commands or arbitrary shell -- the
+# highest-severity finding in the subsystem per the brief. LOCAL_ADDR and
+# REMOTE_ADDR are validated addresses or this hook does nothing at all (an
+# unusable value here means an unusable tunnel endpoint, not something to
+# degrade around); a bad LOCAL_PORT/REMOTE_PORT only drops ports from the
+# selector (rhook_spd_tunnel_endpoints() already treats "no port" as a
+# normal, not degraded, case -- see its own header comment) rather than
+# aborting the whole hook, since the address pair alone is still a valid
+# tunnel selector.
+# --------------------------------------------------------------------------
+if ! rhook_valid_ipv4 "$LOCAL_ADDR"; then
+	rhook_log error "racoon exported an invalid LOCAL_ADDR '$LOCAL_ADDR' -- refusing to configure anything"
+	exit 0
+fi
+if ! rhook_valid_ipv4 "$REMOTE_ADDR"; then
+	rhook_log error "racoon exported an invalid REMOTE_ADDR '$REMOTE_ADDR' -- refusing to configure anything"
+	exit 0
+fi
+if [ -n "${LOCAL_PORT:-}" ] && ! rhook_valid_port "$LOCAL_PORT"; then
+	rhook_log warn "racoon exported an invalid LOCAL_PORT '$LOCAL_PORT' -- omitting ports from the SPD tunnel endpoint selector"
+	LOCAL_PORT=""
+fi
+if [ -n "${REMOTE_PORT:-}" ] && ! rhook_valid_port "$REMOTE_PORT"; then
+	rhook_log warn "racoon exported an invalid REMOTE_PORT '$REMOTE_PORT' -- omitting ports from the SPD tunnel endpoint selector"
+	REMOTE_PORT=""
+fi
 
 # --------------------------------------------------------------------------
 # §3.4/brief-3 §D: this always allocates a brand-new, monotonically
