@@ -1,0 +1,5 @@
+DESC="Arch: three generated files, no symlink (PARALLEL_UNLINKED)"
+EXPECT_GLIBC_READER_SUFFIX="/etc/resolv.conf"
+EXPECT_NSS_RESOLVE="yes"
+EXPECT_DIVERGENT="no"
+EXPECT_PARALLEL_UNLINKED="yes"

@@ -1,0 +1,8 @@
+#!/bin/sh
+# stub: robust to flag position -- scan all args for the unit name
+for a in "$@"; do
+	case "$a" in
+		NetworkManager|NetworkManager.service) exit 0 ;;
+	esac
+done
+exit 3

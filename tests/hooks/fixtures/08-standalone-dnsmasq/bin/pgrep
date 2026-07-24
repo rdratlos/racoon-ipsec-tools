@@ -1,0 +1,6 @@
+#!/bin/sh
+# stub: pretend a standalone dnsmasq process is running
+case "$*" in
+	*dnsmasq*) exit 0 ;;
+esac
+exit 1

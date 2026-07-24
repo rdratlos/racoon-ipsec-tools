@@ -1,0 +1,7 @@
+DESC="NetworkManager with dns=dnsmasq (main copy is the 127.0.0.1 stub, no-stub has the real servers)"
+EXPECT_GLIBC_READER_SUFFIX="/etc/resolv.conf"
+EXPECT_NSS_RESOLVE="no"
+EXPECT_DIVERGENT="yes"
+EXPECT_PARALLEL_UNLINKED="no"
+EXPECT_NM_RCMANAGER="symlink"
+EXPECT_NM_MODE="dnsmasq"
