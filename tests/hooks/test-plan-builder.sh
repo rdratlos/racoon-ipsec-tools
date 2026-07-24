@@ -332,6 +332,38 @@ fallback_cmd=$(plan_field fallback_dns 5 "$PLAN")
 assert_contains "fallback: scoped chmod 0644, never a global umask" "$fallback_cmd" "chmod 0644 /etc/resolv.conf"
 
 # ==========================================================================
+# R7: no hardcoded network fallback. Empty RHOOK_ROUTES (gateway sent no
+# split-include networks, and no DNS-server host routes were added either)
+# must plan a required, always-failing refusal step -- never invent a
+# guessed network to route through the tunnel.
+# ==========================================================================
+RHOOK_ROUTES_SAVE="$RHOOK_ROUTES"
+RHOOK_ROUTES=""
+rhook_build_plan
+PLAN="$(rhook_plan_file)"
+assert_eq "no_routes: refusal step is required" "$(plan_field no_routes 3 "$PLAN")" "required"
+TESTS_RUN=$((TESTS_RUN + 1))
+no_routes_cmd=$(plan_field no_routes 5 "$PLAN")
+if eval "$no_routes_cmd" >/dev/null 2>/dev/null; then
+	fail "no_routes refusal step must exit non-zero"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if grep -q '^route_' "$PLAN"; then
+	fail "no route_* steps should be planned when RHOOK_ROUTES is empty"
+fi
+RHOOK_ROUTES="$RHOOK_ROUTES_SAVE"
+
+# A non-empty RHOOK_ROUTES (even if it came only from DNS-server host
+# routes, not the gateway's split-include list) must NOT trigger the
+# refusal step.
+rhook_build_plan
+PLAN="$(rhook_plan_file)"
+TESTS_RUN=$((TESTS_RUN + 1))
+if grep -q '^no_routes	' "$PLAN"; then
+	fail "no_routes refusal step must not be planned when RHOOK_ROUTES is non-empty"
+fi
+
+# ==========================================================================
 # rhook_survey_classify_backend: admin override always wins, "auto" runs
 # the actual classification.
 # ==========================================================================
