@@ -176,6 +176,33 @@ case "$result_line" in
 esac
 TESTS_RUN=$((TESTS_RUN + 1))
 
+# --------------------------------------------------------------------------
+# Test 6: postcondition support (§7.4) -- a step whose command exits 0 but
+# whose postcondition reports a reason must be downgraded to failed, not
+# recorded as ok, and must still stop the plan if required.
+# --------------------------------------------------------------------------
+RHOOK_EXIT_HANDLED=0
+rhook_postcond_no_effect_type() {
+	printf 'wrote to a file nothing reads'
+}
+rhook_state_reset
+rhook_plan_reset
+rhook_plan_add fake_success no_effect_type required "looks fine, does nothing" "true" "true"
+rhook_plan_add never_reached test_type required "should not run" "true" ""
+rhook_report_init
+rhook_apply_plan
+apply_rc2=$?
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ "$apply_rc2" -ne 0 ]; then
+	pass "postcondition failure on a required step stops the plan"
+else
+	fail "postcondition failure on a required step should have stopped the plan"
+fi
+STATE_FILE2=$(rhook_state_file)
+assert_file_contains "postcondition failure recorded as failed, not ok" "$STATE_FILE2" "fake_success	no_effect_type	failed"
+rhook_exit_trap 2>"$WORK/report4.log"
+assert_file_contains "report explains the step reported success but had no effect" "$WORK/report4.log" "reported success, but had no effect"
+
 echo ""
 echo "$TESTS_RUN checks run, $TESTS_FAILED failed"
 [ "$TESTS_FAILED" -eq 0 ]
