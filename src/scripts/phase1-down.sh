@@ -33,6 +33,9 @@ SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 # shellcheck source=racoon-hook-lib.sh
 . "$SCRIPT_DIR/racoon-hook-lib.sh"
 
+# shellcheck disable=SC2034
+# RHOOK_HOOK_NAME/RHOOK_REPORT_HEADER (below) are read by the sourced
+# library, not this file -- shellcheck cannot see across the `.` above.
 RHOOK_HOOK_NAME="phase1-down"
 rhook_load_config
 rhook_trace_init
@@ -54,6 +57,7 @@ if ! rhook_state_exists; then
 fi
 
 rhook_report_init
+# shellcheck disable=SC2034  # read by rhook_emit_report() in the sourced library
 RHOOK_REPORT_HEADER="undo replay for remote=${REMOTE_ADDR:-?}:${REMOTE_PORT:-?} internal=${INTERNAL_ADDR4:-?}"
 
 rhook_undo_replay

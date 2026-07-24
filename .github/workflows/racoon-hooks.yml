@@ -1,0 +1,72 @@
+name: racoon phase1 hooks
+
+on:
+  push:
+    paths:
+      - 'src/scripts/**'
+      - 'tests/hooks/**'
+      - '.github/workflows/racoon-hooks.yml'
+  pull_request:
+    paths:
+      - 'src/scripts/**'
+      - 'tests/hooks/**'
+      - '.github/workflows/racoon-hooks.yml'
+
+jobs:
+  shellcheck:
+    name: shellcheck (POSIX sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck src/scripts
+        # --severity=warning: every SC3043 ('local' is not POSIX) and
+        # SC2034 (cross-file variable use the sourced library reads) is
+        # addressed with a justified inline disable comment in the
+        # scripts themselves; the only remaining diagnostic is SC1091
+        # (info) on the dynamic `. "$SCRIPT_DIR/racoon-hook-lib.sh"`
+        # sourcing, which shellcheck cannot statically resolve and is not
+        # a real issue.
+        run: |
+          shellcheck -s sh --severity=warning src/scripts/racoon-hook-lib.sh
+          shellcheck -s sh --severity=warning src/scripts/phase1-up.sh
+          shellcheck -s sh --severity=warning src/scripts/phase1-down.sh
+          shellcheck -s sh --severity=warning src/scripts/racoon-dns-detect
+
+  test-linux:
+    name: tests/hooks (${{ matrix.shell }} on Linux)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [dash, bash]
+    steps:
+      - uses: actions/checkout@v4
+      - name: install ${{ matrix.shell }}
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.shell }}
+      - name: run test suite under ${{ matrix.shell }}
+        run: |
+          set -e
+          fail=0
+          for t in tests/hooks/test-*.sh; do
+            echo "== $t (${{ matrix.shell }}) =="
+            ${{ matrix.shell }} "$t" || fail=1
+          done
+          exit $fail
+
+  test-netbsd:
+    name: tests/hooks (NetBSD /bin/sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: run test suite inside a NetBSD VM
+        uses: vmactions/netbsd-vm@v1
+        with:
+          usesh: true
+          run: |
+            set -e
+            fail=0
+            for t in tests/hooks/test-*.sh; do
+              echo "== $t (NetBSD /bin/sh) =="
+              sh "$t" || fail=1
+            done
+            exit $fail

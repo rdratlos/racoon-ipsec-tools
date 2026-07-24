@@ -33,6 +33,9 @@ SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 # shellcheck source=racoon-hook-lib.sh
 . "$SCRIPT_DIR/racoon-hook-lib.sh"
 
+# shellcheck disable=SC2034
+# RHOOK_HOOK_NAME/RHOOK_REPORT_HEADER (below) are read by the sourced
+# library, not this file -- shellcheck cannot see across the `.` above.
 RHOOK_HOOK_NAME="phase1-up"
 rhook_load_config
 rhook_trace_init
@@ -177,6 +180,7 @@ done
 # has to re-derive what phase1-up.sh actually did versus merely planned.
 # --------------------------------------------------------------------------
 rhook_build_plan
+# shellcheck disable=SC2034  # read by rhook_emit_report() in the sourced library
 RHOOK_REPORT_HEADER="backend=$RHOOK_BACKEND_RESOLVED dns_tool=${RHOOK_DNS_TOOL:-none} iface=$RHOOK_IFACE internal=$RHOOK_INTERNAL_ADDR4 routes=${RHOOK_ROUTES:-none} dns=${RHOOK_DNS_SERVERS:-none} domains=${RHOOK_DOMAINS:-none}"
 rhook_report_init
 
