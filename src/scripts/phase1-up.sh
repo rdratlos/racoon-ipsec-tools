@@ -221,7 +221,7 @@ done
 # --------------------------------------------------------------------------
 rhook_build_plan
 # shellcheck disable=SC2034  # read by rhook_emit_report() in the sourced library
-RHOOK_REPORT_HEADER="backend=$RHOOK_BACKEND_RESOLVED dns_tool=${RHOOK_DNS_TOOL:-none} iface=$RHOOK_IFACE internal=$RHOOK_INTERNAL_ADDR4 routes=${RHOOK_ROUTES:-none} dns=${RHOOK_DNS_SERVERS:-none} domains=${RHOOK_DOMAINS:-none}"
+RHOOK_REPORT_HEADER="backend=$RHOOK_BACKEND_RESOLVED dns_tool=${RHOOK_DNS_TOOL:-none} iface=$RHOOK_IFACE internal=$RHOOK_INTERNAL_ADDR4 routes=${RHOOK_ROUTES:-none} dns=${RHOOK_DNS_SERVERS:-none} domains=${RHOOK_DOMAINS:-none} dummy_owner=${RHOOK_DUMMY_OWNER:-iproute}"
 rhook_report_init
 
 rhook_apply_plan

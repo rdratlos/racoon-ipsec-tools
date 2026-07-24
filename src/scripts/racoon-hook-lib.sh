@@ -1471,6 +1471,28 @@ rhook_nm_dbus_prop() {
 	return 0
 }
 
+# Brief 3 §K: is NetworkManager active on this system at all, regardless
+# of which backend was classified as *the DNS handler*. NM auto-manages
+# any interface it discovers unless specifically excluded (a udev
+# NM_UNMANAGED rule, an unmanaged-devices= entry) -- a very common setup
+# is NM managing the physical interfaces while systemd-resolved (reached
+# directly, backend=resolved) handles DNS, in which case a dummy
+# interface this hook creates with a plain `ip link add` still gets
+# picked up by NM the moment it appears. Deleting that interface with a
+# plain `ip link del` at teardown removes it out from under NM's own
+# bookkeeping instead of going through NM's own device-removal path --
+# see rhook_build_plan()'s RHOOK_DUMMY_OWNER for what this decides.
+#
+# A pure state read (`systemctl is-active`), never a D-Bus property probe
+# -- rhook_nm_dbus_prop()'s own header comment documents why a bare
+# `busctl get-property` call can bus-activate NetworkManager as a side
+# effect on a system that does not otherwise run it; this function must
+# never do that just to decide who owns an interface it is about to
+# create.
+rhook_survey_nm_active() {
+	"$RACOON_HOOK_SYSTEMCTL" is-active --quiet "${RACOON_HOOK_NETWORKMANAGER:-NetworkManager}" 2>/dev/null
+}
+
 # --------------------------------------------------------------------------
 # systemd-resolved: tool detection, version, and capability matrix (§6).
 #
@@ -2132,12 +2154,43 @@ rhook_build_plan() {
 	fi
 	rhook_log verbose "backend=$RHOOK_BACKEND_RESOLVED dns_tool=${RHOOK_DNS_TOOL:-none} default_route_capable=$RHOOK_CAP_DEFAULT_ROUTE"
 
+	# Brief 3 §K: recorded in state via which undo command actually gets
+	# journaled (this codebase's usual "the state file is the record"
+	# convention -- see rhook_state_append()'s own header comment) rather
+	# than as a separate metadata field. "nm" only ever applies to the
+	# create_dummy/dummy_iface step below -- the networkmanager backend's
+	# own nm_dummy_profile step already tears itself down via `nmcli
+	# connection delete`, never `ip link del`, regardless of this value.
+	if rhook_survey_nm_active; then
+		RHOOK_DUMMY_OWNER="nm"
+	else
+		RHOOK_DUMMY_OWNER="iproute"
+	fi
+	rhook_log verbose "dummy interface owner: $RHOOK_DUMMY_OWNER"
+
 	rhook_plan_reset
 
-	rhook_plan_add dummy_iface create_dummy required \
-		"create dummy interface $RHOOK_DUMMY_IFACE" \
-		"$RACOON_HOOK_IP link add \"$RHOOK_DUMMY_IFACE\" type dummy && $RACOON_HOOK_IP link set \"$RHOOK_DUMMY_IFACE\" up" \
-		"$RACOON_HOOK_IP link del \"$RHOOK_DUMMY_IFACE\""
+	if [ "$RHOOK_DUMMY_OWNER" = "nm" ]; then
+		# NetworkManager is running and will very likely auto-manage this
+		# interface the moment it appears (its default policy for any
+		# interface not excluded by udev/unmanaged-devices=), even though
+		# a different backend is handling DNS -- go through NM's own
+		# device-removal path first so its bookkeeping stays consistent,
+		# falling back to a plain `ip link del` if NM turns out not to
+		# actually have claimed it (nmcli device delete failing is not
+		# itself an error worth surfacing; the fallback's own exit status
+		# is what the step's outcome is judged on), so the interface is
+		# never leaked either way.
+		rhook_plan_add dummy_iface create_dummy required \
+			"create dummy interface $RHOOK_DUMMY_IFACE" \
+			"$RACOON_HOOK_IP link add \"$RHOOK_DUMMY_IFACE\" type dummy && $RACOON_HOOK_IP link set \"$RHOOK_DUMMY_IFACE\" up" \
+			"$RACOON_HOOK_NMCLI device delete \"$RHOOK_DUMMY_IFACE\" >/dev/null 2>&1 || $RACOON_HOOK_IP link del \"$RHOOK_DUMMY_IFACE\""
+	else
+		rhook_plan_add dummy_iface create_dummy required \
+			"create dummy interface $RHOOK_DUMMY_IFACE" \
+			"$RACOON_HOOK_IP link add \"$RHOOK_DUMMY_IFACE\" type dummy && $RACOON_HOOK_IP link set \"$RHOOK_DUMMY_IFACE\" up" \
+			"$RACOON_HOOK_IP link del \"$RHOOK_DUMMY_IFACE\""
+	fi
 
 	rhook_plan_add dummy_addr add_addr required \
 		"add $RHOOK_INTERNAL_ADDR4/32 to $RHOOK_DUMMY_IFACE" \
