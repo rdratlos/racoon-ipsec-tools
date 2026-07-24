@@ -2283,23 +2283,127 @@ rhook_plan_spd() {
 # makes via its own single hardcoded connection name. Two genuinely
 # concurrent generations for the same peer (brief 3 §D's overlap
 # scenario) sharing one physical dummy interface is a separate,
-# pre-existing design question this fix does not attempt to solve.
+# pre-existing design question this fix does not attempt to solve; what
+# rhook_dummy_iface_lock() below does close is the TOCTOU race in *how*
+# they share it (see its own header comment).
 # --------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------
+# PR #91 review row 24 (comment 5061097437): rhook_ensure_dummy_iface()'s
+# check-then-create was a TOCTOU race under concurrent phase1-up.sh runs
+# -- two genuinely concurrent invocations (for the same peer, per the
+# overlap scenario above, or for two *different* peers: $RHOOK_DUMMY_IFACE
+# is one fixed name from hooks.conf, not derived from the peer at all, so
+# any two concurrent sessions race on it regardless of which peers they're
+# for) could both pass the "does it exist" check before either created the
+# interface. Bounded in practice (the idempotent-reuse branch above turns
+# the loser's `ip link add` failure into a harmless "already exists,
+# reusing" branch, not a crash) but still a real race worth closing since
+# closing it is cheap.
+#
+# flock(1)'s file-descriptor form is the primary mechanism: `exec N>file`
+# opens a plain fd on the lock file, `flock N` blocks until it is free (or
+# `-w` times out), and `flock -u N` releases it deterministically -- this
+# holds the lock exactly across the critical section, including on an
+# early return, without a wrapper process to clean up after. Verified
+# against flock(1) itself (util-linux 2.39.3, this tree's own dev
+# container) rather than assumed: `flock [options] <file descriptor
+# number>` is documented there as exactly this fd-operating form.
+#
+# UNVERIFIED: whether flock(1) ships in NetBSD's base install -- unlike
+# the Linux case above, no NetBSD environment was available here to check
+# directly, and this project has been bitten by exactly this kind of
+# unverified BSD/Linux tool-availability assumption before (the `dash`
+# CI fix). Rather than assume either way, this falls back to the same
+# mkdir-based retry-and-cap lock rhook_state_reset() already uses above
+# when `flock` isn't on PATH -- mkdir is atomic on every POSIX
+# filesystem, so the fallback needs no new locking primitive and a lock
+# held by a process that died mid-section still cannot wedge every
+# future connection attempt forever. This project's own NetBSD CI job is
+# what actually exercises whichever path applies there.
+# --------------------------------------------------------------------------
+RHOOK_DUMMY_IFACE_LOCK_FD=""
+rhook_dummy_iface_lock() {
+	local rhook_edil_iface rhook_edil_lock rhook_edil_tries
+	rhook_edil_iface=$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_')
+	rhook_ensure_state_dir
+	rhook_edil_lock="$RHOOK_STATE_DIR/dummy-iface.$rhook_edil_iface.lock"
+
+	if command -v flock >/dev/null 2>&1; then
+		# Probed in a subshell first, deliberately -- a bare `exec N>file`
+		# redirection that fails aborts the *whole* (non-interactive)
+		# shell in dash/bash, not just this line, and putting `2>/dev/null`
+		# directly on that exec would silence every later stderr message
+		# in this process for the rest of its life (found the hard way:
+		# it made rhook_ensure_dummy_iface()'s own log/refusal messages
+		# vanish from tests 11b/11c below). A subshell's own redirection
+		# failure and stderr stay contained to that subshell.
+		if ( : 9>"$rhook_edil_lock" ) 2>/dev/null; then
+			exec 9>"$rhook_edil_lock"
+			flock -w 20 9 || rhook_log warn "dummy interface lock for $rhook_edil_iface still held after 20s -- proceeding without it (a concurrent phase1-up racing for the same dummy interface name may hit the idempotent-reuse path instead of a clean create)"
+			RHOOK_DUMMY_IFACE_LOCK_FD=9
+		fi
+		return 0
+	fi
+
+	rhook_edil_tries=0
+	while ! mkdir "$rhook_edil_lock.d" 2>/dev/null; do
+		rhook_edil_tries=$((rhook_edil_tries + 1))
+		if [ "$rhook_edil_tries" -ge 20 ]; then
+			rhook_log warn "dummy interface lock for $rhook_edil_iface still held after ${rhook_edil_tries}s -- proceeding without it (a concurrent phase1-up racing for the same dummy interface name may hit the idempotent-reuse path instead of a clean create)"
+			break
+		fi
+		sleep 1
+	done
+	return 0
+}
+
+rhook_dummy_iface_unlock() {
+	local rhook_edil_iface rhook_edil_lock
+	rhook_edil_iface=$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_')
+	rhook_edil_lock="$RHOOK_STATE_DIR/dummy-iface.$rhook_edil_iface.lock"
+
+	if [ -n "$RHOOK_DUMMY_IFACE_LOCK_FD" ]; then
+		flock -u 9 2>/dev/null
+		# No `2>/dev/null` on this bare `exec` (unlike its `flock -u`
+		# neighbor above): closing an already-open fd doesn't fail in
+		# practice, and attaching a redirection straight to a
+		# command-less `exec` applies it to the rest of this (sub)shell,
+		# not just this line -- that exact mistake on the matching
+		# lock-acquire exec once silenced every later stderr message in
+		# the process, including this function's own caller's refusal
+		# message (see rhook_dummy_iface_lock() above).
+		exec 9>&-
+		RHOOK_DUMMY_IFACE_LOCK_FD=""
+		return 0
+	fi
+
+	rmdir "$rhook_edil_lock.d" 2>/dev/null
+	return 0
+}
+
 rhook_ensure_dummy_iface() {
-	local rhook_edi_iface
+	local rhook_edi_iface rhook_edi_rc
 	rhook_edi_iface="$1"
+
+	rhook_dummy_iface_lock "$rhook_edi_iface"
 
 	if ! "$RACOON_HOOK_IP" link show dev "$rhook_edi_iface" >/dev/null 2>&1; then
 		"$RACOON_HOOK_IP" link add "$rhook_edi_iface" type dummy && "$RACOON_HOOK_IP" link set "$rhook_edi_iface" up
-		return $?
+		rhook_edi_rc=$?
+		rhook_dummy_iface_unlock "$rhook_edi_iface"
+		return $rhook_edi_rc
 	fi
 
 	if [ -n "$("$RACOON_HOOK_IP" -o link show dev "$rhook_edi_iface" type dummy 2>/dev/null)" ]; then
 		rhook_log warn "dummy interface $rhook_edi_iface already exists -- reusing it rather than failing (a prior session's teardown likely did not complete; see the Admin Guide's Split-DNS & Routing Hooks section, Leftover State After a Non-Clean Stop)"
 		"$RACOON_HOOK_IP" link set "$rhook_edi_iface" up
-		return $?
+		rhook_edi_rc=$?
+		rhook_dummy_iface_unlock "$rhook_edi_iface"
+		return $rhook_edi_rc
 	fi
 
+	rhook_dummy_iface_unlock "$rhook_edi_iface"
 	echo "an interface named $rhook_edi_iface already exists and is not a dummy-type interface this hook set created -- refusing to touch it (set dummy_iface in hooks.conf to a different name, or resolve the conflict manually)" >&2
 	return 1
 }
