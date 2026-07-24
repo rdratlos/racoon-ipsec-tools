@@ -168,6 +168,7 @@ src/scripts/racoon-dns-detect    # standalone diagnostic CLI</code></pre>
 <tr><td><code>on_dns_failure</code></td><td><code>warn</code></td><td><code>warn</code> always exits 0; <code>report</code> exits 1 when a required step fails but leaves changes already applied in place; <code>rollback</code> does the same and additionally undoes every change that run applied first. None of the three reject the tunnel — racoon does not consult a hook's exit code for that. (<code>abort</code> is accepted as a deprecated alias for <code>report</code>.)</td></tr>
 <tr><td><code>debug_level</code></td><td><code>0</code></td><td>0–3, see <a href="#state">§6</a>. <code>RACOON_HOOK_DEBUG</code> in the environment overrides this without editing the file.</td></tr>
 <tr><td><code>dummy_iface</code></td><td><code>racoon0</code></td><td>Name of the dedicated interface carrying the VPN address and DNS profile.</td></tr>
+<tr><td><code>allow_resolv_conf_overwrite</code></td><td><code>no</code></td><td>Whether the <code>none</code> (fallback) backend may overwrite <code>/etc/resolv.conf</code> directly when no supported resolver manager is detected. Refused by default (a reported failure, subject to <code>on_dns_failure</code>) rather than silently redirecting every lookup on the system to the VPN resolver — see <a href="#backends">§4</a>.</td></tr>
 </tbody>
 </table>
 </section>
@@ -202,7 +203,7 @@ src/scripts/racoon-dns-detect    # standalone diagnostic CLI</code></pre>
 <tr>
   <td><code>none</code> (fallback)</td>
   <td><span class="badge bad">no</span></td>
-  <td>No supported resolver manager detected. Writes <code>/etc/resolv.conf</code> directly (backed up first) — a full DNS redirect for the duration of the tunnel, explicitly reported as not real split-DNS.</td>
+  <td>No supported resolver manager detected. Refused by default (<code>allow_resolv_conf_overwrite = no</code>, reported as a failed required step) — set it to <code>yes</code> to opt in to writing <code>/etc/resolv.conf</code> directly (backed up first), a full DNS redirect for the duration of the tunnel, explicitly reported as not real split-DNS.</td>
 </tr>
 </tbody>
 </table>

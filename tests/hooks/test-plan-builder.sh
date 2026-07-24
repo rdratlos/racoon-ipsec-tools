@@ -441,15 +441,37 @@ fi
 RHOOK_DOMAINS="$RHOOK_DOMAINS_SAVE"
 
 # ==========================================================================
-# fallback backend (no resolver manager detected at all)
+# fallback backend (no resolver manager detected at all) -- brief 3 §I:
+# gated behind allow_resolv_conf_overwrite, default "no".
 # ==========================================================================
 RHOOK_BACKEND="none"
+
+# Default (unset / "no"): refused outright, never touches /etc/resolv.conf.
+RHOOK_ALLOW_RESOLV_CONF_OVERWRITE="no"
+rhook_build_plan
+PLAN="$(rhook_plan_file)"
+assert_eq "fallback refused by default: required failing step" \
+	"$(plan_field fallback_refused 3 "$PLAN")" "required"
+TESTS_RUN=$((TESTS_RUN + 1))
+refused_cmd=$(plan_field fallback_refused 5 "$PLAN")
+if eval "$refused_cmd" >/dev/null 2>/dev/null; then
+	fail "fallback refusal step must exit non-zero"
+fi
+assert_contains "fallback refusal explains the opt-in key" "$refused_cmd" "allow_resolv_conf_overwrite = yes"
+TESTS_RUN=$((TESTS_RUN + 1))
+if grep -q '^fallback_dns' "$PLAN"; then
+	fail "fallback_dns must not be planned when allow_resolv_conf_overwrite is not yes"
+fi
+
+# Explicit opt-in: the original backup + overwrite steps are planned.
+RHOOK_ALLOW_RESOLV_CONF_OVERWRITE="yes"
 rhook_build_plan
 PLAN="$(rhook_plan_file)"
 assert_eq "fallback_backup: optional" "$(plan_field fallback_backup 3 "$PLAN")" "optional"
 assert_eq "fallback_dns: required" "$(plan_field fallback_dns 3 "$PLAN")" "required"
 fallback_cmd=$(plan_field fallback_dns 5 "$PLAN")
 assert_contains "fallback: scoped chmod 0644, never a global umask" "$fallback_cmd" "chmod 0644 /etc/resolv.conf"
+RHOOK_ALLOW_RESOLV_CONF_OVERWRITE="no"
 
 # ==========================================================================
 # R7: no hardcoded network fallback. Empty RHOOK_ROUTES (gateway sent no

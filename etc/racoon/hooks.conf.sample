@@ -101,3 +101,22 @@
 # never has to guess which name phase1-up.sh actually used.
 #
 #dummy_iface = racoon0
+
+# --------------------------------------------------------------------------
+# allow_resolv_conf_overwrite: whether the hooks may fall all the way
+# through to overwriting /etc/resolv.conf directly when no supported DNS
+# backend (systemd-resolved, NetworkManager, resolvconf, or dnsmasq) is
+# detected on this system.
+#
+#   no  - refuse (default). Reported as a failed required step (subject to
+#         on_dns_failure above) explaining why, rather than silently
+#         redirecting every DNS lookup on the system to the VPN resolver.
+#   yes - back up the existing /etc/resolv.conf (best-effort) and write the
+#         VPN's DNS servers into it directly. This is a full DNS redirect
+#         for the duration of the tunnel -- every lookup on the system
+#         goes to the VPN resolver, not just names under the split-DNS
+#         domains -- and is reported as such, never represented as real
+#         split-DNS. Only set this if you understand and accept that
+#         exposure, e.g. a minimal system with no resolver manager at all.
+#
+#allow_resolv_conf_overwrite = no

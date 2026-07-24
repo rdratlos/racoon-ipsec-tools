@@ -92,6 +92,7 @@ backend = resolved
 on_dns_failure=bogus
 debug_level =2
 dummy_iface= racoon7
+allow_resolv_conf_overwrite = yes
 unknown_key = wat
 EOF
 RHOOK_CONF="$WORK/hooks.conf"
@@ -100,7 +101,17 @@ assert_eq "backend from config" "$RHOOK_BACKEND" "resolved"
 assert_eq "dummy_iface from config (whitespace trimmed)" "$RHOOK_DUMMY_IFACE" "racoon7"
 assert_eq "debug_level from config (whitespace trimmed)" "$RHOOK_DEBUG_LEVEL" "2"
 assert_eq "invalid on_dns_failure falls back to warn" "$RHOOK_ON_DNS_FAILURE" "warn"
+assert_eq "allow_resolv_conf_overwrite from config" "$RHOOK_ALLOW_RESOLV_CONF_OVERWRITE" "yes"
 assert_file_contains "unknown key warned" "$WORK/config-warnings.log" "unknown_key"
+
+# Brief 3 §I: an invalid allow_resolv_conf_overwrite value falls back to
+# the safe default ("no"), same pattern as on_dns_failure above.
+cat > "$WORK/hooks.conf" <<'EOF'
+allow_resolv_conf_overwrite = maybe
+EOF
+rhook_load_config 2>"$WORK/config-warnings2.log"
+assert_eq "invalid allow_resolv_conf_overwrite falls back to no" "$RHOOK_ALLOW_RESOLV_CONF_OVERWRITE" "no"
+assert_file_contains "invalid allow_resolv_conf_overwrite is warned about" "$WORK/config-warnings2.log" "allow_resolv_conf_overwrite"
 
 # --------------------------------------------------------------------------
 # Test 3: plan/apply/report round trip -- one required step that succeeds,

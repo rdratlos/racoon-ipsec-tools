@@ -62,6 +62,7 @@ RHOOK_ON_DNS_FAILURE="warn"
 RHOOK_DEBUG_LEVEL=0
 RHOOK_DUMMY_IFACE="racoon0"
 RHOOK_STATE_DIR="${RACOON_HOOK_STATE_DIR:-/run/racoon}"
+RHOOK_ALLOW_RESOLV_CONF_OVERWRITE="no"
 
 rhook_load_config() {
 	[ -r "$RHOOK_CONF" ] || return 0
@@ -80,10 +81,18 @@ rhook_load_config() {
 			on_dns_failure) RHOOK_ON_DNS_FAILURE="$rhook_v" ;;
 			debug_level) RHOOK_DEBUG_LEVEL="$rhook_v" ;;
 			dummy_iface) RHOOK_DUMMY_IFACE="$rhook_v" ;;
+			allow_resolv_conf_overwrite) RHOOK_ALLOW_RESOLV_CONF_OVERWRITE="$rhook_v" ;;
 			'') ;;
 			*) rhook_log warn "hooks.conf: unknown key '$rhook_k', ignoring" ;;
 		esac
 	done < "$RHOOK_CONF"
+	case "$RHOOK_ALLOW_RESOLV_CONF_OVERWRITE" in
+		yes|no) ;;
+		*)
+			rhook_log warn "hooks.conf: allow_resolv_conf_overwrite='$RHOOK_ALLOW_RESOLV_CONF_OVERWRITE' invalid, using 'no'"
+			RHOOK_ALLOW_RESOLV_CONF_OVERWRITE="no"
+			;;
+	esac
 	case "$RHOOK_ON_DNS_FAILURE" in
 		# Brief 3 §H: "abort" never meant "reject the tunnel" -- racoon
 		# does not consult a hook's exit status when deciding whether to
@@ -2354,13 +2363,33 @@ rhook_plan_dns_dnsmasq() {
 # No resolver manager detected at all: the only thing left to do is
 # overwrite /etc/resolv.conf directly, which is a full DNS redirect (every
 # lookup goes to the VPN resolver), not split-DNS, and must say so.
+#
+# Brief 3 §I: gated behind hooks.conf's allow_resolv_conf_overwrite,
+# default "no". Falling all the way through backend detection to "write
+# whatever the VPN gateway says into the one file every application on
+# this system reads for name resolution" is the single most invasive
+# thing this hook set can do (R1's "no persistent reconfiguration beyond
+# the VPN session" already covers *reverting* it, but the overwrite
+# itself -- however briefly it lasts -- is still a full redirect an
+# operator may not expect from a "split-DNS" hook set landing on a
+# system with no supported resolver manager at all, e.g. a minimal
+# container image or an unusual distro). Refusing by default and
+# requiring an explicit opt-in makes that a deliberate choice rather
+# than a silent fallback nobody asked for.
 rhook_plan_dns_fallback() {
+	if [ "$RHOOK_ALLOW_RESOLV_CONF_OVERWRITE" != "yes" ]; then
+		rhook_plan_add fallback_refused fallback_resolv required \
+			"configure DNS (no supported resolver manager detected)" \
+			"sh -c 'echo \"no supported resolver manager detected (not resolved, NetworkManager, resolvconf, or dnsmasq) -- the only remaining option is overwriting /etc/resolv.conf directly, a full DNS redirect for every lookup on this system, not real split-DNS. Refusing: set allow_resolv_conf_overwrite = yes in hooks.conf to explicitly accept that, or install/enable a supported resolver manager instead.\" >&2; exit 1'" \
+			""
+		return 0
+	fi
 	rhook_plan_add fallback_backup fallback_backup optional \
 		"back up /etc/resolv.conf" \
 		"cp /etc/resolv.conf /etc/resolv.conf.racoon.bak 2>/dev/null || true" \
 		""
 	rhook_plan_add fallback_dns fallback_resolv required \
-		"write /etc/resolv.conf directly (no supported resolver manager detected -- full DNS redirect, not real split-DNS)" \
+		"write /etc/resolv.conf directly (no supported resolver manager detected -- full DNS redirect, not real split-DNS; allow_resolv_conf_overwrite = yes)" \
 		"rhook_resolvconf_record_content > /etc/resolv.conf && chmod 0644 /etc/resolv.conf" \
 		"[ -f /etc/resolv.conf.racoon.bak ] && mv -f /etc/resolv.conf.racoon.bak /etc/resolv.conf || true"
 }
