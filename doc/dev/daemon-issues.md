@@ -344,7 +344,9 @@ racoonctl vpn-disconnect <gateway>; echo "exit=$?"
 journalctl -t racoon-phase1-down --no-pager | tail -5
 ```
 
-**Status: resolved** — fixed in `src/racoon/kmpstat.c`'s `com_recv()`.
+**Status: resolved** — fixed in `src/racoon/kmpstat.c`'s `com_recv()` by
+commit `735f2ff` ("racoonctl: report why com_recv() failed on a
+short/EOF admin reply (#4)").
 
 One of the two `goto bad1` paths this issue originally described (the
 `MSG_PEEK`-failure branch, `recv() == -1`) had already picked up a
