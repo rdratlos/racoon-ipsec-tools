@@ -1,14 +1,19 @@
 # racoon daemon-side issues found during split-DNS hook testing
 
 Filed per brief 3 §G (Issues 1-3) and the Task F ACQUIRE-provenance
-investigation (Issue 4, `doc/dev/teardown-investigation.md`). These are
-**not fixed here** — this work package is explicitly scoped to *filing*
-what live testing on a Xubuntu Bionic 32-bit roadwarrior (racoon 0.9.1,
-OpenSSL 1.1.1, systemd 237) and, for Issue 4, a wider set of live hosts
-(Bionic, Noble, Arch) surfaced in `src/racoon`'s own C code, each traced
-to a concrete source location and given a reproducer, so a future change
-to the daemon itself can be scoped correctly. No file under `src/racoon/`
-is touched by this document or by the commit that adds it.
+investigation (Issue 4, `doc/dev/teardown-investigation.md`). These were
+**not fixed when filed** — that work package was explicitly scoped to
+*filing* what live testing on a Xubuntu Bionic 32-bit roadwarrior (racoon
+0.9.1, OpenSSL 1.1.1, systemd 237) and, for Issue 4, a wider set of live
+hosts (Bionic, Noble, Arch) surfaced in `src/racoon`'s own C code, each
+traced to a concrete source location and given a reproducer, so a future
+change to the daemon itself could be scoped correctly. No file under
+`src/racoon/` was touched by the commit that added this document.
+
+That constraint has since been lifted; each issue below is now fixed on
+its own branch/PR and marked **Status: resolved** with a link to its
+fixing commit as the work lands. Issues without a Status line are still
+open.
 
 Each issue below cites the exact function/line the finding traces to in
 *this* tree (not upstream ipsec-tools, which may already read differently),
@@ -339,14 +344,65 @@ racoonctl vpn-disconnect <gateway>; echo "exit=$?"
 journalctl -t racoon-phase1-down --no-pager | tail -5
 ```
 
-**Why not fixed here.** A real fix (adding `perror()`/an explicit error
-message on both `goto bad1` paths in `com_recv()`, or having `f_vc()`
-distinguish "clean EOF after the request was accepted" from "not
-delivered at all" before deciding its own exit code) is a behavior change
-to `src/racoon/kmpstat.c` and/or `racoonctl.c`, out of scope for this
-filing-only pass. Workaround already in place in
-`task-f-acquire-investigation.sh`: it never treats `vpn-disconnect`'s own
-exit code as authoritative, and instead waits for `phase1-down.sh`'s own
-always-emitted syslog summary before drawing any conclusion — any script
-or operator relying on `racoonctl vpn-disconnect`'s exit code alone should
-do the same.
+**Status: resolved** — fixed in `src/racoon/kmpstat.c`'s `com_recv()` by
+commit `735f2ff` ("racoonctl: report why com_recv() failed on a
+short/EOF admin reply (#4)").
+
+One of the two `goto bad1` paths this issue originally described (the
+`MSG_PEEK`-failure branch, `recv() == -1`) had already picked up a
+`warn()` call in a since-merged, unrelated fix for issue #89 (commit
+`69d1129`, "racoonctl: replace confusing 'send: Bad file descriptor' with
+a real diagnostic"). The remaining silent path — the "sanity check"
+branch (`len < sizeof(h)`), which is what every one of the 8 live Task F
+runs actually hit, since a clean connection close arrives as a `recv()`
+return of `0`, not `-1` — stayed silent until this fix. It now
+distinguishes a clean EOF (`len == 0`: "racoon closed the admin
+connection before sending a reply header (EOF)") from a genuine
+truncated-header short read (`0 < len < sizeof(h)`: "short read from
+racoon: got N of M expected header bytes"), using `warnx()` rather than
+`warn()` since `errno` is not meaningfully set by either condition (the
+`recv()` call itself succeeded).
+
+`racoonctl.c`'s `main()` calls `com_recv()` directly (not through a
+separate `f_vc()` helper — that name in this document's original
+Root-cause section reflects an earlier revision of the tree; the current
+`do { ... } while (evt_quit_event != 0)` loop and its `bad:`/`exit(1)`
+path are the same code, just inlined in `main()`). `warnx()` writes to
+`stderr`, which glibc leaves unbuffered by default, so the message is
+flushed well before `main()`'s `bad:` label reaches `exit(1)` — confirmed
+live (see below), not just by reading the code.
+
+Verified with two mock-admin-socket reproductions standing in for a live
+racoon (an `AF_UNIX` listener that accepts the connection and then either
+closes immediately or writes a 2-of-8-byte truncated header before
+closing), run against `src/racoon/racoonctl` built from this fix:
+
+```
+$ racoonctl -s /tmp/mock_admin.sock vpn-disconnect 203.0.113.1; echo "EXIT=$?"
+racoonctl: racoon closed the admin connection before sending a reply header (EOF)
+EXIT=1
+
+$ racoonctl -s /tmp/mock_admin2.sock vpn-disconnect 203.0.113.1; echo "EXIT=$?"
+racoonctl: short read from racoon: got 2 of 8 expected header bytes
+EXIT=1
+```
+
+Before the fix, both runs printed nothing and exited 1 — exactly the
+originally-filed symptom.
+
+Also added `test/test_kmpstat_com_recv.c`, a `check_PROGRAMS` unit test
+following this project's established unit-test-a-static-function pattern
+(`kmpstat_unittest_src.c` wraps `kmpstat.c`, `com_set_fd_unittest()` is a
+new `-DENABLE_UNITTEST`-only accessor for `com_recv()`'s private socket
+fd). It drives `com_recv()` against a `socketpair()` for the EOF case,
+the truncated-header case, and a well-formed-reply regression guard
+(asserting `com_recv()` stays silent and succeeds on a normal exchange).
+Confirmed the two failure-path tests fail without this fix (temporarily
+reverted the diagnostic, kept the test accessor) and pass with it,
+verifying the tests actually exercise the fixed code path rather than
+trivially passing.
+
+`/* UNVERIFIED: */` — none remaining for this issue. The fix is a pure
+diagnostic addition (no control-flow change beyond what
+`if (len < sizeof(h))` already did), so no syscall/signal semantics
+needed re-verification here.

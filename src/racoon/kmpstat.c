@@ -132,6 +132,19 @@ com_close(void)
 	}
 }
 
+#ifdef ENABLE_UNITTEST
+/*
+ * Test-only accessor. `so` is a static, file-scope admin-socket fd; this
+ * thin wrapper lets a unit test point com_recv() at a mock socket (e.g. a
+ * socketpair()) without changing the production API.
+ */
+void
+com_set_fd_unittest(int fd)
+{
+	so = fd;
+}
+#endif /* ENABLE_UNITTEST */
+
 int
 com_send(combuf)
 	vchar_t *combuf;
@@ -167,8 +180,15 @@ com_recv(combufp)
 	}
 
 	/* sanity check */
-	if (len < sizeof(h))
+	if (len < sizeof(h)) {
+		if (len == 0)
+			warnx("racoon closed the admin connection before "
+			    "sending a reply header (EOF)");
+		else
+			warnx("short read from racoon: got %d of %zu "
+			    "expected header bytes", len, sizeof(h));
 		goto bad1;
+	}
 
 	if (h.ac_errno && !(h.ac_cmd & ADMIN_FLAG_LONG_REPLY)) {
 		errno = h.ac_errno;

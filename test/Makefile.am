@@ -323,6 +323,46 @@ test_racoonctl_logoutusr_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 endif
 
+# Test: kmpstat com_recv() short-read/EOF diagnostics (daemon-issues.md
+# Issue 4) — com_recv()'s "sanity check" goto bad1 on a truncated header
+# used to print nothing at all, so racoonctl (vpn-disconnect and any other
+# admin-socket event wait) exited non-zero with zero output whenever the
+# admin socket EOFed or delivered a short header before the expected
+# event arrived, reproduced in 8/8 live Task F runs.
+#
+# com_recv() is not static, but the admin-socket fd it reads (`so`) is
+# private to kmpstat.c; com_set_fd_unittest() is a thin -DENABLE_UNITTEST
+# accessor kmpstat.c exposes so the test can point it at a socketpair()
+# standing in for the real AF_UNIX admin socket.
+#
+# kmpstat.c is pulled in via a local wrapper source (see the comment on
+# test_racoonctl_logoutusr_SOURCES above) so its .Po dependency file stays
+# under test/.deps/. Unlike racoonctl.c, kmpstat.c defines no main() of
+# its own, so no renaming is needed.
+#
+# Always built (com_recv()/com_init()/com_close() are unconditional, not
+# behind ENABLE_HYBRID). Excluded from sanitizer builds for the same
+# reason as test_racoonctl_logoutusr above: relies on --gc-sections
+# dead-code elimination that ASan defeats.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_kmpstat_com_recv
+
+test_kmpstat_com_recv_SOURCES  = test_kmpstat_com_recv.c \
+	kmpstat_unittest_src.c
+test_kmpstat_com_recv_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_kmpstat_com_recv_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+# com_recv()'s own logic only needs vmalloc()/vfree() (vmbuf.o); see the
+# test_racoonctl_logoutusr_LDADD comment above for why misc_noplog.o (not
+# plog.o) supplies debug_location() without pulling in plog.c's `pname`.
+test_kmpstat_com_recv_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_kmpstat_com_recv_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Test 14: misc (close_on_exec, timedelta)
 test_misc_SOURCES  = test_misc.c
 test_misc_LDADD    = $(COMMON_LDADD)
