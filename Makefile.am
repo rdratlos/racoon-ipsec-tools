@@ -13,7 +13,7 @@ SUBDIRS = src test misc/kate @RPM@
 # at autoreconf time, breaking builds from the Debian native source
 # tarball where packaging/ is intentionally excluded.
 
-EXTRA_DIST = bootstrap README NEWS.md depcomp docs/history/ChangeLog docs/history/ChangeLog.old docs/history/NEWS packaging/arch etc/racoon/hooks.conf.sample doc/admin/split-dns.html
+EXTRA_DIST = bootstrap README.md NEWS.md depcomp docs/history/ChangeLog docs/history/ChangeLog.old docs/history/NEWS packaging/arch etc/racoon/hooks.conf.sample doc/admin/split-dns.html
 
 MAINTAINERCLEANFILES = docs/history/ChangeLog
 
