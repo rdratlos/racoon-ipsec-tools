@@ -499,6 +499,21 @@ endif
 # bookkeeping (which the two functions under test never call) is discarded
 # rather than needing to be stubbed or linked.
 #
+# sockmisc.o (below) is reused pre-built from src/racoon/ and, unlike
+# grabmyaddr.c above, is NOT compiled with -ffunction-sections -- it is one
+# undivided translation unit, so --gc-sections can only keep or drop it as a
+# whole, not function-by-function. Historically this test relied entirely on
+# --gc-sections dropping it outright (nothing it calls reaches sockmisc.o's
+# functions at runtime); that assumption broke under a coverage build
+# (-fprofile-arcs/-ftest-coverage), which -- like the AddressSanitizer
+# instrumentation already documented via SANITIZER_BUILD elsewhere in this
+# file -- can keep the whole object linked, surfacing sockmisc.o's
+# privsep_*()/ipsec_*() link-time dependencies (present whenever it is
+# built without -DNOUSE_PRIVSEP, i.e. this exact reused copy) as undefined-
+# reference errors. grabmyaddr_netlink_test_stubs.c stubs exactly those six
+# symbols -- none of them reachable from what this test actually calls --
+# so the link no longer depends on --gc-sections guessing right either way.
+#
 # Linux-only (USE_NETLINK in grabmyaddr.c is gated on __linux__, and
 # test_grabmyaddr_netlink.c includes <linux/rtnetlink.h> directly to build
 # the same message shapes). On platforms without those headers (NetBSD,
@@ -510,7 +525,8 @@ if HAVE_LINUX_NETLINK
 check_PROGRAMS += test_grabmyaddr_netlink
 
 test_grabmyaddr_netlink_SOURCES  = test_grabmyaddr_netlink.c \
-	grabmyaddr_unittest_src.c
+	grabmyaddr_unittest_src.c \
+	grabmyaddr_netlink_test_stubs.c
 test_grabmyaddr_netlink_CPPFLAGS = $(AM_CPPFLAGS) \
 	-I$(top_srcdir)/src/libipsec \
 	-I$(top_srcdir)/src/include-glibc \
