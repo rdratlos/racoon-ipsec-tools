@@ -93,6 +93,53 @@ arguments will increase the debug level even more.
 Run
 .Nm
 in the foreground.
+Log lines are always written to
+.Va stdout
+.Pq line-buffered, so a line appears as soon as it is complete,
+rather than whenever the platform's default stdio buffering next
+flushes
+.Em in addition to
+their normal destination, which remains
+.Xr syslogd 8
+unless
+.Fl l
+selects a log file instead.
+This is intentional:
+.Fl F
+is meant for interactive debugging at a terminal, where an operator
+watching
+.Va stdout
+still wants the same lines syslog would otherwise carry.
+Under a service manager whose default configuration captures a unit's
+.Va stdout
+into the same log store its
+.Xr syslogd 8
+compatibility socket also feeds
+.Po
+e.g. systemd, where
+.Xr journald 8
+commonly does both
+.Pc ,
+this shows up as every line appearing twice in
+.Xr journalctl 1 .
+Pick one destination if that is undesired: either pass
+.Fl l
+.Ar logfile
+to stop the
+.Xr syslogd 8
+half
+.Po
+.Va stdout
+still carries the same lines
+.Pc ,
+or configure the service manager to discard
+.Nm Ns 's
+.Va stdout
+.Po
+e.g. systemd's
+.Cm StandardOutput=null
+.Pc
+and keep only the syslog/journal copy.
 .It Fl f Ar configfile
 Use
 .Ar configfile

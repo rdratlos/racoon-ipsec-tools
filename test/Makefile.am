@@ -663,6 +663,40 @@ test_privsep_sigterm_forward_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
 test_privsep_sigterm_forward_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Test: cmpsatrns() "authtype mismatched" log level (daemon-issues.md
+# Issue 3) -- this line used to log at LLV_WARNING (the default visible
+# level) once per rejected (peer, mine) transform-pair candidate a
+# Phase 2 proposal search tries, so a peer legitimately offering more
+# than one authtype alternative made it fire on every negotiation, not
+# just a real mismatch.
+#
+# proposal.c is pulled in via a local wrapper source
+# (proposal_unittest_src.c, -ffunction-sections/--gc-sections, same
+# pattern as the other wrapped-static-function tests above) so only
+# cmpsatrns()'s own reachable closure (strnames.o's
+# s_ipsecdoi_trns()/s_ipsecdoi_attr_v()) is retained. _plog() is stubbed
+# directly in the test driver to observe which priority (if any) a call
+# was actually logged at.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_proposal_authtype_log
+
+test_proposal_authtype_log_SOURCES  = test_proposal_authtype_log.c \
+	proposal_unittest_src.c
+test_proposal_authtype_log_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_proposal_authtype_log_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_proposal_authtype_log_LDADD    = $(top_builddir)/src/racoon/strnames.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_proposal_authtype_log_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
 # They follow automake's default "simple" test protocol (exit 0 = pass,

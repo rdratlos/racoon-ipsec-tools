@@ -275,6 +275,34 @@ main(ac, av)
 {
 	int error;
 
+	/*
+	 * daemon-issues.md Issue 2 (F5): plogv() (plog.c) writes every
+	 * foreground (-F) log line to stdout via vprintf(), and glibc/NetBSD
+	 * libc both default to full block buffering (not line buffering)
+	 * whenever stdout isn't a TTY -- which is exactly what a systemd
+	 * unit's stdout is (piped into the journal). That delays and can
+	 * reorder log lines relative to the events they describe, exactly
+	 * the "logs lie" confusion the -F | cat vs. real-TTY reproducer in
+	 * daemon-issues.md demonstrates. Force line buffering unconditionally
+	 * so a full line reaches its destination (journal, pipe, redirected
+	 * file) as soon as it is written, matching a TTY's own default
+	 * behavior and the *intended* immediacy of "-F to a terminal for
+	 * interactive debugging" either way.
+	 *
+	 * Must run before any stdout I/O happens at all, including the
+	 * `-F` handling's own "Foreground mode.\n" printf() inside parse()
+	 * below: per C11 7.21.5.6 / POSIX setvbuf(3), setvbuf() is only
+	 * guaranteed well-defined when called before any other operation on
+	 * the stream. buf=NULL, size=0 asks the implementation for its own
+	 * default-sized buffer -- confirmed against both the glibc and
+	 * NetBSD libc setvbuf(3) manuals, both of which document that combi-
+	 * nation as the portable way to select a mode without dictating a
+	 * specific buffer/size. setvbuf() itself, unlike the BSD-only
+	 * setlinebuf() convenience wrapper it is equivalent to, is standard
+	 * ISO C -- no portability gap between glibc and NetBSD libc here.
+	 */
+	setvbuf(stdout, NULL, _IOLBF, 0);
+
 	initlcconf();
 	parse(ac, av);
 
