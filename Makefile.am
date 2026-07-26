@@ -26,8 +26,6 @@ $(srcdir)/docs/history/ChangeLog:
 	  exit 1 ; \
 	fi
 
-.PHONY: $(srcdir)/docs/history/ChangeLog
-
 if WARN_DEPRECATED
 # When --enable-warn-deprecated is set, redirect 'make' to the 'dev'
 # target, which handles diagnostic capture correctly for all GCC versions
