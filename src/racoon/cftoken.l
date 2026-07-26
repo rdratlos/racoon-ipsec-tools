@@ -243,6 +243,11 @@ hexstring	0x{hexdigit}+
 <S_LDAP>attr_group	{ YYD; return(LDAP_ATTR_GROUP); }
 <S_LDAP>attr_member	{ YYD; return(LDAP_ATTR_MEMBER); }
 <S_LDAP>attr_device	{ YYD; return(LDAP_ATTR_DEVICE); }
+<S_LDAP>device_id_type		{ YYD; return(LDAP_DEVICE_ID_TYPE); }
+<S_LDAP>device_id_required	{ YYD; return(LDAP_DEVICE_ID_REQUIRED); }
+<S_LDAP>dnsname		{ YYD; return(LDAP_DEVID_DNSNAME); }
+<S_LDAP>rfc822		{ YYD; return(LDAP_DEVID_RFC822); }
+<S_LDAP>dn		{ YYD; return(LDAP_DEVID_DN); }
 <S_LDAP>{ecl}		{ BEGIN S_INI; return(EOC); }
 
 	/* mode_cfg */

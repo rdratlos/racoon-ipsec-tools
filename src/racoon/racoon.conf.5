@@ -1458,12 +1458,11 @@ The attribute used to scope the
 lookup to a specific device identity, in addition to the XAuth username.
 When set, the ldap search filter becomes an AND of
 .Ic attr_user
-(the XAuth login) and this attribute, matched against the connecting
-peer's Phase 1 identity string (as produced by
-.Ic ipsecdoi_id2str ,
-i.e. the certificate Subject DN for
-.Ic asn1dn
-identities).
+(the XAuth login) and this attribute, matched against a device identity
+string extracted from the connecting peer's certificate, as controlled
+by
+.Ic device_id_type
+below.
 This allows a single XAuth login to be shared across several devices
 while each device still receives its own fixed mode_cfg address,
 instead of every device racing for the address stored against one
@@ -1472,14 +1471,115 @@ There is no default value: if
 .Ic attr_device
 is not configured, lookups are scoped purely by username, exactly as
 before this directive existed.
-Peers with no matching combined
+Peers for whom no device identity of the configured
+.Ic device_id_type
+can be extracted, or for whom no matching combined
 .Pq Ic attr_user , Ic attr_device
-ldap entry -- e.g. devices never explicitly enrolled for a fixed
-address -- simply get no address from ldap and fall back to the local
-pool, the same as any other user for whom
+ldap entry exists -- e.g. devices never explicitly enrolled for a
+fixed address -- fall back to a plain username-only lookup (and from
+there to the local pool, same as any user for whom
 .Ic attr_addr
-is unset.
+is unset), unless
+.Ic device_id_required
+is set to
+.Ic on ,
+see below.
+.It Ic device_id_type ( dnsname | rfc822 | dn ) ;
+Selects where the device identity used for
+.Ic attr_device
+scoping comes from.
+Only meaningful when
+.Ic attr_device
+is also set; a warning is logged at parse time otherwise.
+.Bl -tag -width "dnsname" -compact
+.It Ic dnsname
+(Default.)
+The first
+.Em dNSName
+entry in the peer's certificate
+.Em subjectAltName
+(RFC 4945).
+Requires
+.Ic verify_cert on
+for the certificate the entry is read from to actually be trustworthy
+-- see the security note below.
+.It Ic rfc822
+The first
+.Em rfc822Name
+(email address) entry in the peer's certificate
+.Em subjectAltName .
+Same
+.Ic verify_cert
+requirement as
+.Ic dnsname .
+.It Ic dn
+The connecting peer's asserted Phase 1 identity string (as produced by
+.Ic ipsecdoi_id2str ,
+i.e. the certificate Subject DN for
+.Ic asn1dn
+identities), kept only for backward compatibility with earlier
+.Ic attr_device
+behavior.
+.Sy This value is not certificate-bound :
+the Phase 1 ID payload is a peer assertion that
+.Xr racoon 8
+only checks against the certificate contents when
+.Ic verify_identifier
+is enabled; where clients share a certificate, or
+.Ic verify_identifier
+is off, any peer can claim any device identity and thereby claim
+another device's ldap-assigned fixed address.
+Prefer
+.Ic dnsname
+or
+.Ic rfc822 .
+Choosing
+.Ic dn
+logs a warning at config parse time.
 .El
+.It Ic device_id_required (on | off) ;
+Default:
+.Ic off .
+Controls what happens when
+.Ic attr_device
+is configured but the connecting peer has no extractable device
+identity, or no ldap entry matches the combined
+.Pq Ic attr_user , Ic attr_device
+filter.
+With the default
+.Ic off ,
+.Xr racoon 8
+retries the lookup scoped by username alone -- XAuth authentication can
+still succeed, the peer just does not get a device-specific fixed
+address (and falls through to the local pool, as described under
+.Ic attr_device
+above).
+With
+.Ic on ,
+that fallback is disabled and the XAuth login itself is rejected
+instead; use this where
+.Ic attr_device
+is meant as an access-control boundary (only enrolled devices may
+connect at all) rather than purely an address-assignment convenience.
+.El
+.Pp
+.Sy Security note on device scoping :
+.Ic attr_device
+with
+.Ic device_id_type
+.Ic dnsname
+or
+.Ic rfc822
+only has security value if the certificate it reads the
+.Em subjectAltName
+from was actually verified --
+.Ic verify_cert on
+and a working CA chain/CRL configuration are prerequisites, not
+optional hardening.
+Per-device certificates are also a prerequisite: if multiple devices
+share one client certificate, device scoping is advisory only, since
+every device presents the same
+.Em subjectAltName .
 .El
 .Ss Radius configuration settings
 .Bl -tag -width Ds -compact

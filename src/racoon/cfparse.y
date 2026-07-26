@@ -146,6 +146,10 @@ static int tmpalgtype[MAXALGCLASS];
 static struct sainfo *cur_sainfo;
 static int cur_algclass;
 static int oldloglevel = LLV_BASE;
+static int cur_ldap_device_opt_seen;	/* device_id_type/device_id_required
+					 * seen in the current ldapcfg block,
+					 * for the attr_device-required warning
+					 * at its closing brace */
 
 static struct secprotospec *newspspec __P((void));
 static void insspspec __P((struct remoteconf *, struct secprotospec *));
@@ -275,6 +279,7 @@ static int process_rmconf()
 	/* ldap config */
 %token LDAPCFG LDAP_URI LDAP_HOST LDAP_PORT LDAP_PVER LDAP_DEBUG LDAP_TIMEOUT LDAP_BASE LDAP_BIND_DN LDAP_BIND_PW LDAP_SUBTREE
 %token LDAP_ATTR_USER LDAP_ATTR_ADDR LDAP_ATTR_MASK LDAP_ATTR_GROUP LDAP_ATTR_MEMBER LDAP_ATTR_DEVICE
+%token LDAP_DEVICE_ID_TYPE LDAP_DEVICE_ID_REQUIRED LDAP_DEVID_DNSNAME LDAP_DEVID_RFC822 LDAP_DEVID_DN
 	/* radius config */
 %token RADCFG RAD_AUTH RAD_ACCT RAD_TIMEOUT RAD_RETRIES
 	/* modecfg */
@@ -691,7 +696,20 @@ ldapcfg_statement
 			yyerror("racoon not configured with --with-libldap");
 			return -1;
 #endif
+			cur_ldap_device_opt_seen = 0;
 		} BOC ldapcfg_stmts EOC
+		{
+#ifdef ENABLE_HYBRID
+#ifdef HAVE_LIBLDAP
+			if (cur_ldap_device_opt_seen &&
+			    xauth_ldap_config.attr_device == NULL) {
+				yywarn("device_id_type/device_id_required are "
+				    "only meaningful with attr_device set; "
+				    "ignored");
+			}
+#endif
+#endif
+		}
 	;
 ldapcfg_stmts
 	:	/* nothing */
@@ -862,6 +880,50 @@ ldapcfg_stmt
 			if (xauth_ldap_config.attr_device != NULL)
 				vfree(xauth_ldap_config.attr_device);
 			xauth_ldap_config.attr_device = vdup($2);
+#endif
+#endif
+		}
+		EOS
+	|	LDAP_DEVICE_ID_TYPE LDAP_DEVID_DNSNAME
+		{
+#ifdef ENABLE_HYBRID
+#ifdef HAVE_LIBLDAP
+			cur_ldap_device_opt_seen = 1;
+			xauth_ldap_config.device_id_type = XAUTH_DEVICE_ID_DNSNAME;
+#endif
+#endif
+		}
+		EOS
+	|	LDAP_DEVICE_ID_TYPE LDAP_DEVID_RFC822
+		{
+#ifdef ENABLE_HYBRID
+#ifdef HAVE_LIBLDAP
+			cur_ldap_device_opt_seen = 1;
+			xauth_ldap_config.device_id_type = XAUTH_DEVICE_ID_RFC822;
+#endif
+#endif
+		}
+		EOS
+	|	LDAP_DEVICE_ID_TYPE LDAP_DEVID_DN
+		{
+#ifdef ENABLE_HYBRID
+#ifdef HAVE_LIBLDAP
+			cur_ldap_device_opt_seen = 1;
+			xauth_ldap_config.device_id_type = XAUTH_DEVICE_ID_DN;
+			yywarn("device_id_type dn is not certificate-bound (it "
+			    "trusts the asserted Phase 1 ID payload, not the "
+			    "verified certificate's subjectAltName) -- kept for "
+			    "backward compatibility only, prefer dnsname/rfc822");
+#endif
+#endif
+		}
+		EOS
+	|	LDAP_DEVICE_ID_REQUIRED SWITCH
+		{
+#ifdef ENABLE_HYBRID
+#ifdef HAVE_LIBLDAP
+			cur_ldap_device_opt_seen = 1;
+			xauth_ldap_config.device_id_required = $2;
 #endif
 #endif
 		}
