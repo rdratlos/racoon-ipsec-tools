@@ -118,7 +118,10 @@ sudo kill -TERM "$RACOON_PID"
 bounded, for the phase1-down hook at shutdown (#1)") in
 `src/racoon/isakmp.c` (`script_exec()`, `script_hook()`),
 `src/racoon/session.c`/`session.h` (`racoon_shutting_down`), and
-`src/racoon/privsep.c` (`privsep_sigterm_forward()`).
+`src/racoon/privsep.c` (`privsep_sigterm_forward()`); a privsep-specific
+regression that live testing of that fix uncovered was subsequently
+fixed by commit `f9252fa` ("privsep: stop signaling script_exec()'s wait
+via an envp entry") — see "Live verification" below.
 
 **Decision.** Of the two directions this document originally scoped, a
 bounded `waitpid()` in `script_exec()` was chosen over
@@ -259,8 +262,8 @@ separately-riskier change than this issue warrants.
   build break from this environment's newer libselinux) succeeds,
   including the real `racoon` and `racoonctl` binaries with `privsep.o`
   linked in.
-- **Not performed, and why:** live reproduction of the original F2
-  observation (`systemctl stop racoon` against a real established
+- **Not performed in-sandbox, and why:** live reproduction of the original
+  F2 observation (`systemctl stop racoon` against a real established
   tunnel, checking for leftover interface/routes/SPD) as this document's
   own verification section calls for. This session's container has no
   `systemd`, and more fundamentally lacks a `PF_KEY`/XFRM-capable
@@ -271,11 +274,72 @@ separately-riskier change than this issue warrants.
   Phase 1 SA at all, with or without this fix. The two new unit tests
   above exercise the actual fixed functions with real `fork()`/`execve()`/
   signal delivery, which is the closest live verification achievable in
-  this environment; the originally-filed F2 reproducer
-  (`doc/dev/daemon-issues.md`'s own "Reproducer" section above) remains
-  the right next step on a host with a working `PF_KEY`/XFRM stack and,
-  ideally, systemd, and should be run before this fix is considered fully
-  closed out operationally.
+  this environment.
+
+**Live verification (non-privsep path), on a real Arch Linux host.**
+A real `systemctl stop racoon` against an established tunnel (no privsep
+configured) confirmed the fix: `journalctl` showed the full
+`SCRIPT_PHASE1_DOWN` teardown (all 16 steps of the down hook) completing
+*before* racoon logged its own shutdown, where previously the process
+would have exited first. The log's remaining oddities (garbled/duplicated
+lines, one `authtype mismatched` warning) are Issue 2/3 (buffering and
+log-noise, below), not a regression from this fix.
+
+**Live verification (privsep path) found and fixed a second regression.**
+Testing `privsep_sigterm_forward()` itself required an actual privsep
+setup (`privsep { user ...; group ...; }` plus `path certificate`/
+`path script` in `racoon.conf` — privsep is config-only, there is no
+`-u`/`-g` CLI flag; see `privsep_init()`'s own precondition check). Live
+testing with a real `ENABLE_HYBRID` mode-config connection (this
+project's split-DNS roadwarrior client, `phase1-up.sh` succeeding
+normally) hit `privsep_script_exec: too many args` (`privsep.c`) on the
+`SCRIPT_PHASE1_DOWN` call at shutdown — the down hook silently failed to
+run, and the privileged process exited right after, reproducing this
+issue's original symptom through a brand new mechanism introduced by this
+very fix. Root cause: `RACOON_SCRIPT_WAIT` was carried as an extra `envp`
+entry, which is marshaled into privsep's fixed, `PRIVSEP_NBUF_MAX`-slot
+(24) wire buffer alongside every other env var `script_hook()`/
+`isakmp_cfg_setenv()` sets (`LOCAL_ADDR`, `REMOTE_*`, `IKE_COOKIE`,
+`INTERNAL_*`, `SPLIT_INCLUDE`/`SPLIT_LOCAL`,
+`INTERNAL_SPLITDNS_DOMAINS`, ...). A real split-DNS mode-config connection
+already sits within one slot of that budget; `RACOON_SCRIPT_WAIT` was the
+one entry too many. This document's original PR description reasoned
+that `envp` was "already generically marshaled" and so safer to extend
+than `privsep_com_msg`'s hand-counted layout — that reasoning was wrong:
+`envp` entries consume the exact same fixed budget once handed to
+`privsep_script_exec()`.
+
+Auditing the receiving side while tracking this down also turned up a
+second, independent bug in the same function: the boundary check for
+"too many args" incremented past the void-terminator slot *before*
+comparing against `PRIVSEP_NBUF_MAX`, so a message whose terminator
+legitimately landed in the very last slot was indistinguishable from a
+genuine overflow and was rejected outright — and any such rejection in
+this dispatch loop, not just `PRIVSEP_SCRIPT_EXEC`'s, takes the whole
+privileged process down via `goto out` → `_exit(0)`, not just the one
+request. This was reachable independently of `RACOON_SCRIPT_WAIT`, by any
+sufficiently large mode-config env set.
+
+**Fix.** `RACOON_SCRIPT_WAIT` was removed from `envp` entirely.
+`script_exec()` and `privsep_script_exec()` now take the wait decision as
+an explicit `int wait_for_exit` argument; under privsep it travels as a
+new `ac_cmd` bit, `PRIVSEP_SCRIPT_EXEC_WAIT` (`privsep.h`), matching the
+existing `ADMIN_FLAG_VERSION`/`ADMIN_FLAG_LONG_REPLY` bit-flag pattern
+(`admin.h`) already used on this same wire struct — zero `envp`/wire
+footprint, so it can never again contend with a config's own env vars for
+that budget. The receiver's boundary check was also corrected to compare
+before accounting for the void slot, not after, so a terminator in the
+last valid slot is accepted as the legitimate case it is. `make check`
+(38/38, including both `test_script_exec_wait.c`, updated for the new
+explicit-argument signature, and `test_privsep_sigterm_forward.c`) and a
+full rebuild both pass with this fix in place. The corrected boundary
+logic itself was verified by manual proof (documented in the code
+comment) rather than an automated test — extracting privsep's inline
+receive loop into a separately unit-testable function was judged a
+larger, separately-riskier refactor of privilege-separation IPC than this
+fix warrants; re-running the same live privsep/split-DNS reproduction
+that caught this is the recommended way to confirm it end-to-end on real
+hardware.
 
 The hooks themselves still also treat any residual delay defensively:
 state left over from an interrupted teardown is retried by the next
