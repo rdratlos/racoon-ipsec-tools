@@ -247,6 +247,29 @@ test_hmac_one_dispatch(void)
 	return 0;
 }
 
+/*
+ * alg_oakley_hmacdef_doi() (type->doi for oakley_hmacdef[]) had no direct
+ * coverage: test_hmac_one_dispatch() above only exercises the doi->struct
+ * lookup (alg_oakley_hmacdef()) via alg_oakley_hmacdef_one(), never the
+ * type->doi direction. oakley_hmacdef[]'s rows reuse the plain hash algtype
+ * (algtype_md5, not a separate "hmac" enumerator) as their type field.
+ */
+static int
+test_oakley_hmacdef_doi_roundtrip(void)
+{
+	TEST_START("alg_oakley_hmacdef_doi() type->doi round-trip");
+
+	if (alg_oakley_hmacdef_doi(algtype_md5) != OAKLEY_ATTR_HASH_ALG_MD5)
+		TEST_FAIL("hmac_md5 type->doi mismatch");
+	if (alg_oakley_hmacdef_doi(algtype_sha1) != OAKLEY_ATTR_HASH_ALG_SHA)
+		TEST_FAIL("hmac_sha1 type->doi mismatch");
+	if (alg_oakley_hmacdef_doi(9999) != -1)
+		TEST_FAIL("unknown hmac type did not return -1");
+
+	TEST_PASS();
+	return 0;
+}
+
 struct enc_case {
 	const char *name;
 	int doi;
@@ -337,6 +360,136 @@ test_enc_encrypt_decrypt_dispatch(void)
 
 	if (rc != 0)
 		TEST_FAIL("AES round-trip via dispatch did not recover plaintext");
+
+	TEST_PASS();
+	return 0;
+}
+
+struct ipsec_enc_case {
+	const char *label;
+	int doi;
+	int type;
+};
+
+/* Same doi/type pairing style as enc_cases above, but for ipsec_encdef[]
+ * (Phase 2 / IPsec DOI values, IPSECDOI_ESP_*) rather than oakley_encdef[]
+ * (Phase 1 / OAKLEY_ATTR_ENC_ALG_*) -- a distinct table in algorithm.c that
+ * alg_oakley_encdef_doi()'s own coverage says nothing about, since the two
+ * tables use unrelated DOI numbering (e.g. IPSECDOI_ESP_AES == 12, not
+ * OAKLEY_ATTR_ENC_ALG_AES's value).
+ */
+static const struct ipsec_enc_case ipsec_enc_cases[] = {
+	{ "des",	IPSECDOI_ESP_DES,	algtype_des },
+	{ "3des",	IPSECDOI_ESP_3DES,	algtype_3des },
+	{ "blowfish",	IPSECDOI_ESP_BLOWFISH,	algtype_blowfish },
+	{ "aes",	IPSECDOI_ESP_AES,	algtype_aes },
+};
+
+static int
+test_ipsec_enc_table_roundtrip(void)
+{
+	size_t i;
+
+	TEST_START("ipsec_encdef[] round-trips for des/3des/blowfish/aes");
+
+	for (i = 0; i < sizeof(ipsec_enc_cases) / sizeof(ipsec_enc_cases[0]); i++) {
+		const struct ipsec_enc_case *c = &ipsec_enc_cases[i];
+
+		if (alg_ipsec_encdef_doi(c->type) != c->doi)
+			TEST_FAIL("ipsec enc type->doi mismatch");
+	}
+	if (alg_ipsec_encdef_doi(9999) != -1)
+		TEST_FAIL("unknown ipsec enc type did not return -1");
+
+	TEST_PASS();
+	return 0;
+}
+
+/*
+ * alg_ipsec_encdef_keylen(): DES is a fixed-56-bit-key cipher -- passing
+ * len=0 ("give me the default") must report evp_keylen()'s exact answer
+ * (EVP_CIPHER_key_length(EVP_des_cbc()) << 3 == 64 bits), pinning both the
+ * doi->struct lookup and the keylen function pointer for this row. AES
+ * confirms the other, variable-length branch. 3IDEA/IDEA/RC4's rows
+ * deliberately leave keylen NULL (unimplemented, per algorithm.c's own
+ * comment on ipsec_encdef[]) -- alg_ipsec_encdef_keylen() must report that
+ * as -1, the same "unsupported" signal as an unknown DOI entirely, rather
+ * than crash dereferencing a NULL function pointer.
+ */
+static int
+test_ipsec_enc_keylen(void)
+{
+	TEST_START("alg_ipsec_encdef_keylen() DES/AES/unimplemented-row/unknown-doi");
+
+	if (alg_ipsec_encdef_keylen(IPSECDOI_ESP_DES, 0) != 64)
+		TEST_FAIL("DES default key length via ipsec table is not 64 bits");
+	if (alg_ipsec_encdef_keylen(IPSECDOI_ESP_AES, 0) != 128)
+		TEST_FAIL("AES default key length via ipsec table is not 128 bits");
+	if (alg_ipsec_encdef_keylen(IPSECDOI_ESP_IDEA, 0) != -1)
+		TEST_FAIL("IDEA (keylen unimplemented) did not return -1");
+	if (alg_ipsec_encdef_keylen(9999, 0) != -1)
+		TEST_FAIL("unknown ipsec enc doi did not return -1");
+
+	TEST_PASS();
+	return 0;
+}
+
+struct ipsec_hmac_case {
+	int doi;
+	int type;
+	int hashlen;
+};
+
+/* ipsec_hmacdef[]'s auth doi numbering (IPSECDOI_ATTR_AUTH_*) is its own
+ * table, separate from oakley_hashdef[]/oakley_hmacdef[] above. */
+static const struct ipsec_hmac_case ipsec_hmac_cases[] = {
+	{ IPSECDOI_ATTR_AUTH_HMAC_MD5,  algtype_hmac_md5,  128 },
+	{ IPSECDOI_ATTR_AUTH_HMAC_SHA1, algtype_hmac_sha1, 160 },
+	{ IPSECDOI_ATTR_AUTH_NONE,      algtype_non_auth,    0 },
+};
+
+static int
+test_ipsec_hmac_table_roundtrip(void)
+{
+	size_t i;
+
+	TEST_START("ipsec_hmacdef[] round-trips for hmac_md5/hmac_sha1/null");
+
+	for (i = 0; i < sizeof(ipsec_hmac_cases) / sizeof(ipsec_hmac_cases[0]); i++) {
+		const struct ipsec_hmac_case *c = &ipsec_hmac_cases[i];
+
+		if (alg_ipsec_hmacdef_doi(c->type) != c->doi)
+			TEST_FAIL("ipsec hmac type->doi mismatch");
+		if (alg_ipsec_hmacdef_hashlen(c->doi) != c->hashlen)
+			TEST_FAIL("ipsec hmac hashlen mismatch");
+	}
+	if (alg_ipsec_hmacdef_doi(9999) != -1)
+		TEST_FAIL("unknown ipsec hmac type did not return -1");
+	if (alg_ipsec_hmacdef_hashlen(9999) != -1)
+		TEST_FAIL("unknown ipsec hmac doi did not return -1 for hashlen");
+
+	TEST_PASS();
+	return 0;
+}
+
+/*
+ * ipsec_compdef[] (IPCOMP algorithms) is the smallest, entirely untested
+ * table in this file -- only a doi->name/type triple each, no function
+ * pointers, so alg_ipsec_compdef_doi() is the whole of its coverage.
+ */
+static int
+test_ipsec_compdef_doi(void)
+{
+	TEST_START("alg_ipsec_compdef_doi() round-trips oui/deflate/lzs");
+
+	if (alg_ipsec_compdef_doi(algtype_oui) != IPSECDOI_IPCOMP_OUI)
+		TEST_FAIL("oui type->doi mismatch");
+	if (alg_ipsec_compdef_doi(algtype_deflate) != IPSECDOI_IPCOMP_DEFLATE)
+		TEST_FAIL("deflate type->doi mismatch");
+	if (alg_ipsec_compdef_doi(algtype_lzs) != IPSECDOI_IPCOMP_LZS)
+		TEST_FAIL("lzs type->doi mismatch");
+	if (alg_ipsec_compdef_doi(9999) != -1)
+		TEST_FAIL("unknown compression type did not return -1");
 
 	TEST_PASS();
 	return 0;
@@ -453,9 +606,19 @@ main(void)
 		failed++;
 	if (test_hmac_one_dispatch() != 0)
 		failed++;
+	if (test_oakley_hmacdef_doi_roundtrip() != 0)
+		failed++;
 	if (test_enc_table_roundtrip() != 0)
 		failed++;
 	if (test_enc_encrypt_decrypt_dispatch() != 0)
+		failed++;
+	if (test_ipsec_enc_table_roundtrip() != 0)
+		failed++;
+	if (test_ipsec_enc_keylen() != 0)
+		failed++;
+	if (test_ipsec_hmac_table_roundtrip() != 0)
+		failed++;
+	if (test_ipsec_compdef_doi() != 0)
 		failed++;
 	if (test_keylen_bounds() != 0)
 		failed++;
