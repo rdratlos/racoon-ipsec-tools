@@ -43,12 +43,7 @@
 # include <nameser8_compat.h>
 #endif
 #include <resolv.h>
-#ifdef HAVE_LWRES_GETRRSETBYNAME
-#include <lwres/netdb.h>
-#include <lwres/lwres.h>
-#else
 #include <netdb.h>
-#endif
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -111,95 +106,6 @@ freecertinfo(ci)
 /*
  * get CERT RR by FQDN and create certinfo structure chain.
  */
-#ifdef HAVE_LWRES_GETRRSETBYNAME
-#define getrrsetbyname lwres_getrrsetbyname
-#define freerrset lwres_freerrset
-#define hstrerror lwres_hstrerror
-#endif
-#if defined(HAVE_LWRES_GETRRSETBYNAME) || defined(AHVE_GETRRSETBYNAME)
-int
-getcertsbyname(name, res)
-	char *name;
-	struct certinfo **res;
-{
-	int rdlength;
-	char *cp;
-	int type, keytag, algorithm;
-	struct certinfo head, *cur;
-	struct rrsetinfo *rr = NULL;
-	int i;
-	int error = -1;
-
-	/* initialize res */
-	*res = NULL;
-
-	memset(&head, 0, sizeof(head));
-	cur = &head;
-
-	error = getrrsetbyname(name, C_IN, T_CERT, 0, &rr);
-	if (error) {
-#ifdef DNSSEC_DEBUG
-		printf("getrrsetbyname: %s\n", hstrerror(error));
-#endif
-		h_errno = NO_RECOVERY;
-		goto end;
-	}
-
-	if (rr->rri_rdclass != C_IN
-	 || rr->rri_rdtype != T_CERT
-	 || rr->rri_nrdatas == 0) {
-#ifdef DNSSEC_DEBUG
-		printf("getrrsetbyname: %s", hstrerror(error));
-#endif
-		h_errno = NO_RECOVERY;
-		goto end;
-	}
-#ifdef DNSSEC_DEBUG
-	if (!(rr->rri_flags & LWRDATA_VALIDATED))
-		printf("rr is not valid");
-#endif
-
-	for (i = 0; i < rr->rri_nrdatas; i++) {
-		rdlength = rr->rri_rdatas[i].rdi_length;
-		cp = rr->rri_rdatas[i].rdi_data;
-
-		GETSHORT(type, cp);	/* type */
-		rdlength -= INT16SZ;
-		GETSHORT(keytag, cp);	/* key tag */
-		rdlength -= INT16SZ;
-		algorithm = *cp++;	/* algorithm */
-		rdlength -= 1;
-
-#ifdef DNSSEC_DEBUG
-		printf("type=%d keytag=%d alg=%d len=%d\n",
-			type, keytag, algorithm, rdlength);
-#endif
-
-		/* create new certinfo */
-		cur->ci_next = getnewci(type, keytag, algorithm,
-					rr->rri_flags, rdlength, cp);
-		if (!cur->ci_next) {
-#ifdef DNSSEC_DEBUG
-			printf("getnewci: %s", strerror(errno));
-#endif
-			h_errno = NO_RECOVERY;
-			goto end;
-		}
-		cur = cur->ci_next;
-	}
-
-	*res = head.ci_next;
-	error = 0;
-
-end:
-	if (rr)
-		freerrset(rr);
-	if (error && head.ci_next)
-		freecertinfo(head.ci_next);
-
-	return error;
-}
-#else	/*!HAVE_LWRES_GETRRSETBYNAME*/
 int
 getcertsbyname(name, res)
 	char *name;
@@ -263,10 +169,16 @@ getcertsbyname(name, res)
 	qdcount = ntohs(hp->qdcount);
 	ancount = ntohs(hp->ancount);
 
-	/* Check if DNS server has validated answer or not */
-	if (hp->ad == 0 && hp->aa==0) {
+	/*
+	 * Require the DNSSEC Authenticated Data (AD) bit. The
+	 * Authoritative Answer (AA) bit is not a DNSSEC validation
+	 * signal -- it only means the responder claims authority for
+	 * the zone -- and must never be accepted as a substitute proof
+	 * of DNSSEC validation.
+	 */
+	if (hp->ad == 0) {
 #ifdef DNSSEC_DEBUG
-		printf("answer is not authenticated.\n");
+		printf("answer is not DNSSEC validated.\n");
 #endif
 		h_errno = NO_RECOVERY;
 		goto end;
@@ -359,7 +271,6 @@ end:
 
 	return error;
 }
-#endif
 
 #ifdef DNSSEC_DEBUG
 int

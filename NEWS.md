@@ -159,6 +159,18 @@ on building cleanly against current OpenSSL releases and toolchains.
   calls allocated `strlen(x)` bytes without room for a NUL terminator,
   causing `strlen()` in `xauth_group_ldap()` to read one byte past the
   end of the allocated block (Valgrind: invalid read of size 1).
+- **Security:** `peers_certfile dnssec;` accepted a peer's DNS `CERT`
+  RR whenever the response had either the DNSSEC `AD` bit or the
+  plain `AA` (Authoritative Answer) bit set. `AA` is not a DNSSEC
+  signal, so a spoofed or unvalidated-but-authoritative-looking
+  response could satisfy the check, letting an attacker-controlled
+  certificate be accepted for peer authentication (CWE-290/CWE-347).
+  `getcertsbyname()` in `getcertsbyname.c` now requires the `AD` bit.
+  Also removed the RFC 2535/2538-era `getrrsetbyname()`-based code
+  path, which never compiled on any supported build (no autoconf
+  detection defines `HAVE_LWRES_GETRRSETBYNAME`, and the fallback
+  guard had a typo, `AHVE_GETRRSETBYNAME`) and so only misled readers
+  into thinking a validated path existed.
 
 ### Documentation
 
