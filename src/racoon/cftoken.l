@@ -242,6 +242,7 @@ hexstring	0x{hexdigit}+
 <S_LDAP>attr_mask	{ YYD; return(LDAP_ATTR_MASK); }
 <S_LDAP>attr_group	{ YYD; return(LDAP_ATTR_GROUP); }
 <S_LDAP>attr_member	{ YYD; return(LDAP_ATTR_MEMBER); }
+<S_LDAP>attr_device	{ YYD; return(LDAP_ATTR_DEVICE); }
 <S_LDAP>{ecl}		{ BEGIN S_INI; return(EOC); }
 
 	/* mode_cfg */

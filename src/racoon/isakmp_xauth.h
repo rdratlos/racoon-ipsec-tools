@@ -187,6 +187,7 @@ struct xauth_ldap_config {
 	vchar_t		*attr_mask;
 	vchar_t		*attr_group;
 	vchar_t		*attr_member;
+	vchar_t		*attr_device;
 };
 
 extern struct xauth_ldap_config xauth_ldap_config;
