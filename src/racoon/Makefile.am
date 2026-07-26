@@ -176,6 +176,18 @@ rijndael-alg-fst.o: $(srcdir)/missing/crypto/rijndael/rijndael-alg-fst.c
 sha2.o: $(srcdir)/missing/crypto/sha2/sha2.c
 	$(COMPILE) -c $(srcdir)/missing/crypto/sha2/$*.c
 
+# vmbuf.o, sockmisc.o and misc.o are compiled twice: once via
+# libracoon_la_SOURCES (libtool objects, automatically tracked and
+# cleaned as libracoon_la-{vmbuf,sockmisc,misc}.Plo), and once as plain
+# objects because racoon/plainrsa-gen/eaytest link them directly via
+# LDADD instead of through libracoon.la. Automake only recognizes
+# dependency files for objects derived from a *_SOURCES variable, so
+# the plain objects' .Po files -- created as a side effect of the
+# generic .c.o: rule satisfying those LDADD references -- are outside
+# its automatic distclean bookkeeping and survive `make distclean`
+# unless listed here explicitly.
+DISTCLEANFILES = $(DEPDIR)/vmbuf.Po $(DEPDIR)/sockmisc.Po $(DEPDIR)/misc.Po
+
 MAINTAINERCLEANFILES = \
     cftoken.c \
     cfparse.c \
