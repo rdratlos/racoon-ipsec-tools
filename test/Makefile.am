@@ -633,8 +633,21 @@ TESTS = $(check_PROGRAMS) $(CERT_FRAMEWORK_TESTS)
 AM_TESTS_ENVIRONMENT = X509_FIXTURE_SRCDIR='$(abs_srcdir)'; export X509_FIXTURE_SRCDIR;
 
 # Extra files to distribute
-EXTRA_DIST = README.md valgrind.supp cert-framework unit/cert-framework \
-	gen-x509-fixtures.sh
+#
+# unit/cert-framework is itemized (not dist-shipped as a bare directory)
+# because 'make dist' copies EXTRA_DIST directories verbatim from the
+# working tree, .gitignore or not. Running the cert-framework tests
+# in-tree drops test_*.sh.log/.trs right next to the scripts (see
+# .gitignore); a bare directory reference would sweep those stray,
+# already-generated logs into the tarball. Under distcheck's VPATH
+# sub-build, a pre-existing .log found via VPATH is treated as already
+# up to date and its recipe never runs, so its directory never gets
+# created in the build tree -- and the test-suite.log aggregation step
+# then fails to find it there.
+EXTRA_DIST = README.md valgrind.supp cert-framework gen-x509-fixtures.sh \
+	$(CERT_FRAMEWORK_TESTS) \
+	unit/cert-framework/test_helper.sh \
+	unit/cert-framework/run_tests.sh
 
 # Clean generated files
 CLEANFILES = *.log *.trs
