@@ -96,7 +96,8 @@ noinst_HEADERS = \
 	missing/crypto/sha2/sha2.h missing/crypto/rijndael/rijndael_local.h \
 	missing/crypto/rijndael/rijndael-api-fst.h \
 	missing/crypto/rijndael/rijndael-alg-fst.h \
-	missing/crypto/rijndael/rijndael.h
+	missing/crypto/rijndael/rijndael.h \
+	missing/strlcpy.h missing/strlcat.h
 
 man5_MANS = racoon.conf.5
 man8_MANS = racoon.8 racoonctl.8 plainrsa-gen.8
