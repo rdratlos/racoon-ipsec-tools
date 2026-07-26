@@ -30,6 +30,12 @@
  *    isakmp_cfg.c (LDAP/PAM/RADIUS/Kerberos backends). script_hook()'s
  *    REMOTE_ID leak is independent of mode-cfg env vars, so the stub is a
  *    no-op that appends nothing.
+ *
+ * script_hook() also now reads racoon_shutting_down (session.c, added for
+ * daemon-issues.md Issue 1) to decide whether to tag envp with
+ * RACOON_SCRIPT_WAIT; this test doesn't link session.o, so the symbol is
+ * stubbed at 0 below -- the REMOTE_ID leak under test here is independent
+ * of that flag either way.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -58,6 +64,9 @@
  * time. Mirrors remoteconf.c's definition. */
 char *script_names[SCRIPT_MAX + 1] = {
 	"phase1_up", "phase1_down", "phase1_dead" };
+
+/* Mirrors session.c's definition; see the file comment above. */
+int racoon_shutting_down = 0;
 
 /* Set by the test before calling script_hook() to pick which behaviour of
  * the real ipsecdoi_id2str() to simulate. */

@@ -41,6 +41,15 @@
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <sys/queue.h>
+#if HAVE_SYS_WAIT_H
+# include <sys/wait.h>
+#endif
+#ifndef WEXITSTATUS
+# define WEXITSTATUS(s)	((unsigned)(s) >> 8)
+#endif
+#ifndef WIFEXITED
+# define WIFEXITED(s)	(((s) & 255) == 0)
+#endif
 
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -3107,6 +3116,28 @@ frag_handler(iph1, msg, remote, local)
 }
 #endif
 
+/*
+ * Internal-only envp signal from script_hook() to script_exec(), asking
+ * it to wait (bounded) for this specific hook invocation -- see the
+ * comment on its use in script_hook() below. Not a hook-facing API: never
+ * documented for hook scripts, and stripped by script_exec() before
+ * execve() so it never reaches one.
+ */
+#define RACOON_SCRIPT_WAIT_ENV "RACOON_SCRIPT_WAIT"
+
+/* How long script_exec() waits for a RACOON_SCRIPT_WAIT-flagged hook to
+ * exit before giving up and continuing shutdown anyway (daemon-issues.md
+ * Issue 1). 3s is comfortably above what the shipped hook scripts need
+ * for their normal work (resolving SCRIPT_DIR, sourcing racoon-hook-lib.sh,
+ * a handful of ip/resolvectl/setkey invocations -- sub-second in
+ * practice) while staying well under systemd's default 90s
+ * TimeoutStopSec, including with several concurrent Phase 1 SAs each
+ * paying this bound serially in flushph1()'s teardown loop (handler.c).
+ * Polled at 50ms resolution: fine enough that a fast hook's exit is
+ * observed promptly, coarse enough not to busy-loop. */
+#define SCRIPT_DOWN_WAIT_MAX_MS  3000
+#define SCRIPT_DOWN_WAIT_POLL_MS 50
+
 void
 script_hook(iph1, script)
 	struct ph1handle *iph1;
@@ -3195,6 +3226,37 @@ script_hook(iph1, script)
 		goto out;
 	}
 
+	/*
+	 * daemon-issues.md Issue 1 (F2): close_session()'s shutdown path
+	 * (session.c) never waited for this hook's forked child before
+	 * proceeding to exit(0), routinely outracing a SCRIPT_PHASE1_DOWN
+	 * hook and leaving its routes/DNS/SPD state behind. Ask
+	 * script_exec() (below, and under privsep the privileged process's
+	 * PRIVSEP_SCRIPT_EXEC handler -- privsep.c) to wait, bounded, for
+	 * this specific invocation to finish -- but only when we are
+	 * actually shutting down. SCRIPT_PHASE1_DOWN also fires from
+	 * ordinary per-connection teardown (peer-initiated delete, DPD
+	 * timeout, rekey failure -- see delph1()'s callers, handler.c),
+	 * which must stay fire-and-forget: blocking the single-threaded
+	 * main loop on every routine disconnect would newly expose it to
+	 * being stalled by a slow or adversarial peer, not just by a slow
+	 * hook at shutdown. This flag carries the decision across the
+	 * envp channel (already generically marshaled through privsep's
+	 * IPC, privsep.c) rather than privsep_com_msg's fixed, manually
+	 * counted wire layout, deliberately, to avoid touching that
+	 * bounds-checked struct for a build-local decision. script_exec()
+	 * strips it before execve() so it is never visible to the hook
+	 * script itself.
+	 */
+	if (racoon_shutting_down && script == SCRIPT_PHASE1_DOWN) {
+		if (script_env_append(&envp, &envc,
+		    RACOON_SCRIPT_WAIT_ENV, "1") != 0) {
+			plog(LLV_ERROR, LOCATION, NULL,
+			    "Cannot set %s\n", RACOON_SCRIPT_WAIT_ENV);
+			goto out;
+		}
+	}
+
 	if (privsep_script_exec(iph1->rmconf->script[script]->v,
 	    script, envp) != 0)
 		plog(LLV_ERROR, LOCATION, NULL,
@@ -3245,6 +3307,66 @@ script_env_append(envp, envc, name, value)
 	return 0;
 }
 
+/*
+ * Bounded, WNOHANG-polling wait for a hook child script_hook() has asked
+ * us (via RACOON_SCRIPT_WAIT) to wait for. Deliberately not a plain
+ * blocking waitpid(pid, &status, 0): this project's SIGCHLD handling
+ * (session.c's signal_handler()/check_sigreq()) only reaps children from
+ * a deferred flag, dispatched synchronously from the single-threaded
+ * main loop's check_sigreq() -- never from within a signal handler
+ * itself, which only sets sigreq[SIGCHLD] = 1 -- so this targeted,
+ * WNOHANG-polled waitpid(pid, ...) can never run concurrently with that
+ * generic "case SIGCHLD: waitpid(-1, &s, WNOHANG)" reaper; the two are
+ * never on the call stack at the same time. Per POSIX (waitpid(),
+ * IEEE Std 1003.1-2017 XBD 3.1), once either call reaps a given pid, a
+ * later waitpid() for that same pid returns -1/ECHILD, which this loop
+ * treats as "nothing left to wait for" and returns -- it does not
+ * distinguish that from a genuinely unknown pid, since either way there
+ * is nothing more to do here.
+ *
+ * Uses nanosleep()/struct timespec (POSIX.1-2001 base, <time.h>, already
+ * included above) rather than usleep() (marked obsolete by POSIX.1-2008)
+ * for the poll interval.
+ */
+static void
+script_wait_down(pid, name)
+	pid_t pid;
+	const char *name;
+{
+	struct timespec req;
+	int elapsed_ms = 0;
+	int status;
+	pid_t ret;
+
+	for (;;) {
+		ret = waitpid(pid, &status, WNOHANG);
+		if (ret == pid) {
+			if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+				plog(LLV_WARNING, LOCATION, NULL,
+				    "%s script (pid %d) exited with status %d\n",
+				    name, (int)pid, WEXITSTATUS(status));
+			return;
+		}
+		if (ret == -1)
+			return; /* reaped elsewhere, or no such child */
+
+		if (elapsed_ms >= SCRIPT_DOWN_WAIT_MAX_MS) {
+			plog(LLV_WARNING, LOCATION, NULL,
+			    "%s script (pid %d) did not finish within "
+			    "%d ms; continuing shutdown without waiting "
+			    "further\n",
+			    name, (int)pid, SCRIPT_DOWN_WAIT_MAX_MS);
+			return;
+		}
+
+		req.tv_sec = SCRIPT_DOWN_WAIT_POLL_MS / 1000;
+		req.tv_nsec = (SCRIPT_DOWN_WAIT_POLL_MS % 1000) * 1000000L;
+		while (nanosleep(&req, &req) == -1 && errno == EINTR)
+			; /* resume with the remaining interval */
+		elapsed_ms += SCRIPT_DOWN_WAIT_POLL_MS;
+	}
+}
+
 int
 script_exec(script, name, envp)
 	char *script;
@@ -3252,14 +3374,46 @@ script_exec(script, name, envp)
 	char *const envp[];
 {
 	char *argv[] = { NULL, NULL, NULL };
+	char **filtered_envp;
+	char *const *src;
+	char **dst;
+	int wait_for_exit = 0;
+	int envc = 0;
+	pid_t pid;
+	size_t waitenv_len = strlen(RACOON_SCRIPT_WAIT_ENV) + 1; /* +1 for '=' */
 
 	argv[0] = script;
 	argv[1] = script_names[name];
 	argv[2] = NULL;
 
-	switch (fork()) {
+	/*
+	 * Strip RACOON_SCRIPT_WAIT (if present) out of what actually reaches
+	 * execve() -- it is an internal signal to this function, not part
+	 * of any hook script's documented environment. See the comment on
+	 * RACOON_SCRIPT_WAIT_ENV above script_hook().
+	 */
+	for (src = envp; *src; src++)
+		envc++;
+
+	if ((filtered_envp = racoon_malloc((envc + 1) * sizeof(char *))) == NULL) {
+		plog(LLV_ERROR, LOCATION, NULL,
+		    "Cannot allocate memory: %s\n", strerror(errno));
+		return -1;
+	}
+
+	dst = filtered_envp;
+	for (src = envp; *src; src++) {
+		if (strncmp(*src, RACOON_SCRIPT_WAIT_ENV "=", waitenv_len) == 0) {
+			wait_for_exit = 1;
+			continue;
+		}
+		*dst++ = *src;
+	}
+	*dst = NULL;
+
+	switch (pid = fork()) {
 	case 0:
-		execve(argv[0], argv, envp);
+		execve(argv[0], argv, filtered_envp);
 		plog(LLV_ERROR, LOCATION, NULL,
 		    "execve(\"%s\") failed: %s\n",
 		    argv[0], strerror(errno));
@@ -3268,11 +3422,15 @@ script_exec(script, name, envp)
 	case -1:
 		plog(LLV_ERROR, LOCATION, NULL,
 		    "Cannot fork: %s\n", strerror(errno));
+		racoon_free(filtered_envp);
 		return -1;
 		break;
 	default:
+		if (wait_for_exit)
+			script_wait_down(pid, argv[1]);
 		break;
 	}
+	racoon_free(filtered_envp);
 	return 0;
 
 }

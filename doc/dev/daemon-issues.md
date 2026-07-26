@@ -114,18 +114,174 @@ sudo kill -TERM "$RACOON_PID"
 # specific to systemd's cgroup kill -- narrows the fix to isakmp.c.
 ```
 
-**Why not fixed here.** Any real fix (e.g. a bounded `waitpid()` with
-timeout in `script_exec()` for the `SCRIPT_PHASE1_DOWN`/`SCRIPT_PHASE1_DEAD`
-cases specifically, not the fire-and-forget `SCRIPT_PHASE1_UP` case where
-blocking the daemon's main loop is not acceptable; or shipping
-`KillMode=mixed` plus a `TimeoutStopSec` generous enough for the hook to
-finish in the unit file) is a behavior change to the daemon's shutdown path
-or its packaging, both out of scope for brief 3 §G, which is filing-only.
-The hooks themselves already treat this defensively: state left over from
-an interrupted teardown is retried by the next `phase1-up.sh`/
-`phase1-down.sh` invocation rather than lost (brief 3 §D's generation
-scheme), so this issue causes stale-but-recoverable state, not silent data
-loss — see `doc/admin/split-dns.html` §6.
+**Status: resolved** — fixed in `src/racoon/isakmp.c` (`script_exec()`,
+`script_hook()`), `src/racoon/session.c`/`session.h`
+(`racoon_shutting_down`), and `src/racoon/privsep.c`
+(`privsep_sigterm_forward()`).
+
+**Decision.** Of the two directions this document originally scoped, a
+bounded `waitpid()` in `script_exec()` was chosen over
+`KillMode=mixed`/`TimeoutStopSec` at the systemd-unit level, for two
+reasons found while implementing it:
+
+1. **Portability.** This project targets NetBSD as well as Linux, and
+   NetBSD has no systemd. A C-level fix protects both `systemctl stop`
+   and a bare `kill <pid>` (or NetBSD's `rc.d` equivalent) identically,
+   with no per-init-system unit-file logic and no NetBSD-specific gap to
+   document.
+2. **It is not actually a choice between exactly the two original
+   options.** Tracing every call site into daemon shutdown (per this
+   document's own standing instruction) surfaced that `privsep` changes
+   *which fix is needed*, not just *which process runs the hook*: see
+   the privsep finding below. `KillMode=mixed` alone would not have
+   addressed it, since the underlying problem there is the privileged
+   process's own signal disposition, not process-group cleanup timing.
+
+**The fix, and why it is scoped the way it is.**
+
+`script_exec()` now does a bounded, `WNOHANG`-polling `waitpid()` (3000ms,
+polled every 50ms) on the hook it just forked, but *only* when asked to
+via a new internal-only `RACOON_SCRIPT_WAIT` entry in the `envp` it
+receives — not unconditionally for every `SCRIPT_PHASE1_DOWN`/
+`SCRIPT_PHASE1_DEAD` invocation as this document's own two proposed
+directions originally implied. Tracing `delph1()`'s callers
+(`src/racoon/handler.c`, `isakmp.c`, `isakmp_inf.c`, `isakmp_xauth.c`,
+`isakmp_cfg.c`) showed `SCRIPT_PHASE1_DOWN` also fires from ordinary,
+frequent, *non-shutdown* events: peer-initiated deletes, negotiation
+errors, xauth failures. Likewise, all three `SCRIPT_PHASE1_DEAD` call
+sites (`isakmp_ph1resend()`'s retry-exhaustion path, `isakmp_ph1delete()`'s
+SA-expiry path, and DPD timeout in `isakmp_inf.c`) fire during normal
+operation, on a scheduler callback, never from `close_session()`.
+Blocking the single-threaded main loop for up to 3s on *every* such event
+— not just at shutdown — would have traded a shutdown-only bug for a
+standing, adversary-triggerable latency/DoS-adjacent regression affecting
+every other concurrent negotiation each time a peer disconnects, times
+out, or fails DPD. That would have been a worse fix than the bug it
+closes, per this project's own standing rule for this kind of change.
+
+So: `close_session()` (`session.c`) sets a new flag, `racoon_shutting_down`
+(`session.h`), before it calls `flushph1()` — the *only* place this
+document's own root-cause tracing found that genuinely means "the daemon
+is exiting." `script_hook()` (`isakmp.c`) only asks `script_exec()` to
+wait when `racoon_shutting_down` is set **and** the script is
+`SCRIPT_PHASE1_DOWN` (not `SCRIPT_PHASE1_DEAD`, which per the above never
+fires from shutdown at all in the current tree). `SCRIPT_PHASE1_UP` was
+never a candidate, per this document's own original note: blocking the
+main loop on it mid-negotiation is not acceptable, and remains
+fire-and-forget.
+
+The `RACOON_SCRIPT_WAIT` decision travels through the *existing*, already
+variable-length, already-marshaled `envp` channel — including across
+`privsep`'s IPC when privsep is active — rather than through
+`privsep_com_msg`'s fixed-size, manually-counted wire struct. Threading a
+new field through that struct's hand-counted `PRIVSEP_NBUF_MAX` buffer
+indices was judged a materially riskier change to a security boundary
+(privilege-separation IPC) than the shutdown race it would help fix more
+"cleanly," so it was deliberately avoided; see the comments on
+`RACOON_SCRIPT_WAIT_ENV` and in `script_exec()` (`isakmp.c`) for the
+detailed reasoning. `script_exec()` strips the entry before `execve()`,
+so it is never visible to the hook script's own environment.
+
+**The privsep finding.** This document's own standing instruction —
+confirm privsep's effect on each issue rather than assuming it is
+irrelevant — surfaced a second, more severe bug than the one originally
+filed. Under `privsep`, `privsep_init()` (`privsep.c`) forks before the
+main loop starts; the *parent* (which keeps the original pid, and is
+therefore the pid systemd's `Type=simple` unit tracks as `$MAINPID`)
+becomes the privileged process, and only it can ever actually
+`fork()`+`execve()` a hook — `script_exec()` in the unprivileged child's
+own address space is never reached; the child instead sends a
+`PRIVSEP_SCRIPT_EXEC` IPC request and blocks for a reply. Before this
+fix, the privileged process left `SIGTERM`/`SIGINT` at their default
+disposition (`signal(SIGTERM, SIG_DFL)` — immediate termination, no
+handler). A `systemctl stop racoon` (or any `kill <pid>` naming
+`$MAINPID`) therefore killed the privileged process **on the spot**,
+before the child's request for `SCRIPT_PHASE1_DOWN` could ever arrive
+over `privsep_sock`. Under privsep, the down hook was not merely raced by
+a fast `exit(0)` as originally filed — it was **never attempted at all**.
+
+The fix: `privsep_init()` now installs `privsep_sigterm_forward()` for
+`SIGINT`/`SIGTERM` in the privileged process instead of `SIG_DFL`. The
+handler forwards the signal to the recorded child pid via `kill()`
+(async-signal-safe per POSIX.1-2008 §2.4.3) and returns; the privileged
+process's existing `privsep_recv()` loop is untouched and keeps running
+exactly as before (it already tolerates `EINTR`), now naturally servicing
+the child's now-bounded-wait `SCRIPT_EXEC` request before the child exits
+and the parent's own pre-existing `EOF → _exit(0)` path takes over. Also
+changed: `PRIVSEP_SCRIPT_EXEC`'s handler in `privsep.c`'s dispatch loop
+now calls the same `script_exec()` (unchanged from the non-privsep case)
+so the wait applies identically whether or not privsep is active.
+`SIGHUP`/`SIGUSR1`/`SIGUSR2` are deliberately left at `SIG_DFL` in the
+privileged process — config reload is a separate, unfiled concern (this
+process has no config to reload) and touching it was out of scope here.
+
+**`/* UNVERIFIED: */`.** None left as unverified reasoning — every claim
+above about `fork()`/`waitpid()`/signal semantics is either cited against
+POSIX directly (see the code comments on `script_wait_down()` and
+`privsep_sigterm_forward()`) or confirmed by the live tests below. What
+*is* an accepted, documented limitation rather than something unverified:
+serial shutdown latency. `flushph1()` iterates every live Phase 1 SA and
+calls `delph1()` for each; with several concurrent SAs at shutdown, each
+one's down hook is waited on serially, so worst-case shutdown time scales
+with the SA count (bounded per-hook at 3s). This stays comfortably under
+systemd's default 90s `TimeoutStopSec` for any realistic SA count, but
+was not re-engineered to wait in parallel — that would be a larger,
+separately-riskier change than this issue warrants.
+
+**Verification performed.**
+
+- `test/test_script_exec_wait.c` (new `check_PROGRAMS` unit test):
+  drives `script_exec()` directly with real `fork()`+`execve()` of small
+  throwaway shell scripts (not mocked) and asserts, with real wall-clock
+  timing: (1) no `RACOON_SCRIPT_WAIT` ⇒ returns immediately, unchanged
+  fire-and-forget behavior; (2) `RACOON_SCRIPT_WAIT=1` ⇒ blocks until the
+  script actually finishes; (3) the sentinel never reaches the script's
+  own `execve()` environment; (4) a script that outlives the 3000ms bound
+  does not hang `script_exec()` forever — it gives up on schedule, and
+  the test itself reaps the still-running script afterward so it does
+  not leak past the test.
+- `test/test_privsep_sigterm_forward.c` (new `check_PROGRAMS` unit
+  test): drives the actual, compiled `privsep_sigterm_forward()` against
+  a real forked child and a real kernel-delivered `SIGTERM` (not
+  simulated), confirming the child receives it and confirming the
+  function is a safe no-op with no child pid recorded.
+- Both new tests were confirmed to **fail** with their respective fix
+  reverted (temporarily, for verification only) and **pass** with it
+  restored, confirming they exercise the fixed code paths rather than
+  trivially passing.
+- `make check`: 37/37 pass (up from 35 — the two new tests), no
+  regressions in the existing suite, including `test_script_hook_leak`
+  (which also compiles `script_hook()` and needed a
+  `racoon_shutting_down` stub, added to its existing stub file).
+- Full build (`autoreconf -fi`; `./configure --enable-security-context=no`
+  to work around an unrelated, pre-existing deprecated-`security_context_t`
+  build break from this environment's newer libselinux) succeeds,
+  including the real `racoon` and `racoonctl` binaries with `privsep.o`
+  linked in.
+- **Not performed, and why:** live reproduction of the original F2
+  observation (`systemctl stop racoon` against a real established
+  tunnel, checking for leftover interface/routes/SPD) as this document's
+  own verification section calls for. This session's container has no
+  `systemd`, and more fundamentally lacks a `PF_KEY`/XFRM-capable
+  kernel (`/proc/net/pfkey` does not exist, and no `modprobe` is
+  available to load `af_key`); `racoon`'s own `pfkey_init()`
+  (`session.c`) — which runs before `privsep_init()` — fails immediately
+  on this host, so `racoon` cannot be started far enough to reach a live
+  Phase 1 SA at all, with or without this fix. The two new unit tests
+  above exercise the actual fixed functions with real `fork()`/`execve()`/
+  signal delivery, which is the closest live verification achievable in
+  this environment; the originally-filed F2 reproducer
+  (`doc/dev/daemon-issues.md`'s own "Reproducer" section above) remains
+  the right next step on a host with a working `PF_KEY`/XFRM stack and,
+  ideally, systemd, and should be run before this fix is considered fully
+  closed out operationally.
+
+The hooks themselves still also treat any residual delay defensively:
+state left over from an interrupted teardown is retried by the next
+`phase1-up.sh`/`phase1-down.sh` invocation rather than lost (brief 3
+§D's generation scheme) — see `doc/admin/split-dns.html` §6. That
+safety net is unchanged by this fix and remains in place as defense in
+depth, not as a substitute for it.
 
 ---
 

@@ -357,10 +357,18 @@ session(void)
 	}
 }
 
+int racoon_shutting_down = 0;
+
 /* clear all status and exit program. */
 static void
 close_session()
 {
+	/*
+	 * Must be set before flushph1() below fires any SCRIPT_PHASE1_DOWN
+	 * hooks -- see the comment on this flag in session.h.
+	 */
+	racoon_shutting_down = 1;
+
 	evt_generic(EVT_RACOON_QUIT, NULL);
 	pfkey_send_flush(lcconf->sock_pfkey, SADB_SATYPE_UNSPEC);
 	flushph2();
