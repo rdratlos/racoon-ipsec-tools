@@ -38,7 +38,7 @@ noinst_HEADERS = ipsec_strerror.h
 #test_policy_priority_SOURCES = test-policy-priority.c
 #test_policy_priority_LDFLAGS = libipsec.la
 
-EXTRA_DIST = ${man3_MANS} test-policy.c
+EXTRA_DIST = ${man3_MANS}
 
 MAINTAINERCLEANFILES = \
     policy_token.c \

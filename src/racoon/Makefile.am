@@ -115,8 +115,7 @@ EXTRA_DIST = \
    samples/roadwarrior/client/phase1-down.sh \
    samples/roadwarrior/client/phase1-up.sh \
    samples/roadwarrior/client/racoon.conf \
-   samples/roadwarrior/server/racoon.conf \
-   samples/roadwarrior/server/racoon.conf-radius
+   samples/roadwarrior/server/racoon.conf
 
 TESTS = eaytest
 
