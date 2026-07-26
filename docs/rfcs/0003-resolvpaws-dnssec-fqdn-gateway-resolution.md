@@ -15,6 +15,34 @@ Approved
 
 ## Revision notes
 
+**v4** — folds peer-identity CERT RR resolution (`dnssec.c`'s
+`dnssec_getcert()`, backing the `peers_certfile dnssec;` directive) into
+this RFC as a second, first-class consumer of `resolvpaws_backend`,
+superseding v3's "candidate for a future RFC 0004" deferral in Non-goals
+and Open questions. This was prompted by
+[issue #98](https://github.com/rdratlos/racoon-ipsec-tools/issues/98),
+which found that the code path actually compiled today accepted a peer's
+CERT RR whenever either the DNSSEC `AD` bit or the plain `AA`
+(Authoritative Answer) bit was set — `AA` is not a DNSSEC signal, so an
+attacker able to spoof or coerce a DNS response could get an
+unauthenticated certificate accepted for peer authentication
+(CWE-290/CWE-347). A minimal, narrowly-scoped fix (require `AD`, drop the
+`AA` fallback; remove the dead RFC 2535-era `getrrsetbyname()` branch,
+which never compiled under this project's build system — no autoconf
+detection anywhere defines `HAVE_LWRES_GETRRSETBYNAME`, and its `#else`
+guard had a typo, `AHVE_GETRRSETBYNAME`) has already landed directly
+against `main` as an immediate mitigation. This revision addresses the
+root cause: `getcertsbyname()` is built on `getrrsetbyname()`/
+`lwres_getrrsetbyname()`, a BIND8/RFC-2535-era API with no access to a
+validating resolver's already-computed chain-of-trust state, duplicating
+— and, as #98 showed, doing more weakly — validation logic that
+`resolvpaws_backend` already implements correctly for gateway-address
+resolution. Rather than maintain two DNSSEC validation paths with two
+different (and now provably divergent) strength guarantees, this RFC
+folds CERT RR resolution onto the same backend and retires
+`getcertsbyname.c` outright once the migration lands. No RFC 0004 is
+created; this is that follow-up, not a new proposal.
+
 **v3** — merges the non-blocking async resolution model with the
 tri-state config and trust-anchor decisions from prior review round
 **v2** (an independently produced proposal, reviewed and merged here)
@@ -79,11 +107,20 @@ new spoofing surface: an attacker able to inject a forged DNS response (or
 compromise/coerce a recursive resolver on-path) could redirect a roadwarrior
 client to an address of their choosing. Racoon already ships DNSSEC-adjacent
 code (`dnssec.c`, `getcertsbyname.c`) that fetches DNS CERT resource records
-(RFC 2538) for peer identity validation, but this is unrelated machinery: it
-does not resolve A/AAAA records, and it depends on `getrrsetbyname()` /
-`lwres_getrrsetbyname()`, an API tied to the pre-RFC 4033 (RFC 2535-era)
-KEY/SIG/CERT DNSSEC design that most modern resolvers and libraries no longer
-implement.
+(RFC 2538) for peer identity validation under the `peers_certfile dnssec;`
+directive. It does not resolve A/AAAA records, and it depends on
+`getrrsetbyname()` / `lwres_getrrsetbyname()`, an API tied to the pre-RFC 4033
+(RFC 2535-era) KEY/SIG/CERT DNSSEC design that most modern resolvers and
+libraries no longer implement — and, as
+[issue #98](https://github.com/rdratlos/racoon-ipsec-tools/issues/98) found,
+the code path that actually compiles on any supported build skipped DNSSEC
+validation entirely, accepting a plain Authoritative-Answer bit as sufficient
+proof (CWE-290/CWE-347). Rather than treat this as unrelated machinery to be
+patched in isolation, this RFC brings it onto the same `resolvpaws_backend`
+abstraction defined below for gateway-address resolution: both are "fetch a
+DNS record and refuse to trust it unless DNSSEC proves the zone operator
+authorized it," and there is no reason to keep two separately-maintained
+implementations of that rule.
 
 This RFC defines "resolvpaws" — a DNSSEC-validating hostname-resolution
 abstraction layer, named and structured after RFC 0002's "kernelpaws" — that
@@ -119,6 +156,13 @@ validation does not come back definitively secure.
 - Provide a pluggable backend interface (`resolvpaws_ops`) so a stronger or
   weaker validation strategy can be swapped in without touching call sites in
   `isakmp.c` or `cfparse.y`.
+- Migrate peer-identity CERT RR resolution (`peers_certfile dnssec;`,
+  currently `dnssec.c`'s `dnssec_getcert()` / `getcertsbyname.c`) onto
+  `resolvpaws_backend` as a second consumer of the same abstraction,
+  retiring the legacy `getrrsetbyname()`-based implementation and its
+  narrower, now-CWE-tagged validation behavior
+  ([issue #98](https://github.com/rdratlos/racoon-ipsec-tools/issues/98))
+  entirely.
 
 ## Non-goals
 
@@ -135,17 +179,13 @@ validation does not come back definitively secure.
   Racoon commonly runs privileged/chrooted, and D-Bus socket reachability
   under Racoon's privilege-drop model needs its own investigation before
   committing to it.
-- Redesigning the existing CERT-RR peer-identity DNSSEC code in `dnssec.c` /
-  `getcertsbyname.c`. That mechanism is orthogonal (peer identity, not gateway
-  address) and out of scope. It is, however, a natural follow-up once
-  `resolvpaws_backend` exists: `getrrsetbyname()` is BIND8-era and gives no
-  access to a validating resolver's already-computed validation state, so
-  `dnssec.c`/`getcertsbyname.c` doing DNSSEC-adjacent work on top of a legacy
-  API duplicates effort that resolvpaws will already be doing. Because it
-  touches peer-identity verification — a security-sensitive area that
-  deserves its own design and review pass rather than riding along as a
-  footnote here — this is called out as a candidate for a dedicated RFC 0004,
-  not folded into this RFC or RFC 0002.
+- Changing the `peers_certfile` config grammar or the CERT RR wire semantics
+  (RFC 2538 CERT type values, the `ISAKMP_CERT_X509SIGN` mapping in
+  `dnssec_getcert()`). Only the resolution/validation backend moves onto
+  `resolvpaws_backend` (see "CERT RR peer-identity resolution via
+  resolvpaws" below); `peers_certfile dnssec;` remains the operator-facing
+  directive and behaves identically from the config author's perspective,
+  modulo the strictness fix already noted above.
 - IKEv2 — scope is IKEv1 only, consistent with the rest of Racoon.
 - Re-resolving or redirecting an already-established Phase 1/Phase 2 SA mid-
   session. See Proposed Design for the chosen policy (existing SAs ride out;
@@ -185,6 +225,25 @@ validation does not come back definitively secure.
   `lwres_getrrsetbyname()`. This has no A/AAAA resolution capability and does
   not perform RRSIG/DNSKEY/DS chain-of-trust validation — it depends on
   RFC 2538/2535-era record types that predate the modern DNSSEC design.
+- `dnssec_getcert()` is called synchronously and inline from Phase 1 ID
+  payload processing (`oakley.c:1474`, `case ISAKMP_CERT_DNS:`), whenever
+  `peers_certfile dnssec;` applies to the peer. Because `getcertsbyname()`'s
+  DNS query loop (`res_query()`/`realloc()`) blocks, this stalls racoon's
+  single-threaded event loop for the duration of the lookup — the same class
+  of problem Goals above reject for gateway-address resolution, just on the
+  peer-certificate path instead. There is no pending/cached state for this
+  call today; every Phase 1 exchange using this directive re-resolves from
+  scratch.
+- [Issue #98](https://github.com/rdratlos/racoon-ipsec-tools/issues/98)
+  found that the code path actually compiled in `getcertsbyname()` accepted a
+  CERT RR response whenever either the DNSSEC `AD` bit or the plain `AA`
+  (Authoritative Answer) bit was set — `AA` is not a DNSSEC signal, so this
+  was a peer-authentication trust-boundary bypass (CWE-290/CWE-347). A
+  minimal fix (require `AD`, drop the `AA` fallback; remove the dead,
+  never-compiled `getrrsetbyname()`/`AHVE_GETRRSETBYNAME`-guarded branch) has
+  already landed directly against `main` as an interim mitigation. This RFC's
+  migration (below) is the structural fix that issue promised as a
+  follow-up.
 - Racoon's timer/event subsystem is `schedule.c`/`schedule.h`: `struct sched`
   with a `func` callback, scheduled via `sched_schedule(sched, timeout, func)`
   and cancelled via `sched_cancel(sched)` (`schedule.h:70-94`). No existing
@@ -641,6 +700,101 @@ DPD detects it's gone — uses the freshly resolved address. This avoids
 disruptive teardown on every Dynamic DNS TTL cycle while still ensuring the
 next reconnect goes to the current address.
 
+### CERT RR peer-identity resolution via resolvpaws
+
+`peers_certfile dnssec;` moves onto `resolvpaws_backend` as a second query
+kind alongside A/AAAA gateway-address resolution, sharing the same opaque
+`struct resolvpaws_query` handle, the same `resolve_cancel()`, the same
+fd-driven `monitor_fd()` integration, and the same fail-closed DNSSEC
+philosophy (definitively-secure-or-refuse). It gets its own result shape,
+since a CERT RRset has neither an address family nor a single settled value
+the way A/AAAA do:
+
+```c
+enum resolvpaws_cert_status {
+	RESOLVPAWS_CERT_SECURE,        /* CERT RRset present, DNSSEC validation succeeded */
+	RESOLVPAWS_CERT_NODATA,        /* zone is secure, no CERT RR published for this name */
+	RESOLVPAWS_CERT_INSECURE,      /* zone is unsigned / opts out of DNSSEC */
+	RESOLVPAWS_CERT_BOGUS,         /* validation failed: signature/chain broken */
+	RESOLVPAWS_CERT_INDETERMINATE, /* could not build a chain of trust */
+	RESOLVPAWS_CERT_ERROR,         /* NXDOMAIN, timeout, transport failure, etc. */
+};
+
+/* One CERT RR's rdata, RFC 2538 section 2. A name may publish more than
+ * one (e.g. algorithm rollover), so this is a list — same shape as the
+ * pre-existing struct certinfo in netdb_dnssec.h it replaces. */
+struct resolvpaws_cert_rdata {
+	int ci_type;                          /* DNSSEC_TYPE_* (RFC 2538 sec. 2.1) */
+	int ci_keytag;
+	int ci_algorithm;                     /* DNSSEC_ALG_* (RFC 2535 sec. 3.2) */
+	size_t ci_certlen;
+	unsigned char *ci_cert;               /* owned by the result; caller
+	                                          copies out before returning
+	                                          from cb() */
+	struct resolvpaws_cert_rdata *ci_next;
+};
+
+struct resolvpaws_cert_result {
+	enum resolvpaws_cert_status status;
+	struct resolvpaws_cert_rdata *rdata;  /* valid iff status == SECURE */
+};
+
+typedef void (*resolvpaws_cert_cb)(struct resolvpaws_query *q,
+                                     const struct resolvpaws_cert_result *result,
+                                     void *userdata);
+```
+
+Two more members join `resolvpaws_ops` (`resolve_cancel()` is reused
+unchanged — the opaque `struct resolvpaws_query` handle is shared across
+both query kinds, so racoon's cancellation/teardown path doesn't need to
+know which kind it's cancelling):
+
+```c
+	/* Same async contract as resolve_start(): returns immediately, one fd
+	 * for monitor_fd(), calls cb() at most once with a terminal result. */
+	struct resolvpaws_query *(*resolve_cert_start)(const char *hostname,
+	                                                 resolvpaws_cert_cb cb,
+	                                                 void *userdata,
+	                                                 int *fd_out);
+
+	void (*resolve_cert_readable)(struct resolvpaws_query *q);
+```
+
+`dnssec_getcert()` (`dnssec.c`) changes shape from a blocking function
+returning `vchar_t *` to the same pending/cached pattern already defined in
+Resolution timing above, reusing that machinery rather than inventing a
+second one:
+
+- Phase 1 processing at `oakley.c:1474` (`case ISAKMP_CERT_DNS:`) checks
+  whether a resolvpaws CERT query for this peer's FQDN ID is already
+  resolved (cache hit) or needs to start one. A cache hit behaves exactly as
+  `dnssec_getcert()` does today, just backed by `resolvpaws_backend` instead
+  of `getcertsbyname()`.
+- A cold/expired entry transitions Phase 1 processing to pending, exactly as
+  an unresolved `remoteconf` does for gateway resolution: the ID payload's
+  CERT lookup is queued rather than completed inline, `resolve_cert_start()`
+  registers its fd with `monitor_fd()`, and Phase 1 negotiation for that
+  exchange resumes from `resolve_cert_readable()`'s callback instead of
+  returning synchronously from the `case ISAKMP_CERT_DNS:` branch. This
+  removes the event-loop stall noted in Current design above, which today
+  affects every `peers_certfile dnssec;` peer identically to the
+  gateway-resolution problem this RFC already fixes.
+- `RESOLVPAWS_CERT_SECURE` is the only status that proceeds to
+  `oakley_check_certid()`; every other status (including `INSECURE`,
+  matching this RFC's existing fail-closed rule for gateway addresses)
+  returns `ISAKMP_INTERNAL_ERROR` exactly as today's "no CERT RR found" path
+  does — closing the gap issue #98 reported rather than narrowing it.
+- `getcertsbyname.c` and `netdb_dnssec.h`'s `struct certinfo` /
+  `freecertinfo()` are retired once the migration lands; `dnssec.c` becomes a
+  thin adapter between `oakley.c` and `resolvpaws_backend`.
+
+`peers_certfile dnssec;` does not gain a `dnssec_verify` tri-state of its
+own — unlike `remote`, this directive has never had an "unvalidated" mode;
+validation was always the point, issue #98 notwithstanding. Its DNSSEC
+requirement is therefore unconditional, and moving it onto
+`resolvpaws_backend` makes that requirement actually true instead of
+`AA`-bit-satisfiable.
+
 ### Build integration
 
 `configure.ac`:
@@ -651,10 +805,13 @@ next reconnect goes to the current address.
   above), allow a directory override, define `HAVE_LIBUNBOUND`, and error out
   (not silently disable) if explicitly requested but not found.
 - `--disable-resolvpaws` (enabled by default) — fully removes FQDN/`remote`
-  support and the `glibc` backend from the build for minimal deployments that
-  only ever use numeric addresses. Distinct from backend selection: this
-  toggle removes hostname support entirely rather than choosing how it's
-  validated.
+  support, `peers_certfile dnssec;` support, and the `glibc` backend from the
+  build for minimal deployments that only ever use numeric addresses and
+  certificate-file-based peer identity. A config using either feature fails
+  to parse with a clear diagnostic on such a build, same as today's
+  `AI_NUMERICHOST`-rejection behavior for hostnames. Distinct from backend
+  selection: this toggle removes both features entirely rather than choosing
+  how they're validated.
 
 ## Alternatives considered
 
@@ -713,6 +870,22 @@ next reconnect goes to the current address.
   Rejected in favor of the fd-driven `resolve_start()`/`resolve_readable()`
   pair, which keeps racoon's existing `monitor_fd()`-based event loop as the
   only scheduler in the process.
+- **Keep `getcertsbyname.c` as a narrowly-patched standalone path (issue
+  #98's minimal fix only), do not migrate it onto resolvpaws.** Rejected as
+  the long-term answer, though correct as an interim mitigation (and already
+  shipped). Leaving two independently-maintained DNSSEC validation
+  implementations in the tree — one correct-by-construction
+  (`resolvpaws_backend`), one hand-patched — means a future change to either
+  can silently reintroduce the same class of gap #98 found, and every
+  reviewer has to know both exist and check both when auditing DNSSEC
+  behavior.
+- **A dedicated RFC 0004 for the CERT-RR migration**, as v3 of this RFC
+  originally proposed. Rejected on reconsideration: the migration reuses
+  this RFC's `resolvpaws_ops`/`monitor_fd()`/fail-closed design wholesale
+  rather than introducing new architecture, so a separate RFC would mostly
+  restate this one's Current design, Proposed design, and Risks sections
+  instead of adding new decisions. Folding it in here keeps one canonical
+  description of `resolvpaws_backend`'s full consumer surface.
 
 ## Compatibility
 
@@ -735,13 +908,30 @@ next reconnect goes to the current address.
   blocks the event loop, so concurrent negotiations against other peers are
   unaffected by a slow or unresponsive resolution elsewhere — see Acceptance
   criteria.
+- **`peers_certfile dnssec;` behavior**: config syntax is unchanged, but the
+  implementation backing it moves onto `resolvpaws_backend`. This is a
+  strictness-only behavior change for existing users of the directive: a
+  peer CERT RR that previously passed via the `AA`-bit fallback (issue #98)
+  will now be refused unless DNSSEC validation is definitively secure,
+  matching the directive's original intent. Requires a resolvpaws-enabled
+  build (`--disable-resolvpaws` removes this directive too, same as
+  hostname `remote` support).
 
 ## Migration
 
-None required. Existing configurations using numeric `remote` addresses need
-no changes. Administrators who want FQDN gateways opt in by changing
-`remote <ip>` to `remote "fqdn"` plus `dnssec_verify on;` (or setting the
-global default once if they run several FQDN gateways).
+None required for gateway-address resolution. Existing configurations using
+numeric `remote` addresses need no changes. Administrators who want FQDN
+gateways opt in by changing `remote <ip>` to `remote "fqdn"` plus
+`dnssec_verify on;` (or setting the global default once if they run several
+FQDN gateways).
+
+Existing `peers_certfile dnssec;` deployments need no config changes, but
+administrators relying on the pre-#98 `AA`-bit-fallback behavior (unsigned
+zones, or a non-validating resolver that nonetheless returned an
+authoritative-looking answer) will find peer authentication now fails closed
+instead of silently accepting an unvalidated certificate. This is the
+intended fix, not a regression, but worth calling out explicitly in release
+notes given issue #98's severity.
 
 ## Risks
 
@@ -790,6 +980,14 @@ global default once if they run several FQDN gateways).
   clearly in release notes and the admin guide, since it can turn a routine
   OS reinstall or minimal-image choice ("no `unbound-anchor` package
   installed") into an unexpected startup failure.
+- **CERT RR migration inherits the glibc backend's trust-boundary caveat**:
+  once `dnssec_getcert()` uses `resolvpaws_backend`, the `glibc` backend's
+  trust-in-`resolv.conf` caveat (see above) applies identically to
+  peer-certificate resolution, not just gateway addresses. This is still a
+  strict improvement over today (issue #98's `AA`-bit fallback trusted the
+  responder even less rigorously), but should be documented for
+  `peers_certfile dnssec;` alongside `remote` in `racoon.conf.5`, and
+  `--with-libunbound` recommended equally for both.
 
 ## Open questions
 
@@ -807,11 +1005,12 @@ above:
   deterministic sequential fallback, no racing).
 - Whether racoon's dispatch loop can support fd-driven async resolution →
   "Current design" (confirmed: `monitor_fd()`, `session.c:134`).
-
-The CERT-RR-onto-`resolvpaws_backend` migration remains a deliberately
-deferred *candidate for a future RFC 0004* (see Non-goals) rather than an
-open question of this RFC — it is out of scope here by design, not
-unresolved.
+- CERT-RR peer-identity migration onto `resolvpaws_backend` → folded into
+  this RFC directly, see "CERT RR peer-identity resolution via resolvpaws"
+  above. Prompted by
+  [issue #98](https://github.com/rdratlos/racoon-ipsec-tools/issues/98); no
+  longer deferred to a future RFC 0004 (superseded v3's Non-goals/Open
+  questions treatment).
 
 ## Acceptance criteria
 
@@ -868,3 +1067,37 @@ unresolved.
       `dnssec_af_preference`, `dnssec_trust_anchor_file`) and explicitly
       states the `glibc` backend's trust-boundary caveat and the
       fail-closed trust-anchor behavior.
+- [ ] `peers_certfile dnssec;` resolves peer CERT RRs via
+      `resolvpaws_backend` (`resolve_cert_start()`/`resolve_cert_readable()`),
+      with `getcertsbyname.c` and its `getrrsetbyname()`-based implementation
+      removed entirely.
+- [ ] A CERT RR lookup that is anything other than `RESOLVPAWS_CERT_SECURE`
+      fails Phase 1 for that peer (`ISAKMP_INTERNAL_ERROR`) with no fallback
+      to an unvalidated certificate — verified against the exact scenario
+      issue #98 reported (an `AA`-bit-only response, no `AD` bit set).
+- [ ] Phase 1 processing for a cold/expired CERT RR entry (`oakley.c:1474`)
+      does not block racoon's event loop, verified with the same
+      concurrent-negotiation test pattern used for gateway-address
+      resolution.
+- [ ] `--disable-resolvpaws` removes `peers_certfile dnssec;` support with a
+      clear config-parse-time error, consistent with hostname `remote`
+      removal.
+
+## References
+
+- [Issue #98](https://github.com/rdratlos/racoon-ipsec-tools/issues/98) —
+  `peers_certfile dnssec;` accepted an unvalidated peer certificate via the
+  `AA`-bit fallback in `getcertsbyname()` (CWE-290/CWE-347); the finding that
+  prompted folding CERT RR peer-identity resolution into this RFC as a
+  second `resolvpaws_backend` consumer, and whose minimal interim fix has
+  already landed against `main`.
+- [Issue #86](https://github.com/rdratlos/racoon-ipsec-tools/issues/86) —
+  SAN-based device identity for XAuth. Sits on the same peer/device-identity
+  trust boundary as the CERT RR mechanism this RFC migrates; tracked
+  separately but worth reviewing together so the two don't end up designed
+  in conflicting directions.
+- `docs/rfcs/0002-kernelpaws-xfrm-abstraction-layer.md` — RFC 0002, source
+  of the compile-time backend-selection pattern (`resolvpaws_backend`
+  mirrors `kernelpaws`'s `--enable-xfrm` precedent) and the
+  simplicity-over-coexistence design philosophy this RFC follows for
+  address-family selection.
