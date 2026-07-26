@@ -427,7 +427,7 @@ sudo /usr/sbin/racoon -F -f /etc/racoon/racoon.conf
 sudo strace -f -e trace=write -p "$(pgrep -o racoon)" 2>&1 | grep 'fd=1\|"1<'
 ```
 
-**Status: resolved** — fixed by commit `<pending>` ("main/proposal: line-
+**Status: resolved** — fixed by commit `e3e844f` ("main/proposal: line-
 buffer -F's stdout, quiet the authtype-mismatch search noise (#2, #3)")
 in `src/racoon/main.c`.
 
@@ -554,7 +554,7 @@ grep 'authtype mismatched' /var/log/racoon.log   # or journalctl -u racoon
 # line for the same negotiation.
 ```
 
-**Status: resolved** — fixed by commit `<pending>` ("main/proposal: line-
+**Status: resolved** — fixed by commit `e3e844f` ("main/proposal: line-
 buffer -F's stdout, quiet the authtype-mismatch search noise (#2, #3)")
 in `src/racoon/proposal.c` (`cmpsatrns()`, `get_ph2approval()`).
 
