@@ -114,10 +114,11 @@ sudo kill -TERM "$RACOON_PID"
 # specific to systemd's cgroup kill -- narrows the fix to isakmp.c.
 ```
 
-**Status: resolved** — fixed in `src/racoon/isakmp.c` (`script_exec()`,
-`script_hook()`), `src/racoon/session.c`/`session.h`
-(`racoon_shutting_down`), and `src/racoon/privsep.c`
-(`privsep_sigterm_forward()`).
+**Status: resolved** — fixed by commit `f7b4ff1` ("isakmp/privsep: wait,
+bounded, for the phase1-down hook at shutdown (#1)") in
+`src/racoon/isakmp.c` (`script_exec()`, `script_hook()`),
+`src/racoon/session.c`/`session.h` (`racoon_shutting_down`), and
+`src/racoon/privsep.c` (`privsep_sigterm_forward()`).
 
 **Decision.** Of the two directions this document originally scoped, a
 bounded `waitpid()` in `script_exec()` was chosen over
