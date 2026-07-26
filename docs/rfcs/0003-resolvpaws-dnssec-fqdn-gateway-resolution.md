@@ -62,6 +62,9 @@ validation does not come back definitively secure.
 - Provide a pluggable backend interface (`resolvpaws_ops`) so a stronger or
   weaker validation strategy can be swapped in without touching call sites in
   `isakmp.c` or `cfparse.y`.
+- Make address-family selection for dual-stack FQDNs deterministic and
+  operator-controlled, not dependent on race timing or on which family
+  happens to be reachable on the network Racoon is currently attached to.
 
 ## Non-goals
 
@@ -76,13 +79,26 @@ validation does not come back definitively secure.
   privilege-drop model needs its own investigation before committing to it.
 - Redesigning the existing CERT-RR peer-identity DNSSEC code in `dnssec.c` /
   `getcertsbyname.c`. That mechanism is orthogonal (peer identity, not gateway
-  address) and out of scope, though it may eventually be worth migrating onto
-  the same resolvpaws backend rather than `getrrsetbyname()` — noted as an
-  open question, not committed here.
+  address) and out of scope. It is, however, a natural follow-up once
+  `resolvpaws_backend` exists: `getrrsetbyname()` is BIND8-era and gives no
+  access to a validating resolver's already-computed validation state, so
+  `dnssec.c`/`getcertsbyname.c` doing DNSSEC-adjacent work on top of a legacy
+  API duplicates effort that resolvpaws will already be doing. Because it
+  touches peer-identity verification — a security-sensitive area that
+  deserves its own design and review pass rather than riding along as a
+  footnote here — this is called out as a candidate for a dedicated RFC 0004,
+  not folded into this RFC or RFC 0002.
 - IKEv2 — scope is IKEv1 only, consistent with the rest of Racoon.
 - Re-resolving or redirecting an already-established Phase 1/Phase 2 SA mid-
   session. See Proposed Design for the chosen policy (existing SAs ride out;
   only new/rekey negotiations use a freshly resolved address).
+- Racing IPv4 and IPv6 against each other (Happy-Eyeballs-style) to pick a
+  gateway address. Address-family selection is a deterministic, operator-set
+  preference with sequential (not raced) fallback — see Proposed Design and
+  Alternatives Considered.
+- Racoon managing its own DNSSEC root trust anchor lifecycle (RFC 5011
+  rollover handling). Resolvpaws consumes whatever trust anchor the host
+  system already maintains — see Proposed Design.
 
 ## Current design
 
@@ -118,6 +134,14 @@ validation does not come back definitively secure.
   `configure.ac`: `--with-libldap` (`configure.ac:551-596`) is the closest
   structural match — probes for the library, allows a `DIR` override, defines
   a `HAVE_*` macro, and conditionally adds to `LIBS`/`CPPFLAGS`.
+- Racoon already has a precedent for deterministic, single-owner runtime
+  state over coexistence/racing alternatives: `kernelpaws` (RFC 0002)
+  deliberately uses host-wide `FLUSHSA`/`FLUSHPOLICY` and assumes exclusive
+  ownership of the XFRM tables rather than tracking per-daemon state for
+  coexistence, "a deliberate trade-off: simplicity over coexistence,
+  consistent with Racoon's lightweight design philosophy." Resolvpaws'
+  address-family selection follows the same theme: one deterministic path
+  per attempt, not a race.
 
 ## Proposed design
 
@@ -132,7 +156,7 @@ validation does not come back definitively secure.
 |                       |
 |  +-------------------+|
 |  | resolvpaws_glibc  ||  <-- res_query()/getaddrinfo() + AD-bit check
-|  | .c                ||      (always built; the default)
+|  | .c                ||      (default backend when resolvpaws is enabled)
 |  +-------------------+|
 |                       |
 |  +-------------------+|
@@ -148,7 +172,21 @@ validation does not come back definitively secure.
 `resolvpaws_sdresolved.c` (systemd-resolved D-Bus backend) is named here as a
 future backend per Non-goals; no code is written for it in this RFC.
 
+Resolvpaws itself is a compile-time-optional component (`--disable-resolvpaws`
+for truly minimal builds that never need FQDN gateways at all; enabled by
+default). When disabled, a hostname in `remote` is a config-parse-time fatal
+error — the same hard-refusal behavior `AI_NUMERICHOST` already gives today,
+just with a clearer diagnostic. When enabled, the `glibc` backend is always
+available with zero extra library dependencies; `libunbound` is additionally
+available only when `--with-libunbound` was used at build time.
+
 ### resolvpaws_ops interface
+
+A single `resolve()` call fetches and validates **both** address families up
+front — one round trip to the backend, not one per family and not a second
+round trip when a fallback is later needed. Family *selection* is a separate,
+synchronous step over the already-fetched result, keeping "resolve" and
+"select" cleanly divided:
 
 ```c
 enum resolvpaws_status {
@@ -157,11 +195,18 @@ enum resolvpaws_status {
 	RESOLVPAWS_BOGUS,         /* validation failed: signature/chain broken */
 	RESOLVPAWS_INDETERMINATE, /* could not build a chain of trust */
 	RESOLVPAWS_ERROR,         /* NXDOMAIN, timeout, transport failure, etc. */
+	RESOLVPAWS_NODATA,        /* name resolved but no record for this family */
+};
+
+struct resolvpaws_addr {
+	enum resolvpaws_status status;
+	struct sockaddr *addr;   /* NULL unless status == RESOLVPAWS_SECURE */
+	time_t ttl_expiry;       /* absolute time; used to schedule refresh */
 };
 
 struct resolvpaws_result {
-	struct sockaddr *addr;   /* NULL unless status == RESOLVPAWS_SECURE */
-	time_t ttl_expiry;       /* absolute time; used to schedule refresh */
+	struct resolvpaws_addr inet;   /* AF_INET  */
+	struct resolvpaws_addr inet6;  /* AF_INET6 */
 };
 
 struct resolvpaws_ops {
@@ -170,11 +215,18 @@ struct resolvpaws_ops {
 	int  (*init)(void);
 	void (*cleanup)(void);
 
-	enum resolvpaws_status (*resolve)(const char *hostname, int family,
-	                                   struct resolvpaws_result *out);
+	/* fetches + validates A and AAAA together in one call */
+	int  (*resolve)(const char *hostname, struct resolvpaws_result *out);
 };
 
 extern const struct resolvpaws_ops *const resolvpaws_backend;
+
+/* selection is backend-independent, operates purely on an already-fetched
+ * resolvpaws_result; never triggers a new DNS query */
+enum resolvpaws_af_pref { RESOLVPAWS_AF_INET, RESOLVPAWS_AF_INET6, RESOLVPAWS_AF_ANY };
+
+struct sockaddr *resolvpaws_select(const struct resolvpaws_result *result,
+                                    enum resolvpaws_af_pref pref);
 ```
 
 Backend selection mirrors `kernelpaws`'s pattern exactly
@@ -191,23 +243,98 @@ const struct resolvpaws_ops *const resolvpaws_backend = &resolvpaws_glibc_ops;
 ### Config grammar
 
 `remote` gains the ability to take a quoted hostname anywhere it currently
-takes `ike_addrinfo_port`'s numeric-address form. A new mandatory sub-directive
-inside the `remote { }` block, `dnssec_verify on;`/`off;` (default `off`),
-gates it:
+takes `ike_addrinfo_port`'s numeric-address form. Three new directives
+control it — one global, two per-remote:
 
 ```
+# top-level, applies to all "remote" blocks unless overridden
+dnssec_verify off;             # off | on  (default: off)
+dnssec_trust_anchor_file "/var/lib/unbound/root.key";   # optional; probed if unset
+dnssec_af_preference inet;     # inet | inet6 | any     (default: inet)
+
 remote "vpn.example.com" {
-	dnssec_verify on;
+	dnssec_verify on;       # unset | on | off — inherits the global
+	                         # default above when not given here
+	dnssec_af_preference inet6;   # per-remote override, same tri-state shape
 	exchange_mode main;
 	...
 }
 ```
 
-If a hostname is given and `dnssec_verify` is not explicitly `on`, config
-parsing fails with an explicit error — there is no implicit insecure
-fallback. `strict` here is the only mode; there is no "best-effort" DNSSEC
-option, matching the request that motivated this RFC (force Racoon to trust
-the resolved address only if DNSSEC verifies it, full stop).
+`dnssec_verify` is tri-state per `remote` (`unset` / `on` / `off`), inheriting
+the top-level default when unset — the same override shape Racoon already
+uses elsewhere for per-remote settings. The global default is `off` for
+backward compatibility: an existing config with only numeric `remote`
+addresses must not suddenly require a resolvpaws backend or perform any DNS
+validation it didn't ask for. The admin guide will recommend `on` as best
+practice for any FQDN-based `remote`, but the shipped default stays
+conservative.
+
+There is no "best-effort" DNSSEC mode. Whatever `dnssec_verify` resolves to
+for a given `remote` (explicit or inherited), `on` means Racoon refuses to
+use a resolved address unless validation is definitively secure — matching
+the request that motivated this RFC.
+
+Config-parse-time fatal errors (fail closed, never a silent downgrade):
+
+- A hostname `remote` when Racoon was built with `--disable-resolvpaws`.
+- `dnssec_verify` resolving to `on` for a hostname `remote` when
+  `dnssec_trust_anchor_file` (or every well-known per-distro default; see
+  below) cannot be found/read — checked at startup, not deferred to first
+  use.
+
+### Trust anchor sourcing
+
+Resolvpaws does not implement RFC 5011 root-key-rollover tracking itself —
+that long-lived, security-critical state is deliberately left to whatever the
+host system already maintains (e.g. Debian/Ubuntu's `unbound-anchor`-managed
+`/var/lib/unbound/root.key`, or a distro's `dns-root-data` package). The
+`libunbound` backend is pointed at that file. If `dnssec_trust_anchor_file` is
+not set, the backend probes a short list of well-known per-distro paths (to be
+finalized during implementation, e.g. `/var/lib/unbound/root.key`,
+`/etc/unbound/root.key`, `/usr/share/dns/root.key`); if none exist and none
+was explicitly configured, startup fails for any `remote` resolving to
+`dnssec_verify on` rather than silently resolving without validation.
+
+No fallback anchor is bundled in the Racoon source tree. A hardcoded anchor is
+a reasonable one-time bootstrap trick (both `getdns` and `unbound` do this),
+but it becomes a liability the moment a root key rollover happens and nobody
+remembers Racoon is carrying its own stale copy — the whole point of
+delegating to the system-maintained anchor is to have exactly one place that
+needs to stay current on the box.
+
+### Address-family selection
+
+`dnssec_af_preference` (`inet` / `inet6` / `any`, default `inet`) is
+tri-state per `remote` the same way `dnssec_verify` is, inheriting the global
+default when unset.
+
+Rationale for defaulting to sequential preference rather than racing both
+families (as a browser's Happy Eyeballs would):
+
+- Roadwarrior clients are frequently on networks with asymmetric or absent
+  IPv6 (mobile hotspots, CGNAT, hotel wifi). "First secure wins" in practice
+  means "whichever family the current network happens to support today,"
+  so the same config picks a different gateway address on different
+  networks — a debugging nightmare in the field.
+- Racoon's existing reconnect-loop and NAT-T hardening around hotspot/conntrack
+  churn already assumes a single deterministic address path per Phase 1
+  attempt. A resolver layer that can nondeterministically flip between an A
+  and AAAA record on retry reintroduces exactly the kind of extra variable
+  that turns a one-line bug into a multi-day repro problem.
+- IKEv1/NAT-T over IPv4 is Racoon's best-tested path; unconditionally racing
+  to AAAA on a fresh network would exercise the least-tested path
+  unpredictably in production.
+
+Because `resolve()` already fetched and validated both families in one call,
+selecting `inet` vs. `inet6` vs. `any` (first securely-validated family found,
+in `inet`-then-`inet6` order) is a pure, synchronous, no-I/O step via
+`resolvpaws_select()`. If the preferred family's negotiation subsequently
+fails at the IKE layer (not a DNS failure — the resolved address simply
+didn't establish), Racoon falls back to the other already-validated family
+from the same `resolvpaws_result` rather than issuing a second resolvpaws
+query. `RESOLVPAWS_AF_ANY` uses this same fallback behavior from the first
+attempt rather than only after a failure.
 
 ### Resolution timing
 
@@ -220,7 +347,8 @@ hostname entries are resolved lazily instead:
   `rmconf->remote` / `iph1->remote` directly).
 - A `sched_schedule()` task refreshes the resolution as the record's TTL
   approaches expiry, independent of any active negotiation.
-- On resolution failure (any non-`RESOLVPAWS_SECURE` status), Phase 1
+- On resolution failure (`resolve()` fails, or `resolvpaws_select()` finds no
+  family satisfying the configured preference at `RESOLVPAWS_SECURE`), Phase 1
   initiation for that `remoteconf` fails closed — no address substitution, no
   retry against a cached stale address.
 
@@ -236,10 +364,17 @@ next reconnect goes to the current address.
 
 ### Build integration
 
-`configure.ac`: add `--with-libunbound=DIR`, structured like `--with-libldap`
-(`configure.ac:551-596`) — probe for `ub_resolve`/`ub_ctx_create`, allow a
-directory override, define `HAVE_LIBUNBOUND`, and error out (not silently
-disable) if explicitly requested but not found.
+`configure.ac`:
+
+- `--with-libunbound=DIR`, structured like `--with-libldap`
+  (`configure.ac:551-596`) — probe for `ub_resolve`/`ub_ctx_create`, allow a
+  directory override, define `HAVE_LIBUNBOUND`, and error out (not silently
+  disable) if explicitly requested but not found.
+- `--disable-resolvpaws` (enabled by default) — fully removes FQDN/`remote`
+  support and the `glibc` backend from the build for minimal deployments that
+  only ever use numeric addresses. Distinct from backend selection: this
+  toggle removes hostname support entirely rather than choosing how it's
+  validated.
 
 ## Alternatives considered
 
@@ -267,12 +402,28 @@ disable) if explicitly requested but not found.
   this is close to a no-op relative to the motivating problem (Dynamic DNS
   addresses changing daily); it would require an external reload mechanism,
   which is exactly the workaround this RFC exists to remove.
+- **First-secure-wins / Happy-Eyeballs-style racing between A and AAAA.**
+  Rejected as the default. It suits a browser picking between two equally
+  acceptable web-server addresses; it is actively harmful for a roadwarrior
+  VPN gateway, where it turns "which address did we connect to" into a
+  function of momentary network conditions rather than operator intent, and
+  reintroduces nondeterminism into a reconnect/NAT-T path that Racoon has
+  already spent real effort hardening into a single deterministic flow. Kept
+  as a possible future opt-in mode (`RESOLVPAWS_AF_ANY` gives ordered
+  fallback, not racing) rather than the default.
+- **Racoon manages its own DNSSEC root trust anchor.** Rejected — duplicating
+  RFC 5011 rollover handling in a second place on the same box is exactly the
+  kind of long-lived security-critical state that should have one owner.
+  Resolvpaws consumes the system-maintained anchor instead (see Proposed
+  Design, "Trust anchor sourcing").
 
 ## Compatibility
 
 - **racoon.conf**: purely additive. Existing numeric `remote` addresses are
   unaffected — `str2saddr()`'s `AI_NUMERICHOST` path is unchanged for them.
-  New syntax (hostname + `dnssec_verify on;`) is opt-in.
+  New syntax (hostname + `dnssec_verify on;`) is opt-in, and the global
+  `dnssec_verify` default (`off`) preserves today's behavior for anyone who
+  doesn't touch the new directives.
 - **On-wire/IKEv1 behavior**: unaffected. Resolvpaws only changes how Racoon
   picks the destination address before opening a negotiation; it does not
   touch IKE payload construction or peer authentication, which remain the
@@ -280,13 +431,15 @@ disable) if explicitly requested but not found.
 - **Platform/build**: `--with-libunbound` is optional; a build without it is
   functionally identical to today for hostname-less configs, and still gets
   the `glibc` backend for anyone who opts into `dnssec_verify` without
-  building against libunbound.
+  building against libunbound. `--disable-resolvpaws` removes hostname
+  support entirely for minimal builds.
 
 ## Migration
 
 None required. Existing configurations using numeric `remote` addresses need
 no changes. Administrators who want FQDN gateways opt in by changing
-`remote <ip>` to `remote "fqdn"` plus `dnssec_verify on;`.
+`remote <ip>` to `remote "fqdn"` plus `dnssec_verify on;` (or setting the
+global default once if they run several FQDN gateways).
 
 ## Risks
 
@@ -307,41 +460,59 @@ no changes. Administrators who want FQDN gateways opt in by changing
   every fresh Phase 1 could add latency. Mitigated by TTL-driven caching via
   the `sched_schedule()` refresh path — resolution only happens fresh at
   first use and at TTL expiry, not on every negotiation attempt.
-- **libunbound root trust anchor maintenance**: an embedded validating
-  resolver needs a root trust anchor that itself needs updating over time
-  (RFC 5011 rollover). Needs a documented operational story (e.g., depend on
-  the system's `unbound-anchor`-maintained anchor file) before this backend
-  ships — flagged as an open question below.
+- **Trust anchor availability becomes a hard startup dependency**: with no
+  bundled fallback anchor, a `libunbound`-backed `remote` with `dnssec_verify
+  on` cannot start if the system anchor file is missing or unreadable. This is
+  intentional (fail closed, see Trust anchor sourcing) but is an operational
+  change worth flagging clearly in release notes and the admin guide, since it
+  can turn a routine OS reinstall/minimal-image choice ("no `unbound-anchor`
+  package installed") into a Racoon startup failure.
 
 ## Open questions
 
-- Should `dnssec_verify` be a per-`remote` boolean, or should there also be a
-  global default so administrators with many FQDN gateways don't repeat it?
-- Root trust anchor sourcing/refresh story for the `libunbound` backend —
-  reuse the system's existing anchor file vs. Racoon managing its own?
-- Should the existing CERT-RR peer-identity code (`dnssec.c`,
-  `getcertsbyname.c`) eventually be migrated onto `resolvpaws_backend`
-  instead of `getrrsetbyname()`, given the latter is effectively obsolete? Not
-  committed in this RFC; noted for a possible follow-up.
-- IPv4/IPv6 dual-stack preference order when both A and AAAA are present and
-  both validate securely — first-secure-wins, or an explicit preference
-  directive?
+- Exact probe list and probe order for well-known per-distro trust-anchor
+  paths when `dnssec_trust_anchor_file` is unset — to be finalized against
+  the actual distros in Racoon's support matrix during implementation.
+- If `dnssec_af_preference` names a family for which the FQDN has no record
+  at all (e.g. `inet6` preferred but the name is A-only), is that a hard
+  failure (operator's preference was unsatisfiable) or an implicit fallback
+  to the other family? Leaning toward implicit fallback with a logged
+  warning, consistent with `RESOLVPAWS_AF_ANY`'s ordered-fallback behavior,
+  but not decided here.
 
 ## Acceptance criteria
 
-- [ ] `remote "hostname"` with `dnssec_verify on;` parses successfully;
-      the same syntax without `dnssec_verify on;` fails config load with a
-      clear error.
+- [ ] `remote "hostname"` with `dnssec_verify on;` (explicit or inherited
+      from the global default) parses successfully; the same hostname with
+      `dnssec_verify` resolving to `off` — or with resolvpaws disabled at
+      build time — fails config load with a clear, distinct error for each
+      case.
+- [ ] Global `dnssec_verify`/`dnssec_af_preference` defaults and per-`remote`
+      tri-state overrides behave per the inheritance rule described above,
+      with the global default itself defaulting to `off`/`inet`.
 - [ ] `resolvpaws_ops` interface exists with at least the `glibc` backend
-      buildable with zero new required dependencies.
+      buildable with zero new required dependencies; `--disable-resolvpaws`
+      removes hostname support entirely.
 - [ ] `--with-libunbound` configure flag builds the `unbound` backend,
       following the `--with-libldap` structural precedent (DIR override,
       `HAVE_*` define, explicit error if requested-but-missing).
-- [ ] A resolution returning anything other than `RESOLVPAWS_SECURE` blocks
-      Phase 1 initiation for that `remoteconf` with no address fallback.
+- [ ] `resolve()` fetches and validates both A and AAAA in a single backend
+      call; `resolvpaws_select()` performs family selection with no
+      additional DNS query.
+- [ ] A resolution returning anything other than `RESOLVPAWS_SECURE` for the
+      selected family blocks Phase 1 initiation for that `remoteconf` with no
+      address fallback to unvalidated data.
+- [ ] `libunbound` backend fails startup (not silent unvalidated resolution)
+      when `dnssec_verify on` applies to a `remote` and no readable trust
+      anchor file is found, whether explicitly configured or probed.
 - [ ] TTL-driven refresh is scheduled via `schedule.c` and observably
       re-resolves near expiry in a test environment using a short-TTL zone.
 - [ ] An address change picked up by refresh does not tear down an active
       Phase 1/Phase 2 SA; the next new negotiation uses the updated address.
-- [ ] `racoon.conf.5` documents the new syntax and explicitly states the
-      `glibc` backend's trust-boundary caveat.
+- [ ] A preferred-family IKE negotiation failure falls back to the other
+      already-validated family from the same `resolvpaws_result` without
+      issuing a second DNS resolution.
+- [ ] `racoon.conf.5` documents the new syntax (`dnssec_verify`,
+      `dnssec_af_preference`, `dnssec_trust_anchor_file`) and explicitly
+      states the `glibc` backend's trust-boundary caveat and the
+      fail-closed trust-anchor behavior.
