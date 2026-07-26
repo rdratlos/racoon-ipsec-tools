@@ -71,6 +71,16 @@
 
 static int privsep_sock[2] = { -1, -1 };
 
+/*
+ * PID of the unprivileged child, valid only in the privileged process
+ * (the "default:" branch after fork() in privsep_init() below never
+ * clears it; the child branch never sets it, so it stays 0 there and
+ * privsep_sigterm_forward() -- which only the privileged process installs
+ * a handler for -- never fires with a stale/wrong value). See
+ * privsep_sigterm_forward() for why this exists.
+ */
+static pid_t privsep_child_pid = 0;
+
 static int privsep_recv(int, struct privsep_com_msg **, size_t *);
 static int privsep_send(int, struct privsep_com_msg *, size_t);
 static int safety_check(struct privsep_com_msg *, int i);
@@ -201,6 +211,71 @@ privsep_do_exit(void *ctx, int fd)
 	return 0;
 }
 
+/*
+ * daemon-issues.md Issue 1 (F2), privsep-specific half: under the shipped
+ * Type=simple systemd unit (no KillMode=), `systemctl stop racoon` (or any
+ * `kill <pid>`) targets $MAINPID, which -- since fork() leaves the
+ * original pid in the parent -- is *this*, the privileged process, not
+ * the unprivileged child that actually runs close_session() and
+ * script_hook(). Before this fix, SIGTERM/SIGINT here used the default
+ * disposition (immediate termination, no cleanup): the privileged process
+ * died on the spot, before the child's privsep_script_exec() request for
+ * SCRIPT_PHASE1_DOWN could ever arrive over privsep_sock. Under privsep,
+ * this process is the only one that can actually fork()+execve() a hook
+ * (see the PRIVSEP_SCRIPT_EXEC case in the dispatch loop below), so the
+ * down hook was not just raced -- as in the non-privsep case fixed in
+ * script_exec(), isakmp.c -- it was never attempted at all.
+ *
+ * Forwarding the signal to the child instead lets the child run its own
+ * normal SIGTERM/SIGINT handling (session.c) while this process keeps
+ * servicing privsep_sock exactly as before, including the child's
+ * now-bounded-wait SCRIPT_EXEC request (PRIVSEP_SCRIPT_EXEC_WAIT,
+ * privsep.h). This process still exits promptly after:
+ * once the child finishes close_session() and exits, privsep_recv() below
+ * observes EOF on privsep_sock and this process reaches its own existing
+ * "out:" / _exit(0) path -- unchanged by this fix.
+ *
+ * kill() is async-signal-safe (POSIX.1-2008 / IEEE Std 1003.1-2008,
+ * Base Definitions 2.4.3, "Signal Actions"), so calling it directly from
+ * a signal handler is safe. privsep_child_pid is only ever written once,
+ * by the parent branch below, before this handler is installed, so there
+ * is no write/read race with the handler either.
+ *
+ * SIGHUP (config reload) and SIGUSR1/SIGUSR2 are deliberately left at
+ * their existing SIG_DFL disposition here: reload is a different,
+ * unfiled concern (this process has no config of its own to reload), and
+ * changing it is out of scope for Issue 1.
+ */
+static RETSIGTYPE
+privsep_sigterm_forward(sig)
+	int sig;
+{
+	if (privsep_child_pid > 0)
+		kill(privsep_child_pid, SIGTERM);
+}
+
+#ifdef ENABLE_UNITTEST
+/*
+ * Test-only accessors. privsep_child_pid is static and privsep_sigterm_forward()
+ * is only ever installed as a real signal handler in production, neither
+ * reachable from outside this file; these thin wrappers let a unit test
+ * point the forwarding logic at a mock child and invoke it directly,
+ * without waiting for a live privsep_init() fork() (which needs a real
+ * PF_KEY/XFRM-capable kernel this project's test hosts do not all have).
+ */
+void
+privsep_set_child_pid_unittest(pid_t pid)
+{
+	privsep_child_pid = pid;
+}
+
+void
+privsep_sigterm_forward_unittest(void)
+{
+	privsep_sigterm_forward(SIGTERM);
+}
+#endif /* ENABLE_UNITTEST */
+
 int
 privsep_init(void)
 {
@@ -287,11 +362,12 @@ privsep_init(void)
 		break;
 
 	default: /* Parent: privileged process */
+		privsep_child_pid = child_pid;
 		break;
 	}
 
-	/* 
-	 * Close everything except the socketpair, 
+	/*
+	 * Close everything except the socketpair,
 	 * and stdout if running in the forground.
 	 */
 	for (i = sysconf(_SC_OPEN_MAX); i > 0; i--) {
@@ -316,13 +392,16 @@ privsep_init(void)
 #endif
 	
 	/*
-	 * Don't catch any signal
-	 * This duplicate session:signals[], which is static...
+	 * Don't catch most signals -- this duplicates session:signals[],
+	 * which is static... except SIGINT/SIGTERM, forwarded to the
+	 * unprivileged child instead of left at the default (immediate
+	 * termination) disposition; see privsep_sigterm_forward() above for
+	 * why (daemon-issues.md Issue 1).
 	 */
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP, SIG_DFL);
-	signal(SIGINT, SIG_DFL);
-	signal(SIGTERM, SIG_DFL);
+	signal(SIGINT, privsep_sigterm_forward);
+	signal(SIGTERM, privsep_sigterm_forward);
 	signal(SIGUSR1, SIG_DFL);
 	signal(SIGUSR2, SIG_DFL);
 	signal(SIGCHLD, SIG_DFL);
@@ -372,9 +451,9 @@ privsep_init(void)
 		reply->hdr.ac_cmd = combuf->hdr.ac_cmd;
 		reply->hdr.ac_len = sizeof(*reply);
 
-		switch(combuf->hdr.ac_cmd) {
-		/* 
-		 * XXX Improvement: instead of returning the key, 
+		switch(combuf->hdr.ac_cmd & ~PRIVSEP_SCRIPT_EXEC_WAIT) {
+		/*
+		 * XXX Improvement: instead of returning the key,
 		 * stuff eay_get_pkcs1privkey and eay_get_x509sign
 		 * together and sign the hash in the privileged 
 		 * instance? 
@@ -447,13 +526,31 @@ privsep_init(void)
 				envc++;
 			}
 
-			/* count a void buf and perform safety check */
-			count++;
+			/*
+			 * The loop above only exits early (break) once it
+			 * finds the void terminator, at which point count is
+			 * still a valid bufs[] index (< PRIVSEP_NBUF_MAX) --
+			 * that is the expected, legitimate case, including
+			 * when the terminator sits in the very last slot
+			 * (count == PRIVSEP_NBUF_MAX - 1). Only a loop that
+			 * ran off the end (count == PRIVSEP_NBUF_MAX) without
+			 * ever finding one means the message truly had too
+			 * many entries to fit. Checking this before accounting
+			 * for the void slot below (rather than after
+			 * incrementing past it) matters: incrementing first
+			 * made every message whose terminator happened to land
+			 * exactly in the last slot indistinguishable from a
+			 * real overflow, rejecting otherwise-valid messages --
+			 * live privsep testing hit this on a real
+			 * ENABLE_HYBRID modecfg/split-DNS config that filled
+			 * the buffer right up to that boundary.
+			 */
 			if (count >= PRIVSEP_NBUF_MAX) {
-				plog(LLV_ERROR, LOCATION, NULL, 
+				plog(LLV_ERROR, LOCATION, NULL,
 				    "privsep_script_exec: too many args\n");
 				goto out;
 			}
+			count++;	/* void */
 
 
 			/* 
@@ -491,7 +588,7 @@ privsep_init(void)
 			    "script_exec(\"%s\", %d, %p)\n", 
 			    script, name, envp);
 
-			/* 
+			/*
 			 * Check env for dangerous variables
 			 * Check script path and name
 			 * Perform fork and execve
@@ -499,7 +596,9 @@ privsep_init(void)
 			if ((unsafe_env(envp) == 0) &&
 			    (unknown_name(name) == 0) &&
 			    (unsafe_path(script, LC_PATHTYPE_SCRIPT) == 0))
-				(void)script_exec(script, name, envp);
+				(void)script_exec(script, name, envp,
+				    (combuf->hdr.ac_cmd &
+				    PRIVSEP_SCRIPT_EXEC_WAIT) ? 1 : 0);
 			else
 				plog(LLV_ERROR, LOCATION, NULL, 
 				    "privsep_script_exec: "
@@ -942,10 +1041,11 @@ out:
 }
 
 int
-privsep_script_exec(script, name, envp)
+privsep_script_exec(script, name, envp, wait_for_exit)
 	char *script;
 	int name;
 	char *const envp[];
+	int wait_for_exit;
 {
 	int count = 0;
 	char *const *c;
@@ -954,16 +1054,17 @@ privsep_script_exec(script, name, envp)
 	struct privsep_com_msg *msg;
 
 	if (geteuid() == 0)
-		return script_exec(script, name, envp);
+		return script_exec(script, name, envp, wait_for_exit);
 
 	if ((msg = racoon_malloc(sizeof(*msg))) == NULL) {
-		plog(LLV_ERROR, LOCATION, NULL, 
+		plog(LLV_ERROR, LOCATION, NULL,
 		    "Cannot allocate memory: %s\n", strerror(errno));
 		return -1;
 	}
 
 	bzero(msg, sizeof(*msg));
-	msg->hdr.ac_cmd = PRIVSEP_SCRIPT_EXEC;
+	msg->hdr.ac_cmd = PRIVSEP_SCRIPT_EXEC |
+	    (wait_for_exit ? PRIVSEP_SCRIPT_EXEC_WAIT : 0);
 	msg->hdr.ac_len = sizeof(*msg);
 
 	/*

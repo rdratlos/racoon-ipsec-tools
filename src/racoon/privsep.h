@@ -46,6 +46,20 @@
 #define PRIVSEP_BIND			0x080B	/* admin_com_bufs follows */
 #define PRIVSEP_SOCKET			0x080C	/* admin_com_bufs follows */
 
+/*
+ * OR'd into ac_cmd alongside PRIVSEP_SCRIPT_EXEC: ask the privileged
+ * process's script_exec() to wait, bounded, for this hook invocation
+ * (daemon-issues.md Issue 1). A dedicated ac_cmd bit rather than an extra
+ * envp entry, deliberately -- envp is marshaled into the same
+ * PRIVSEP_NBUF_MAX-slot admin_com_bufs as script/name/envp below, so an
+ * extra entry there contends with a config's own env vars (modecfg,
+ * split-DNS) for that fixed budget instead of being free. Must not
+ * collide with any PRIVSEP_* command value above, nor with
+ * ADMIN_FLAG_VERSION/ADMIN_FLAG_LONG_REPLY (admin.h, 0x8000) since both
+ * share the same ac_cmd wire field type.
+ */
+#define PRIVSEP_SCRIPT_EXEC_WAIT	0x1000
+
 #define PRIVSEP_NBUF_MAX 24
 #define PRIVSEP_BUFLEN_MAX 4096
 struct admin_com_bufs {
@@ -61,7 +75,7 @@ struct privsep_com_msg {
 int privsep_init __P((void));
 
 vchar_t *privsep_eay_get_pkcs1privkey __P((char *));
-int privsep_script_exec __P((char *, int, char * const *));
+int privsep_script_exec __P((char *, int, char * const *, int));
 int privsep_setsockopt __P((int, int, int, const void *, socklen_t));
 int privsep_socket __P((int, int, int));
 int privsep_bind __P((int, const struct sockaddr *, socklen_t));

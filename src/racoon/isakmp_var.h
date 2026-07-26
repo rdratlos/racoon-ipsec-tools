@@ -131,7 +131,7 @@ extern void log_ph1established __P((const struct ph1handle *));
 
 extern void script_hook __P((struct ph1handle *, int));
 extern int script_env_append __P((char ***, int *, char *, char *));
-extern int script_exec __P((char *, int, char * const *));
+extern int script_exec __P((char *, int, char * const *, int));
 
 void purge_remote __P((struct ph1handle *));
 void delete_spd __P((struct ph2handle *, u_int64_t));

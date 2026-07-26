@@ -41,6 +41,15 @@
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <sys/queue.h>
+#if HAVE_SYS_WAIT_H
+# include <sys/wait.h>
+#endif
+#ifndef WEXITSTATUS
+# define WEXITSTATUS(s)	((unsigned)(s) >> 8)
+#endif
+#ifndef WIFEXITED
+# define WIFEXITED(s)	(((s) & 255) == 0)
+#endif
 
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -3107,6 +3116,19 @@ frag_handler(iph1, msg, remote, local)
 }
 #endif
 
+/* How long script_exec() waits for a wait-flagged hook to
+ * exit before giving up and continuing shutdown anyway (daemon-issues.md
+ * Issue 1). 3s is comfortably above what the shipped hook scripts need
+ * for their normal work (resolving SCRIPT_DIR, sourcing racoon-hook-lib.sh,
+ * a handful of ip/resolvectl/setkey invocations -- sub-second in
+ * practice) while staying well under systemd's default 90s
+ * TimeoutStopSec, including with several concurrent Phase 1 SAs each
+ * paying this bound serially in flushph1()'s teardown loop (handler.c).
+ * Polled at 50ms resolution: fine enough that a fast hook's exit is
+ * observed promptly, coarse enough not to busy-loop. */
+#define SCRIPT_DOWN_WAIT_MAX_MS  3000
+#define SCRIPT_DOWN_WAIT_POLL_MS 50
+
 void
 script_hook(iph1, script)
 	struct ph1handle *iph1;
@@ -3195,8 +3217,44 @@ script_hook(iph1, script)
 		goto out;
 	}
 
-	if (privsep_script_exec(iph1->rmconf->script[script]->v,
-	    script, envp) != 0)
+	/*
+	 * daemon-issues.md Issue 1 (F2): close_session()'s shutdown path
+	 * (session.c) never waited for this hook's forked child before
+	 * proceeding to exit(0), routinely outracing a SCRIPT_PHASE1_DOWN
+	 * hook and leaving its routes/DNS/SPD state behind. Ask
+	 * script_exec() (below, and under privsep the privileged process's
+	 * PRIVSEP_SCRIPT_EXEC handler -- privsep.c) to wait, bounded, for
+	 * this specific invocation to finish -- but only when we are
+	 * actually shutting down. SCRIPT_PHASE1_DOWN also fires from
+	 * ordinary per-connection teardown (peer-initiated delete, DPD
+	 * timeout, rekey failure -- see delph1()'s callers, handler.c),
+	 * which must stay fire-and-forget: blocking the single-threaded
+	 * main loop on every routine disconnect would newly expose it to
+	 * being stalled by a slow or adversarial peer, not just by a slow
+	 * hook at shutdown.
+	 *
+	 * This used to be carried as an extra envp entry (RACOON_SCRIPT_WAIT),
+	 * on the theory that envp was "already generically marshaled"
+	 * through privsep's IPC and so cheaper to extend than
+	 * privsep_com_msg's fixed, manually counted admin_com_bufs layout
+	 * (PRIVSEP_NBUF_MAX slots, privsep.h). That theory was wrong: envp
+	 * entries consume that exact same fixed slot budget once handed to
+	 * privsep_script_exec() below, and a real ENABLE_HYBRID modecfg
+	 * connection (INTERNAL_*, SPLIT_INCLUDE/SPLIT_LOCAL,
+	 * INTERNAL_SPLITDNS_DOMAINS -- isakmp_cfg_setenv()) plus this
+	 * function's own explicit entries can already sit within one slot of
+	 * that budget. Adding RACOON_SCRIPT_WAIT was the one entry too many:
+	 * live privsep testing on a real split-DNS roadwarrior config hit
+	 * "privsep_script_exec: too many args" (privsep.c) on exactly the
+	 * SCRIPT_PHASE1_DOWN-at-shutdown call this flag was meant to fix,
+	 * silently dropping the down hook again -- the same failure mode as
+	 * the original bug, reintroduced through the fix's own wire format.
+	 * Passed as an explicit argument instead: zero envp/wire footprint,
+	 * so it can never contend with a config's own env vars for the same
+	 * fixed budget.
+	 */
+	if (privsep_script_exec(iph1->rmconf->script[script]->v, script, envp,
+	    racoon_shutting_down && script == SCRIPT_PHASE1_DOWN) != 0)
 		plog(LLV_ERROR, LOCATION, NULL,
 		    "Script %s execution failed\n", script_names[script]);
 
@@ -3245,19 +3303,82 @@ script_env_append(envp, envc, name, value)
 	return 0;
 }
 
+/*
+ * Bounded, WNOHANG-polling wait for a hook child script_hook() has asked
+ * us (via script_exec()'s wait_for_exit argument) to wait for.
+ * Deliberately not a plain blocking waitpid(pid, &status, 0): this
+ * project's SIGCHLD handling
+ * (session.c's signal_handler()/check_sigreq()) only reaps children from
+ * a deferred flag, dispatched synchronously from the single-threaded
+ * main loop's check_sigreq() -- never from within a signal handler
+ * itself, which only sets sigreq[SIGCHLD] = 1 -- so this targeted,
+ * WNOHANG-polled waitpid(pid, ...) can never run concurrently with that
+ * generic "case SIGCHLD: waitpid(-1, &s, WNOHANG)" reaper; the two are
+ * never on the call stack at the same time. Per POSIX (waitpid(),
+ * IEEE Std 1003.1-2017 XBD 3.1), once either call reaps a given pid, a
+ * later waitpid() for that same pid returns -1/ECHILD, which this loop
+ * treats as "nothing left to wait for" and returns -- it does not
+ * distinguish that from a genuinely unknown pid, since either way there
+ * is nothing more to do here.
+ *
+ * Uses nanosleep()/struct timespec (POSIX.1-2001 base, <time.h>, already
+ * included above) rather than usleep() (marked obsolete by POSIX.1-2008)
+ * for the poll interval.
+ */
+static void
+script_wait_down(pid, name)
+	pid_t pid;
+	const char *name;
+{
+	struct timespec req;
+	int elapsed_ms = 0;
+	int status;
+	pid_t ret;
+
+	for (;;) {
+		ret = waitpid(pid, &status, WNOHANG);
+		if (ret == pid) {
+			if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+				plog(LLV_WARNING, LOCATION, NULL,
+				    "%s script (pid %d) exited with status %d\n",
+				    name, (int)pid, WEXITSTATUS(status));
+			return;
+		}
+		if (ret == -1)
+			return; /* reaped elsewhere, or no such child */
+
+		if (elapsed_ms >= SCRIPT_DOWN_WAIT_MAX_MS) {
+			plog(LLV_WARNING, LOCATION, NULL,
+			    "%s script (pid %d) did not finish within "
+			    "%d ms; continuing shutdown without waiting "
+			    "further\n",
+			    name, (int)pid, SCRIPT_DOWN_WAIT_MAX_MS);
+			return;
+		}
+
+		req.tv_sec = SCRIPT_DOWN_WAIT_POLL_MS / 1000;
+		req.tv_nsec = (SCRIPT_DOWN_WAIT_POLL_MS % 1000) * 1000000L;
+		while (nanosleep(&req, &req) == -1 && errno == EINTR)
+			; /* resume with the remaining interval */
+		elapsed_ms += SCRIPT_DOWN_WAIT_POLL_MS;
+	}
+}
+
 int
-script_exec(script, name, envp)
+script_exec(script, name, envp, wait_for_exit)
 	char *script;
 	int name;
 	char *const envp[];
+	int wait_for_exit;
 {
 	char *argv[] = { NULL, NULL, NULL };
+	pid_t pid;
 
 	argv[0] = script;
 	argv[1] = script_names[name];
 	argv[2] = NULL;
 
-	switch (fork()) {
+	switch (pid = fork()) {
 	case 0:
 		execve(argv[0], argv, envp);
 		plog(LLV_ERROR, LOCATION, NULL,
@@ -3271,6 +3392,8 @@ script_exec(script, name, envp)
 		return -1;
 		break;
 	default:
+		if (wait_for_exit)
+			script_wait_down(pid, argv[1]);
 		break;
 	}
 	return 0;

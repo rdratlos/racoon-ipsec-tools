@@ -593,6 +593,76 @@ test_script_hook_leak_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
 	-Wl,--wrap=free
 endif
 
+# Test: script_exec() bounded wait for RACOON_SCRIPT_WAIT-flagged hooks
+# (daemon-issues.md Issue 1 / F2) -- close_session()'s shutdown path used
+# to never wait for a SCRIPT_PHASE1_DOWN hook's forked child, routinely
+# outracing phase1-down.sh and leaving its routes/DNS/SPD state behind.
+#
+# isakmp.c is pulled in the same way as test_script_hook_leak above
+# (isakmp_unittest_src.c, -ffunction-sections/--gc-sections), but this
+# test drives script_exec() directly with real throwaway shell scripts
+# under /tmp rather than going through script_hook(), so it only needs
+# isakmp_script_exec_test_stubs.c's script_names[] stub -- none of
+# test_script_hook_leak's ipsecdoi_id2str()/privsep_script_exec()/
+# isakmp_cfg_setenv() stubs are reachable from script_exec() itself.
+#
+# Also excluded from sanitizer builds, same reason as test_script_hook_leak
+# above (relies on --gc-sections dead-code elimination that ASan defeats).
+if !SANITIZER_BUILD
+check_PROGRAMS += test_script_exec_wait
+
+test_script_exec_wait_SOURCES  = test_script_exec_wait.c \
+	isakmp_unittest_src.c \
+	isakmp_script_exec_test_stubs.c
+test_script_exec_wait_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_script_exec_wait_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_script_exec_wait_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/misc_noplog.o \
+	$(top_builddir)/src/racoon/vmbuf.o
+test_script_exec_wait_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
+# Test: privsep_sigterm_forward() (daemon-issues.md Issue 1, privsep half)
+# -- under privsep, the privileged process (privsep.c) used to leave
+# SIGTERM at its default disposition (immediate termination) instead of
+# forwarding it to the unprivileged child, so a `systemctl stop racoon`
+# (which targets the privileged process's pid under the shipped
+# Type=simple unit) killed it before the child's SCRIPT_PHASE1_DOWN
+# request could ever arrive -- the down hook was never attempted, not
+# just raced. Cannot exercise privsep_init()'s own fork() (needs a real
+# PF_KEY/XFRM-capable kernel not every test host has), but drives the
+# actual privsep_sigterm_forward() function with a real fork() and a
+# real kernel-delivered SIGTERM.
+#
+# privsep.c is pulled in the same way as the other wrapped-static-function
+# tests above (privsep_unittest_src.c, -ffunction-sections/--gc-sections);
+# privsep_set_child_pid_unittest()/privsep_sigterm_forward_unittest() are
+# new -DENABLE_UNITTEST-only accessors in privsep.c itself, so no separate
+# stub file is needed here.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_privsep_sigterm_forward
+
+test_privsep_sigterm_forward_SOURCES  = test_privsep_sigterm_forward.c \
+	privsep_unittest_src.c
+test_privsep_sigterm_forward_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_sigterm_forward_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_privsep_sigterm_forward_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_sigterm_forward_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
 # They follow automake's default "simple" test protocol (exit 0 = pass,

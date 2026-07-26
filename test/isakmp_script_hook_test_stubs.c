@@ -30,6 +30,13 @@
  *    isakmp_cfg.c (LDAP/PAM/RADIUS/Kerberos backends). script_hook()'s
  *    REMOTE_ID leak is independent of mode-cfg env vars, so the stub is a
  *    no-op that appends nothing.
+ *
+ * script_hook() also now reads racoon_shutting_down (session.c, added for
+ * daemon-issues.md Issue 1) to decide whether to ask privsep_script_exec()
+ * to wait (passed as an explicit argument, not an envp entry -- see
+ * isakmp.c/privsep.h); this test doesn't link session.o, so the symbol is
+ * stubbed at 0 below -- the REMOTE_ID leak under test here is independent
+ * of that flag either way.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -58,6 +65,9 @@
  * time. Mirrors remoteconf.c's definition. */
 char *script_names[SCRIPT_MAX + 1] = {
 	"phase1_up", "phase1_down", "phase1_dead" };
+
+/* Mirrors session.c's definition; see the file comment above. */
+int racoon_shutting_down = 0;
 
 /* Set by the test before calling script_hook() to pick which behaviour of
  * the real ipsecdoi_id2str() to simulate. */
@@ -95,7 +105,8 @@ int test_stub_privsep_script_exec_calls = 0;
 char *test_stub_last_ike_cookie = NULL;
 
 int
-privsep_script_exec(char *script, int name, char * const envp[])
+privsep_script_exec(char *script, int name, char * const envp[],
+    int wait_for_exit)
 {
 	int i;
 	static const char prefix[] = "IKE_COOKIE=";
