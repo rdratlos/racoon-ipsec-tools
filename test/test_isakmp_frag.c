@@ -1,11 +1,17 @@
 /*
  * test/test_isakmp_frag.c
  *
- * Regression test for the IKE phase 1 fragment reassembly logic in
- * src/racoon/isakmp_frag.c.
+ * Regression test for src/racoon/isakmp_frag.c: IKE phase 1 fragment
+ * reassembly (scenarios 1-4, the CVE-2016-10396 follow-up below), plus
+ * coverage added for the file's remaining, previously-untested entry
+ * points -- isakmp_sendfrags() (the sending side's counterpart to
+ * reassembly, scenario 5), vendorid_frag_cap() (capability-dword
+ * extraction and its CWE-125 bounds check, scenario 6), and
+ * isakmp_frag_addcap() (the vendor-ID capability dword this project's own
+ * VID construction ORs bits into, scenario 7).
  *
- * Background
- * ----------
+ * Background (scenarios 1-4)
+ * ---------------------------
  * The NetBSD fix for CVE-2016-10396 (remote DoS via out-of-order IKE
  * fragments) introduced a `frag_last_index` field and a completion check
  * that did not reliably detect the end of a reassembly. In this fork two
@@ -50,6 +56,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include <openssl/md5.h>
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -85,10 +93,38 @@ _plog(int pri, const char *location, struct sockaddr *addr,
 	/* no-op: reassembly logic is exercised via return values, not logs */
 }
 
-/* Referenced only by isakmp_sendfrags(), which this test never calls. */
+/*
+ * Referenced by isakmp_sendfrags() (exercised in test_sendfrags_scenarios()
+ * below). isakmp_send() records a copy of every fragment handed to it so
+ * the test can check fragment count, index/flags sequencing, and payload
+ * placement; set_isakmp_header1() stays a no-op -- isakmp_sendfrags() only
+ * ever reads back the etype field it sets itself, never anything
+ * set_isakmp_header1() would have filled in.
+ */
+#define MAX_RECORDED_FRAGS 16
+static vchar_t *sent_frags[MAX_RECORDED_FRAGS];
+static int sent_frags_count;
+
+static void
+reset_sent_frags(void)
+{
+	int i;
+
+	for (i = 0; i < sent_frags_count; i++)
+		vfree(sent_frags[i]);
+	sent_frags_count = 0;
+}
+
 int isakmp_send(struct ph1handle *iph1, vchar_t *buf)
 {
-	(void)iph1; (void)buf;
+	(void)iph1;
+	if (sent_frags_count < MAX_RECORDED_FRAGS) {
+		vchar_t *copy = vmalloc(buf->l);
+		if (copy != NULL) {
+			memcpy(copy->v, buf->v, buf->l);
+			sent_frags[sent_frags_count++] = copy;
+		}
+	}
 	return 0;
 }
 caddr_t set_isakmp_header1(vchar_t *b, struct ph1handle *i, int n)
@@ -364,6 +400,169 @@ test_security_preserved(void)
 	free(iph1);
 }
 
+/*
+ * Scenario 5: isakmp_sendfrags() -- the sending side's counterpart to the
+ * extract/reassembly logic above. Splits an oversized ISAKMP message into
+ * ISAKMP_FRAG_MAXLEN-bounded fragments and hands each to isakmp_send(),
+ * which the stub above now records instead of discarding.
+ *
+ * ISAKMP_FRAG_MAXLEN is 552; sizeof(struct isakmp)+sizeof(struct
+ * isakmp_frag)+sizeof(trailer) is 28+8+4=40, so each fragment's payload
+ * (max_datalen) tops out at 512 bytes. A 1050-byte message therefore
+ * splits as 512+512+26 -- three fragments, the last strictly shorter,
+ * exercising both the "more data follows" and "this is the last one"
+ * branches in the same run.
+ */
+static void
+test_sendfrags_scenarios(void)
+{
+	struct ph1handle *iph1 = new_iph1();
+	const size_t total = 1050;
+	const size_t max_datalen = ISAKMP_FRAG_MAXLEN -
+	    (sizeof(struct isakmp) + sizeof(struct isakmp_frag) + sizeof(unsigned int));
+	vchar_t *msg;
+	struct isakmp *hdr;
+	u_int8_t expect_etype;
+	size_t off;
+	int i, r;
+
+	printf("Scenario 5: isakmp_sendfrags() splits an oversized message\n");
+
+	msg = vmalloc(total);
+	if (msg == NULL) {
+		CHECK(0, "vmalloc() for the oversized message succeeded");
+		free(iph1);
+		return;
+	}
+	/* The whole buffer -- header bytes included -- is opaque data to
+	 * isakmp_sendfrags(); fill it with a position-derived pattern so
+	 * reassembly can be checked byte-for-byte below, then capture
+	 * whatever byte the pattern put at the etype offset as the expected
+	 * value -- the point under test is that every fragment's own header
+	 * carries the SAME etype the source message had, not a specific one
+	 * (setting it separately, after the fill, would just overwrite one
+	 * pattern byte and complicate the payload check below for no gain).
+	 */
+	for (i = 0; i < (int)msg->l; i++)
+		msg->v[i] = (unsigned char)(i & 0xff);
+	hdr = (struct isakmp *)msg->v;
+	expect_etype = hdr->etype;
+
+	reset_sent_frags();
+	r = isakmp_sendfrags(iph1, msg);
+
+	CHECK(r == sent_frags_count,
+	    "isakmp_sendfrags() return value matches fragments actually sent");
+	CHECK(sent_frags_count == 3, "1050-byte message split into exactly 3 fragments");
+
+	off = 0;
+	for (i = 0; i < sent_frags_count; i++) {
+		struct isakmp *fhdr = (struct isakmp *)sent_frags[i]->v;
+		struct isakmp_frag *fraghdr =
+		    (struct isakmp_frag *)(sent_frags[i]->v + sizeof(struct isakmp));
+		unsigned char *data = (unsigned char *)(fraghdr + 1);
+		size_t datalen = sent_frags[i]->l - sizeof(struct isakmp) -
+		    sizeof(struct isakmp_frag);
+		int expect_last = (i == sent_frags_count - 1);
+		int payload_ok = 1;
+		size_t j;
+
+		CHECK(fhdr->etype == expect_etype, "fragment carries the original exchange type");
+		CHECK(fraghdr->index == i + 1, "fragment index is sequential, 1-based");
+		CHECK(((fraghdr->flags & ISAKMP_FRAG_LAST) != 0) == expect_last,
+		    "only the final fragment carries ISAKMP_FRAG_LAST");
+		if (!expect_last)
+			CHECK(datalen == max_datalen,
+			    "non-final fragment payload is exactly max_datalen");
+
+		for (j = 0; j < datalen; j++) {
+			if (data[j] != (unsigned char)((off + j) & 0xff)) {
+				payload_ok = 0;
+				break;
+			}
+		}
+		CHECK(payload_ok, "fragment payload matches source data at its offset");
+		off += datalen;
+	}
+	CHECK(off == msg->l, "concatenated fragment payloads cover the whole message");
+
+	vfree(msg);
+	free(iph1);
+	reset_sent_frags();
+}
+
+/*
+ * Scenario 6: vendorid_frag_cap() -- extracts the capability dword that
+ * follows the 16-byte MD5 vendor-ID hash, and (CWE-125, see the comment in
+ * isakmp_frag.c) must refuse to read past a vendor ID payload too short to
+ * contain one, returning 0 instead of an out-of-bounds read.
+ */
+static void
+test_vendorid_frag_cap_scenarios(void)
+{
+	unsigned char raw[sizeof(struct isakmp_gen) + MD5_DIGEST_LENGTH + sizeof(unsigned int)];
+	struct isakmp_gen *gen = (struct isakmp_gen *)raw;
+	unsigned int *capp = (unsigned int *)(raw + sizeof(struct isakmp_gen) + MD5_DIGEST_LENGTH);
+
+	printf("Scenario 6: vendorid_frag_cap() capability extraction\n");
+
+	memset(raw, 0, sizeof(raw));
+	gen->len = htons((u_int16_t)sizeof(raw));
+
+	*capp = htonl(VENDORID_FRAG_BASE);
+	CHECK(vendorid_frag_cap(gen) == (unsigned int)VENDORID_FRAG_BASE,
+	    "single capability bit extracted correctly");
+
+	*capp = htonl(VENDORID_FRAG_BASE | VENDORID_FRAG_IDENT);
+	CHECK(vendorid_frag_cap(gen) == (unsigned int)(VENDORID_FRAG_BASE | VENDORID_FRAG_IDENT),
+	    "combined capability bits extracted correctly");
+
+	/* Truncated VID: len covers only the header + digest, no capability
+	 * dword. Must return 0, not read 4 bytes past what len declares. */
+	gen->len = htons((u_int16_t)(sizeof(struct isakmp_gen) + MD5_DIGEST_LENGTH));
+	CHECK(vendorid_frag_cap(gen) == 0,
+	    "truncated VID (no capability dword) returns 0, not an OOB read (CWE-125)");
+}
+
+/*
+ * Scenario 7: isakmp_frag_addcap() -- grows a bare 16-byte MD5 VID hash by
+ * exactly sizeof(int) the first time a capability is added, then ORs
+ * further capability bits into the same dword in place on later calls
+ * (the fragmentation-then-hybrid/xauth vendor ID construction path).
+ */
+static void
+test_frag_addcap_scenarios(void)
+{
+	vchar_t *buf;
+	unsigned int *capp;
+
+	printf("Scenario 7: isakmp_frag_addcap() growth and in-place OR\n");
+
+	buf = vmalloc(MD5_DIGEST_LENGTH);
+	if (buf == NULL) {
+		CHECK(0, "vmalloc(MD5_DIGEST_LENGTH) succeeded");
+		return;
+	}
+	memset(buf->v, 0xAA, buf->l); /* stand-in MD5 digest bytes */
+
+	buf = isakmp_frag_addcap(buf, VENDORID_FRAG_BASE);
+	CHECK(buf != NULL, "addcap() on a bare digest did not fail");
+	CHECK(buf->l == MD5_DIGEST_LENGTH + sizeof(int),
+	    "buffer grew by exactly sizeof(cap) on first call");
+	capp = (unsigned int *)(buf->v + MD5_DIGEST_LENGTH);
+	CHECK(ntohl(*capp) == (unsigned int)VENDORID_FRAG_BASE,
+	    "capability dword set correctly on first call");
+
+	buf = isakmp_frag_addcap(buf, VENDORID_FRAG_IDENT);
+	CHECK(buf->l == MD5_DIGEST_LENGTH + sizeof(int),
+	    "second call does not grow the buffer again");
+	capp = (unsigned int *)(buf->v + MD5_DIGEST_LENGTH);
+	CHECK(ntohl(*capp) == (unsigned int)(VENDORID_FRAG_BASE | VENDORID_FRAG_IDENT),
+	    "second call ORs in the new bit, keeping the first");
+
+	vfree(buf);
+}
+
 int
 main(void)
 {
@@ -376,6 +575,12 @@ main(void)
 	test_retransmitted_message();
 	printf("\n");
 	test_security_preserved();
+	printf("\n");
+	test_sendfrags_scenarios();
+	printf("\n");
+	test_vendorid_frag_cap_scenarios();
+	printf("\n");
+	test_frag_addcap_scenarios();
 
 	printf("\n=== %d checks, %d failed ===\n", tests_run, tests_failed);
 	return tests_failed == 0 ? 0 : 1;
