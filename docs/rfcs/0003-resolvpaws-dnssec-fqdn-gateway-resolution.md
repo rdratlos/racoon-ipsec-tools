@@ -225,9 +225,28 @@ extern const struct resolvpaws_ops *const resolvpaws_backend;
  * resolvpaws_result; never triggers a new DNS query */
 enum resolvpaws_af_pref { RESOLVPAWS_AF_INET, RESOLVPAWS_AF_INET6, RESOLVPAWS_AF_ANY };
 
-struct sockaddr *resolvpaws_select(const struct resolvpaws_result *result,
-                                    enum resolvpaws_af_pref pref);
+struct resolvpaws_selection {
+	struct sockaddr *addr;
+	int fallback_used;                  /* preferred family was not usable */
+	enum resolvpaws_status pref_status; /* preferred family's own status,
+	                                      * for logging/UI even when unused */
+};
+
+int resolvpaws_select(const struct resolvpaws_result *result,
+                       enum resolvpaws_af_pref pref,
+                       struct resolvpaws_selection *out);
 ```
+
+`fallback_used`/`pref_status` exist so a caller — the log line, and eventually
+a NetworkManager-style front-end, which is the whole motivating use case for
+this feature — can surface *why* a fallback happened, not just that an address
+was returned. `pref_status == RESOLVPAWS_NODATA` (no record published for the
+preferred family) and `pref_status` being `RESOLVPAWS_BOGUS`/
+`RESOLVPAWS_INDETERMINATE` (a record exists but failed validation) both result
+in the same fallback address, but they are not the same event: the former is
+a provisioning fact, the latter is potentially an attack in progress against
+the preferred family's records. See "Address-family selection" below for the
+logging distinction this drives.
 
 Backend selection mirrors `kernelpaws`'s pattern exactly
 (`0002-kernelpaws...md`, "Backend Selection"):
@@ -287,14 +306,51 @@ Config-parse-time fatal errors (fail closed, never a silent downgrade):
 
 Resolvpaws does not implement RFC 5011 root-key-rollover tracking itself —
 that long-lived, security-critical state is deliberately left to whatever the
-host system already maintains (e.g. Debian/Ubuntu's `unbound-anchor`-managed
-`/var/lib/unbound/root.key`, or a distro's `dns-root-data` package). The
-`libunbound` backend is pointed at that file. If `dnssec_trust_anchor_file` is
-not set, the backend probes a short list of well-known per-distro paths (to be
-finalized during implementation, e.g. `/var/lib/unbound/root.key`,
-`/etc/unbound/root.key`, `/usr/share/dns/root.key`); if none exist and none
-was explicitly configured, startup fails for any `remote` resolving to
-`dnssec_verify on` rather than silently resolving without validation.
+host system already maintains. `dnssec_trust_anchor_file`, when set, points
+the `libunbound` backend directly at that file. When unset, the backend
+probes a short, distro-ordered list of well-known paths and uses the first
+one found.
+
+There are two distinct lineages of "the root anchor file" on Linux, and
+probe order needs to prefer the one that's actually being kept current over a
+static distro-package copy:
+
+- The **resolver-self-managed anchor**: written and RFC 5011-tracked by
+  `unbound-anchor` itself, wired up via `auto-trust-anchor-file` in the
+  distro's default `unbound.conf` when `unbound` is installed.
+- The **distro-shared anchor**: a static file installed by a dedicated
+  package (`dns-root-data` on Debian/Ubuntu, `dnssec-anchors` on Arch)
+  specifically so multiple resolvers/tools on the box can share one
+  package-maintained copy, independent of whether `unbound` itself is
+  present.
+
+Probe order per distro family (finalized here; verified against each
+distro's `unbound-anchor` documentation):
+
+- **Ubuntu (18.04 Bionic through the current LTS) and Debian ≥ 13 (Trixie)**:
+  probe both `/var/lib/unbound/root.key` (the `unbound`-package-managed,
+  RFC 5011-tracked path) and `/usr/share/dns/root.key` (the `dns-root-data`
+  package's static file). Debian's own `unbound-anchor` documentation treats
+  `/usr/share/dns/root.key` as its default when `unbound` is installed from
+  Debian packaging, while Ubuntu's documents `/var/lib/unbound/root.key` —
+  the two distros disagree on which is canonical. Rather than hardcode a
+  per-distro order that can drift, use whichever of the two exists and is
+  non-empty; if both exist, prefer the more recently modified one, since
+  that is the one most likely being kept current by RFC 5011 tracking.
+- **Arch Linux**: probe `/etc/unbound/trusted-key.key` first (what Arch's
+  `unbound` package config references via `trust-anchor-file:
+  trusted-key.key` relative to `directory: "/etc/unbound"`), then
+  `/etc/trusted-key.key` (the `dnssec-anchors` package's canonical file,
+  which `/etc/unbound/trusted-key.key` is normally a pacman-hook-refreshed
+  copy of). Probing the copy first and falling back to the canonical file
+  covers both an `unbound`-installed box and a headless Racoon-only box
+  that only has `dnssec-anchors` installed.
+
+If none of the probed paths exist (and none was explicitly configured via
+`dnssec_trust_anchor_file`), that is a fatal error at startup for any
+`remote` resolving to `dnssec_verify on` — "no anchor found" is treated the
+same as "explicitly configured anchor unreadable," never as a silent skip
+into unvalidated resolution.
 
 No fallback anchor is bundled in the Racoon source tree. A hardcoded anchor is
 a reasonable one-time bootstrap trick (both `getdns` and `unbound` do this),
@@ -335,6 +391,35 @@ didn't establish), Racoon falls back to the other already-validated family
 from the same `resolvpaws_result` rather than issuing a second resolvpaws
 query. `RESOLVPAWS_AF_ANY` uses this same fallback behavior from the first
 attempt rather than only after a failure.
+
+An unsatisfiable preference (the preferred family has no usable, securely
+validated address) is handled as implicit fallback to the other family with
+a logged warning, not a hard failure — consistent with `RESOLVPAWS_AF_ANY`'s
+own ordered-fallback semantics rather than introducing a second, different
+failure mode for what is fundamentally the same situation (preferred family
+unavailable, other family usable). But "unavailable" has two causes that must
+not be logged, or surfaced to a future UI, identically:
+
+- **`pref_status == RESOLVPAWS_NODATA`** — the preferred family simply has no
+  record published (e.g. `inet6` preferred, the name is A-only). This is a
+  naming/provisioning fact, not a security event — exactly the shape of the
+  SOHO case where the DDNS provider is IPv4-only. Log at `notice`.
+- **`pref_status` is `RESOLVPAWS_BOGUS` or `RESOLVPAWS_INDETERMINATE`** — a
+  record exists for the preferred family but failed DNSSEC validation while
+  the other family validated fine. This is a security-relevant asymmetry: an
+  admin needs to be able to tell "this name just doesn't publish AAAA" apart
+  from "someone is tampering with AAAA responses for this name" from the log
+  alone. Log at `warning` or above even though the resulting fallback address
+  is identical to the `NODATA` case.
+
+This is exactly what `resolvpaws_selection.pref_status` (see `resolvpaws_ops`
+interface, above) exists to carry: the fallback address alone doesn't tell
+the caller which of the two cases occurred, but `pref_status` does, at zero
+extra cost since both families were already fetched. `fallback_used` and
+`pref_status` are surfaced past the log line too — a future NetworkManager-
+style front-end (the actual motivating use case for this feature) can render
+"connected, but your IPv6 preference wasn't honored" as a visible connection
+state rather than something that only ever lived in a log file.
 
 ### Resolution timing
 
@@ -470,15 +555,11 @@ global default once if they run several FQDN gateways).
 
 ## Open questions
 
-- Exact probe list and probe order for well-known per-distro trust-anchor
-  paths when `dnssec_trust_anchor_file` is unset — to be finalized against
-  the actual distros in Racoon's support matrix during implementation.
-- If `dnssec_af_preference` names a family for which the FQDN has no record
-  at all (e.g. `inet6` preferred but the name is A-only), is that a hard
-  failure (operator's preference was unsatisfiable) or an implicit fallback
-  to the other family? Leaning toward implicit fallback with a logged
-  warning, consistent with `RESOLVPAWS_AF_ANY`'s ordered-fallback behavior,
-  but not decided here.
+None outstanding as of this revision. The two questions raised in the prior
+revision — the trust-anchor probe list/order, and hard-failure-vs-fallback
+for an unsatisfiable `dnssec_af_preference` — were resolved during review and
+are now recorded in "Trust anchor sourcing" and "Address-family selection"
+above, respectively.
 
 ## Acceptance criteria
 
@@ -504,7 +585,10 @@ global default once if they run several FQDN gateways).
       address fallback to unvalidated data.
 - [ ] `libunbound` backend fails startup (not silent unvalidated resolution)
       when `dnssec_verify on` applies to a `remote` and no readable trust
-      anchor file is found, whether explicitly configured or probed.
+      anchor file is found via `dnssec_trust_anchor_file` or the per-distro
+      probe list (Ubuntu/Debian: `/var/lib/unbound/root.key` and
+      `/usr/share/dns/root.key`, newest-mtime-wins if both exist; Arch:
+      `/etc/unbound/trusted-key.key` then `/etc/trusted-key.key`).
 - [ ] TTL-driven refresh is scheduled via `schedule.c` and observably
       re-resolves near expiry in a test environment using a short-TTL zone.
 - [ ] An address change picked up by refresh does not tear down an active
@@ -512,6 +596,11 @@ global default once if they run several FQDN gateways).
 - [ ] A preferred-family IKE negotiation failure falls back to the other
       already-validated family from the same `resolvpaws_result` without
       issuing a second DNS resolution.
+- [ ] An unsatisfiable `dnssec_af_preference` falls back rather than hard-
+      failing, with `resolvpaws_selection.pref_status` distinguishing
+      `RESOLVPAWS_NODATA` (logged at `notice`) from a validation failure on
+      the preferred family (logged at `warning` or above) even though both
+      produce the same fallback address.
 - [ ] `racoon.conf.5` documents the new syntax (`dnssec_verify`,
       `dnssec_af_preference`, `dnssec_trust_anchor_file`) and explicitly
       states the `glibc` backend's trust-boundary caveat and the
