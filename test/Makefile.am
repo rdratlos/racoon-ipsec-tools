@@ -645,6 +645,22 @@ endif
 # new -DENABLE_UNITTEST-only accessors in privsep.c itself, so no separate
 # stub file is needed here.
 #
+# plog.o/logger.o are linked in explicitly, matching test_script_exec_wait
+# above, rather than left for --gc-sections to decide: vmbuf.o (reused raw
+# from src/racoon's own build, never recompiled with -ffunction-sections
+# itself) calls plog()/references loglevel unconditionally in some of its
+# functions, and --gc-sections can only drop individual functions out of
+# an object that was itself compiled with -ffunction-sections -- since
+# vmbuf.o wasn't, its single, whole .text section is kept-or-dropped
+# atomically. Whether that section (and so this test's need for plog/
+# loglevel) survives came down to how aggressively a given linker/flag
+# combination performed that whole-object GC, which a
+# --enable-coverage + --with-libpam/--with-libldap/--enable-gssapi build
+# on a different linker did differently than this project's own CI,
+# leaving "undefined reference to loglevel/_plog" from vmbuf.o's vdup()
+# (same root cause already fixed for test_grabmyaddr_netlink -- see
+# grabmyaddr_netlink_test_stubs.c's comment).
+#
 # Also excluded from sanitizer builds, same reason as the other
 # wrapped-static-function tests above.
 if !SANITIZER_BUILD
@@ -658,7 +674,9 @@ test_privsep_sigterm_forward_CPPFLAGS = $(AM_CPPFLAGS) \
 	-I$(top_builddir)/src/include-glibc \
 	-DENABLE_UNITTEST
 test_privsep_sigterm_forward_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
-test_privsep_sigterm_forward_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+test_privsep_sigterm_forward_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
 	$(top_builddir)/src/racoon/misc_noplog.o
 test_privsep_sigterm_forward_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
