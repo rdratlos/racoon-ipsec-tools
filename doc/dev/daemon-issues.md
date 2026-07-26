@@ -337,9 +337,19 @@ logic itself was verified by manual proof (documented in the code
 comment) rather than an automated test — extracting privsep's inline
 receive loop into a separately unit-testable function was judged a
 larger, separately-riskier refactor of privilege-separation IPC than this
-fix warrants; re-running the same live privsep/split-DNS reproduction
-that caught this is the recommended way to confirm it end-to-end on real
-hardware.
+fix warrants.
+
+**Confirmed live, on the same real privsep/split-DNS setup that caught the
+regression.** With this fix in place, the `SCRIPT_PHASE1_DOWN` call at
+shutdown now reaches `script_exec()` successfully —
+`script_exec("/etc/racoon/scripts/phase1-down.sh", 1, ...)` appears in the
+log immediately following the earlier, already-working
+`SCRIPT_PHASE1_UP` call — with no `"too many args"` error, and the
+privileged process exits normally afterward rather than crashing. Both
+halves of this issue's fix (the non-privsep bounded wait, and
+privsep's `privsep_sigterm_forward()` plus this follow-up envp/wire fix)
+are now confirmed on real hardware, closing the one item this document
+previously listed as not performed in-sandbox.
 
 The hooks themselves still also treat any residual delay defensively:
 state left over from an interrupted teardown is retried by the next
