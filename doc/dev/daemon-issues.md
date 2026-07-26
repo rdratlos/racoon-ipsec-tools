@@ -427,15 +427,71 @@ sudo /usr/sbin/racoon -F -f /etc/racoon/racoon.conf
 sudo strace -f -e trace=write -p "$(pgrep -o racoon)" 2>&1 | grep 'fd=1\|"1<'
 ```
 
-**Why not fixed here.** The fix (`setvbuf(stdout, NULL, _IOLBF, 0)` early
-in `main()`, or switching foreground logging to `stderr` with the same
-treatment, or writing directly via `write(2, ...)`/`syslog()` unconditionally
-instead of `vprintf()`) is a behavior change to `src/racoon/plog.c` and
-`main.c`, out of scope for §G. Workaround already in place: the hooks
-maintain their own independent, explicitly-flushed trace/report/state
-files under `/run/racoon/` (`doc/admin/split-dns.html` §6) rather than
-depending on racoon's own log stream for anything the hooks themselves
-need to reason about.
+**Status: resolved** — fixed by commit `<pending>` ("main/proposal: line-
+buffer -F's stdout, quiet the authtype-mismatch search noise (#2, #3)")
+in `src/racoon/main.c`.
+
+**The fix.** `main()` now calls `setvbuf(stdout, NULL, _IOLBF, 0)` as its
+very first statement — before `initlcconf()`, before `parse()`, and
+critically before `parse()`'s own `-F` handling prints `"Foreground
+mode.\n"` to `stdout`. That ordering is not cosmetic: per C11 §7.21.5.6 /
+POSIX `setvbuf(3)`, `setvbuf()` is only guaranteed well-defined when
+called *before any other operation* on the stream, and confirmed against
+both the glibc and NetBSD libc `setvbuf(3)` manuals, `buf=NULL, size=0`
+is the portable way to request an implementation-chosen default buffer in
+a given mode without dictating one. `_IOLBF` (line-buffered) means a full
+line is flushed as soon as its trailing `\n` is written — every `plog()`
+call site in this codebase already ends its format string in `\n`, so
+this reaches every `-F` log line without changing `plog.c` itself.
+`setvbuf()` is standard ISO C (unlike the BSD-only `setlinebuf()`
+convenience wrapper this document's original filing also considered,
+which is equivalent but not standardized), so there is no glibc/NetBSD
+libc portability gap here.
+
+**Design-question decision (dual stdout+syslog under `-F`).** Kept
+`-F`'s existing dual-logging behavior (stdout *and* syslog/logfile, both
+unconditionally) rather than adding TTY-detection to suppress one half
+automatically. Both automatic-suppression directions this document
+originally sketched carry real behavior-change risk depending on
+deployment: suppressing syslog whenever `stdout` isn't a TTY would
+silently break an admin's existing rsyslog/remote-log forwarding for
+anyone running `-F` under a non-systemd, non-TTY supervisor (runit, s6,
+a container) who *wants* syslog *and* stdout capture; suppressing the
+stdout half would defeat `-F`'s entire purpose under supervisors whose
+primary capture mechanism is stdout. Neither direction is obviously safe
+across this project's range of deployment targets, so no automatic
+heuristic was added. Instead, `racoon.8`'s `-F` section now documents the
+duplication explicitly, explains why it exists, and gives both concrete
+ways to get a single copy (`-l logfile` to drop the syslog half, or the
+service manager's own stdout-discard option, e.g. systemd's
+`StandardOutput=null`, to drop the stdout half) — resolving the "left
+unaddressed" gap this document originally flagged via documentation
+rather than a new, deployment-dependent runtime heuristic.
+
+**Verification.**
+
+- Live, on this environment's built `racoon` binary (via `strace -f -e
+  trace=write`, since `pfkey_init()` — see Issue 1's live-verification
+  note above — fails before a full negotiation is reachable here, but
+  several real `plog()`/`printf()` calls already run before that point):
+  **before** the fix, `strace` showed exactly **one** `write(1, ...)`
+  syscall carrying all 6 buffered lines concatenated together (506
+  bytes) — and, in the merged `2>&1` capture, the *unbuffered* `stderr`
+  line from the subsequent `errx()` failure appeared **before** those
+  buffered `stdout` lines, i.e. visibly out of chronological order,
+  reproducing this issue's "logs lie" symptom directly. **After** the
+  fix, the identical run produced **7** separate `write(1, ...)`
+  syscalls, one per line, each flushed as soon as it was written.
+- `make check`: no regressions (35/35 before this PR's new test, 36/36
+  after — see Issue 3 below, which shares this PR).
+- `make distcheck` fails for the same unrelated, pre-existing reason
+  noted in the Issue 4/Issue 1 write-ups above (missing top-level
+  `README`).
+
+**`/* UNVERIFIED: */`.** None. `setvbuf()`'s ordering requirement and
+line-buffering flush semantics are cited directly against the C standard
+and confirmed live above; no syscall/signal semantics are involved in
+this fix.
 
 ---
 
@@ -498,13 +554,67 @@ grep 'authtype mismatched' /var/log/racoon.log   # or journalctl -u racoon
 # line for the same negotiation.
 ```
 
-**Why not fixed here.** Silencing or relocating this diagnostic (e.g.
-logging the *search outcome* once, at `LLV_INFO`, instead of every
-rejected candidate pair at `LLV_WARNING`) is a behavior change to
-`src/racoon/proposal.c`'s logging, out of scope for §G. Noted here mainly
-so an operator (or a future reader of racoon's logs while debugging Issue
-1/Issue 2 above) does not mistake this expected search noise for an actual
-negotiation fault.
+**Status: resolved** — fixed by commit `<pending>` ("main/proposal: line-
+buffer -F's stdout, quiet the authtype-mismatch search noise (#2, #3)")
+in `src/racoon/proposal.c` (`cmpsatrns()`, `get_ph2approval()`).
+
+**The fix.** `cmpsatrns()`'s `authtype mismatched` line moves from
+`LLV_WARNING` (the default visible level) to `LLV_DEBUG` — still fully
+available with `-d`/`-d -d` for anyone actually debugging a real
+mismatch, per this document's own note that the per-pair detail
+shouldn't disappear entirely, just move to a level where it stops
+looking like a fault by default. `get_ph2approval()`'s matching loop
+(the caller) now logs the search's actual *outcome* once, at
+`LLV_ERROR`, only when every `(peer, mine)` transform pair was rejected
+and the search falls through to `goto err` — consistent with the
+`proto_id mismatched`/`spisize mismatched`/`encmode mismatched` messages
+immediately above it in the same function, which already log at
+`LLV_ERROR` before their own `goto err`. `trns_id mismatched`
+(`cmpsatrns()`'s other per-pair message, structurally identical to
+`authtype mismatched` but never filed as an issue) is deliberately left
+untouched — the same per-pair-noise pattern likely applies to it too,
+but fixing it was out of scope for this issue as filed; noted here for
+whoever files it.
+
+The Admin Guide (`doc/admin/`) does not document this line anywhere
+(confirmed by search), so there was no "benign, ignore it" framing to
+update there.
+
+**Verification.**
+
+- `test/test_proposal_authtype_log.c` (new `check_PROGRAMS` unit test):
+  calls the real `cmpsatrns()` directly with a controlled
+  authtype-mismatched pair and a stubbed `_plog()` that records whether
+  it was called and at what priority — the same gate (`plog(pri, ...)`'s
+  `pri <= loglevel` check, `plog.h`) racoon itself uses to decide what
+  reaches syslog/stdout. Confirms: (1) the mismatch stays silent at
+  `loglevel = LLV_WARNING` (the pre-`-d` default); (2) the same mismatch
+  is still reported, at `LLV_DEBUG`, when `loglevel = LLV_DEBUG` (`-d`);
+  (3) a genuinely matching pair logs nothing at all.
+  `get_ph2approval()`'s own one-time outcome message is not separately
+  unit-tested — it needs a full `struct ph1handle`/proposal-list fixture
+  to reach, out of proportion to what this logging-only change needs to
+  verify, given it follows the exact same `plog()`-before-`goto err`
+  pattern as three sibling messages in the same function that already
+  have zero unit-test coverage in this suite. Covered by code review and
+  by this document's own reproducer (below), not a new fixture-heavy
+  test.
+- Confirmed the new unit test **fails** with the log-level change
+  reverted (temporarily, for verification only) and **passes** with it
+  restored.
+- `make check`: 36/36 pass (up from 35 — the new test), no regressions.
+- The reproducer above (peer offering `hmac_sha256, hmac_sha512`) was
+  not re-run live: it needs a real two-party IKE negotiation, which this
+  environment cannot reach (see Issue 1's live-verification note above
+  for why). The unit test isolates and directly verifies the exact
+  mechanism the reproducer exercises (`cmpsatrns()`'s per-pair log
+  level), which is the part this fix actually changes; the search-loop
+  control flow itself (which pair is tried in which order) is unchanged
+  by this fix.
+
+**`/* UNVERIFIED: */`.** None. This is a pure logging-level and
+one-time-summary-message change with no control-flow or syscall/signal
+semantics involved.
 
 ---
 
