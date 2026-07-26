@@ -14,23 +14,28 @@
  * script_exec() (isakmp.c) is not static, so it is driven here directly
  * (via a real fork()+execve() of small throwaway shell scripts under
  * $TMPDIR) rather than through script_hook()/privsep_script_exec() --
- * this test is only about script_exec()'s own wait/no-wait/timeout/
- * strip-the-sentinel behavior, independent of how a caller decided to
- * ask for it.
+ * this test is only about script_exec()'s own wait/no-wait/timeout
+ * behavior, independent of how a caller decided to ask for it.
  *
- *   - test_no_wait_returns_immediately(): no RACOON_SCRIPT_WAIT in envp
- *     -- the original, still-default fire-and-forget behavior (e.g.
+ * script_exec() takes the wait decision as an explicit argument rather
+ * than sniffing envp for a sentinel (an earlier version used a
+ * RACOON_SCRIPT_WAIT envp entry, which turned out to contend with a
+ * config's own env vars for privsep's fixed PRIVSEP_NBUF_MAX wire budget
+ * -- see privsep.h/isakmp.c's script_hook()) -- envp here is just the
+ * hook's ordinary environment, with nothing left to strip.
+ *
+ *   - test_no_wait_returns_immediately(): wait_for_exit=0 -- the
+ *     original, still-default fire-and-forget behavior (e.g.
  *     SCRIPT_PHASE1_UP, or SCRIPT_PHASE1_DOWN outside of shutdown) must
  *     be unchanged: script_exec() returns long before a slow script
  *     finishes.
- *   - test_wait_flag_blocks_for_completion(): RACOON_SCRIPT_WAIT=1 in
- *     envp -- script_exec() must not return until the script has
- *     actually finished (observed via a marker file the script writes
- *     right before exiting).
- *   - test_sentinel_stripped_from_hook_env(): the script's own `env`
- *     output, captured to a file, must not contain RACOON_SCRIPT_WAIT --
- *     it is script_exec()'s internal signal (isakmp.c), never part of
- *     any hook script's documented environment.
+ *   - test_wait_flag_blocks_for_completion(): wait_for_exit=1 --
+ *     script_exec() must not return until the script has actually
+ *     finished (observed via a marker file the script writes right
+ *     before exiting).
+ *   - test_envp_reaches_hook_unmodified(): the script's own `env`
+ *     output, captured to a file, must contain exactly the envp entry
+ *     passed in -- script_exec() no longer filters envp at all.
  *   - test_bounded_wait_times_out(): a script that runs long past
  *     script_exec()'s wait bound must not hang script_exec() forever --
  *     it has to give up and return once the bound elapses, matching the
@@ -65,7 +70,8 @@
 #include "vmbuf.h"
 #include "remoteconf.h"
 
-extern int script_exec(char *script, int name, char *const envp[]);
+extern int script_exec(char *script, int name, char *const envp[],
+    int wait_for_exit);
 
 #define TEST_PASS() do { printf("\xe2\x9c\x93 PASS\n"); } while (0)
 #define TEST_FAIL(msg) do { printf("\xe2\x9c\x97 FAIL: %s\n", msg); return -1; } while (0)
@@ -119,21 +125,21 @@ test_no_wait_returns_immediately(void)
 	struct timeval t0, t1;
 	double ms;
 
-	TEST_START("script_exec() without RACOON_SCRIPT_WAIT returns immediately");
+	TEST_START("script_exec() with wait_for_exit=0 returns immediately");
 
 	unlink(marker_path);
 	if (write_script("sleep 0.5; : > \"$MARKER\"") != 0)
 		TEST_FAIL("could not write test script");
 
 	gettimeofday(&t0, NULL);
-	if (script_exec(script_path, SCRIPT_PHASE1_UP, envp) != 0)
+	if (script_exec(script_path, SCRIPT_PHASE1_UP, envp, 0) != 0)
 		TEST_FAIL("script_exec() returned an error");
 	gettimeofday(&t1, NULL);
 
 	ms = elapsed_ms(&t0, &t1);
 	if (ms >= 250.0) {
 		printf("(took %.0f ms) ", ms);
-		TEST_FAIL("script_exec() blocked without RACOON_SCRIPT_WAIT");
+		TEST_FAIL("script_exec() blocked with wait_for_exit=0");
 	}
 
 	/* Let the background sleep+marker script finish and get reaped
@@ -148,18 +154,18 @@ test_no_wait_returns_immediately(void)
 static int
 test_wait_flag_blocks_for_completion(void)
 {
-	char *envp[] = { "LOCAL_ADDR=203.0.113.1", "RACOON_SCRIPT_WAIT=1", NULL };
+	char *envp[] = { "LOCAL_ADDR=203.0.113.1", NULL };
 	struct timeval t0, t1;
 	double ms;
 
-	TEST_START("script_exec() with RACOON_SCRIPT_WAIT waits for completion");
+	TEST_START("script_exec() with wait_for_exit=1 waits for completion");
 
 	unlink(marker_path);
 	if (write_script("sleep 0.5; : > \"$MARKER\"") != 0)
 		TEST_FAIL("could not write test script");
 
 	gettimeofday(&t0, NULL);
-	if (script_exec(script_path, SCRIPT_PHASE1_DOWN, envp) != 0)
+	if (script_exec(script_path, SCRIPT_PHASE1_DOWN, envp, 1) != 0)
 		TEST_FAIL("script_exec() returned an error");
 	gettimeofday(&t1, NULL);
 
@@ -178,30 +184,30 @@ test_wait_flag_blocks_for_completion(void)
 }
 
 static int
-test_sentinel_stripped_from_hook_env(void)
+test_envp_reaches_hook_unmodified(void)
 {
-	char *envp[] = { "LOCAL_ADDR=203.0.113.1", "RACOON_SCRIPT_WAIT=1", NULL };
+	char *envp[] = { "LOCAL_ADDR=203.0.113.1", NULL };
 	FILE *f;
 	char line[512];
 	int found = 0;
 
-	TEST_START("script_exec() strips RACOON_SCRIPT_WAIT before execve()");
+	TEST_START("script_exec() passes envp through to execve() unmodified");
 
 	unlink(marker_path);
 	if (write_script("env > \"$MARKER\"") != 0)
 		TEST_FAIL("could not write test script");
 
-	/* RACOON_SCRIPT_WAIT=1 above -- blocks until the script (and its
-	 * `env >` redirect) has completed, so the marker is ready to read
-	 * as soon as script_exec() returns. */
-	if (script_exec(script_path, SCRIPT_PHASE1_DOWN, envp) != 0)
+	/* wait_for_exit=1 -- blocks until the script (and its `env >`
+	 * redirect) has completed, so the marker is ready to read as soon
+	 * as script_exec() returns. */
+	if (script_exec(script_path, SCRIPT_PHASE1_DOWN, envp, 1) != 0)
 		TEST_FAIL("script_exec() returned an error");
 
 	f = fopen(marker_path, "r");
 	if (f == NULL)
 		TEST_FAIL("marker file missing after script_exec() returned");
 	while (fgets(line, sizeof(line), f) != NULL) {
-		if (strncmp(line, "RACOON_SCRIPT_WAIT=", 19) == 0) {
+		if (strncmp(line, "LOCAL_ADDR=203.0.113.1", 22) == 0) {
 			found = 1;
 			break;
 		}
@@ -209,8 +215,8 @@ test_sentinel_stripped_from_hook_env(void)
 	fclose(f);
 	unlink(marker_path);
 
-	if (found)
-		TEST_FAIL("RACOON_SCRIPT_WAIT leaked into the hook script's environment");
+	if (!found)
+		TEST_FAIL("LOCAL_ADDR missing from the hook script's environment");
 
 	TEST_PASS();
 	return 0;
@@ -219,7 +225,7 @@ test_sentinel_stripped_from_hook_env(void)
 static int
 test_bounded_wait_times_out(void)
 {
-	char *envp[] = { "LOCAL_ADDR=203.0.113.1", "RACOON_SCRIPT_WAIT=1", NULL };
+	char *envp[] = { "LOCAL_ADDR=203.0.113.1", NULL };
 	struct timeval t0, t1;
 	double ms;
 	FILE *f;
@@ -236,7 +242,7 @@ test_bounded_wait_times_out(void)
 		TEST_FAIL("could not write test script");
 
 	gettimeofday(&t0, NULL);
-	if (script_exec(script_path, SCRIPT_PHASE1_DOWN, envp) != 0)
+	if (script_exec(script_path, SCRIPT_PHASE1_DOWN, envp, 1) != 0)
 		TEST_FAIL("script_exec() returned an error");
 	gettimeofday(&t1, NULL);
 
@@ -290,7 +296,7 @@ main(void)
 		failed++;
 	if (test_wait_flag_blocks_for_completion() != 0)
 		failed++;
-	if (test_sentinel_stripped_from_hook_env() != 0)
+	if (test_envp_reaches_hook_unmodified() != 0)
 		failed++;
 	if (test_bounded_wait_times_out() != 0)
 		failed++;

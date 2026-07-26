@@ -229,8 +229,8 @@ privsep_do_exit(void *ctx, int fd)
  * Forwarding the signal to the child instead lets the child run its own
  * normal SIGTERM/SIGINT handling (session.c) while this process keeps
  * servicing privsep_sock exactly as before, including the child's
- * now-bounded-wait SCRIPT_EXEC request (script_exec()'s
- * RACOON_SCRIPT_WAIT handling). This process still exits promptly after:
+ * now-bounded-wait SCRIPT_EXEC request (PRIVSEP_SCRIPT_EXEC_WAIT,
+ * privsep.h). This process still exits promptly after:
  * once the child finishes close_session() and exits, privsep_recv() below
  * observes EOF on privsep_sock and this process reaches its own existing
  * "out:" / _exit(0) path -- unchanged by this fix.
@@ -451,9 +451,9 @@ privsep_init(void)
 		reply->hdr.ac_cmd = combuf->hdr.ac_cmd;
 		reply->hdr.ac_len = sizeof(*reply);
 
-		switch(combuf->hdr.ac_cmd) {
-		/* 
-		 * XXX Improvement: instead of returning the key, 
+		switch(combuf->hdr.ac_cmd & ~PRIVSEP_SCRIPT_EXEC_WAIT) {
+		/*
+		 * XXX Improvement: instead of returning the key,
 		 * stuff eay_get_pkcs1privkey and eay_get_x509sign
 		 * together and sign the hash in the privileged 
 		 * instance? 
@@ -526,13 +526,31 @@ privsep_init(void)
 				envc++;
 			}
 
-			/* count a void buf and perform safety check */
-			count++;
+			/*
+			 * The loop above only exits early (break) once it
+			 * finds the void terminator, at which point count is
+			 * still a valid bufs[] index (< PRIVSEP_NBUF_MAX) --
+			 * that is the expected, legitimate case, including
+			 * when the terminator sits in the very last slot
+			 * (count == PRIVSEP_NBUF_MAX - 1). Only a loop that
+			 * ran off the end (count == PRIVSEP_NBUF_MAX) without
+			 * ever finding one means the message truly had too
+			 * many entries to fit. Checking this before accounting
+			 * for the void slot below (rather than after
+			 * incrementing past it) matters: incrementing first
+			 * made every message whose terminator happened to land
+			 * exactly in the last slot indistinguishable from a
+			 * real overflow, rejecting otherwise-valid messages --
+			 * live privsep testing hit this on a real
+			 * ENABLE_HYBRID modecfg/split-DNS config that filled
+			 * the buffer right up to that boundary.
+			 */
 			if (count >= PRIVSEP_NBUF_MAX) {
-				plog(LLV_ERROR, LOCATION, NULL, 
+				plog(LLV_ERROR, LOCATION, NULL,
 				    "privsep_script_exec: too many args\n");
 				goto out;
 			}
+			count++;	/* void */
 
 
 			/* 
@@ -570,7 +588,7 @@ privsep_init(void)
 			    "script_exec(\"%s\", %d, %p)\n", 
 			    script, name, envp);
 
-			/* 
+			/*
 			 * Check env for dangerous variables
 			 * Check script path and name
 			 * Perform fork and execve
@@ -578,7 +596,9 @@ privsep_init(void)
 			if ((unsafe_env(envp) == 0) &&
 			    (unknown_name(name) == 0) &&
 			    (unsafe_path(script, LC_PATHTYPE_SCRIPT) == 0))
-				(void)script_exec(script, name, envp);
+				(void)script_exec(script, name, envp,
+				    (combuf->hdr.ac_cmd &
+				    PRIVSEP_SCRIPT_EXEC_WAIT) ? 1 : 0);
 			else
 				plog(LLV_ERROR, LOCATION, NULL, 
 				    "privsep_script_exec: "
@@ -1021,10 +1041,11 @@ out:
 }
 
 int
-privsep_script_exec(script, name, envp)
+privsep_script_exec(script, name, envp, wait_for_exit)
 	char *script;
 	int name;
 	char *const envp[];
+	int wait_for_exit;
 {
 	int count = 0;
 	char *const *c;
@@ -1033,16 +1054,17 @@ privsep_script_exec(script, name, envp)
 	struct privsep_com_msg *msg;
 
 	if (geteuid() == 0)
-		return script_exec(script, name, envp);
+		return script_exec(script, name, envp, wait_for_exit);
 
 	if ((msg = racoon_malloc(sizeof(*msg))) == NULL) {
-		plog(LLV_ERROR, LOCATION, NULL, 
+		plog(LLV_ERROR, LOCATION, NULL,
 		    "Cannot allocate memory: %s\n", strerror(errno));
 		return -1;
 	}
 
 	bzero(msg, sizeof(*msg));
-	msg->hdr.ac_cmd = PRIVSEP_SCRIPT_EXEC;
+	msg->hdr.ac_cmd = PRIVSEP_SCRIPT_EXEC |
+	    (wait_for_exit ? PRIVSEP_SCRIPT_EXEC_WAIT : 0);
 	msg->hdr.ac_len = sizeof(*msg);
 
 	/*

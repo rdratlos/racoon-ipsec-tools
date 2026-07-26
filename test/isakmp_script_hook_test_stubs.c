@@ -32,8 +32,9 @@
  *    no-op that appends nothing.
  *
  * script_hook() also now reads racoon_shutting_down (session.c, added for
- * daemon-issues.md Issue 1) to decide whether to tag envp with
- * RACOON_SCRIPT_WAIT; this test doesn't link session.o, so the symbol is
+ * daemon-issues.md Issue 1) to decide whether to ask privsep_script_exec()
+ * to wait (passed as an explicit argument, not an envp entry -- see
+ * isakmp.c/privsep.h); this test doesn't link session.o, so the symbol is
  * stubbed at 0 below -- the REMOTE_ID leak under test here is independent
  * of that flag either way.
  */
@@ -104,7 +105,8 @@ int test_stub_privsep_script_exec_calls = 0;
 char *test_stub_last_ike_cookie = NULL;
 
 int
-privsep_script_exec(char *script, int name, char * const envp[])
+privsep_script_exec(char *script, int name, char * const envp[],
+    int wait_for_exit)
 {
 	int i;
 	static const char prefix[] = "IKE_COOKIE=";

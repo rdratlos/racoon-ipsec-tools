@@ -3116,16 +3116,7 @@ frag_handler(iph1, msg, remote, local)
 }
 #endif
 
-/*
- * Internal-only envp signal from script_hook() to script_exec(), asking
- * it to wait (bounded) for this specific hook invocation -- see the
- * comment on its use in script_hook() below. Not a hook-facing API: never
- * documented for hook scripts, and stripped by script_exec() before
- * execve() so it never reaches one.
- */
-#define RACOON_SCRIPT_WAIT_ENV "RACOON_SCRIPT_WAIT"
-
-/* How long script_exec() waits for a RACOON_SCRIPT_WAIT-flagged hook to
+/* How long script_exec() waits for a wait-flagged hook to
  * exit before giving up and continuing shutdown anyway (daemon-issues.md
  * Issue 1). 3s is comfortably above what the shipped hook scripts need
  * for their normal work (resolving SCRIPT_DIR, sourcing racoon-hook-lib.sh,
@@ -3240,25 +3231,30 @@ script_hook(iph1, script)
 	 * which must stay fire-and-forget: blocking the single-threaded
 	 * main loop on every routine disconnect would newly expose it to
 	 * being stalled by a slow or adversarial peer, not just by a slow
-	 * hook at shutdown. This flag carries the decision across the
-	 * envp channel (already generically marshaled through privsep's
-	 * IPC, privsep.c) rather than privsep_com_msg's fixed, manually
-	 * counted wire layout, deliberately, to avoid touching that
-	 * bounds-checked struct for a build-local decision. script_exec()
-	 * strips it before execve() so it is never visible to the hook
-	 * script itself.
+	 * hook at shutdown.
+	 *
+	 * This used to be carried as an extra envp entry (RACOON_SCRIPT_WAIT),
+	 * on the theory that envp was "already generically marshaled"
+	 * through privsep's IPC and so cheaper to extend than
+	 * privsep_com_msg's fixed, manually counted admin_com_bufs layout
+	 * (PRIVSEP_NBUF_MAX slots, privsep.h). That theory was wrong: envp
+	 * entries consume that exact same fixed slot budget once handed to
+	 * privsep_script_exec() below, and a real ENABLE_HYBRID modecfg
+	 * connection (INTERNAL_*, SPLIT_INCLUDE/SPLIT_LOCAL,
+	 * INTERNAL_SPLITDNS_DOMAINS -- isakmp_cfg_setenv()) plus this
+	 * function's own explicit entries can already sit within one slot of
+	 * that budget. Adding RACOON_SCRIPT_WAIT was the one entry too many:
+	 * live privsep testing on a real split-DNS roadwarrior config hit
+	 * "privsep_script_exec: too many args" (privsep.c) on exactly the
+	 * SCRIPT_PHASE1_DOWN-at-shutdown call this flag was meant to fix,
+	 * silently dropping the down hook again -- the same failure mode as
+	 * the original bug, reintroduced through the fix's own wire format.
+	 * Passed as an explicit argument instead: zero envp/wire footprint,
+	 * so it can never contend with a config's own env vars for the same
+	 * fixed budget.
 	 */
-	if (racoon_shutting_down && script == SCRIPT_PHASE1_DOWN) {
-		if (script_env_append(&envp, &envc,
-		    RACOON_SCRIPT_WAIT_ENV, "1") != 0) {
-			plog(LLV_ERROR, LOCATION, NULL,
-			    "Cannot set %s\n", RACOON_SCRIPT_WAIT_ENV);
-			goto out;
-		}
-	}
-
-	if (privsep_script_exec(iph1->rmconf->script[script]->v,
-	    script, envp) != 0)
+	if (privsep_script_exec(iph1->rmconf->script[script]->v, script, envp,
+	    racoon_shutting_down && script == SCRIPT_PHASE1_DOWN) != 0)
 		plog(LLV_ERROR, LOCATION, NULL,
 		    "Script %s execution failed\n", script_names[script]);
 
@@ -3309,8 +3305,9 @@ script_env_append(envp, envc, name, value)
 
 /*
  * Bounded, WNOHANG-polling wait for a hook child script_hook() has asked
- * us (via RACOON_SCRIPT_WAIT) to wait for. Deliberately not a plain
- * blocking waitpid(pid, &status, 0): this project's SIGCHLD handling
+ * us (via script_exec()'s wait_for_exit argument) to wait for.
+ * Deliberately not a plain blocking waitpid(pid, &status, 0): this
+ * project's SIGCHLD handling
  * (session.c's signal_handler()/check_sigreq()) only reaps children from
  * a deferred flag, dispatched synchronously from the single-threaded
  * main loop's check_sigreq() -- never from within a signal handler
@@ -3368,52 +3365,22 @@ script_wait_down(pid, name)
 }
 
 int
-script_exec(script, name, envp)
+script_exec(script, name, envp, wait_for_exit)
 	char *script;
 	int name;
 	char *const envp[];
+	int wait_for_exit;
 {
 	char *argv[] = { NULL, NULL, NULL };
-	char **filtered_envp;
-	char *const *src;
-	char **dst;
-	int wait_for_exit = 0;
-	int envc = 0;
 	pid_t pid;
-	size_t waitenv_len = strlen(RACOON_SCRIPT_WAIT_ENV) + 1; /* +1 for '=' */
 
 	argv[0] = script;
 	argv[1] = script_names[name];
 	argv[2] = NULL;
 
-	/*
-	 * Strip RACOON_SCRIPT_WAIT (if present) out of what actually reaches
-	 * execve() -- it is an internal signal to this function, not part
-	 * of any hook script's documented environment. See the comment on
-	 * RACOON_SCRIPT_WAIT_ENV above script_hook().
-	 */
-	for (src = envp; *src; src++)
-		envc++;
-
-	if ((filtered_envp = racoon_malloc((envc + 1) * sizeof(char *))) == NULL) {
-		plog(LLV_ERROR, LOCATION, NULL,
-		    "Cannot allocate memory: %s\n", strerror(errno));
-		return -1;
-	}
-
-	dst = filtered_envp;
-	for (src = envp; *src; src++) {
-		if (strncmp(*src, RACOON_SCRIPT_WAIT_ENV "=", waitenv_len) == 0) {
-			wait_for_exit = 1;
-			continue;
-		}
-		*dst++ = *src;
-	}
-	*dst = NULL;
-
 	switch (pid = fork()) {
 	case 0:
-		execve(argv[0], argv, filtered_envp);
+		execve(argv[0], argv, envp);
 		plog(LLV_ERROR, LOCATION, NULL,
 		    "execve(\"%s\") failed: %s\n",
 		    argv[0], strerror(errno));
@@ -3422,7 +3389,6 @@ script_exec(script, name, envp)
 	case -1:
 		plog(LLV_ERROR, LOCATION, NULL,
 		    "Cannot fork: %s\n", strerror(errno));
-		racoon_free(filtered_envp);
 		return -1;
 		break;
 	default:
@@ -3430,7 +3396,6 @@ script_exec(script, name, envp)
 			script_wait_down(pid, argv[1]);
 		break;
 	}
-	racoon_free(filtered_envp);
 	return 0;
 
 }
