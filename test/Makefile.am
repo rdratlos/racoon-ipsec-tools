@@ -715,6 +715,44 @@ test_proposal_authtype_log_LDADD    = $(top_builddir)/src/racoon/strnames.o \
 test_proposal_authtype_log_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Test: attr_device LDAP scoping helpers (issue #86 groundwork) --
+# xauth_ldap_escape_filter()/xauth_peer_device_id() in isakmp_xauth.c.
+#
+# isakmp_xauth.c is pulled in wholesale (isakmp_xauth_unittest_src.c, the
+# same "#include the .c file" + -ffunction-sections/-fdata-sections +
+# -Wl,--gc-sections technique used for isakmp.c by test_script_hook_leak/
+# test_script_exec_wait above) rather than stubbed: the two functions
+# under test are static, reached only via thin xauth_*_unittest()
+# wrappers compiled in under -DENABLE_UNITTEST (see isakmp_xauth.c).
+# Neither function is reachable from xauth_login_ldap(), xauth_login_pam(),
+# xauth_login_radius() or the LDAP/PAM search machinery, so gc-sections
+# discards that whole dependency closure (libldap/libpam are still linked
+# below since isakmp_xauth.c is compiled with HAVE_LIBLDAP/HAVE_LIBPAM on
+# this build, but none of their call sites survive into the binary).
+#
+# LDADD mirrors test_x509_cert's COMMON_LDADD: xauth_peer_device_id() reads
+# subjectAltName via eay_get_x509subjectaltname() (crypto_openssl.c), and
+# the test drives it with real certificates loaded through
+# eay_get_x509cert(), the same fixtures (test/gen-x509-fixtures.sh) as
+# test_x509_cert.c.
+#
+# Excluded from sanitizer builds, same reason as test_script_hook_leak
+# above (relies on --gc-sections dead-code elimination that ASan defeats).
+if !SANITIZER_BUILD
+check_PROGRAMS += test_xauth_device_id
+
+test_xauth_device_id_SOURCES  = test_xauth_device_id.c \
+	isakmp_xauth_unittest_src.c
+test_xauth_device_id_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_xauth_device_id_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_xauth_device_id_LDADD    = $(COMMON_LDADD)
+test_xauth_device_id_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
 # They follow automake's default "simple" test protocol (exit 0 = pass,
@@ -729,7 +767,8 @@ CERT_FRAMEWORK_TESTS = \
 	unit/cert-framework/test_ca_issue_server.sh \
 	unit/cert-framework/test_chain_validation.sh \
 	unit/cert-framework/test_ca_revoke_cert.sh \
-	unit/cert-framework/test_openssl_compat.sh
+	unit/cert-framework/test_openssl_compat.sh \
+	unit/cert-framework/test_issue_upn_othername.sh
 
 # Test 22: IKE fragment reassembly regression (CVE-2016-10396 follow-up).
 #

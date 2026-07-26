@@ -1007,6 +1007,27 @@ xauth_peer_device_id(iph1)
 	}
 }
 
+#ifdef ENABLE_UNITTEST
+/*
+ * Test-only accessors. xauth_ldap_escape_filter()/xauth_peer_device_id()
+ * are static; these thin wrappers are compiled in only when this source
+ * is built with -DENABLE_UNITTEST (see the test_xauth_device_id target in
+ * test/Makefile.am), so the attr_device identity-derivation logic can be
+ * regression-tested without changing the production API.
+ */
+char *
+xauth_ldap_escape_filter_unittest(const char *str)
+{
+	return xauth_ldap_escape_filter(str);
+}
+
+char *
+xauth_peer_device_id_unittest(struct ph1handle *iph1)
+{
+	return xauth_peer_device_id(iph1);
+}
+#endif /* ENABLE_UNITTEST */
+
 int
 xauth_login_ldap(iph1, usr, pwd)
 	struct ph1handle *iph1;
