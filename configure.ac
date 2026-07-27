@@ -10,6 +10,7 @@ AC_CONFIG_HEADERS(config.h)
 AC_CONFIG_MACRO_DIRS([m4])
 
 AM_INIT_AUTOMAKE(foreign dist-bzip2 subdir-objects)
+AM_SILENT_RULES([yes])
 
 LT_PREREQ([2.4])
 
