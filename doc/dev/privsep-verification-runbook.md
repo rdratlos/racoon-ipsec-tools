@@ -98,6 +98,16 @@ The Arch package already creates the `racoon` system user
 (`packaging/arch/ipsec-tools.sysusers`). `log debug;` is what surfaces the
 privileged side's per-command lines used below; drop it again afterwards.
 
+**Expect every log line twice.** `plogv()` (plog.c) writes to stdout when
+running in the foreground *and* to syslog, and the shipped unit runs
+`racoon -F`, so systemd captures both copies into the journal under the
+same `racoon[PID]` identifier. It is pre-existing and cosmetic, but worth
+knowing before reading any of the phases below: a message appearing twice
+is one message, not a repeated code path. `journalctl -o verbose` tells
+them apart by `_TRANSPORT` (`stdout` vs `syslog`), or add
+`StandardOutput=null` to a drop-in to suppress the stdout copy for the
+duration of the testing.
+
 ### Identify the two processes
 
 ```bash
@@ -324,49 +334,41 @@ prevents is *silence*: a child that stops talking mid-request, with no EOF
 and no error for the privileged process to notice.
 
 Reproduce it by freezing the child between its command and its descriptor —
-exactly the window `privsep_wait_io()` now bounds:
+exactly the window `privsep_wait_io()` now bounds. Prefer the scripted
+form, which frees the child again on a timer rather than on your reflexes:
 
 ```bash
-sudo gdb -p $CHILD
-(gdb) break send_fd
-(gdb) continue
+sudo gdb -p $CHILD -batch \
+    -ex 'break send_fd' -ex 'continue' \
+    -ex 'shell sleep 6' -ex 'detach' &
+sleep 1
+sudo racoonctl vc -u <user> <gateway>     # or ping across the tunnel
 ```
 
-Then, from another shell, provoke an outbound negotiation:
+The child stops at `send_fd`, having sent `PRIVSEP_SETSOCKOPTS` (or
+`PRIVSEP_BIND`) and never the descriptor. Six seconds is comfortably past
+the 3 s bound; `detach` then lets it run again with any pending signals
+delivered.
 
-```bash
-sudo racoonctl vc -u <user> <gateway>     # or ping something across the tunnel
-```
+Interactively (`sudo gdb -p $CHILD`, `break send_fd`, `continue`) works
+too, but **detach as soon as you have seen the log lines** — see "the
+90-second SIGKILL" below for what happens if you sit at the prompt.
 
-The child stops at the breakpoint. It has sent `PRIVSEP_SETSOCKOPTS` (or
-`PRIVSEP_BIND`) and will never send the descriptor. **Leave it stopped** and
-watch the log.
-
-If `send_fd` is not resolvable (stripped binary), `catch syscall sendmsg`
-works too — but note it also traps ordinary IKE packet sends
-(`sendfromto()`, sockmisc.c), so confirm you stopped on the right one:
-`p privsep_sock` and compare against the syscall's first argument. Building
-unstripped, as in §1, avoids the ambiguity.
-
-**Expected on this branch, within ~3 seconds:**
+**Expected on this branch, within ~3 seconds of the freeze:**
 
 ```
 privsep: timed out after 3000 ms waiting for privsep_setsockopt's descriptor
 privsep: unprivileged process did not complete its request; privsep_sock cannot be resynchronised, terminating
-racoon privileged process 1234 terminated
+racoon privileged process 1234 terminating: privsep_sock is no longer usable
 ```
 
-and `$PRIV` is gone, with exit status 1 (§2.3.2 — faults and clean
-shutdowns no longer report the same status). Detach gdb (`quit`, answering
-yes) and the child follows via `privsep_do_exit()`.
+Each line twice, per the note in §1 — the privileged process logs this
+once and exits; it does not loop.
 
-Whether systemd then restarts it is a separate, packaging question worth
-checking while you are here: the shipped unit combines `Restart=on-failure`
-with `ExecStart=-…racoon`, and that `-` prefix makes systemd treat *any*
-exit status as success — so it will **not** restart. Confirm with
-`systemctl status racoon` (expect `inactive (dead)`, not a restart).
-Dropping the `-` or using `Restart=always` is what would close that gap;
-this branch deliberately does not change the unit.
+`$PRIV` is then gone, with exit status 1 (§2.3.2 — faults and clean
+shutdowns no longer report the same status). Check with
+`systemctl show racoon -p ExecMainStatus`; the clean-shutdown path reports
+0 and says `racoon privileged process N terminated` instead.
 
 **Expected on `develop` (control):** nothing. No log line, both processes
 still listed by `ps`, `systemctl status` still green — and:
@@ -380,12 +382,40 @@ That is the failure mode this fix removes: a daemon that looks alive,
 serves nobody, and needs a human to notice. Confirming that on `develop`
 first is what makes the "after" meaningful.
 
-**Also worth checking:** `systemctl show racoon -p ExecMainStatus` should
-report 1, not 0 — on `develop` every exit from this loop reported 0,
-including the faults. And the child's own log should carry `ETIMEDOUT` for
+**Also worth checking:** the child's own log should carry `ETIMEDOUT` for
 the failed operation before shutdown — that is
 `privsep_handshake_failed()`'s best-effort reply arriving at a client that
 is broken rather than gone.
+
+### The 90-second SIGKILL
+
+If the child is still held by gdb when the privileged process exits, the
+run ends like this:
+
+```
+systemd[1]: racoon.service: State 'stop-sigterm' timed out. Killing.
+systemd[1]: racoon.service: Killing process 35474 (racoon) with signal SIGKILL.
+systemd[1]: racoon.service: Failed with result 'timeout'.
+```
+
+That is the test procedure, not the daemon. The privileged process is the
+unit's `MAINPID` (privsep's `fork()` leaves the original pid in the
+parent), so when it exits systemd stops the unit and SIGTERMs whatever
+remains in the cgroup — here, the child. A ptrace-stopped process cannot
+act on that signal, and gdb holds it undelivered while you sit at the
+prompt, so systemd waits out `TimeoutStopSec` (90 s by default) and
+SIGKILLs.
+
+Detach promptly and the child instead takes its ordinary path: whichever
+`privsep_recv()`/`rec_fd()` it was blocked in returns EOF, the call fails,
+control returns to the main loop, `privsep_do_exit()` fires on the
+now-EOF'd `privsep_sock` and raises SIGTERM on itself, and
+`close_session()` runs. Seconds, not ninety.
+
+Note that the same 90 s applies in production to a child that is genuinely
+wedged — which is the case this whole bound exists for. That is systemd
+doing its job on a process that cannot answer, and it is still bounded,
+unlike the state before the fix.
 
 ---
 

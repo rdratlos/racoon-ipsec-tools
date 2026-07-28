@@ -596,8 +596,26 @@ on a real Arch roadwarrior:
   reordering and §2.3.1's bounded wait) has run on Linux at all. A
   1392-byte `EAY_GET_PKCS1PRIVKEY` reply exercised §2.1's rewritten
   `racoon_realloc()` grow path. No timeouts, no desync.
-* **Phases 3-4 (bounded wait; containment under fault injection):
-  pending.**
+* **Phase 3 (bounded wait): the timeout mechanism passes.** Freezing the
+  child between its command and its descriptor produced, within the 3 s
+  bound, exactly the three lines `privsep_wait_io()` /
+  `privsep_handshake_failed()` / the `fail:` label emit, and the privileged
+  process exited. The run also produced two effects worth recording,
+  neither a code fault:
+  * Every line appeared twice. `plogv()` (plog.c) writes to stdout when
+    running in the foreground *and* to syslog, and the unit runs
+    `racoon -F`, so systemd journals both copies. Pre-existing and
+    cosmetic — but it matters here, because a doubled "terminating" line
+    would otherwise read as `_exit(1)` failing to take effect.
+  * systemd SIGKILLed the child after `TimeoutStopSec`. That is the gdb
+    freeze, not the daemon: the privileged process is the unit's
+    `MAINPID`, so its exit makes systemd SIGTERM the rest of the cgroup,
+    and a ptrace-stopped child cannot act on that until gdb detaches. With
+    a prompt detach the child takes its ordinary EOF →
+    `privsep_do_exit()` → `close_session()` path. The runbook now uses a
+    scripted `gdb -batch … detach` so the window does not depend on
+    operator timing.
+* **Phase 4 (containment under fault injection): pending.**
 
 ### What could not be verified here
 * **`policy.c`'s `#ifndef __linux__` branch**, which is not compiled on
