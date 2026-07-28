@@ -45,6 +45,26 @@
  *     failing path really does cost nothing in stream synchronisation,
  *     which is the whole reason the dispatch loop may answer instead of
  *     exiting.
+ *
+ * The other half of the same exchange is the *wait*. PRIVSEP_BIND and
+ * PRIVSEP_SETSOCKOPTS block reading a descriptor their client said it
+ * would send, and the reply sends block on a client that is supposed to
+ * be reading -- so a child that simply goes silent (never sends it, never
+ * drains) used to block the privileged process forever. Since there is
+ * one privileged process serving one child, that is not one stalled
+ * connection among many: certificate loads, PSK lookups and hooks stop
+ * for every peer while the daemon still looks alive. privsep_wait_io()
+ * bounds all of those; a timeout ends the process promptly and loudly
+ * instead (privsep_handshake_failed(), privsep.c, explains why it cannot
+ * resume the loop rather than exit).
+ *
+ *   - test_wait_io_returns_when_readable(): does not spend its budget
+ *     when the peer does talk.
+ *   - test_wait_io_times_out_on_silent_peer(): gives up on a peer that
+ *     sends nothing, rather than blocking indefinitely -- and does so
+ *     within its budget, which is what makes the bound a bound.
+ *   - test_wait_io_detects_writability(): the same wait works for the
+ *     reply-send direction.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -56,9 +76,27 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 
 extern int privsep_send_fd_unittest(int s, int fd);
 extern int privsep_rec_fd_unittest(int s);
+extern int privsep_wait_io_unittest(int sock, int write, int max_ms);
+
+/* Budget used by the wait tests: long enough to be unambiguous, short
+ * enough that a regression to an unbounded wait is caught by the harness
+ * hanging rather than by this test passing slowly. */
+#define TEST_WAIT_MS 300
+
+static int
+elapsed_ms_since(const struct timeval *start)
+{
+	struct timeval now;
+
+	gettimeofday(&now, NULL);
+
+	return (int)((now.tv_sec - start->tv_sec) * 1000 +
+	    (now.tv_usec - start->tv_usec) / 1000);
+}
 
 #define TEST_PASS() do { printf("\xe2\x9c\x93 PASS\n"); } while (0)
 #define TEST_FAIL(msg) do { printf("\xe2\x9c\x97 FAIL: %s\n", msg); return -1; } while (0)
@@ -180,6 +218,97 @@ test_stream_stays_in_sync_after_nofd(void)
 	return 0;
 }
 
+static int
+test_wait_io_returns_when_readable(void)
+{
+	int sp[2];
+	struct timeval start;
+	char c = 'q';
+
+	TEST_START("privsep_wait_io() returns promptly when the peer has spoken");
+
+	if (socketpair(PF_LOCAL, SOCK_STREAM, 0, sp) != 0)
+		TEST_FAIL("socketpair() failed");
+
+	if (write(sp[0], &c, 1) != 1) {
+		close(sp[0]); close(sp[1]);
+		TEST_FAIL("could not queue a byte");
+	}
+
+	gettimeofday(&start, NULL);
+	if (privsep_wait_io_unittest(sp[1], 0, TEST_WAIT_MS) != 0) {
+		close(sp[0]); close(sp[1]);
+		TEST_FAIL("reported a timeout on a socket with data waiting");
+	}
+	if (elapsed_ms_since(&start) >= TEST_WAIT_MS) {
+		close(sp[0]); close(sp[1]);
+		TEST_FAIL("spent the whole budget on a socket already readable");
+	}
+
+	close(sp[0]); close(sp[1]);
+	TEST_PASS();
+	return 0;
+}
+
+static int
+test_wait_io_times_out_on_silent_peer(void)
+{
+	int sp[2], elapsed;
+	struct timeval start;
+
+	TEST_START("privsep_wait_io() gives up on a peer that sends nothing");
+
+	if (socketpair(PF_LOCAL, SOCK_STREAM, 0, sp) != 0)
+		TEST_FAIL("socketpair() failed");
+
+	/*
+	 * sp[0] is deliberately left open and silent: this is the compromised
+	 * or broken child that announced a descriptor and never sent it. An
+	 * unbounded wait here never returns at all -- the harness would hang
+	 * rather than report a failure, which is exactly the production
+	 * symptom being tested for.
+	 */
+	gettimeofday(&start, NULL);
+	if (privsep_wait_io_unittest(sp[1], 0, TEST_WAIT_MS) == 0) {
+		close(sp[0]); close(sp[1]);
+		TEST_FAIL("reported readable on a socket nobody wrote to");
+	}
+	elapsed = elapsed_ms_since(&start);
+
+	if (elapsed < TEST_WAIT_MS / 2) {
+		close(sp[0]); close(sp[1]);
+		TEST_FAIL("gave up well before its budget was spent");
+	}
+	if (elapsed > TEST_WAIT_MS * 4) {
+		close(sp[0]); close(sp[1]);
+		TEST_FAIL("overran its budget by more than a scheduling margin");
+	}
+
+	close(sp[0]); close(sp[1]);
+	TEST_PASS();
+	return 0;
+}
+
+static int
+test_wait_io_detects_writability(void)
+{
+	int sp[2];
+
+	TEST_START("privsep_wait_io() works for the reply-send direction too");
+
+	if (socketpair(PF_LOCAL, SOCK_STREAM, 0, sp) != 0)
+		TEST_FAIL("socketpair() failed");
+
+	if (privsep_wait_io_unittest(sp[0], 1, TEST_WAIT_MS) != 0) {
+		close(sp[0]); close(sp[1]);
+		TEST_FAIL("reported a timeout on an empty, writable socket");
+	}
+
+	close(sp[0]); close(sp[1]);
+	TEST_PASS();
+	return 0;
+}
+
 int
 main(void)
 {
@@ -192,6 +321,12 @@ main(void)
 	if (test_send_nofd_reports_minus_one() != 0)
 		failed++;
 	if (test_stream_stays_in_sync_after_nofd() != 0)
+		failed++;
+	if (test_wait_io_returns_when_readable() != 0)
+		failed++;
+	if (test_wait_io_times_out_on_silent_peer() != 0)
+		failed++;
+	if (test_wait_io_detects_writability() != 0)
 		failed++;
 
 	printf("\n=== %s ===\n", failed == 0 ? "ALL TESTS PASSED" : "TESTS FAILED");

@@ -40,6 +40,7 @@
 #endif
 #include <errno.h>
 #include <signal.h>
+#include <poll.h>
 #include <pwd.h>
 
 #include <sys/types.h>
@@ -72,6 +73,41 @@
 static int privsep_sock[2] = { -1, -1 };
 
 /*
+ * How long the privileged process will wait, mid-request, for privsep_sock
+ * to become usable before giving up on that request (issue #105).
+ *
+ * Every read and write the privileged dispatch loop performs *between*
+ * receiving a command and answering it must be bounded. The loop's own
+ * idle wait for the next command is not -- blocking there indefinitely is
+ * what the loop is for -- but once a request is in flight, the only writer
+ * on the other end is the unprivileged child, and a child that simply
+ * stops talking (never sends the descriptor its PRIVSEP_BIND announced,
+ * never drains the replies it asked for) would otherwise block this
+ * process forever. There is exactly one privileged process serving exactly
+ * one child, so that is not one stalled connection among many: it is the
+ * end of certificate loads, PSK lookups and hook execution for every peer,
+ * with the daemon still apparently alive. An unbounded silent hang is
+ * strictly worse than an exit -- the same reasoning that keeps
+ * privsep_send()/privsep_recv() failures fatal below -- so bound it.
+ *
+ * 3s matches script_exec()'s existing bounded wait (SCRIPT_DOWN_WAIT_MAX_MS,
+ * isakmp.c) and its rationale: far above anything the real exchange needs
+ * (the client's send_fd() is the statement immediately after its
+ * privsep_send(), with nothing that can block in between -- microseconds),
+ * far below systemd's default 90s TimeoutStopSec. Polled in 50ms slices,
+ * which also makes the wait EINTR-safe without a clock: a signal costs at
+ * most one slice of the budget, and the only signals this process takes
+ * are the SIGINT/SIGTERM it forwards to the child before shutting down
+ * anyway.
+ *
+ * poll() rather than select(): privsep_sock's descriptor number is not
+ * ours to bound, and an fd_set overrun here would be the very failure mode
+ * monitor_fd() was fixed for in this same audit.
+ */
+#define PRIVSEP_IPC_WAIT_MAX_MS  3000
+#define PRIVSEP_IPC_WAIT_POLL_MS 50
+
+/*
  * PID of the unprivileged child, valid only in the privileged process
  * (the "default:" branch after fork() in privsep_init() below never
  * clears it; the child branch never sets it, so it stays 0 there and
@@ -83,6 +119,7 @@ static pid_t privsep_child_pid = 0;
 
 static int privsep_recv(int, struct privsep_com_msg **, size_t *);
 static int privsep_send(int, struct privsep_com_msg *, size_t);
+static int privsep_wait_io(int, int, int, const char *);
 static int safety_check(struct privsep_com_msg *, int i);
 static int port_check(int);
 static int unsafe_env(char *const *);
@@ -204,6 +241,98 @@ privsep_recv(sock, bufp, lenp)
 	return 0;
 }
 
+/*
+ * Waits up to max_ms for sock to become readable (write == 0) or writable
+ * (write != 0). Returns 0 once it is, -1 on timeout or error -- see
+ * PRIVSEP_IPC_WAIT_MAX_MS above, which every production caller passes, for
+ * why the privileged dispatch loop needs this at all.
+ */
+static int
+privsep_wait_io(sock, write, max_ms, what)
+	int sock;
+	int write;
+	int max_ms;
+	const char *what;
+{
+	struct pollfd pfd;
+	int elapsed, ret;
+
+	for (elapsed = 0; elapsed < max_ms;
+	     elapsed += PRIVSEP_IPC_WAIT_POLL_MS) {
+		pfd.fd = sock;
+		pfd.events = write ? POLLOUT : POLLIN;
+		pfd.revents = 0;
+
+		ret = poll(&pfd, 1, PRIVSEP_IPC_WAIT_POLL_MS);
+		if (ret > 0)
+			return 0;
+		if (ret == -1 && errno != EINTR) {
+			plog(LLV_ERROR, LOCATION, NULL,
+			    "privsep: poll failed waiting for %s: %s\n",
+			    what, strerror(errno));
+			return -1;
+		}
+		/*
+		 * ret == 0 (slice expired) or EINTR: charge the slice to the
+		 * budget either way and look again.
+		 */
+	}
+
+	plog(LLV_ERROR, LOCATION, NULL,
+	    "privsep: timed out after %d ms waiting for %s\n",
+	    max_ms, what);
+
+	return -1;
+}
+
+/*
+ * Called when a mid-request message the client announced never arrived.
+ *
+ * This deliberately does NOT resume the dispatch loop -- it is the one
+ * place in this hardening where a bounded failure still ends the process
+ * on purpose, and the reason is framing, not severity. Nothing has been
+ * read, so the stream is left at an offset only the client knows.
+ * Resuming would meet the descriptor message it announced (one data byte
+ * plus ancillary data) wherever it eventually lands and read it as the
+ * head of the next command: a garbled admin_com whose attacker-chosen
+ * ac_len then drives the next allocation and the next blocking read.
+ * That re-creates the very unbounded block this wait exists to remove,
+ * one iteration later and harder to see. The same "stream position is no
+ * longer known" rule already makes a failed rec_fd() fatal in the
+ * dispatch loop; a timeout is only how that failure looks when the peer
+ * goes silent instead of loud.
+ *
+ * What the bound buys is therefore not survival of this request but the
+ * difference between two failure modes. Unbounded, a child that stops
+ * talking leaves this process blocked forever: no certificate loads, no
+ * PSK lookups, no hooks, for any peer, with the daemon still apparently
+ * alive until an operator notices and restarts it by hand. Bounded, it
+ * becomes a prompt, logged exit that the child's privsep_do_exit() turns
+ * into an ordinary SIGTERM shutdown -- which a service manager restarts
+ * on its own.
+ *
+ * The reply still goes out first, best effort: a client that is merely
+ * broken rather than gone is already waiting on privsep_recv() for it
+ * (privsep_bind()/privsep_setsockopt() read the reply straight after
+ * their send_fd()), and ETIMEDOUT there names the fault in the child's
+ * own log instead of leaving it to be inferred from the shutdown that
+ * follows.
+ */
+static void
+privsep_handshake_failed(reply)
+	struct privsep_com_msg *reply;
+{
+	plog(LLV_ERROR, LOCATION, NULL,
+	    "privsep: unprivileged process did not complete its request; "
+	    "privsep_sock cannot be resynchronised, terminating\n");
+
+	reply->hdr.ac_errno = ETIMEDOUT;
+	if (privsep_wait_io(privsep_sock[0], 1,
+	    PRIVSEP_IPC_WAIT_MAX_MS, "the timeout reply to be accepted") == 0)
+		(void)privsep_send(privsep_sock[0], reply,
+		    reply->hdr.ac_len);
+}
+
 static int
 privsep_do_exit(void *ctx, int fd)
 {
@@ -293,6 +422,18 @@ int
 privsep_rec_fd_unittest(int s)
 {
 	return rec_fd(s);
+}
+
+/*
+ * privsep_wait_io() is what bounds the dispatch loop's mid-request waits.
+ * Exposed with a caller-supplied budget so a test can assert both that it
+ * returns promptly when the peer does talk and that it gives up when the
+ * peer goes silent, without spending PRIVSEP_IPC_WAIT_MAX_MS to do it.
+ */
+int
+privsep_wait_io_unittest(int sock, int write, int max_ms)
+{
+	return privsep_wait_io(sock, write, max_ms, "unittest");
 }
 #endif /* ENABLE_UNITTEST */
 
@@ -812,7 +953,18 @@ privsep_init(void)
 			/*
 			 * Channel-scoped: a descriptor message that cannot be
 			 * handed over leaves the client blocked in rec_fd().
+			 * Bounded first, so a child that has stopped draining
+			 * privsep_sock stalls this send for at most the
+			 * handshake budget rather than forever.
 			 */
+			if (privsep_wait_io(privsep_sock[0], 1,
+			    PRIVSEP_IPC_WAIT_MAX_MS,
+			    "privsep_socket's descriptor to be accepted") != 0) {
+				if (s != -1)
+					close(s);
+				goto out;
+			}
+
 			if (send_fd(privsep_sock[0], s) < 0) {
 				plog(LLV_ERROR, LOCATION, NULL,
 				     "privsep_socket: send_fd failed\n");
@@ -838,6 +990,18 @@ privsep_init(void)
 		case PRIVSEP_BIND: {
 			struct bind_args bind_args;
 			int err, port = 0, s;
+
+			/*
+			 * Bounded: see privsep_handshake_failed() above for
+			 * why a timeout here cannot be answered-and-resumed
+			 * the way the request-scoped faults are.
+			 */
+			if (privsep_wait_io(privsep_sock[0], 0,
+			    PRIVSEP_IPC_WAIT_MAX_MS,
+			    "privsep_bind's descriptor") != 0) {
+				privsep_handshake_failed(reply);
+				goto out;
+			}
 
 			/* Channel-scoped: the descriptor was lost */
 			if ((s = rec_fd(privsep_sock[0])) < 0) {
@@ -905,6 +1069,14 @@ privsep_init(void)
 		case PRIVSEP_SETSOCKOPTS: {
 			struct sockopt_args sockopt_args;
 			int err, s;
+
+			/* Bounded, as for PRIVSEP_BIND above */
+			if (privsep_wait_io(privsep_sock[0], 0,
+			    PRIVSEP_IPC_WAIT_MAX_MS,
+			    "privsep_setsockopt's descriptor") != 0) {
+				privsep_handshake_failed(reply);
+				goto out;
+			}
 
 			/* Channel-scoped: the descriptor was lost */
 			if ((s = rec_fd(privsep_sock[0])) < 0) {
@@ -1204,8 +1376,18 @@ privsep_init(void)
 		/*
 		 * Channel-scoped: if the reply cannot be handed over, the
 		 * requesting call in the unprivileged process is left blocked
-		 * in privsep_recv() with nothing to read.
+		 * in privsep_recv() with nothing to read. Bounded first, for
+		 * the same reason as the descriptor sends above: a child that
+		 * queues requests without ever draining the replies would
+		 * otherwise fill the socket buffer and block this send
+		 * indefinitely.
 		 */
+		if (privsep_wait_io(privsep_sock[0], 1,
+		    PRIVSEP_IPC_WAIT_MAX_MS, "the reply to be accepted") != 0) {
+			racoon_free(reply);
+			goto out;
+		}
+
 		/* This frees reply */
 		if (privsep_send(privsep_sock[0],
 		    reply, reply->hdr.ac_len) != 0) {

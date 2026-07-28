@@ -47,6 +47,11 @@ matter more than the classification itself:
    other side one message out of step — which is worse than exiting. This
    is why privsep's descriptor-passing commands needed real work rather
    than a `goto` swap (§2.2).
+3. **Containment must not convert an exit into a hang.** A process blocked
+   forever mid-request is worse than one that exits: it still looks alive,
+   serves nobody, and needs a human to notice. Every wait the privileged
+   process performs between receiving a request and answering it therefore
+   has to be bounded (§2.3.1).
 
 ---
 
@@ -127,13 +132,90 @@ child of the same `fork()`, so there is no mixed-version concern.
 
 ### 2.3 Faults that remain fatal — and why
 
+To be precise about what "fatal" means here, since §2 already established
+it: there is exactly **one** privileged process, serving exactly **one**
+child, over exactly **one** socket. Ending that socket's service *is*
+ending the daemon — the child SIGTERMs itself on EOF. So none of the rows
+below are "scoped" to anything in the sense the containable faults are;
+what they have in common is that no answer can be given and no next
+request can be trusted, so a clean shutdown is the best outcome available.
+Where the text below says a fault is *channel-scoped*, it means only that
+the fault is a property of the socket rather than of the request — not
+that the blast radius is smaller than the whole daemon. It never is.
+
 | Fault | Why it stays fatal |
 | --- | --- |
 | `privsep_recv()` failure (EOF, `ECONNRESET`, short/corrupt framing) | The socket itself is gone or the stream boundary is lost. Nothing to answer, nothing to resynchronise on. |
-| `racoon_malloc()` failure for the reply buffer itself | With no reply buffer there is no way to answer at all, and the client blocks in `privsep_recv()` forever. A hang is strictly worse than an exit: exiting turns into the child's ordinary `SIGTERM` shutdown path. |
+| `racoon_malloc()` failure for the reply buffer itself | With no reply buffer there is no way to answer at all, and the client blocks in `privsep_recv()` forever. A hang is strictly worse than an exit. |
 | `send_fd()` failure (`PRIVSEP_SOCKET`) | The client is already blocked in `rec_fd()` with nothing coming. |
 | `rec_fd()` failure (`BIND`, `SETSOCKOPTS`) | The descriptor the client sent is unaccounted for; stream position is no longer known. |
 | `privsep_send()` failure | The reply could not be delivered; same blocked-client argument. |
+| Mid-request wait timeout (§2.3.1) | Same "stream position is no longer known" rule as the `rec_fd()` row, reached by silence instead of by error. |
+
+#### 2.3.1 Bounding the mid-request waits
+
+§1's third rule was initially applied only to the cases where a *failed*
+call left the client blocked. It missed the mirror image, which is the
+more dangerous one: a client that does not fail but simply **stops
+talking**.
+
+Three waits in the dispatch loop were unbounded:
+
+* `rec_fd()` for `PRIVSEP_BIND` / `PRIVSEP_SETSOCKOPTS` — reading the
+  descriptor the client's command announced. A child that sends the
+  command and never the descriptor blocks here forever. No EOF, no error,
+  no timeout: the socket is simply idle and the peer is still alive, so
+  none of the fatal rows above ever fire.
+* `send_fd()` for `PRIVSEP_SOCKET`, and `privsep_send()` for every reply —
+  a child that queues requests and never drains the replies fills the
+  socket buffer and blocks the send.
+
+The consequence is worse than any exit in this report, and it is exactly
+the failure mode that third rule exists to prevent: no certificate loads,
+no PSK lookups, no hooks, **for every peer**, with the daemon still
+apparently alive and its process still running, until an operator notices
+and restarts it by hand.
+
+`privsep_wait_io()` now bounds all three, polling for readability or
+writability in 50 ms slices up to `PRIVSEP_IPC_WAIT_MAX_MS` (3 s). The
+bound matches `script_exec()`'s existing `SCRIPT_DOWN_WAIT_MAX_MS` and its
+reasoning: far above anything the real exchange needs — the client's
+`send_fd()` is the statement immediately after its `privsep_send()`, with
+nothing that can block in between — and far below systemd's default 90 s
+`TimeoutStopSec`. Slice-polling also makes the wait EINTR-safe without a
+clock. It uses `poll()` rather than `select()` deliberately: privsep_sock's
+descriptor number is not ours to bound, and an `fd_set` overrun here would
+be the exact failure mode §3.1 was fixed for.
+
+**Why a timeout still ends the process rather than failing just that
+request.** This is the one place in this audit where the containment rule
+is deliberately not applied, and it is worth being explicit that it is a
+framing constraint, not a severity judgement. Nothing has been read when
+the wait expires, so the stream is left at an offset only the client knows.
+Resuming the loop would meet the announced descriptor message — one data
+byte plus ancillary data — whenever it eventually lands, and read it as the
+head of the next command: a garbled `admin_com` whose attacker-chosen
+`ac_len` then drives the next allocation and the next blocking read. That
+re-creates the very unbounded block the wait exists to remove, one
+iteration later and considerably harder to diagnose. `rec_fd()` failure is
+already fatal for exactly this reason; a timeout is only how that failure
+looks when the peer goes silent instead of loud.
+
+What the bound buys is therefore not survival of the request but the
+difference between two failure modes: an unbounded, silent, unrecoverable
+hang becomes a prompt, logged exit that the child's `privsep_do_exit()`
+turns into an ordinary SIGTERM shutdown — one a service manager restarts on
+its own. The reply is still sent first, best effort, so a merely-broken
+client gets `ETIMEDOUT` named in its own log
+(`privsep_handshake_failed()`).
+
+Removing the exit entirely would mean removing the two-message exchange —
+carrying the descriptor on the command message itself, so there is no
+second message to wait for. That is a real option and probably the right
+end state, but it needs `privsep_recv()` restructured away from its
+`MSG_PEEK` header read (peeking `SCM_RIGHTS` installs the descriptor on
+Linux, once per peek), which is a protocol change of a different size than
+this audit. Noted as a follow-up, not attempted here.
 
 ### 2.4 Rejections that used to report success
 
@@ -153,11 +235,29 @@ happened. Fixed as part of making containment meaningful:
 The privileged process treats messages from the unprivileged one as
 untrusted. Refusing an unauthorized operation is what that requires;
 *exiting* was never part of it, and refusing is strictly more informative.
-A compromised child can now make the privileged process block in `rec_fd()`
-by claiming `PRIVSEP_BIND` and sending no descriptor — but a compromised
-child can already end the daemon simply by exiting, and if it does, the
-socketpair EOFs, `rec_fd()` returns -1 and the privileged process takes its
-channel-scoped exit. No new capability, no stuck process.
+Nothing in §2.1–§2.2 grants the child an operation it could not already
+request, and every refusal now names itself in the log.
+
+The one thing containment did have to be checked against is the hang in
+§2.3.1, and an earlier draft of this report got it wrong. It argued that a
+child claiming `PRIVSEP_BIND` and sending no descriptor was harmless
+because "if it exits, the socketpair EOFs and the privileged process takes
+its channel-scoped exit". That reasoning only covers the child that
+*exits*. A child that stays alive and goes silent produces no EOF and no
+error — the socket is simply idle — so the privileged process blocked in
+`rec_fd()` indefinitely. And since there is one privileged process serving
+one child, not one per connection, that is not a stalled connection among
+many but the end of privileged service for every peer, silently, until a
+human intervenes. That is precisely the "a hang is worse than an exit"
+case §2.3 invokes to justify its own fatal rows; it was simply not
+recognised as an instance of it. §2.3.1 is the fix, and the wait is now
+bounded on both the read and the write side.
+
+Two things remain true after that fix. A compromised child can still end
+the daemon trivially — by exiting, which is not a capability containment
+ever took away. And it can still trip the bounded wait deliberately; the
+result is now a 3-second delay and a clean, logged, restartable shutdown
+rather than an indefinite one.
 
 ---
 
@@ -330,7 +430,12 @@ wrapped-static-function pattern (see `test/README.md` and
   usable; `send_fd(-1)` is received as -1 rather than dereferencing
   `CMSG_DATA(NULL)`; and the reply following a no-descriptor message is
   still the next thing read, which is what makes answering-instead-of-
-  exiting legal for `PRIVSEP_SOCKET`.
+  exiting legal for `PRIVSEP_SOCKET`. Three further cases drive
+  `privsep_wait_io()` (§2.3.1) against a real silent peer: it returns
+  promptly when the peer has spoken, gives up within its budget when the
+  peer sends nothing, and works in the reply-send direction too. Note the
+  failure signature of a regression here: an unbounded wait does not fail
+  that test, it hangs the harness — which is the production symptom.
 
 Full suite: **42/42 pass** (40 before, plus these two), release build,
 `--enable-adminport --enable-hybrid --enable-natt --enable-frag`.
@@ -359,7 +464,7 @@ the default configuration.
 
 | File | Change |
 | --- | --- |
-| `src/racoon/privsep.c` | Dispatch-loop containment; `send_fd(-1)`/`rec_fd()` no-descriptor handshake; descriptor-first ordering for `BIND`/`SETSOCKOPTS`; `privsep_socket()` client fix; errno on silent-success rejections; two `ENABLE_UNITTEST` accessors |
+| `src/racoon/privsep.c` | Dispatch-loop containment; `send_fd(-1)`/`rec_fd()` no-descriptor handshake; descriptor-first ordering for `BIND`/`SETSOCKOPTS`; `privsep_socket()` client fix; errno on silent-success rejections; `privsep_wait_io()` bounding every mid-request wait (§2.3.1); three `ENABLE_UNITTEST` accessors |
 | `src/racoon/session.c`, `session.h` | `monitor_fd()` returns 0/-1; `unmonitor_fd()` no longer exits |
 | `src/racoon/evt.c` | `evt_subscribe()` drops just the connection when it cannot be watched |
 | `src/racoon/isakmp.c` | `isakmp_open()` fails just that address |
@@ -369,6 +474,29 @@ the default configuration.
 | `src/racoon/isakmp_xauth.c` | `PAM_conv()` returns `PAM_CONV_ERR` instead of exiting |
 | `src/racoon/cfparse.y` | `cfparse()` returns -1 instead of exiting on the `yyerrorcount` branch |
 | `test/test_monitor_fd_range.c`, `test/test_privsep_fd_passing.c`, `test/Makefile.am` | New regression tests |
+
+---
+
+## 7. Follow-ups this audit recommends but does not deliver
+
+In priority order, with the reason each is separate rather than folded in:
+
+1. **Carry the descriptor on the command message** (§2.3.1). Would remove
+   the two-message exchange for `BIND`/`SETSOCKOPTS`/`SOCKET` outright, and
+   with it the last place where a timeout has to end the process instead of
+   just failing a request. Needs `privsep_recv()` restructured off its
+   `MSG_PEEK` header read, since peeking `SCM_RIGHTS` installs the
+   descriptor on Linux. A protocol change, not a hardening change.
+2. **Remove the `saddr2str()` `strdup` idiom** (§4.5). Deletes ~30
+   `STRDUP_FATAL` exits *and* ~30 allocations per busy negotiation. Should
+   be scoped to the buffer idiom, not to the macro — changing the macro
+   alone trades a controlled exit for an uncontrolled `%s`-of-`NULL`.
+3. **Error propagation through the config-duplication chain** (§4.4).
+   Belongs with `reload_conf()`'s own documented "no way to go back"
+   problem rather than ahead of it.
+
+None of these is a prerequisite for the fixes landed here; each is a
+prerequisite for calling the corresponding sub-class closed.
 
 [#102]: https://github.com/rdratlos/racoon-ipsec-tools/pull/102
 [#105]: https://github.com/rdratlos/racoon-ipsec-tools/issues/105
