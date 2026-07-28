@@ -651,6 +651,24 @@ on a real Arch roadwarrior:
     entry once crossed.
 
 ### What could not be verified here
+
+* **`develop` control runs for phases 1, 3 and 4.** Skipped by owner's
+  decision, for time — not because they would be uninformative. What this
+  gives up: a direct side-by-side of "before" on the same hardware in the
+  same session, which is the most legible form of evidence. What it does
+  not give up: the "before" behavior is not in doubt. It is the code this
+  branch replaces (still on `develop`, unchanged), it is what §2/§3 of this
+  report derive line-by-line from that code, and §2.4.1/§2.4.2's own
+  discovery — a `_exit()` turning into a legible error message — only
+  makes sense in a world where the pre-fix path really did exit. Cheap to
+  fill in later: `git checkout develop`, rebuild, repeat any phase.
+* **Phase 3's second half** — that a promptly-detached child takes its
+  ordinary EOF path rather than being SIGKILLed — is implied by the
+  mechanism (§2.3.1's design) and by the first half already having fired
+  correctly, but the scripted `gdb -batch … detach` form was written up
+  after the first run rather than re-run against it. One more pass with
+  it, checking that `$CHILD` survives and `close_session()`'s log lines
+  appear, would close this out completely.
 * **`policy.c`'s `#ifndef __linux__` branch**, which is not compiled on
   this project's primary platform. It is exercised by the NetBSD CI
   workflow; the change mirrors the sibling check immediately above it,
@@ -705,6 +723,66 @@ In priority order, with the reason each is separate rather than folded in:
 
 None of these is a prerequisite for the fixes landed here; each is a
 prerequisite for calling the corresponding sub-class closed.
+
+---
+
+## 8. Backlog for RFC 0001's integration test framework
+
+`doc/dev/privsep-verification-runbook.md` is a manual stand-in for
+infrastructure that does not exist yet: RFC 0001
+(`docs/rfcs/0001-incus-integration-testing-framework.md`, currently
+*Draft*, still on `main`) describes an Incus-based lab — real kernels,
+real topologies, single-fault injection — that this exact class of test
+(a privileged process, a real `fork()`, a real peer) is squarely aimed at.
+Everything below is scoped so each item becomes one itlab scenario once
+Milestone 1/2 (bootstrap, verification/artifact layers) lands, using
+`test/itlab/scenarios/ike-frag-retransmit-reassembly/` as the existing
+model for a scenario descriptor written ahead of the framework that runs
+it.
+
+1. **The four runbook phases themselves.** Phase 1 (happy path), Phase 2
+   (handshake order, asserted by decoding `ac_cmd`/message-count invariants
+   from a capture rather than eyeballed), Phase 3 (the bounded wait, via
+   itlab's fault-injection layer holding a descriptor rather than a
+   manually-timed `gdb` freeze), and Phase 4 (corrupted `ac_cmd`, and the
+   refused-hook path) are each a natural scenario + assertion pair. This
+   retires the runbook as a manual procedure and turns §5's "live
+   verification" bullet points into something CI checks on every change to
+   `privsep.c`.
+2. **Broaden 5b's fault injection past one `ac_cmd` value.** The
+   `LD_PRELOAD` shim proves the `default:` case; every other request-scoped
+   `EINVAL`/`E2BIG`/`ENOMEM` row in §2.1's table is unit-tested but not
+   live-exercised end to end (real `fork()`, real peer, real hook
+   afterward). A fault-injection library that can corrupt a chosen
+   `buflen`, truncate a message, or hold a descriptor is exactly RFC
+   0001 §5/§9's "single-fault packet-drop capability" generalised to
+   `privsep_sock` instead of the network.
+3. **A scenario for §7's two open policy-gate follow-ups**, written
+   *before* they are fixed: assert today that a raw `PF_INET`/`SOCK_RAW`
+   request currently succeeds (documenting the gap `test_privsep_socket_policy.c`
+   already flags) and that it is refused once follow-up 1 lands. Same
+   shape for the `SETSOCKOPTS` level check.
+4. **A privsep command-inventory assertion.** Phase 2's live run surfaced a
+   `PRIVSEP_GETPSK` alongside an `EAY_GET_PKCS1PRIVKEY` in what was
+   configured as an X.509 negotiation — not a bug (the gateway may
+   legitimately be configured for a PSK fallback), but exactly the kind of
+   thing worth pinning: which privsep commands a given auth method and
+   mode-config profile are expected to produce, so an unexpected one fails
+   a test rather than passing unremarked in a log.
+5. **`PRIVSEP_BUFLEN_MAX`**, once §7's other items are resolved: either
+   enforce it (and add the scenario that proves an over-limit buffer is
+   refused, not silently accepted) or delete it. Either way, something
+   should assert the outcome rather than leave the constant meaning
+   nothing.
+6. **The gateway-side failure encountered during this verification** (the
+   buffer overflow the reporter hit and fixed independently while running
+   Phase 4). Out of scope for this report — it is unclear whether that
+   gateway runs this codebase — but worth a follow-up question: if it does,
+   whether it was running under privsep, and whether it hit §2.4.1 or
+   §2.4.2 rather than an unrelated defect. If so, that is a third
+   independent live confirmation of this audit's central claim, on the
+   peer side instead of the client side.
+
 
 [#102]: https://github.com/rdratlos/racoon-ipsec-tools/pull/102
 [#105]: https://github.com/rdratlos/racoon-ipsec-tools/issues/105
