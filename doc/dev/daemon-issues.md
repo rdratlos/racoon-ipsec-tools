@@ -747,3 +747,241 @@ trivially passing.
 diagnostic addition (no control-flow change beyond what
 `if (len < sizeof(h))` already did), so no syscall/signal semantics
 needed re-verification here.
+
+### Follow-up: the deeper root cause of the EOF itself, now also fixed
+
+This issue's original filing deliberately scoped "why the event never
+arrives on racoonctl's connection" as **not otherwise diagnosed here** —
+the fix above only made the resulting silence visible. A live regression
+report post-merge (`racoonctl vd` printing exactly this diagnostic
+against a real gateway) prompted tracing that remaining question to a
+concrete root cause in `src/racoon/admin.c`, unmodified since the
+project's original 0.8.0 import (confirmed via `git log -S`), so this is
+not a regression from Issues 1-4 — it is the mechanism Issue 4 always
+described, now fully explained.
+
+**Root cause.** `ADMIN_DELETE_ALL_SA_DST` (`racoonctl vd`/
+`vpn-disconnect`'s underlying command) calls `purge_remote(iph1)`
+synchronously in its `admin_process()` case
+(`src/racoon/admin.c:433-490`). `purge_remote()` (`isakmp.c`) ends by
+calling `isakmp_ph1delete(iph1)`, which fires
+`evt_phase1(iph1, EVT_PHASE1_DOWN, NULL)` — **exactly the event
+`f_vpnd()` blocks on** — synchronously, from inside that same case block.
+`admin_process()`'s shared tail code (`src/racoon/admin.c:741-745`) is
+where a connection normally gets subscribed to receive future events
+(`event_list != NULL` → `evt_subscribe()`), but that tail only runs
+*after* the whole `switch` returns — by which point `EVT_PHASE1_DOWN`
+has already been broadcast to whatever was subscribed at the time
+(nothing, for this connection) and is gone. `admin_handler()`
+(`admin.c:236-244`) then closes the never-subscribed socket right after
+the reply, which is precisely the EOF `com_recv()` now reports.
+
+This is structurally different from `ADMIN_ESTABLISH_SA`, the other
+command that sets `event_list`: that command's own future event (its
+ph1 going up, or later down) hasn't happened yet by the time
+`admin_process()` returns — negotiation runs later, from the main event
+loop — so subscribing in the shared tail is in time for it. For
+`ADMIN_DELETE_ALL_SA_DST`, the teardown (and its event) is already
+complete before the tail ever runs.
+
+**The "tunnel doesn't come down" half of the same report** was traced
+separately to `delete_spd()` (called from `purge_remote()`'s SA loop)
+only removing SPD entries racoon's own C code generated — the split-DNS
+hooks' own SPD entries (installed directly via `setkey`, per
+`teardown-investigation.md` §E) are removed only by `phase1-down.sh`
+running asynchronously, fire-and-forget, same as any non-shutdown
+`SCRIPT_PHASE1_DOWN` invocation (Issue 1). Traffic matching those
+selectors arriving before that script finishes can provoke a fresh
+kernel `ACQUIRE` against the still-live policy, reconnecting to the same
+peer moments later and looking exactly like nothing was torn down. This
+half is **not fixed by the change below** and is tracked separately,
+pending a decision on whether an admin-triggered delete should also get
+a bounded, blocking wait (extending Issue 1's mechanism) or stay
+fire-and-forget with the hooks' existing generation-based retry as the
+safety net.
+
+**Fix (event-subscribe ordering only), first attempt — caused a worse,
+live regression.** The first version of this fix subscribed this
+connection to the global event list (`evt_subscribe(NULL, so2)`) on the
+first iteration that found a matching `ph1`, *before* calling
+`purge_remote()` for it, then left this command's own reply to the
+function's shared tail (`admin_reply()`, near the end of
+`admin_process()`) as usual. Live testing (a real `racoonctl vd` against
+a matching, established tunnel — the exact case this fix targets)
+confirmed the EOF was gone and the event was delivered correctly, but
+surfaced a second, more severe bug: shortly after, racoon itself exited
+silently (no core dump), leaving `racoon0` and its SPD/routes behind —
+worse than the original symptom, since now nothing tears down at all.
+
+Root cause of *that* regression: `racoonctl`'s wait loop
+(`f_vc()`/`main()`, racoonctl.c) exits as soon as it reads *any* message
+satisfying `evt_quit_event`, regardless of whether it was also waiting
+on a reply to its own request. Subscribing before `purge_remote()` meant
+`EVT_PHASE1_DOWN` (fired synchronously, inside `purge_remote()`) reached
+the client *before* this command's own reply did (still queued for the
+shared tail at that point) — so the client, already satisfied, closed
+its end of the socket without ever reading that reply. The shared tail's
+later `admin_reply()` call then hit `EPIPE` ("Broken pipe") on a socket
+the peer had already closed. Because `evt_subscribe()` also registers
+`so2` in this process's own fd-monitor/`select()` set
+(`monitor_fd()`, `session.c`), and `admin_process()` returning that
+`EPIPE` as an ordinary error (not the usual `-2` "keep this socket
+open") made `admin_handler()` `close(so2)` in response — the
+fd-monitor registration was never unwound to match. The next `select()`
+cycle polled a closed, dangling descriptor, failed with `EBADF` ("Bad
+file descriptor"), and `session()`'s main loop (`session.c`) treats a
+`select()` failure as fatal and returns — silently ending the daemon
+before the async `SCRIPT_PHASE1_DOWN` hook it had just fired could
+finish tearing down `racoon0`.
+
+**Fix, corrected.** `ADMIN_DELETE_ALL_SA_DST`'s case now sends this
+command's own reply (`admin_reply(so2, com, 0, NULL)`) itself, first,
+*before* any subscription or teardown can race it — guaranteeing wire
+order matches what the client already assumes (its own reply, then,
+separately, the event). Only once that reply is known to have reached
+the client does the case subscribe (on the first matching `ph1`, before
+calling `purge_remote()` for it, same reasoning on the global-list-vs.
+one-`ph1`'s-own-list and defer-until-a-match-is-found points as before).
+The case now returns directly — `-2` if it subscribed, the reply's own
+error code otherwise — rather than falling through to the shared tail,
+since that tail's `admin_reply()`/`event_list`-driven `evt_subscribe()`
+calls do not apply to this command and would either double-reply or
+never fire.
+
+**Verification performed.**
+
+- Full rebuild (`autoreconf -fi`; `./configure --enable-security-context=no`)
+  succeeds; `make check`: 39/39 pass, no regressions.
+- Traced by hand against `evt.c`'s actual broadcast mechanics
+  (`evtmsg_broadcast()`'s `send(l->fd, ...)` is synchronous and
+  immediate, not queued for a later event-loop pass) and against
+  `evt_unsubscribe()`'s own cleanup (`unmonitor_fd()` + `close()`
+  together) to confirm the corrected ordering cannot recreate the
+  dangling-registration path the first attempt hit.
+- The first attempt's regression (silent daemon exit, `racoon0` and SPD
+  left behind) was confirmed live, against a real established tunnel,
+  with the exact `EPIPE`/`EBADF` log lines predicted by the trace above
+  — not hypothetical.
+
+**`/* UNVERIFIED: */`** — the corrected version has not yet been
+live-tested (no `PF_KEY`/XFRM kernel support in this environment, same
+constraint noted throughout this document). Re-running the exact live
+reproduction that caught the first attempt's regression — `racoonctl vd`
+against a matching, established tunnel, confirming both the "Phase 1
+deleted" line *and* that racoon keeps running afterward with `racoon0`
+actually gone — is required before considering this fully closed out.
+
+### Follow-up: hardening `session()`'s main loop against this whole class of bug
+
+The first attempt's regression above raised a fair question beyond "is
+*this* specific bug fixed": why can one dangling admin-socket fd take
+down the *entire* daemon, including every other still-live Phase 1/2 SA
+and its dummy interface/SPD/routes, rather than just that one connection?
+`main.c`'s `main()` is `session(); return 0;` — nothing calls
+`close_session()` (the normal, graceful SIGTERM/SIGINT path) on the way
+out, so any `select()` failure other than `EINTR` in `session()`'s main
+loop (`session.c`) silently ends the whole process, mid-operation, with
+no attempt at cleanup for whatever else was still connected/established
+at the time.
+
+This is bigger than the one bug above: *any* future bug of the same
+shape — anything, anywhere, that `close()`s a monitored fd directly
+instead of calling `unmonitor_fd()` first — reproduces the identical
+`EBADF`/daemon-exits failure mode, regardless of whether the specific
+trigger has anything to do with `admin.c` at all.
+
+**Fix.** `session()`'s main loop now handles `select()` failing with
+`EBADF` specially, via a new `prune_stale_monitored_fds()` (`session.c`):
+scans every currently-monitored fd with `fcntl(fd, F_GETFD)` (a
+side-effect-free, POSIX-standard validity check — POSIX.1-2017 `fcntl()`
+fails with `EBADF` if `fildes` is not a valid open file descriptor) and
+`unmonitor_fd()`s any that are no longer open, logging which one(s) it
+had to drop. If it finds and drops at least one, the main loop
+`continue`s instead of exiting; if `select()` failed with `EBADF` for
+some other, unexplained reason (no stale fd actually found in our own
+set), it falls through to the same fatal handling as before, unchanged.
+This does not paper over the underlying bug class silently — the log
+line makes clear *this happened* and *which fd*, so whatever left it
+dangling (this specific one, now fixed, or a future one) is still
+diagnosable; it just stops that bug from taking the whole daemon, and
+every peer connected through it, down with it.
+
+**Verification performed.**
+
+- Full rebuild and `make check`: 40/40 pass (up from 39 — one new test),
+  no regressions.
+- `test/test_prune_stale_monitored_fds.c` (new `check_PROGRAMS` unit
+  test, `session_unittest_src.c` wrapper following this project's
+  established pattern): drives the real `prune_stale_monitored_fds()`
+  with real `pipe()` fds and a real `close()` — not a simulated
+  fd-validity check — covering a stale fd being dropped, a still-open fd
+  being left alone, and a mix of both monitored at once (confirming only
+  the stale one is pruned). Confirmed to **fail** with the fix's
+  `fcntl()` check temporarily inverted and **pass** with it restored,
+  verifying the test actually exercises the fix rather than trivially
+  passing.
+
+**`/* UNVERIFIED: */`** — this specific recovery path (an admin-socket fd
+going stale and `session()` pruning it mid-run rather than exiting) has
+not been exercised end-to-end against a live daemon in this environment,
+for the same `PF_KEY`/XFRM constraint noted throughout this document.
+The unit test above exercises the actual, compiled recovery function
+directly with real file descriptors, which is the closest verification
+achievable here.
+
+### Follow-up: closing the margin that made the regression possible
+
+A review pass (not a new live finding) asked a fair question about the
+regression this whole follow-up traces: `PRIVSEP_NBUF_MAX` (24) has zero
+slack against the fixed, worst-case env-var count `script_hook()`
+(`isakmp.c`) and, under `ENABLE_HYBRID`, `isakmp_cfg_setenv()`
+(`isakmp_cfg.c`) can produce — exactly 21 today, landing at exactly 24
+wire slots once `script`/`name`/the void terminator are counted. Nothing
+previously stopped a future `script_env_append()` addition from silently
+pushing that past 24 and reintroducing this same landmine years from
+now, the way `RACOON_SCRIPT_WAIT`'s single extra `envp` entry already did
+once.
+
+**Checked first, not assumed:** is this actually peer-triggerable today,
+as initially suspected? No — read both functions in full. Every
+list-shaped mode-config attribute (DNS servers, split-include/-local
+networks, split-DNS domains) is joined into a *single* string via
+`isakmp_cfg_iplist_to_str()`/`splitnet_list_2str()` before being handed
+to `script_env_append()`; neither function ever iterates a peer-supplied
+list into one `envp` entry per item. A peer can make any one entry's
+*value* longer, never add more *entries*. So the current fixed maximum
+(21 env vars, 24 slots) cannot be exceeded by mode-config content alone,
+and `privsep_script_exec()`'s own sender-side check (`privsep.c`, `count
+> PRIVSEP_NBUF_MAX`) already catches any future overflow gracefully —
+`script_hook()` just logs a failure and moves on, no privileged-process
+involvement — as long as sender and receiver bounds-checking stay in
+sync, which is exactly the assumption this guard now enforces instead of
+leaving implicit.
+
+**Fix.** `SCRIPT_HOOK_MAX_ENVC` (6) and `ISAKMP_CFG_SETENV_MAX_ENVC` (15)
+(`privsep.h`) document the exact, by-hand-verified call counts from both
+functions; a portable compile-time assertion in `isakmp.c` (a negative
+array size, not C11's `_Static_assert()`, since this codebase doesn't
+otherwise rely on it and still targets older NetBSD toolchains) ties
+`3 + PRIVSEP_SCRIPT_EXEC_MAX_ENVC <= PRIVSEP_NBUF_MAX` together. Adding
+one more `script_env_append()` call anywhere without updating the
+matching constant now fails the build with a clear diagnostic pointing
+at the assertion, instead of silently shipping a regression that only
+surfaces against a real gateway with the right mode-config shape.
+
+**Verification performed.**
+
+- Confirmed the guard fires correctly: temporarily bumped
+  `SCRIPT_HOOK_MAX_ENVC` by one and confirmed the build fails at exactly
+  the assertion (`error: size of array
+  'privsep_script_exec_max_envc_fits_wire_budget' is negative`); reverted
+  and confirmed it builds clean again.
+- Confirmed the `!ENABLE_HYBRID` branch of the accounting macro
+  (`PRIVSEP_SCRIPT_EXEC_MAX_ENVC` without `isakmp_cfg_setenv()`'s
+  contribution) compiles correctly in isolation.
+- Full rebuild and `make check`: 40/40 pass, no regressions.
+
+**`/* UNVERIFIED: */`** — none. This is a pure compile-time addition (no
+new runtime code path), and its only job — catching a future accounting
+mismatch at build time — was directly exercised above by deliberately
+introducing one.

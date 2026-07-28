@@ -3129,6 +3129,26 @@ frag_handler(iph1, msg, remote, local)
 #define SCRIPT_DOWN_WAIT_MAX_MS  3000
 #define SCRIPT_DOWN_WAIT_POLL_MS 50
 
+/*
+ * Compile-time guard for privsep.h's PRIVSEP_SCRIPT_EXEC wire-budget
+ * accounting (daemon-issues.md's Issue 4 follow-up; see the long comment
+ * on PRIVSEP_SCRIPT_EXEC_MAX_ENVC there for the full rationale). 3 fixed
+ * slots (script, name, void terminator) plus every env var
+ * script_hook()/isakmp_cfg_setenv() can ever produce must fit within
+ * PRIVSEP_NBUF_MAX -- if this ever fails to compile, either a new
+ * script_env_append() call was added without bumping
+ * SCRIPT_HOOK_MAX_ENVC/ISAKMP_CFG_SETENV_MAX_ENVC (privsep.h) to match,
+ * or the actual budget genuinely needs to grow (PRIVSEP_NBUF_MAX itself,
+ * privsep.h) -- not something to work around locally here.
+ *
+ * Portable, pre-C11 static assertion (negative array size is illegal in
+ * every C standard this project targets, including NetBSD's older
+ * compilers) rather than _Static_assert(), which this codebase does not
+ * otherwise rely on.
+ */
+typedef char privsep_script_exec_max_envc_fits_wire_budget
+    [(3 + PRIVSEP_SCRIPT_EXEC_MAX_ENVC <= PRIVSEP_NBUF_MAX) ? 1 : -1];
+
 void
 script_hook(iph1, script)
 	struct ph1handle *iph1;

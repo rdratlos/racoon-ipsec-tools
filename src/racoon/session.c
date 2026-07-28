@@ -64,6 +64,7 @@
 #include <sys/stat.h>
 #include <paths.h>
 #include <err.h>
+#include <fcntl.h>
 
 #include <netinet/in.h>
 #include <resolv.h>
@@ -172,6 +173,77 @@ unmonitor_fd(int fd)
 	TAILQ_REMOVE(&fd_monitor_tree[fd_monitors[fd].prio],
 		     &fd_monitors[fd], chain);
 }
+
+/*
+ * Scans every currently-monitored fd for validity and unmonitor_fd()s any
+ * that are no longer open. Returns 1 if at least one stale fd was found
+ * and dropped, 0 if none were -- see the comment at this function's call
+ * site (session()'s main loop, on select() failing with EBADF) for why
+ * this exists: a bug elsewhere (e.g. daemon-issues.md's Issue 4 follow-up)
+ * can close() a monitored fd directly instead of going through
+ * unmonitor_fd(), leaving a stale entry that fails every subsequent
+ * select() with EBADF.
+ *
+ * fcntl(fd, F_GETFD) is a side-effect-free, POSIX-standard way to test fd
+ * validity (POSIX.1-2017 fcntl(): fails with EBADF if fildes is not a
+ * valid open file descriptor) -- it neither reads nor blocks, so scanning
+ * every monitored fd here is safe to do unconditionally.
+ */
+static int
+prune_stale_monitored_fds(void)
+{
+	int fd, found_bad = 0;
+
+	for (fd = 0; fd <= nfds; fd++) {
+		if (fd_monitors[fd].callback == NULL)
+			continue;
+		if (fcntl(fd, F_GETFD) == -1 && errno == EBADF) {
+			plog(LLV_ERROR, LOCATION, NULL,
+			    "dropping stale monitored fd %d (closed "
+			    "elsewhere without unmonitor_fd()) after a "
+			    "failed select()\n", fd);
+			unmonitor_fd(fd);
+			found_bad = 1;
+		}
+	}
+	return found_bad;
+}
+
+#ifdef ENABLE_UNITTEST
+int
+prune_stale_monitored_fds_unittest(void)
+{
+	return prune_stale_monitored_fds();
+}
+
+int
+is_fd_monitored_unittest(int fd)
+{
+	if (fd < 0 || fd >= FD_SETSIZE)
+		return 0;
+	return fd_monitors[fd].callback != NULL;
+}
+
+/*
+ * Initializes just the fd-monitoring state (preset_mask/active_mask/
+ * fd_monitor_tree/nfds) that monitor_fd()/unmonitor_fd() require --
+ * mirrors the relevant subset of session_init_before_cfparse() (this
+ * file) without also calling sched_init()/init_signal(), which pull in
+ * this project's scheduler and signal-handling machinery a unit test for
+ * this fd-monitoring logic alone has no need of.
+ */
+void
+init_fd_monitor_unittest(void)
+{
+	int i;
+
+	nfds = 0;
+	FD_ZERO(&preset_mask);
+	FD_ZERO(&active_mask);
+	for (i = 0; i < NUM_PRIORITIES; i++)
+		TAILQ_INIT(&fd_monitor_tree[i]);
+}
+#endif
 
 /*
  * Everything cfparse() and the grammar's kernel-algorithm checks
@@ -327,6 +399,38 @@ session(void)
 			switch (errno) {
 			case EINTR:
 				continue;
+			case EBADF:
+				/*
+				 * At least one fd in our own monitored set is
+				 * no longer valid -- somewhere, a bug closed
+				 * it without calling unmonitor_fd() first
+				 * (confirmed live: an admin.c ordering bug,
+				 * since fixed, left a "racoonctl vd"
+				 * connection's socket registered here even
+				 * after admin_handler() had already close()'d
+				 * it, taking the entire daemon down on the
+				 * very next select() -- daemon-issues.md's
+				 * Issue 4 follow-up has the full trace).
+				 * Losing every other still-live Phase 1/2 SA
+				 * (and its dummy interface/SPD/routes) over
+				 * one dangling fd is a disproportionate
+				 * failure mode for a bug that, by
+				 * construction, can only ever be in our own
+				 * bookkeeping, never in the peer's control --
+				 * try to find and drop just the bad fd(s) and
+				 * keep running, rather than exiting
+				 * unconditionally on every select() failure.
+				 */
+				if (prune_stale_monitored_fds())
+					continue;
+				/*
+				 * No bad fd actually found in our own set --
+				 * this EBADF was not explained by our own
+				 * bookkeeping. Fall through to the same fatal
+				 * handling as any other unrecovered select()
+				 * failure below.
+				 */
+				/* FALLTHROUGH */
 			default:
 				plog(LLV_ERROR, LOCATION, NULL,
 					"failed to select (%s)\n",

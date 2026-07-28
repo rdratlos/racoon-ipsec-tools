@@ -434,6 +434,9 @@ admin_process(so2, combuf)
 		struct ph1handle *iph1;
 		struct sockaddr *dst;
 		char *loc, *rem;
+		int subscribed_once = 0;
+		int admin_delete_all_subscribed = 0;
+		int reply_error;
 
 		dst = (struct sockaddr *)
 			&((struct admin_com_indexes *)
@@ -444,10 +447,58 @@ admin_process(so2, combuf)
 
 		plog(LLV_INFO, LOCATION, NULL,
 		    "Flushing all SAs for peer %s\n", rem);
+		racoon_free(rem);
+
+		/*
+		 * Reply to *this* request now, before triggering the
+		 * teardown below -- not in this function's usual shared
+		 * tail (admin_reply()/event_list, near the end of this
+		 * function). purge_remote() -> isakmp_ph1delete() fires
+		 * EVT_PHASE1_DOWN synchronously once subscribed (below), and
+		 * racoonctl's vpn-disconnect/vd (f_vpnd(), racoonctl.c)
+		 * exits its wait loop on *whichever* message satisfies
+		 * evt_quit_event first -- it does not require this reply to
+		 * arrive first. An earlier version of this fix subscribed
+		 * before replying and left the reply for the shared tail:
+		 * that let the event reach the client before this reply did,
+		 * so the client (already satisfied) exited and closed its
+		 * end of the socket having never read this reply at all: the
+		 * shared tail's later admin_reply() then hit EPIPE on a
+		 * socket the peer had already closed -- and, worse, since
+		 * evt_subscribe() below also registers so2 in this process's
+		 * own fd-monitor/select() set, admin_handler() closing so2
+		 * in response to that EPIPE (this function returning
+		 * anything other than -2) left that registration dangling:
+		 * confirmed live to eventually make select() fail with
+		 * EBADF and take the whole daemon down, not just this
+		 * connection. Sending the reply here first, before anything
+		 * that could race it, guarantees this reply is the first
+		 * thing the client reads, matching what it already assumes.
+		 */
+		reply_error = admin_reply(so2, com, 0, NULL);
 
 		while ((iph1 = getph1bydstaddr(dst)) != NULL) {
 			loc = racoon_strdup(saddrwop2str(iph1->local));
 			STRDUP_FATAL(loc);
+
+			/*
+			 * Subscribe on the first iteration, before the first
+			 * purge_remote() below, and only if the reply above
+			 * actually reached the client -- if it did not, this
+			 * connection is already gone, and subscribing to it
+			 * would only recreate the dangling-registration problem
+			 * explained above for no benefit (nothing will ever
+			 * read the event anyway). Subscribing to the global
+			 * list (NULL) rather than any one iph1's own list
+			 * matters too: evt_phase1() broadcasts to both, and
+			 * dst can match more than one ph1 in this loop.
+			 */
+			if (!subscribed_once) {
+				if (reply_error == 0 &&
+				    evt_subscribe(NULL, so2) == -2)
+					admin_delete_all_subscribed = 1;
+				subscribed_once = 1;
+			}
 
 			if (iph1->status >= PHASE1ST_ESTABLISHED)
 				isakmp_info_send_d1(iph1);
@@ -456,8 +507,19 @@ admin_process(so2, combuf)
 			racoon_free(loc);
 		}
 
-		racoon_free(rem);
-		break;
+		/*
+		 * Return directly rather than falling through to this
+		 * function's shared tail: that tail's own admin_reply() call
+		 * would otherwise send a second reply to this same request
+		 * (the reply above already satisfied it), and its
+		 * event_list-driven evt_subscribe() call is not applicable
+		 * to this command (event_list is never set for it). buf/id/
+		 * key are all still their initial NULL from this function's
+		 * top, so nothing the shared tail would have freed is
+		 * skipped by returning here instead.
+		 */
+		return admin_delete_all_subscribed ? -2 :
+		    (reply_error != 0 ? reply_error : 0);
 	}
 
 	case ADMIN_ESTABLISH_SA_PSK: {
