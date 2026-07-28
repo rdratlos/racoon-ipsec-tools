@@ -928,3 +928,60 @@ for the same `PF_KEY`/XFRM constraint noted throughout this document.
 The unit test above exercises the actual, compiled recovery function
 directly with real file descriptors, which is the closest verification
 achievable here.
+
+### Follow-up: closing the margin that made the regression possible
+
+A review pass (not a new live finding) asked a fair question about the
+regression this whole follow-up traces: `PRIVSEP_NBUF_MAX` (24) has zero
+slack against the fixed, worst-case env-var count `script_hook()`
+(`isakmp.c`) and, under `ENABLE_HYBRID`, `isakmp_cfg_setenv()`
+(`isakmp_cfg.c`) can produce — exactly 21 today, landing at exactly 24
+wire slots once `script`/`name`/the void terminator are counted. Nothing
+previously stopped a future `script_env_append()` addition from silently
+pushing that past 24 and reintroducing this same landmine years from
+now, the way `RACOON_SCRIPT_WAIT`'s single extra `envp` entry already did
+once.
+
+**Checked first, not assumed:** is this actually peer-triggerable today,
+as initially suspected? No — read both functions in full. Every
+list-shaped mode-config attribute (DNS servers, split-include/-local
+networks, split-DNS domains) is joined into a *single* string via
+`isakmp_cfg_iplist_to_str()`/`splitnet_list_2str()` before being handed
+to `script_env_append()`; neither function ever iterates a peer-supplied
+list into one `envp` entry per item. A peer can make any one entry's
+*value* longer, never add more *entries*. So the current fixed maximum
+(21 env vars, 24 slots) cannot be exceeded by mode-config content alone,
+and `privsep_script_exec()`'s own sender-side check (`privsep.c`, `count
+> PRIVSEP_NBUF_MAX`) already catches any future overflow gracefully —
+`script_hook()` just logs a failure and moves on, no privileged-process
+involvement — as long as sender and receiver bounds-checking stay in
+sync, which is exactly the assumption this guard now enforces instead of
+leaving implicit.
+
+**Fix.** `SCRIPT_HOOK_MAX_ENVC` (6) and `ISAKMP_CFG_SETENV_MAX_ENVC` (15)
+(`privsep.h`) document the exact, by-hand-verified call counts from both
+functions; a portable compile-time assertion in `isakmp.c` (a negative
+array size, not C11's `_Static_assert()`, since this codebase doesn't
+otherwise rely on it and still targets older NetBSD toolchains) ties
+`3 + PRIVSEP_SCRIPT_EXEC_MAX_ENVC <= PRIVSEP_NBUF_MAX` together. Adding
+one more `script_env_append()` call anywhere without updating the
+matching constant now fails the build with a clear diagnostic pointing
+at the assertion, instead of silently shipping a regression that only
+surfaces against a real gateway with the right mode-config shape.
+
+**Verification performed.**
+
+- Confirmed the guard fires correctly: temporarily bumped
+  `SCRIPT_HOOK_MAX_ENVC` by one and confirmed the build fails at exactly
+  the assertion (`error: size of array
+  'privsep_script_exec_max_envc_fits_wire_budget' is negative`); reverted
+  and confirmed it builds clean again.
+- Confirmed the `!ENABLE_HYBRID` branch of the accounting macro
+  (`PRIVSEP_SCRIPT_EXEC_MAX_ENVC` without `isakmp_cfg_setenv()`'s
+  contribution) compiles correctly in isolation.
+- Full rebuild and `make check`: 40/40 pass, no regressions.
+
+**`/* UNVERIFIED: */`** — none. This is a pure compile-time addition (no
+new runtime code path), and its only job — catching a future accounting
+mismatch at build time — was directly exercised above by deliberately
+introducing one.

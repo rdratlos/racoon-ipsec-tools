@@ -67,6 +67,45 @@ struct admin_com_bufs {
 	/* Followed by the buffers */
 };
 
+/*
+ * PRIVSEP_SCRIPT_EXEC's wire budget accounting (daemon-issues.md's Issue
+ * 4 follow-up): a PRIVSEP_SCRIPT_EXEC message packs script, name, every
+ * envp[] entry, and a void terminator into the PRIVSEP_NBUF_MAX slots of
+ * one admin_com_bufs above -- 3 fixed slots plus one per env var.
+ *
+ * The envp[] entries come from two fixed-shape call sequences that never
+ * vary with anything a peer controls: script_hook()'s own explicit
+ * script_env_append() calls (isakmp.c -- LOCAL_ADDR, LOCAL_PORT,
+ * REMOTE_ADDR, REMOTE_PORT, REMOTE_ID, IKE_COOKIE, i.e. exactly 6), and,
+ * under ENABLE_HYBRID, isakmp_cfg_setenv()'s (isakmp_cfg.c -- 14
+ * unconditional plus XAUTH_USER when Xauth creds exist, i.e. up to 15).
+ * Every list-shaped mode-config attribute (DNS servers, split-include/
+ * -local networks, split-DNS domains) is joined into a single string
+ * before being handed to script_env_append() -- never iterated into one
+ * entry per item -- so a peer can make any one of these entries longer,
+ * but never add more of them. This was already a one-slot-from-the-
+ * ceiling landmine once: PR #94's RACOON_SCRIPT_WAIT envp entry pushed
+ * the fixed count from 21 to 22 and hit this exact ceiling on a real
+ * split-DNS mode-config connection.
+ *
+ * SCRIPT_HOOK_MAX_ENVC / ISAKMP_CFG_SETENV_MAX_ENVC below must be kept in
+ * sync by hand with the actual script_env_append() call counts in
+ * isakmp.c/isakmp_cfg.c -- C's preprocessor cannot derive this from the
+ * calls themselves. The static assertion in isakmp.c
+ * (PRIVSEP_SCRIPT_EXEC_MAX_ENVC_FITS_WIRE_BUDGET) ties their sum back to
+ * PRIVSEP_NBUF_MAX, so adding one more script_env_append() call anywhere
+ * without updating the matching count here fails the build instead of
+ * silently reintroducing this same landmine.
+ */
+#define SCRIPT_HOOK_MAX_ENVC		6
+#define ISAKMP_CFG_SETENV_MAX_ENVC	15
+#ifdef ENABLE_HYBRID
+#define PRIVSEP_SCRIPT_EXEC_MAX_ENVC \
+    (SCRIPT_HOOK_MAX_ENVC + ISAKMP_CFG_SETENV_MAX_ENVC)
+#else
+#define PRIVSEP_SCRIPT_EXEC_MAX_ENVC SCRIPT_HOOK_MAX_ENVC
+#endif
+
 struct privsep_com_msg {
 	struct admin_com hdr;
 	struct admin_com_bufs bufs;
