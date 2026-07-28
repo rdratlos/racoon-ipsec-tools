@@ -50,7 +50,7 @@ extern int session __P((void));
 extern void session_init_before_cfparse __P((void));
 extern RETSIGTYPE signal_handler __P((int));
 
-extern void monitor_fd __P((int fd, int (*callback)(void *, int), void *ctx, int priority));
+extern int monitor_fd __P((int fd, int (*callback)(void *, int), void *ctx, int priority));
 extern void unmonitor_fd __P((int fd));
 
 #endif /* _SESSION_H */

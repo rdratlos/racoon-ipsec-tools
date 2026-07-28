@@ -131,12 +131,33 @@ static int nfds = 0;
 static volatile sig_atomic_t sigreq[NSIG + 1];
 static struct sched scflushsa = SCHED_INITIALIZER();
 
-void
+/*
+ * Registers fd with the main loop's select() set. Returns 0 on success and
+ * -1 if fd cannot be monitored at all, which for select() means only one
+ * thing: it does not fit in an fd_set.
+ *
+ * That used to exit(1) on the spot. But fd here is not a fixed daemon-wide
+ * resource: besides the pfkey/routing/admin-listener sockets opened once at
+ * startup, it is also every accepted admin connection that asks for events
+ * (evt_subscribe(), evt.c) and every ISAKMP socket opened for an address
+ * that shows up while running (isakmp_open(), isakmp.c). A descriptor
+ * landing past FD_SETSIZE is a property of how many descriptors the process
+ * happens to hold when that one connection or address arrives -- so
+ * exiting turned "this racoonctl connection cannot be watched" into
+ * "every live Phase 1/2 SA dies", the same disproportionate failure shape
+ * that session()'s select() loop had before prune_stale_monitored_fds()
+ * (issues #102/#105). Report the failure instead and let the caller drop
+ * just that connection or socket; the callers at startup still treat it as
+ * fatal, which at startup it is.
+ */
+int
 monitor_fd(int fd, int (*callback)(void *, int), void *ctx, int priority)
 {
 	if (fd < 0 || fd >= FD_SETSIZE) {
-		plog(LLV_ERROR, LOCATION, NULL, "fd_set overrun");
-		exit(1);
+		plog(LLV_ERROR, LOCATION, NULL,
+		    "cannot monitor fd %d: outside fd_set range "
+		    "[0,%d)\n", fd, FD_SETSIZE);
+		return -1;
 	}
 
 	FD_SET(fd, &preset_mask);
@@ -153,14 +174,24 @@ monitor_fd(int fd, int (*callback)(void *, int), void *ctx, int priority)
 	fd_monitors[fd].fd = fd;
 	TAILQ_INSERT_TAIL(&fd_monitor_tree[priority],
 			  &fd_monitors[fd], chain);
+
+	return 0;
 }
 
 void
 unmonitor_fd(int fd)
 {
 	if (fd < 0 || fd >= FD_SETSIZE) {
-		plog(LLV_ERROR, LOCATION, NULL, "fd_set overrun: fd=%d FD_SETSIZE=%d\n", fd, FD_SETSIZE);
-		exit(1);
+		/*
+		 * Nothing was ever registered for such an fd (monitor_fd()
+		 * above refuses it), so there is nothing to undo and no
+		 * shared state at risk -- unwinding a connection is not a
+		 * reason to end the process.
+		 */
+		plog(LLV_ERROR, LOCATION, NULL,
+		    "cannot unmonitor fd %d: outside fd_set range "
+		    "[0,%d)\n", fd, FD_SETSIZE);
+		return;
 	}
 
 	if (fd_monitors[fd].callback == NULL)

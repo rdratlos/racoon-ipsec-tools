@@ -2795,7 +2795,17 @@ cfparse()
 		plog(LLV_ERROR, LOCATION, NULL,
 			"parse error is nothing, but yyerrorcount is %d.\n",
 				yyerrorcount);
-		exit(1);
+		/*
+		 * Report the failure like every other parse failure above
+		 * rather than exiting: cfparse() also runs on SIGHUP
+		 * (reload_conf(), session.c), where -1 means "config reload
+		 * failed, keep running on the old one" -- exiting instead
+		 * dropped every live Phase 1/2 SA over a reload that could
+		 * simply have been refused (issue #105). At startup the
+		 * callers (session(), main.c's -C config test) still treat
+		 * this as fatal, which at startup it is.
+		 */
+		return -1;
 	}
 
 	yycf_clean_buffer();

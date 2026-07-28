@@ -763,6 +763,79 @@ test_proposal_authtype_log_LDADD    = $(top_builddir)/src/racoon/strnames.o \
 test_proposal_authtype_log_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Test: monitor_fd()/unmonitor_fd() fd range handling (issue #105, the
+# audit that followed #102's prune_stale_monitored_fds()) -- both used to
+# exit(1) on a descriptor outside the fd_set range. monitor_fd() is called
+# not only for the sockets opened once at startup but for every accepted
+# admin connection that asks for events (evt_subscribe(), evt.c) and every
+# ISAKMP socket opened for an address that appears while running
+# (isakmp_open(), isakmp.c), so that exit turned "this one connection
+# cannot be watched" into "every live Phase 1/2 SA dies". They now report
+# the failure and let the caller drop just that connection or socket.
+#
+# Same session.c wrapper source and -DENABLE_UNITTEST accessors as
+# test_prune_stale_monitored_fds above; a regression that restores the
+# exit(1) kills this test binary outright, which the harness records as a
+# failure.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_monitor_fd_range
+
+test_monitor_fd_range_SOURCES  = test_monitor_fd_range.c \
+	session_unittest_src.c
+test_monitor_fd_range_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_monitor_fd_range_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_monitor_fd_range_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_monitor_fd_range_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
+# Test: privsep descriptor passing (issue #105) -- privsep.c's privileged
+# dispatch loop used to _exit(0) on any local fault, killing the daemon
+# (the unprivileged child exits as soon as privsep_sock reads EOF). Those
+# faults can now be answered with an errno instead, but only because the
+# two sides stay in step on the wire: PRIVSEP_SOCKET's client blocks in
+# rec_fd() before reading the reply, so its failing paths send a
+# descriptor message carrying no descriptor (send_fd(-1)), which rec_fd()
+# reports as -1 instead of dereferencing CMSG_DATA(NULL). Exercises that
+# handshake over a real socketpair with real SCM_RIGHTS messages;
+# privsep_priv()'s loop itself needs privsep_init()'s privilege-dropping
+# fork(), which not every test host can perform (same constraint as
+# test_privsep_sigterm_forward above).
+#
+# Same privsep.c wrapper source (privsep_unittest_src.c) and explicit
+# plog.o/logger.o linkage as test_privsep_sigterm_forward above;
+# privsep_send_fd_unittest()/privsep_rec_fd_unittest() are new
+# -DENABLE_UNITTEST-only accessors for send_fd()/rec_fd() (both static).
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_privsep_fd_passing
+
+test_privsep_fd_passing_SOURCES  = test_privsep_fd_passing.c \
+	privsep_unittest_src.c
+test_privsep_fd_passing_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_fd_passing_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_privsep_fd_passing_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_fd_passing_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
 # They follow automake's default "simple" test protocol (exit 0 = pass,

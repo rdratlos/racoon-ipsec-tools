@@ -31,9 +31,10 @@
 
 struct localconf *lcconf = NULL;
 
-void
+int
 monitor_fd(int fd, int (*callback)(void *, int), void *ctx, int priority)
 {
+	return 0;
 }
 
 int

@@ -274,6 +274,26 @@ privsep_sigterm_forward_unittest(void)
 {
 	privsep_sigterm_forward(SIGTERM);
 }
+
+/*
+ * send_fd()/rec_fd() are static too, and are what lets the dispatch loop
+ * answer a failed PRIVSEP_SOCKET request without ending the process: the
+ * failing paths pass no descriptor (fd == -1) but still send a message, so
+ * the client's rec_fd()/privsep_recv() pair stays in step. Exposed here so
+ * that handshake can be exercised over a plain socketpair, without the
+ * privileged fork() privsep_init() would need.
+ */
+int
+privsep_send_fd_unittest(int s, int fd)
+{
+	return send_fd(s, fd);
+}
+
+int
+privsep_rec_fd_unittest(int s)
+{
+	return rec_fd(s);
+}
 #endif /* ENABLE_UNITTEST */
 
 int
@@ -356,7 +376,8 @@ privsep_init(void)
 			    strerror(errno));
 			return -1;
 		}
-		monitor_fd(privsep_sock[1], privsep_do_exit, NULL, 0);
+		if (monitor_fd(privsep_sock[1], privsep_do_exit, NULL, 0) != 0)
+			return -1;
 
 		return 0;
 		break;
@@ -406,6 +427,39 @@ privsep_init(void)
 	signal(SIGUSR2, SIG_DFL);
 	signal(SIGCHLD, SIG_DFL);
 
+	/*
+	 * The dispatch loop below serves one request per iteration, and every
+	 * failure inside it used to "goto out" -- i.e. _exit(0) this process.
+	 * Under privsep this process is the only one that can fork()+execve()
+	 * a hook or perform any other privileged operation (see
+	 * privsep_sigterm_forward() above), and the unprivileged child kills
+	 * itself as soon as privsep_sock reads EOF (privsep_do_exit(), also
+	 * above), so any such exit takes the whole daemon down with it --
+	 * every still-live Phase 1/2 SA included. That is the same
+	 * disproportionate failure shape that session.c's main select() loop
+	 * had before prune_stale_monitored_fds() (issue #102/#105): a fault
+	 * scoped to a single request ending the entire process.
+	 *
+	 * Failures here are therefore split in two, and the split is about
+	 * the *channel*, not about how serious the fault looks:
+	 *
+	 *  - Request-scoped: the message was framed correctly (privsep_recv()
+	 *    consumed exactly ac_len bytes and, for the two fd-passing
+	 *    commands, its descriptor message was consumed too), so the two
+	 *    sides are still in step and this request can simply be answered
+	 *    with an errno in reply->hdr.ac_errno. The requesting call in the
+	 *    unprivileged process then fails on its own -- one negotiation,
+	 *    one hook, one socket -- and the daemon keeps running. These now
+	 *    "break" out of the switch into the normal reply path.
+	 *
+	 *  - Channel-scoped: privsep_sock itself is unusable or has lost
+	 *    framing (EOF/reset, a descriptor that could not be handed over,
+	 *    a reply that could not be sent, or no memory to build any reply
+	 *    at all -- in which case the client would block forever waiting
+	 *    for one). There is no way to answer this request or to trust the
+	 *    next one, so these keep the original "goto out"/_exit(0), which
+	 *    the child turns into its ordinary SIGTERM shutdown path.
+	 */
 	while (1) {
 		size_t len;
 		struct privsep_com_msg *combuf;
@@ -416,14 +470,49 @@ privsep_init(void)
 		char *bufs[PRIVSEP_NBUF_MAX];
 		int i;
 
+		/*
+		 * Channel-scoped: EOF, reset, or a message whose own framing
+		 * (admin_com.ac_len) did not hold. Nothing left to answer or
+		 * to resynchronise on.
+		 */
 		if (privsep_recv(privsep_sock[0], &combuf, &len) != 0)
 			goto out;
 
-		/* Safety checks and gather the data */
+		/*
+		 * Prepare the reply buffer up front: every path below this
+		 * point answers the request it just read, and without a reply
+		 * buffer there is no way to do that -- the requesting call in
+		 * the unprivileged process blocks in privsep_recv() until it
+		 * gets one. A failure here is therefore channel-scoped, the
+		 * one "cannot even build an answer" case in this loop.
+		 */
+		if ((reply = racoon_malloc(sizeof(*reply))) == NULL) {
+			plog(LLV_ERROR, LOCATION, NULL,
+			    "Cannot allocate reply buffer: %s\n",
+			    strerror(errno));
+			goto out;
+		}
+		bzero(reply, sizeof(*reply));
+		reply->hdr.ac_cmd = combuf->hdr.ac_cmd;
+		reply->hdr.ac_len = sizeof(*reply);
+
+		/*
+		 * Safety checks and gather the data.
+		 *
+		 * privsep_recv() already read exactly ac_len bytes and
+		 * verified the count, so a message that is internally
+		 * inconsistent (too short to hold the buffer-length array, or
+		 * claiming more buffer bytes than it carries) has still not
+		 * cost us stream synchronisation: answer it with EINVAL and
+		 * take the next request. Note that the buflen array itself
+		 * lies past the end of a too-short message, so that check has
+		 * to come before the gathering loop touches it.
+		 */
 		if (len < sizeof(*combuf)) {
 			plog(LLV_ERROR, LOCATION, NULL,
 			    "corrupted privsep message (short buflen)\n");
-			goto out;
+			reply->hdr.ac_errno = EINVAL;
+			goto sendreply;
 		}
 
 		data = (char *)(combuf + 1);
@@ -437,19 +526,9 @@ privsep_init(void)
 		if (totallen > len) {
 			plog(LLV_ERROR, LOCATION, NULL,
 			    "corrupted privsep message (bufs too big)\n");
-			goto out;
+			reply->hdr.ac_errno = EINVAL;
+			goto sendreply;
 		}
-	
-		/* Prepare the reply buffer */
-		if ((reply = racoon_malloc(sizeof(*reply))) == NULL) {
-			plog(LLV_ERROR, LOCATION, NULL,
-			    "Cannot allocate reply buffer: %s\n", 
-			    strerror(errno));
-			goto out;
-		}
-		bzero(reply, sizeof(*reply));
-		reply->hdr.ac_cmd = combuf->hdr.ac_cmd;
-		reply->hdr.ac_len = sizeof(*reply);
 
 		switch(combuf->hdr.ac_cmd & ~PRIVSEP_SCRIPT_EXEC_WAIT) {
 		/*
@@ -462,10 +541,13 @@ privsep_init(void)
 		 */
 		case PRIVSEP_EAY_GET_PKCS1PRIVKEY: {
 			vchar_t *privkey;
+			struct privsep_com_msg *newreply;
 
 			/* Make sure the string is NULL terminated */
-			if (safety_check(combuf, 0) != 0)
+			if (safety_check(combuf, 0) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
+			}
 			bufs[0][combuf->bufs.buflen[0] - 1] = '\0';
 
 			if (unsafe_path(bufs[0], LC_PATHTYPE_CERT) != 0) {
@@ -482,15 +564,29 @@ privsep_init(void)
 				break;
 			}
 
+			/*
+			 * Request-scoped: growing the reply to carry the key
+			 * can fail without costing us the reply we already
+			 * have. Keep the original buffer (realloc() leaves it
+			 * untouched on failure, which is why the result goes
+			 * to a temporary first) and answer ENOMEM, rather than
+			 * ending the process over one key that could not be
+			 * shipped.
+			 */
 			reply->bufs.buflen[0] = privkey->l;
 			reply->hdr.ac_len = sizeof(*reply) + privkey->l;
-			reply = racoon_realloc(reply, reply->hdr.ac_len);
-			if (reply == NULL) {
+			newreply = racoon_realloc(reply, reply->hdr.ac_len);
+			if (newreply == NULL) {
 				plog(LLV_ERROR, LOCATION, NULL,
-				    "Cannot allocate reply buffer: %s\n", 
+				    "Cannot allocate reply buffer: %s\n",
 				    strerror(errno));
-				goto out;
+				vfree(privkey);
+				reply->bufs.buflen[0] = 0;
+				reply->hdr.ac_len = sizeof(*reply);
+				reply->hdr.ac_errno = ENOMEM;
+				break;
 			}
+			reply = newreply;
 
 			memcpy(reply + 1, privkey->v, privkey->l);
 			vfree(privkey);
@@ -511,8 +607,10 @@ privsep_init(void)
 			 *
 			 * We expect: script, name, envp[], void
 			 */ 
-			if (safety_check(combuf, 0) != 0)
+			if (safety_check(combuf, 0) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
+			}
 			bufs[0][combuf->bufs.buflen[0] - 1] = '\0';
 			count++;	/* script */
 
@@ -548,20 +646,22 @@ privsep_init(void)
 			if (count >= PRIVSEP_NBUF_MAX) {
 				plog(LLV_ERROR, LOCATION, NULL,
 				    "privsep_script_exec: too many args\n");
-				goto out;
+				reply->hdr.ac_errno = E2BIG;
+				break;
 			}
 			count++;	/* void */
 
 
-			/* 
-			 * Allocate the arrays for envp 
+			/*
+			 * Allocate the arrays for envp
 			 */
 			envp = racoon_malloc((envc + 1) * sizeof(char *));
 			if (envp == NULL) {
-				plog(LLV_ERROR, LOCATION, NULL, 
+				plog(LLV_ERROR, LOCATION, NULL,
 				    "cannot allocate memory: %s\n",
 				    strerror(errno));
-				goto out;
+				reply->hdr.ac_errno = ENOMEM;
+				break;
 			}
 			bzero(envp, (envc + 1) * sizeof(char *));
 
@@ -573,9 +673,11 @@ privsep_init(void)
 			script = bufs[count++];
 
 			if (combuf->bufs.buflen[count] != sizeof(name)) {
-				plog(LLV_ERROR, LOCATION, NULL, 
+				plog(LLV_ERROR, LOCATION, NULL,
 				    "privsep_script_exec: corrupted message\n");
-				goto out;
+				racoon_free(envp);
+				reply->hdr.ac_errno = EINVAL;
+				break;
 			}
 			memcpy((char *)&name, bufs[count++], sizeof(name));
 
@@ -595,14 +697,23 @@ privsep_init(void)
 			 */
 			if ((unsafe_env(envp) == 0) &&
 			    (unknown_name(name) == 0) &&
-			    (unsafe_path(script, LC_PATHTYPE_SCRIPT) == 0))
+			    (unsafe_path(script, LC_PATHTYPE_SCRIPT) == 0)) {
 				(void)script_exec(script, name, envp,
 				    (combuf->hdr.ac_cmd &
 				    PRIVSEP_SCRIPT_EXEC_WAIT) ? 1 : 0);
-			else
-				plog(LLV_ERROR, LOCATION, NULL, 
+			} else {
+				plog(LLV_ERROR, LOCATION, NULL,
 				    "privsep_script_exec: "
 				    "unsafe script \"%s\"\n", script);
+				/*
+				 * Report the refusal instead of replying an
+				 * all-clear: the unprivileged side asked for a
+				 * hook that never ran, and its own log line
+				 * (script_hook(), isakmp.c) is the only place
+				 * that shows up in the child's log.
+				 */
+				reply->hdr.ac_errno = EPERM;
+			}
 
 			racoon_free(envp);
 			break;
@@ -611,16 +722,20 @@ privsep_init(void)
 		case PRIVSEP_GETPSK: {
 			vchar_t *psk;
 			int keylen;
+			struct privsep_com_msg *newreply;
 
 			/* Make sure the string is NULL terminated */
-			if (safety_check(combuf, 0) != 0)
+			if (safety_check(combuf, 0) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
+			}
 			bufs[0][combuf->bufs.buflen[0] - 1] = '\0';
 
 			if (combuf->bufs.buflen[1] != sizeof(keylen)) {
-				plog(LLV_ERROR, LOCATION, NULL, 
+				plog(LLV_ERROR, LOCATION, NULL,
 				    "privsep_getpsk: corrupted message\n");
-				goto out;
+				reply->hdr.ac_errno = EINVAL;
+				break;
 			}
 			memcpy(&keylen, bufs[1], sizeof(keylen));
 
@@ -632,92 +747,136 @@ privsep_init(void)
 				break;
 			}
 
+			/* Request-scoped, as for the private key above */
 			reply->bufs.buflen[0] = psk->l;
 			reply->hdr.ac_len = sizeof(*reply) + psk->l;
-			reply = racoon_realloc(reply, reply->hdr.ac_len); 
-			if (reply == NULL) {
+			newreply = racoon_realloc(reply, reply->hdr.ac_len);
+			if (newreply == NULL) {
 				plog(LLV_ERROR, LOCATION, NULL,
-				    "Cannot allocate reply buffer: %s\n", 
+				    "Cannot allocate reply buffer: %s\n",
 				    strerror(errno));
-				goto out;
+				vfree(psk);
+				reply->bufs.buflen[0] = 0;
+				reply->hdr.ac_len = sizeof(*reply);
+				reply->hdr.ac_errno = ENOMEM;
+				break;
 			}
+			reply = newreply;
 
 			memcpy(reply + 1, psk->v, psk->l);
 			vfree(psk);
 			break;
 		}
 
+		/*
+		 * This command's wire exchange is not a plain request/reply
+		 * pair: privsep_socket() (below) blocks in rec_fd() before it
+		 * reads the reply, so exactly one descriptor message must go
+		 * out per request, on every path -- including the failing
+		 * ones, where send_fd() is asked to pass no descriptor at all.
+		 * Answering a failed request with the reply alone would leave
+		 * the client's rec_fd() eating the reply's first byte instead,
+		 * desynchronising the socket for good: hence "prepare, then
+		 * always send", rather than an early break per check.
+		 */
 		case PRIVSEP_SOCKET: {
 			struct socket_args socket_args;
-			int s;
+			int s = -1;
 
 			/* Make sure the string is NULL terminated */
-			if (safety_check(combuf, 0) != 0)
-				break;
-
-			if (combuf->bufs.buflen[0] !=
+			if (safety_check(combuf, 0) != 0) {
+				reply->hdr.ac_errno = EINVAL;
+			} else if (combuf->bufs.buflen[0] !=
 			    sizeof(struct socket_args)) {
-				plog(LLV_ERROR, LOCATION, NULL, 
+				plog(LLV_ERROR, LOCATION, NULL,
 				    "privsep_socket: corrupted message\n");
-				goto out;
-			}
-			memcpy(&socket_args, bufs[0],
-			       sizeof(struct socket_args));
+				reply->hdr.ac_errno = EINVAL;
+			} else {
+				memcpy(&socket_args, bufs[0],
+				       sizeof(struct socket_args));
 
-			if (socket_args.domain != PF_INET &&
-			    socket_args.domain != PF_INET6) {
-				plog(LLV_ERROR, LOCATION, NULL, 
-				    "privsep_socket: "
-				     "unauthorized domain (%d)\n",
-				     socket_args.domain);
-				goto out;
+				if (socket_args.domain != PF_INET &&
+				    socket_args.domain != PF_INET6) {
+					plog(LLV_ERROR, LOCATION, NULL,
+					    "privsep_socket: "
+					     "unauthorized domain (%d)\n",
+					     socket_args.domain);
+					reply->hdr.ac_errno = EPERM;
+				} else if ((s = socket(socket_args.domain,
+						socket_args.type,
+						socket_args.protocol)) == -1) {
+					reply->hdr.ac_errno = errno;
+				}
 			}
 
-			if ((s = socket(socket_args.domain, socket_args.type,
-					socket_args.protocol)) == -1) {
-				reply->hdr.ac_errno = errno;
-				break;
-			}
-
+			/*
+			 * Channel-scoped: a descriptor message that cannot be
+			 * handed over leaves the client blocked in rec_fd().
+			 */
 			if (send_fd(privsep_sock[0], s) < 0) {
-				plog(LLV_ERROR, LOCATION, NULL, 
+				plog(LLV_ERROR, LOCATION, NULL,
 				     "privsep_socket: send_fd failed\n");
-				close(s);
+				if (s != -1)
+					close(s);
 				goto out;
 			}
 
-			close(s);
+			if (s != -1)
+				close(s);
 			break;
 		}
 
+		/*
+		 * The mirror image of PRIVSEP_SOCKET: here the *client* sends
+		 * a descriptor immediately after the command message, always,
+		 * so receive it before validating anything. Bailing out first
+		 * (as every check below used to) would leave that descriptor
+		 * message queued on privsep_sock, to be mistaken for the next
+		 * request -- which is exactly why those checks could not
+		 * simply reply an error and had to end the process instead.
+		 */
 		case PRIVSEP_BIND: {
 			struct bind_args bind_args;
-			int err, port = 0;
+			int err, port = 0, s;
 
-			/* Make sure the string is NULL terminated */
-			if (safety_check(combuf, 0) != 0)
-				break;
-
-			if (combuf->bufs.buflen[0] !=
-			    sizeof(struct bind_args)) {
-				plog(LLV_ERROR, LOCATION, NULL, 
-				    "privsep_bind: corrupted message\n");
-				goto out;
-			}
-			memcpy(&bind_args, bufs[0], sizeof(struct bind_args));
-
-			if (combuf->bufs.buflen[1] != bind_args.addrlen) {
-				plog(LLV_ERROR, LOCATION, NULL, 
-				    "privsep_bind: corrupted message\n");
-				goto out;
-			}
-			bind_args.addr = (const struct sockaddr *)bufs[1];
-
-			if ((bind_args.s = rec_fd(privsep_sock[0])) < 0) {
-				plog(LLV_ERROR, LOCATION, NULL, 
+			/* Channel-scoped: the descriptor was lost */
+			if ((s = rec_fd(privsep_sock[0])) < 0) {
+				plog(LLV_ERROR, LOCATION, NULL,
 				     "privsep_bind: rec_fd failed\n");
 				goto out;
 			}
+
+			/* Make sure the string is NULL terminated */
+			if (safety_check(combuf, 0) != 0) {
+				reply->hdr.ac_errno = EINVAL;
+				close(s);
+				break;
+			}
+
+			if (combuf->bufs.buflen[0] !=
+			    sizeof(struct bind_args)) {
+				plog(LLV_ERROR, LOCATION, NULL,
+				    "privsep_bind: corrupted message\n");
+				reply->hdr.ac_errno = EINVAL;
+				close(s);
+				break;
+			}
+			memcpy(&bind_args, bufs[0], sizeof(struct bind_args));
+			/*
+			 * The descriptor received above is the one to bind:
+			 * the copy carried in the message is the client's own
+			 * (always -1 on the wire) and must not survive here.
+			 */
+			bind_args.s = s;
+
+			if (combuf->bufs.buflen[1] != bind_args.addrlen) {
+				plog(LLV_ERROR, LOCATION, NULL,
+				    "privsep_bind: corrupted message\n");
+				reply->hdr.ac_errno = EINVAL;
+				close(bind_args.s);
+				break;
+			}
+			bind_args.addr = (const struct sockaddr *)bufs[1];
 
 			port = extract_port(bind_args.addr);
 			if (port != PORT_ISAKMP && port != PORT_ISAKMP_NATT &&
@@ -727,8 +886,9 @@ privsep_init(void)
 				     "privsep_bind: "
 				     "unauthorized port (%d)\n",
 				     port);
+				reply->hdr.ac_errno = EPERM;
 				close(bind_args.s);
-				goto out;
+				break;
 			}
 
 			err = bind(bind_args.s, bind_args.addr,
@@ -741,46 +901,58 @@ privsep_init(void)
 			break;
 		}
 
+		/* Same descriptor-first ordering as PRIVSEP_BIND above */
 		case PRIVSEP_SETSOCKOPTS: {
 			struct sockopt_args sockopt_args;
-			int err;
+			int err, s;
+
+			/* Channel-scoped: the descriptor was lost */
+			if ((s = rec_fd(privsep_sock[0])) < 0) {
+				plog(LLV_ERROR, LOCATION, NULL,
+				     "privsep_setsockopt: rec_fd failed\n");
+				goto out;
+			}
 
 			/* Make sure the string is NULL terminated */
-			if (safety_check(combuf, 0) != 0)
+			if (safety_check(combuf, 0) != 0) {
+				reply->hdr.ac_errno = EINVAL;
+				close(s);
 				break;
+			}
 
 			if (combuf->bufs.buflen[0] !=
 			    sizeof(struct sockopt_args)) {
-				plog(LLV_ERROR, LOCATION, NULL, 
+				plog(LLV_ERROR, LOCATION, NULL,
 				    "privsep_setsockopt: "
 				     "corrupted message\n");
-				goto out;
+				reply->hdr.ac_errno = EINVAL;
+				close(s);
+				break;
 			}
 			memcpy(&sockopt_args, bufs[0],
 			       sizeof(struct sockopt_args));
+			sockopt_args.s = s;
 
 			if (combuf->bufs.buflen[1] != sockopt_args.optlen) {
-				plog(LLV_ERROR, LOCATION, NULL, 
+				plog(LLV_ERROR, LOCATION, NULL,
 				    "privsep_setsockopt: corrupted message\n");
-				goto out;
+				reply->hdr.ac_errno = EINVAL;
+				close(s);
+				break;
 			}
 			sockopt_args.optval = bufs[1];
 
-			if (sockopt_args.optname != 
-			    (sockopt_args.level == 
+			if (sockopt_args.optname !=
+			    (sockopt_args.level ==
 			     IPPROTO_IP ? IP_IPSEC_POLICY :
 			     IPV6_IPSEC_POLICY)) {
-				plog(LLV_ERROR, LOCATION, NULL, 
+				plog(LLV_ERROR, LOCATION, NULL,
 				    "privsep_setsockopt: "
 				     "unauthorized option (%d)\n",
 				     sockopt_args.optname);
-				goto out;
-			}
-
-			if ((sockopt_args.s = rec_fd(privsep_sock[0])) < 0) {
-				plog(LLV_ERROR, LOCATION, NULL, 
-				     "privsep_setsockopt: rec_fd failed\n");
-				goto out;
+				reply->hdr.ac_errno = EPERM;
+				close(s);
+				break;
 			}
 
 			err = setsockopt(sockopt_args.s,
@@ -802,14 +974,22 @@ privsep_init(void)
 			int inout;
 			struct sockaddr *raddr;
 
-			if (safety_check(combuf, 0) != 0)
+			if (safety_check(combuf, 0) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
-			if (safety_check(combuf, 1) != 0)
+			}
+			if (safety_check(combuf, 1) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
-			if (safety_check(combuf, 2) != 0)
+			}
+			if (safety_check(combuf, 2) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
-			if (safety_check(combuf, 3) != 0)
+			}
+			if (safety_check(combuf, 3) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
+			}
 
 			memcpy(&port, bufs[0], sizeof(port));
 			raddr = (struct sockaddr *)bufs[1];
@@ -817,8 +997,10 @@ privsep_init(void)
 			bufs[2][combuf->bufs.buflen[2] - 1] = '\0';
 			memcpy(&inout, bufs[3], sizeof(port));
 
-			if (port_check(port) != 0)
+			if (port_check(port) != 0) {
+				reply->hdr.ac_errno = ERANGE;
 				break;
+			}
 
 			plog(LLV_DEBUG, LOCATION, NULL, 
 			    "accounting_system(%d, %s, %s)\n", 
@@ -835,12 +1017,16 @@ privsep_init(void)
 			break;
 		}
 		case PRIVSEP_XAUTH_LOGIN_SYSTEM: {
-			if (safety_check(combuf, 0) != 0)
+			if (safety_check(combuf, 0) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
+			}
 			bufs[0][combuf->bufs.buflen[0] - 1] = '\0';
 
-			if (safety_check(combuf, 1) != 0)
+			if (safety_check(combuf, 1) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
+			}
 			bufs[1][combuf->bufs.buflen[1] - 1] = '\0';
 
 			plog(LLV_DEBUG, LOCATION, NULL, 
@@ -862,23 +1048,33 @@ privsep_init(void)
 			int inout;
 			int pool_size;
 
-			if (safety_check(combuf, 0) != 0)
+			if (safety_check(combuf, 0) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
-			if (safety_check(combuf, 1) != 0)
+			}
+			if (safety_check(combuf, 1) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
-			if (safety_check(combuf, 2) != 0)
+			}
+			if (safety_check(combuf, 2) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
+			}
 
 			memcpy(&port, bufs[0], sizeof(port));
 			memcpy(&inout, bufs[1], sizeof(inout));
 			memcpy(&pool_size, bufs[2], sizeof(pool_size));
 
 			if (pool_size != isakmp_cfg_config.pool_size)
-				if (isakmp_cfg_resize_pool(pool_size) != 0)
+				if (isakmp_cfg_resize_pool(pool_size) != 0) {
+					reply->hdr.ac_errno = ENOMEM;
 					break;
+				}
 
-			if (port_check(port) != 0)
+			if (port_check(port) != 0) {
+				reply->hdr.ac_errno = ERANGE;
 				break;
+			}
 
 			plog(LLV_DEBUG, LOCATION, NULL, 
 			    "isakmp_cfg_accounting_pam(%d, %d)\n", 
@@ -899,16 +1095,26 @@ privsep_init(void)
 			int pool_size;
 			struct sockaddr *raddr;
 
-			if (safety_check(combuf, 0) != 0)
+			if (safety_check(combuf, 0) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
-			if (safety_check(combuf, 1) != 0)
+			}
+			if (safety_check(combuf, 1) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
-			if (safety_check(combuf, 2) != 0)
+			}
+			if (safety_check(combuf, 2) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
-			if (safety_check(combuf, 3) != 0)
+			}
+			if (safety_check(combuf, 3) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
-			if (safety_check(combuf, 4) != 0)
+			}
+			if (safety_check(combuf, 4) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
+			}
 
 			memcpy(&port, bufs[0], sizeof(port));
 			memcpy(&pool_size, bufs[1], sizeof(pool_size));
@@ -918,11 +1124,15 @@ privsep_init(void)
 			bufs[4][combuf->bufs.buflen[4] - 1] = '\0';
 
 			if (pool_size != isakmp_cfg_config.pool_size)
-				if (isakmp_cfg_resize_pool(pool_size) != 0)
+				if (isakmp_cfg_resize_pool(pool_size) != 0) {
+					reply->hdr.ac_errno = ENOMEM;
 					break;
+				}
 
-			if (port_check(port) != 0)
+			if (port_check(port) != 0) {
+				reply->hdr.ac_errno = ERANGE;
 				break;
+			}
 
 			plog(LLV_DEBUG, LOCATION, NULL, 
 			    "xauth_login_pam(%d, %s, \"%s\", <password>)\n", 
@@ -943,20 +1153,28 @@ privsep_init(void)
 			int port;
 			int pool_size;
 
-			if (safety_check(combuf, 0) != 0)
+			if (safety_check(combuf, 0) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
-			if (safety_check(combuf, 1) != 0)
+			}
+			if (safety_check(combuf, 1) != 0) {
+				reply->hdr.ac_errno = EINVAL;
 				break;
+			}
 
 			memcpy(&port, bufs[0], sizeof(port));
 			memcpy(&pool_size, bufs[1], sizeof(pool_size));
 
 			if (pool_size != isakmp_cfg_config.pool_size)
-				if (isakmp_cfg_resize_pool(pool_size) != 0)
+				if (isakmp_cfg_resize_pool(pool_size) != 0) {
+					reply->hdr.ac_errno = ENOMEM;
 					break;
+				}
 
-			if (port_check(port) != 0)
+			if (port_check(port) != 0) {
+				reply->hdr.ac_errno = ERANGE;
 				break;
+			}
 
 			plog(LLV_DEBUG, LOCATION, NULL, 
 			    "cleanup_pam(%d)\n", port);
@@ -970,15 +1188,26 @@ privsep_init(void)
 #endif /* ENABLE_HYBRID */
 
 		default:
+			/*
+			 * Request-scoped: an unrecognised command tells us
+			 * nothing about the stream, which privsep_recv()
+			 * already framed correctly. Refuse this one request.
+			 */
 			plog(LLV_ERROR, LOCATION, NULL,
-			    "unexpected privsep command %d\n", 
+			    "unexpected privsep command %d\n",
 			    combuf->hdr.ac_cmd);
-			goto out;
+			reply->hdr.ac_errno = EINVAL;
 			break;
 		}
 
+	sendreply:
+		/*
+		 * Channel-scoped: if the reply cannot be handed over, the
+		 * requesting call in the unprivileged process is left blocked
+		 * in privsep_recv() with nothing to read.
+		 */
 		/* This frees reply */
-		if (privsep_send(privsep_sock[0], 
+		if (privsep_send(privsep_sock[0],
 		    reply, reply->hdr.ac_len) != 0) {
 			racoon_free(reply);
 			goto out;
@@ -1246,19 +1475,37 @@ privsep_socket(domain, type, protocol)
 	msg->bufs.buflen[0] = sizeof(socket_args);
 	memcpy(data, &socket_args, msg->bufs.buflen[0]);
 
-	/* frees msg */
-	if (privsep_send(privsep_sock[1], msg, len) != 0)
-		goto out;
-
-	/* Get the privileged socket descriptor from the privileged process. */
-	if ((s = rec_fd(privsep_sock[1])) == -1)
+	/* frees msg on success only */
+	if (privsep_send(privsep_sock[1], msg, len) != 0) {
+		racoon_free(msg);
 		return -1;
+	}
 
-	if (privsep_recv(privsep_sock[1], &msg, &len) != 0)
+	/*
+	 * Get the privileged socket descriptor from the privileged process.
+	 * It answers every request with exactly one descriptor message
+	 * followed by one reply, so read both even when no descriptor came
+	 * with the first: returning early here (as this used to) would leave
+	 * the reply queued and every later exchange one message out of step.
+	 * -1 means the privileged side had nothing to pass, and the reply
+	 * that follows carries the reason.
+	 */
+	s = rec_fd(privsep_sock[1]);
+
+	if (privsep_recv(privsep_sock[1], &msg, &len) != 0) {
+		saved_errno = errno;
 		goto out;
+	}
 
 	if (msg->hdr.ac_errno != 0) {
-		errno = msg->hdr.ac_errno;
+		saved_errno = msg->hdr.ac_errno;
+		goto out;
+	}
+
+	if (s == -1) {
+		plog(LLV_ERROR, LOCATION, NULL,
+		    "privsep_socket: no descriptor received\n");
+		saved_errno = EIO;
 		goto out;
 	}
 
@@ -1266,7 +1513,10 @@ privsep_socket(domain, type, protocol)
 	return s;
 
 out:
+	if (s != -1)
+		close(s);
 	racoon_free(msg);
+	errno = saved_errno;
 	return -1;
 }
 
@@ -1647,7 +1897,16 @@ unknown_name(name)
 	return 0;
 }
 
-/* Receive a file descriptor through the argument socket */
+/*
+ * Receive a file descriptor through the argument socket.
+ *
+ * Returns -1 both when the message could not be received at all and when
+ * it carried no descriptor -- the latter is how the privileged process
+ * answers a PRIVSEP_SOCKET request it could not satisfy (send_fd() with
+ * fd == -1, below), keeping one descriptor message per request on the wire
+ * even on the failing paths. Checking for that empty control message also
+ * keeps a truncated or EOF'd read from dereferencing CMSG_DATA(NULL).
+ */
 static int
 rec_fd(s)
 	int s;
@@ -1680,11 +1939,23 @@ rec_fd(s)
 		return -1;
 
 	cmsg = CMSG_FIRSTHDR(&msg);
+	if (cmsg == NULL ||
+	    cmsg->cmsg_level != SOL_SOCKET ||
+	    cmsg->cmsg_type != SCM_RIGHTS ||
+	    cmsg->cmsg_len != CMSG_LEN(sizeof(fd)))
+		return -1;
+
 	fdptr = (int *) CMSG_DATA(cmsg);
 	return fdptr[0];
 }
 
-/* Send the file descriptor fd through the argument socket s */
+/*
+ * Send the file descriptor fd through the argument socket s.
+ *
+ * fd == -1 sends the message without any descriptor attached, which
+ * rec_fd() reports back as -1; see the PRIVSEP_SOCKET case of the dispatch
+ * loop for why a failed request still has to send one.
+ */
 static int
 send_fd(s, fd)
 	int s;
@@ -1709,17 +1980,24 @@ send_fd(s, fd)
 	msg.msg_namelen = 0;
 	msg.msg_iov = &iov;
 	msg.msg_iovlen = 1;
-	msg.msg_control = cmsbuf;
-	msg.msg_controllen = CMSG_SPACE(sizeof(fd));
 	msg.msg_flags = 0;
 
-	cmsg = CMSG_FIRSTHDR(&msg);
-	cmsg->cmsg_level = SOL_SOCKET;
-	cmsg->cmsg_type = SCM_RIGHTS;
-	cmsg->cmsg_len = CMSG_LEN(sizeof(fd));
-	fdptr = (int *)CMSG_DATA(cmsg);
-	fdptr[0] = fd;
-	msg.msg_controllen = cmsg->cmsg_len;
+	if (fd == -1) {
+		/* The message still goes out, just with nothing attached */
+		msg.msg_control = NULL;
+		msg.msg_controllen = 0;
+	} else {
+		msg.msg_control = cmsbuf;
+		msg.msg_controllen = CMSG_SPACE(sizeof(fd));
+
+		cmsg = CMSG_FIRSTHDR(&msg);
+		cmsg->cmsg_level = SOL_SOCKET;
+		cmsg->cmsg_type = SCM_RIGHTS;
+		cmsg->cmsg_len = CMSG_LEN(sizeof(fd));
+		fdptr = (int *)CMSG_DATA(cmsg);
+		fdptr[0] = fd;
+		msg.msg_controllen = cmsg->cmsg_len;
+	}
 
 	if (sendmsg(s, &msg, 0) == -1)
 		return -1;

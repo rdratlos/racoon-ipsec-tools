@@ -80,7 +80,7 @@ extern char *saddr2str_fromto __P((const char *format,
 				   const struct sockaddr *saddr, 
 				   const struct sockaddr *daddr));
 extern struct sockaddr *str2saddr __P((char *, char *));
-extern void mask_sockaddr __P((struct sockaddr *, const struct sockaddr *,
+extern int mask_sockaddr __P((struct sockaddr *, const struct sockaddr *,
 	size_t));
 
 /* struct netaddr functions */

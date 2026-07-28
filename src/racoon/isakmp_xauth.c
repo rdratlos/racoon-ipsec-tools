@@ -661,7 +661,7 @@ PAM_conv(msg_count, msg, rsp, dontcare)
 	int replies = 0;
 	struct pam_response *reply = NULL;
 
-	if ((reply = racoon_malloc(sizeof(*reply) * msg_count)) == NULL) 
+	if ((reply = racoon_malloc(sizeof(*reply) * msg_count)) == NULL)
 		return PAM_CONV_ERR;
 	bzero(reply, sizeof(*reply) * msg_count);
 
@@ -671,9 +671,9 @@ PAM_conv(msg_count, msg, rsp, dontcare)
 			/* Send the username, libpam frees resp */
 			reply[i].resp_retcode = PAM_SUCCESS;
 			if ((reply[i].resp = strdup(PAM_usr)) == NULL) {
-				plog(LLV_ERROR, LOCATION, 
+				plog(LLV_ERROR, LOCATION,
 				    NULL, "strdup failed\n");
-				exit(1);
+				goto err;
 			}
 			break;
 
@@ -681,9 +681,9 @@ PAM_conv(msg_count, msg, rsp, dontcare)
 			/* Send the password, libpam frees resp */
 			reply[i].resp_retcode = PAM_SUCCESS;
 			if ((reply[i].resp = strdup(PAM_pwd)) == NULL) {
-				plog(LLV_ERROR, LOCATION, 
+				plog(LLV_ERROR, LOCATION,
 				    NULL, "strdup failed\n");
-				exit(1);
+				goto err;
 			}
 			break;
 
@@ -694,9 +694,7 @@ PAM_conv(msg_count, msg, rsp, dontcare)
 			break;
 
 		default:
-			if (reply != NULL)
-				racoon_free(reply);
-			return PAM_CONV_ERR;
+			goto err;
 			break;
 		}
 	}
@@ -705,6 +703,28 @@ PAM_conv(msg_count, msg, rsp, dontcare)
 		*rsp = reply;
 
 	return PAM_SUCCESS;
+
+	/*
+	 * PAM_CONV_ERR fails this one XAuth login, which xauth_login_pam()
+	 * and its caller already handle. The responses built so far are ours
+	 * to release: libpam only takes ownership of *rsp on PAM_SUCCESS.
+	 *
+	 * The two strdup() failures above used to exit(1) instead -- and
+	 * under privilege separation this conversation function runs in the
+	 * privileged process (PRIVSEP_XAUTH_LOGIN_PAM, privsep.c), the only
+	 * one that can run a hook, so that exit ended the daemon for every
+	 * peer over one client's login attempt (issue #105).
+	 */
+err:
+	for (i = 0; i < msg_count; i++) {
+		if (reply[i].resp != NULL) {
+			free(reply[i].resp);
+			reply[i].resp = NULL;
+		}
+	}
+	racoon_free(reply);
+
+	return PAM_CONV_ERR;
 }
 
 int

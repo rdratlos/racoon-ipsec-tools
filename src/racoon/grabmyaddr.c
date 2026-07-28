@@ -312,7 +312,11 @@ myaddr_init()
 		lcconf->rtsock = kernel_open_socket();
 		if (lcconf->rtsock < 0)
 			return -1;
-		monitor_fd(lcconf->rtsock, kernel_receive, NULL, 0);
+		if (monitor_fd(lcconf->rtsock, kernel_receive, NULL, 0) != 0) {
+			close(lcconf->rtsock);
+			lcconf->rtsock = -1;
+			return -1;
+		}
 	} else {
 		lcconf->rtsock = -1;
 		if (!myaddr_open_all_configured(NULL))
