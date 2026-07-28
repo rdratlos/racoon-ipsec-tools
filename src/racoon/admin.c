@@ -272,6 +272,7 @@ admin_process(so2, combuf)
 	int idtype = 0;
 	int error = 0, l_ac_errno = 0;
 	struct evt_listener_list *event_list = NULL;
+	int admin_delete_all_subscribed = 0;
 
 	if (com->ac_cmd & ADMIN_FLAG_VERSION)
 		com->ac_cmd &= ~ADMIN_FLAG_VERSION;
@@ -434,6 +435,7 @@ admin_process(so2, combuf)
 		struct ph1handle *iph1;
 		struct sockaddr *dst;
 		char *loc, *rem;
+		int subscribed_once = 0;
 
 		dst = (struct sockaddr *)
 			&((struct admin_com_indexes *)
@@ -448,6 +450,40 @@ admin_process(so2, combuf)
 		while ((iph1 = getph1bydstaddr(dst)) != NULL) {
 			loc = racoon_strdup(saddrwop2str(iph1->local));
 			STRDUP_FATAL(loc);
+
+			/*
+			 * Subscribe this connection to events before the
+			 * first purge_remote() below, not in this function's
+			 * usual tail (event_list, near the end of this
+			 * function) -- purge_remote() -> isakmp_ph1delete()
+			 * fires EVT_PHASE1_DOWN synchronously, and racoonctl's
+			 * vpn-disconnect/vd (f_vpnd(), racoonctl.c) blocks
+			 * waiting for exactly that event. The tail mechanism
+			 * is too late here: unlike ADMIN_ESTABLISH_SA (whose
+			 * ph1 hasn't fired any event yet by the time this
+			 * function returns -- negotiation runs later, from the
+			 * main event loop), this event fires and is broadcast
+			 * while still inside this switch statement, before the
+			 * tail's own subscribe check ever runs -- so a listener
+			 * registered only there always misses it, and
+			 * admin_handler() (this file) then closes the
+			 * never-subscribed socket right after the reply, which
+			 * is the "racoon closed the admin connection before
+			 * sending a reply header (EOF)" racoonctl reports.
+			 * Subscribing to the global list (NULL) rather than any
+			 * one iph1's own list matters too: evt_phase1()
+			 * broadcasts to both, and dst can match more than one
+			 * ph1 in this loop. Deferred until we know at least one
+			 * ph1 actually matched: subscribing unconditionally,
+			 * even when dst matches nothing, would leave such a
+			 * client waiting forever for an event that can then
+			 * never fire.
+			 */
+			if (!subscribed_once) {
+				if (evt_subscribe(NULL, so2) == -2)
+					admin_delete_all_subscribed = 1;
+				subscribed_once = 1;
+			}
 
 			if (iph1->status >= PHASE1ST_ESTABLISHED)
 				isakmp_info_send_d1(iph1);
@@ -707,6 +743,8 @@ admin_process(so2, combuf)
 	    (com->ac_version >= 1) &&
 	    (com->ac_cmd == ADMIN_SHOW_EVT || event_list != NULL))
 		error = evt_subscribe(event_list, so2);
+	else if (admin_delete_all_subscribed)
+		error = -2;
 out:
 	if (buf != NULL)
 		vfree(buf);

@@ -747,3 +747,91 @@ trivially passing.
 diagnostic addition (no control-flow change beyond what
 `if (len < sizeof(h))` already did), so no syscall/signal semantics
 needed re-verification here.
+
+### Follow-up: the deeper root cause of the EOF itself, now also fixed
+
+This issue's original filing deliberately scoped "why the event never
+arrives on racoonctl's connection" as **not otherwise diagnosed here** —
+the fix above only made the resulting silence visible. A live regression
+report post-merge (`racoonctl vd` printing exactly this diagnostic
+against a real gateway) prompted tracing that remaining question to a
+concrete root cause in `src/racoon/admin.c`, unmodified since the
+project's original 0.8.0 import (confirmed via `git log -S`), so this is
+not a regression from Issues 1-4 — it is the mechanism Issue 4 always
+described, now fully explained.
+
+**Root cause.** `ADMIN_DELETE_ALL_SA_DST` (`racoonctl vd`/
+`vpn-disconnect`'s underlying command) calls `purge_remote(iph1)`
+synchronously in its `admin_process()` case
+(`src/racoon/admin.c:433-490`). `purge_remote()` (`isakmp.c`) ends by
+calling `isakmp_ph1delete(iph1)`, which fires
+`evt_phase1(iph1, EVT_PHASE1_DOWN, NULL)` — **exactly the event
+`f_vpnd()` blocks on** — synchronously, from inside that same case block.
+`admin_process()`'s shared tail code (`src/racoon/admin.c:741-745`) is
+where a connection normally gets subscribed to receive future events
+(`event_list != NULL` → `evt_subscribe()`), but that tail only runs
+*after* the whole `switch` returns — by which point `EVT_PHASE1_DOWN`
+has already been broadcast to whatever was subscribed at the time
+(nothing, for this connection) and is gone. `admin_handler()`
+(`admin.c:236-244`) then closes the never-subscribed socket right after
+the reply, which is precisely the EOF `com_recv()` now reports.
+
+This is structurally different from `ADMIN_ESTABLISH_SA`, the other
+command that sets `event_list`: that command's own future event (its
+ph1 going up, or later down) hasn't happened yet by the time
+`admin_process()` returns — negotiation runs later, from the main event
+loop — so subscribing in the shared tail is in time for it. For
+`ADMIN_DELETE_ALL_SA_DST`, the teardown (and its event) is already
+complete before the tail ever runs.
+
+**The "tunnel doesn't come down" half of the same report** was traced
+separately to `delete_spd()` (called from `purge_remote()`'s SA loop)
+only removing SPD entries racoon's own C code generated — the split-DNS
+hooks' own SPD entries (installed directly via `setkey`, per
+`teardown-investigation.md` §E) are removed only by `phase1-down.sh`
+running asynchronously, fire-and-forget, same as any non-shutdown
+`SCRIPT_PHASE1_DOWN` invocation (Issue 1). Traffic matching those
+selectors arriving before that script finishes can provoke a fresh
+kernel `ACQUIRE` against the still-live policy, reconnecting to the same
+peer moments later and looking exactly like nothing was torn down. This
+half is **not fixed by the change below** and is tracked separately,
+pending a decision on whether an admin-triggered delete should also get
+a bounded, blocking wait (extending Issue 1's mechanism) or stay
+fire-and-forget with the hooks' existing generation-based retry as the
+safety net.
+
+**Fix (event-subscribe ordering only).** `ADMIN_DELETE_ALL_SA_DST`'s
+case now subscribes this connection to the global event list
+(`evt_subscribe(NULL, so2)`) on the first iteration that finds a
+matching `ph1`, *before* calling `purge_remote()` for it — so the
+listener is registered before `evt_phase1(EVT_PHASE1_DOWN)` fires, not
+after. Subscribing to the global list rather than any one `ph1`'s own
+list matters because `dst` can match more than one `ph1`, and
+`evt_phase1()` broadcasts to both; deferring the subscribe until a
+match is actually found matters because subscribing unconditionally
+would leave a `racoonctl vd` against a peer with no active tunnel
+waiting forever for an event that can then never fire (worse than
+today's prompt EOF). A new local, `admin_delete_all_subscribed`, carries
+this decision to the function's shared tail, which now also returns the
+usual `-2` "keep this socket open" sentinel in that case, alongside the
+existing `event_list != NULL` condition it already checked for other
+commands — no other command's dispatch is affected.
+
+**Verification performed.**
+
+- Full rebuild (`autoreconf -fi`; `./configure --enable-security-context=no`)
+  succeeds; `make check`: 39/39 pass, no regressions.
+- Traced by hand against `evt.c`'s actual broadcast mechanics
+  (`evtmsg_broadcast()`'s `send(l->fd, ...)` is synchronous and
+  immediate, not queued for a later event-loop pass), confirming a
+  listener registered before `purge_remote()` runs will actually receive
+  the bytes.
+
+**`/* UNVERIFIED: */`** — this fix could not be exercised against a live
+`racoonctl vd`/established tunnel in this environment (no `PF_KEY`/XFRM
+kernel support here, same constraint noted throughout this document).
+Re-running the exact reproduction that surfaced this
+(`racoonctl vd <gateway>` against a live tunnel, checking for the
+"Phase 1 deleted" confirmation line instead of the EOF diagnostic) on a
+capable host is the right next step before considering this fully
+closed out operationally.
