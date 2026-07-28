@@ -85,7 +85,8 @@ check_PROGRAMS = \
 	test_strnames \
 	test_rsalist \
 	test_plog \
-	test_splitdns
+	test_splitdns \
+	test_modecfg_addrlist
 
 # Test 1: DH MODP Groups
 test_dh_modp_groups_SOURCES  = test_dh_modp_groups.c
@@ -411,6 +412,13 @@ test_plog_LDFLAGS  = $(AM_LDFLAGS)
 test_splitdns_SOURCES  = test_splitdns.c
 test_splitdns_LDADD    = $(COMMON_LDADD)
 test_splitdns_LDFLAGS  = $(AM_LDFLAGS)
+
+# Test 18b: mode-cfg dns4/wins4 address list bounds — isakmp_cfg_config_add_addr4()
+# and MAXCFGADDR in isakmp_cfg.h.  Header-only, so it needs no racoon objects
+# beyond $(COMMON_LDADD): pulling in isakmp_cfg.o would drag in most of racoon.
+test_modecfg_addrlist_SOURCES  = test_modecfg_addrlist.c
+test_modecfg_addrlist_LDADD    = $(COMMON_LDADD)
+test_modecfg_addrlist_LDFLAGS  = $(AM_LDFLAGS)
 
 # Test 19: NAT-D CRYPTO_memcmp regression (issue #34) — natt_compare_addr_hash()
 # in nattraversal.c is the one memcmp()->CRYPTO_memcmp() call site in this

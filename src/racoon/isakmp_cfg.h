@@ -64,8 +64,43 @@
 /* For the wins servers -- XXX find the value somewhere ? */
 #define MAXWINS 4
 
-/* 
- * Global configuration for ISAKMP mode confiration address allocation 
+/*
+ * Largest of the two fixed-size mode-cfg address lists (dns4[MAXNS] and
+ * nbns4[MAXWINS]/wins4[MAXWINS]).  Callers that size a scratch buffer for
+ * "whichever list is being formatted right now" must use this, not MAXNS.
+ */
+#if MAXNS > MAXWINS
+#define MAXCFGADDR MAXNS
+#else
+#define MAXCFGADDR MAXWINS
+#endif
+
+/*
+ * Append addr to one of those fixed-size lists, keeping *index in sync.
+ * Returns 0 on success, -1 when the list is already full.
+ *
+ * The bound is *index >= max, not > max: a list of max entries has no
+ * slot max, and in both struct isakmp_cfg_config and struct
+ * isakmp_cfg_state the int counter sits immediately behind its array, so
+ * writing one element past the end silently overwrites the counter with
+ * an IP address.  The next append then indexes the array with that
+ * address-as-int and writes far outside the object -- the SIGSEGV /
+ * "*** buffer overflow detected ***" abort seen when racoon.conf lists
+ * more than MAXNS dns4 or MAXWINS wins4 servers.
+ */
+static inline int
+isakmp_cfg_config_add_addr4(in_addr_t *list, int *index, int max,
+			    in_addr_t addr)
+{
+	if (*index >= max)
+		return -1;
+
+	list[(*index)++] = addr;
+	return 0;
+}
+
+/*
+ * Global configuration for ISAKMP mode confiration address allocation
  * Read from the mode_cfg section of racoon.conf
  */
 struct isakmp_cfg_port {

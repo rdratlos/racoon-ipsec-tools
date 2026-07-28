@@ -1336,8 +1336,15 @@ Default is
 A list of IPv4 addresses for DNS servers, separated by commas, or on multiple
 .Ic dns4
 lines.
+At most
+.Dv MAXNS
+addresses are accepted in total
+.Pq 3 on most systems, see Xr resolv.h 3 ;
+listing more is a configuration error.
 .It Ic wins4 Ar addresses ;
 A list of IPv4 address for WINS servers.
+At most 4 addresses are accepted in total; listing more is a configuration
+error.
 The keyword
 .It nbns4
 can also be used as an alias for

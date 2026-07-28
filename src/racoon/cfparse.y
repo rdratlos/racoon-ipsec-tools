@@ -1142,12 +1142,22 @@ addrdns
 		{
 #ifdef ENABLE_HYBRID
 			struct isakmp_cfg_config *icc = &isakmp_cfg_config;
+			in_addr_t addr;
 
-			if (icc->dns4_index > MAXNS)
-				yyerror("No more than %d DNS", MAXNS);
-			if (inet_pton(AF_INET, $1->v,
-			    &icc->dns4[icc->dns4_index++]) != 1)
+			/*
+			 * Parse into a local first, and let
+			 * isakmp_cfg_config_add_addr4() own both the bound
+			 * check and the index increment: writing straight
+			 * into dns4[dns4_index++] overran the array (and
+			 * clobbered dns4_index itself) for the MAXNS+1'th
+			 * server, and left a counted-but-unset entry behind
+			 * when the address failed to parse.
+			 */
+			if (inet_pton(AF_INET, $1->v, &addr) != 1)
 				yyerror("bad IPv4 DNS address.");
+			else if (isakmp_cfg_config_add_addr4(icc->dns4,
+			    &icc->dns4_index, MAXNS, addr) != 0)
+				yyerror("No more than %d DNS", MAXNS);
 #else
 			yyerror("racoon not configured with --enable-hybrid");
 #endif
@@ -1163,12 +1173,14 @@ addrwins
 		{
 #ifdef ENABLE_HYBRID
 			struct isakmp_cfg_config *icc = &isakmp_cfg_config;
+			in_addr_t addr;
 
-			if (icc->nbns4_index > MAXWINS)
-				yyerror("No more than %d WINS", MAXWINS);
-			if (inet_pton(AF_INET, $1->v,
-			    &icc->nbns4[icc->nbns4_index++]) != 1)
+			/* Same off-by-one as addrdns above, on nbns4. */
+			if (inet_pton(AF_INET, $1->v, &addr) != 1)
 				yyerror("bad IPv4 WINS address.");
+			else if (isakmp_cfg_config_add_addr4(icc->nbns4,
+			    &icc->nbns4_index, MAXWINS, addr) != 0)
+				yyerror("No more than %d WINS", MAXWINS);
 #else
 			yyerror("racoon not configured with --enable-hybrid");
 #endif
