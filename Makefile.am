@@ -9,14 +9,32 @@ ACLOCAL_AMFLAGS = -I m4
 # see legacy-cflags-canary.yml, which fails loudly if this becomes stale.
 DISTCHECK_CONFIGURE_FLAGS = CFLAGS="-Wno-old-style-definition"
 
-SUBDIRS = src docs/examples test misc/kate @RPM@
+# systemd/ (racoon.service/setkey.service) is only built/installed when
+# configure found (or was told) a systemdsystemunitdir -- see
+# configure.ac's --with-systemdsystemunitdir and systemd/Makefile.am.
+# This is Automake's standard "Conditional Subdirectories" idiom: SUBDIRS
+# itself becomes conditional via a Makefile variable, which -- unlike
+# @RPM@ below -- Automake CAN see is directory-shaped at autoreconf time,
+# so DIST_SUBDIRS has to be given explicitly (see next paragraph) rather
+# than left to default from $(SUBDIRS).
+if HAVE_SYSTEMD
+MAYBE_SYSTEMD_DIR = systemd
+endif
 
-# DIST_SUBDIRS intentionally omitted: with no override, Automake defaults
-# it to $(SUBDIRS), which already resolves packaging/rpm via the opaque
-# @RPM@ substitution (set by configure.ac only when the directory exists).
-# A literal "packaging/rpm" here would be statically validated by Automake
-# at autoreconf time, breaking builds from the Debian native source
-# tarball where packaging/ is intentionally excluded.
+SUBDIRS = src docs/examples $(MAYBE_SYSTEMD_DIR) test misc/kate @RPM@
+
+# DIST_SUBDIRS is explicit (rather than left to Automake's usual default
+# of $(SUBDIRS)) specifically so that `make dist` always includes
+# systemd/ in the tarball, regardless of whether systemd happened to be
+# available on the machine that built it -- $(MAYBE_SYSTEMD_DIR) above
+# only controls the *build-time* SUBDIRS recursion. packaging/rpm is the
+# opposite case: @RPM@ is an opaque configure.ac substitution (set only
+# when the directory exists), so Automake cannot statically validate it
+# at autoreconf time either way, letting it keep working unresolved for
+# builds from the Debian native source tarball where packaging/ is
+# intentionally excluded -- writing a literal "packaging/rpm" here
+# instead would break that.
+DIST_SUBDIRS = src docs/examples systemd test misc/kate @RPM@
 
 EXTRA_DIST = bootstrap README.md NEWS.md depcomp docs/history/ChangeLog docs/history/ChangeLog.old docs/history/NEWS packaging/arch etc/racoon/hooks.conf.sample doc/admin/split-dns.html
 

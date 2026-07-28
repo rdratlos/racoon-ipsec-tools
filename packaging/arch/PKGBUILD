@@ -14,17 +14,9 @@ backup=('etc/racoon/racoon.conf'
         'etc/conf.d/racoon'
         'etc/conf.d/setkey')
 source=("$pkgname-$pkgver.tar.xz::https://github.com/rdratlos/racoon-ipsec-tools/releases/download/v$pkgver/ipsec-tools_$pkgver.tar.xz"
-        racoon.service
-        setkey.service
-        racoon.envfile
-        setkey.envfile
         ipsec-tools.sysusers
         ipsec-tools.tmpfiles)
 sha256sums=('SKIP'
-            '48f1c1ada6c9dd7482b907fcecf675ff3dbc15b5676d4a628e3fed2d66b92012'
-            '711e266296077ee169cb91a0cbc49e1b889155cdcbd7016d0c53aa5758448e69'
-            '793e0c09e500853b9ed1667da2e7f7db28b00319653683672847e288df37e7f3'
-            '0302f5f5d900870e29b8cf96a8789ad572815827b109709dab21a783e54b93d7'
             '52f3c273e6c2e2cd0d9ee15e48ecdab07496af0b233fde0a59b6e69a02b25bee'
             '0f3cca9ed12b9790f95f76985e5317c4319fc3954eb37d627109131235ef9579')
 
@@ -41,7 +33,8 @@ build() {
     --libdir=/usr/lib/ipsec-tools \
     --mandir=\${prefix}/share/man \
     --infodir=\${prefix}/share/info \
-    --localstatedir=/var/run
+    --localstatedir=/var/run \
+    --with-environmentdir=/etc/conf.d
   make
 }
 
@@ -51,8 +44,8 @@ check() {
 }
 
 # `make DESTDIR=... install` now does most of what this function used to
-# do by hand (docs/examples/Makefile.am + src/racoon/{Makefile.am,
-# scripts/Makefile.am}):
+# do by hand (docs/examples/Makefile.am + systemd/Makefile.am +
+# src/racoon/{Makefile.am, scripts/Makefile.am}):
 #   - /etc/racoon/scripts/{racoon-hook-lib.sh,phase1-up.sh,phase1-down.sh,
 #     racoon-dns-detect} (the road-warrior split-DNS/routing hooks) --
 #     a real installed component, matching the `script` directive paths
@@ -73,12 +66,23 @@ check() {
 #     override needed) already resolves to
 #     usr/share/doc/ipsec-tools, exactly where this function's own
 #     doc-tree installs below (LICENSE, NEWS.md, admin-guide, ...) land.
+#   - racoon.service/setkey.service, at whatever $(systemdsystemunitdir)
+#     pkg-config's systemd.pc reports -- /usr/lib/systemd/system on Arch,
+#     no --with-systemdsystemunitdir override needed. These used to be
+#     independently forked copies of debian/racoon.service and
+#     debian/ipsec-tools.setkey.service; now there is exactly one
+#     upstream unit definition (systemd/racoon.service.in,
+#     systemd/setkey.service.in), templated per build with the right
+#     binary path and EnvironmentFile= directory.
+#   - /etc/conf.d/{racoon,setkey} (build()'s own
+#     --with-environmentdir=/etc/conf.d, matching Arch's own
+#     conf.d convention rather than upstream's /etc/default default).
 # What's left here is genuinely package-specific: Arch config file
-# locations ported from debian/ (racoon.conf, ipsec-tools.conf,
-# ipsec-tools.d), systemd units/envfiles/sysusers/tmpfiles, the
-# usrmerge/var-run adjustments, and doc content the autotools install
-# still doesn't cover (split-dns.html, the admin guide, the legacy
-# tunnel-example.txt carried over from debian/examples).
+# locations ported from debian/ (ipsec-tools.conf, ipsec-tools.d),
+# sysusers.d/tmpfiles.d, the usrmerge/var-run adjustments, and doc
+# content the autotools install still doesn't cover (split-dns.html,
+# the admin guide, the legacy tunnel-example.txt carried over from
+# debian/examples).
 package() {
   cd "racoon-ipsec-tools"
   make DESTDIR="$pkgdir" install
@@ -105,11 +109,10 @@ package() {
   install -Dm644 debian/ipsec-tools.conf "$pkgdir/etc/ipsec-tools.conf"
   install -Dm644 doc/admin/split-dns.html "$pkgdir/usr/share/doc/$pkgname/split-dns.html"
 
-  # systemd units + runtime plumbing
-  install -Dm644 "$srcdir/racoon.service" "$pkgdir/usr/lib/systemd/system/racoon.service"
-  install -Dm644 "$srcdir/setkey.service" "$pkgdir/usr/lib/systemd/system/setkey.service"
-  install -Dm644 "$srcdir/racoon.envfile" "$pkgdir/etc/conf.d/racoon"
-  install -Dm644 "$srcdir/setkey.envfile" "$pkgdir/etc/conf.d/setkey"
+  # sysusers.d/tmpfiles.d: still Arch-specific (Debian creates the
+  # racoon user via postinst's adduser instead) -- racoon.service/
+  # setkey.service and /etc/conf.d/{racoon,setkey} are no longer
+  # installed here at all, `make install` above already placed them.
   install -Dm644 "$srcdir/ipsec-tools.sysusers" "$pkgdir/usr/lib/sysusers.d/$pkgname.conf"
   install -Dm644 "$srcdir/ipsec-tools.tmpfiles" "$pkgdir/usr/lib/tmpfiles.d/$pkgname.conf"
 

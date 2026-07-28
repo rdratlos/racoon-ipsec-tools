@@ -31,3 +31,4 @@ usr/share/man/man8/racoon.8
 usr/share/man/man8/racoon-dns-detect.8
 usr/share/man/man8/racoonctl.8
 misc/kate/racoon.xml usr/share/org.kde.syntax-highlighting/syntax/
+usr/lib/systemd/system/racoon.service

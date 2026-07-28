@@ -2,3 +2,4 @@ usr/lib/ipsec-tools/libipsec.so.0
 usr/lib/ipsec-tools/libipsec.so.0.0.1
 usr/sbin/setkey
 usr/share/man/man8/setkey.8
+usr/lib/systemd/system/setkey.service

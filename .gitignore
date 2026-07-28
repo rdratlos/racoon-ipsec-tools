@@ -34,6 +34,8 @@ Makefile
 /packaging/rpm/ipsec-tools.spec
 /packaging/rpm/suse/ipsec-tools.spec
 /docs/examples/racoon.conf.default
+/systemd/racoon.service
+/systemd/setkey.service
 
 # Compiled binaries
 /src/racoon/racoon
