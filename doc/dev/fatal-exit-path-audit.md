@@ -204,10 +204,35 @@ looks when the peer goes silent instead of loud.
 What the bound buys is therefore not survival of the request but the
 difference between two failure modes: an unbounded, silent, unrecoverable
 hang becomes a prompt, logged exit that the child's `privsep_do_exit()`
-turns into an ordinary SIGTERM shutdown — one a service manager restarts on
-its own. The reply is still sent first, best effort, so a merely-broken
-client gets `ETIMEDOUT` named in its own log
-(`privsep_handshake_failed()`).
+turns into an ordinary SIGTERM shutdown. The reply is still sent first,
+best effort, so a merely-broken client gets `ETIMEDOUT` named in its own
+log (`privsep_handshake_failed()`).
+
+#### 2.3.2 Exit status: telling a fault from a shutdown
+
+Writing §2.3.1 exposed a smaller problem that made "an exit a service
+manager can act on" untrue as written. *Every* path out of the dispatch
+loop — clean EOF and every fault alike — shared one `out:` label ending in
+`_exit(0)`. A privileged process that had just lost its IPC, failed to
+allocate a reply, or timed out mid-handshake reported the same success
+status as one whose child had finished and gone away. Under the shipped
+unit's `Restart=on-failure` that is precisely the difference between
+coming back and staying down, and it always resolved the wrong way.
+
+Split in two. `privsep_recv()` now returns 1 rather than -1 for "the peer
+closed" (EOF or `ECONNRESET`), which every caller's `!= 0` test already
+handles, so the loop can distinguish the two cases: `out:`/`_exit(0)` is
+now reached only by the child closing its end, and every fault goes to
+`fail:`/`_exit(1)` with its own log line.
+
+One packaging caveat this does **not** fix, flagged rather than changed
+because it is a deliberate-looking choice in the unit rather than a bug in
+this code: `systemd/racoon.service.in` uses `ExecStart=-@RACOON_SBINDIR@/racoon`,
+and the `-` prefix tells systemd to treat any exit status as success. With
+it, `Restart=on-failure` will not restart a faulted daemon no matter what
+status this code exits with. Dropping the `-`, or moving to
+`Restart=always`, is what would make the new status actually reach the
+service manager — a packaging decision, noted here for whoever owns it.
 
 Removing the exit entirely would mean removing the two-message exchange —
 carrying the descriptor on the command message itself, so there is no

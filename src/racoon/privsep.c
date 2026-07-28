@@ -189,7 +189,7 @@ privsep_recv(sock, bufp, lenp)
 		if (errno == EINTR)
 			continue;
 		if (errno == ECONNRESET)
-		    return -1;
+		    return 1;	/* peer gone, see below */
 
 		plog(LLV_ERROR, LOCATION, NULL,
 		    "privsep_recv failed: %s\n",
@@ -197,9 +197,18 @@ privsep_recv(sock, bufp, lenp)
 		return -1;
 	}
 
-	/* EOF, other side has closed. */
+	/*
+	 * EOF, other side has closed.
+	 *
+	 * Reported as 1 rather than -1 so the privileged dispatch loop can
+	 * tell "my peer finished and went away" (an ordinary shutdown, exit
+	 * status 0) from "this channel broke under me" (a fault, exit status
+	 * 1 -- which is what lets a service manager tell the two apart and
+	 * restart only the second). Every caller tests for != 0, so the
+	 * distinction costs the client side nothing.
+	 */
 	if (len == 0)
-	    return -1;
+	    return 1;
 
 	/* Check for short packets */
 	if (len < sizeof(com)) {
@@ -216,12 +225,14 @@ privsep_recv(sock, bufp, lenp)
 	}
 
 	/* Get the whole buffer */
-	while ((len = recvfrom(sock, (char *)combuf, 
+	while ((len = recvfrom(sock, (char *)combuf,
 	    com.ac_len, 0, NULL, NULL)) == -1) {
 		if (errno == EINTR)
 			continue;
-		if (errno == ECONNRESET)
-		    return -1;
+		if (errno == ECONNRESET) {
+		    racoon_free(combuf);
+		    return 1;	/* peer gone, as above */
+		}
 		plog(LLV_ERROR, LOCATION, NULL,
 		    "failed to recv privsep command: %s\n", 
 		    strerror(errno));
@@ -571,6 +582,8 @@ privsep_init(void)
 	/*
 	 * The dispatch loop below serves one request per iteration, and every
 	 * failure inside it used to "goto out" -- i.e. _exit(0) this process.
+	 * (The remaining fatal paths now use "goto fail"/_exit(1); only the
+	 * child closing its end of privsep_sock still reaches "out".)
 	 * Under privsep this process is the only one that can fork()+execve()
 	 * a hook or perform any other privileged operation (see
 	 * privsep_sigterm_forward() above), and the unprivileged child kills
@@ -598,8 +611,10 @@ privsep_init(void)
 	 *    a reply that could not be sent, or no memory to build any reply
 	 *    at all -- in which case the client would block forever waiting
 	 *    for one). There is no way to answer this request or to trust the
-	 *    next one, so these keep the original "goto out"/_exit(0), which
-	 *    the child turns into its ordinary SIGTERM shutdown path.
+	 *    next one, so these still end the process ("goto fail"), which
+	 *    the child turns into its ordinary SIGTERM shutdown path -- but
+	 *    with a nonzero exit status now, so a service manager can tell
+	 *    them from the clean shutdown that "goto out" reports.
 	 */
 	while (1) {
 		size_t len;
@@ -609,15 +624,19 @@ privsep_init(void)
 		size_t *buflen;
 		size_t totallen;
 		char *bufs[PRIVSEP_NBUF_MAX];
-		int i;
+		int i, ret;
 
 		/*
 		 * Channel-scoped: EOF, reset, or a message whose own framing
 		 * (admin_com.ac_len) did not hold. Nothing left to answer or
-		 * to resynchronise on.
+		 * to resynchronise on. A positive return is the child having
+		 * closed its end -- an ordinary shutdown, not a fault.
 		 */
-		if (privsep_recv(privsep_sock[0], &combuf, &len) != 0)
+		ret = privsep_recv(privsep_sock[0], &combuf, &len);
+		if (ret > 0)
 			goto out;
+		if (ret != 0)
+			goto fail;
 
 		/*
 		 * Prepare the reply buffer up front: every path below this
@@ -631,7 +650,7 @@ privsep_init(void)
 			plog(LLV_ERROR, LOCATION, NULL,
 			    "Cannot allocate reply buffer: %s\n",
 			    strerror(errno));
-			goto out;
+			goto fail;
 		}
 		bzero(reply, sizeof(*reply));
 		reply->hdr.ac_cmd = combuf->hdr.ac_cmd;
@@ -962,7 +981,7 @@ privsep_init(void)
 			    "privsep_socket's descriptor to be accepted") != 0) {
 				if (s != -1)
 					close(s);
-				goto out;
+				goto fail;
 			}
 
 			if (send_fd(privsep_sock[0], s) < 0) {
@@ -970,7 +989,7 @@ privsep_init(void)
 				     "privsep_socket: send_fd failed\n");
 				if (s != -1)
 					close(s);
-				goto out;
+				goto fail;
 			}
 
 			if (s != -1)
@@ -1000,14 +1019,14 @@ privsep_init(void)
 			    PRIVSEP_IPC_WAIT_MAX_MS,
 			    "privsep_bind's descriptor") != 0) {
 				privsep_handshake_failed(reply);
-				goto out;
+				goto fail;
 			}
 
 			/* Channel-scoped: the descriptor was lost */
 			if ((s = rec_fd(privsep_sock[0])) < 0) {
 				plog(LLV_ERROR, LOCATION, NULL,
 				     "privsep_bind: rec_fd failed\n");
-				goto out;
+				goto fail;
 			}
 
 			/* Make sure the string is NULL terminated */
@@ -1075,14 +1094,14 @@ privsep_init(void)
 			    PRIVSEP_IPC_WAIT_MAX_MS,
 			    "privsep_setsockopt's descriptor") != 0) {
 				privsep_handshake_failed(reply);
-				goto out;
+				goto fail;
 			}
 
 			/* Channel-scoped: the descriptor was lost */
 			if ((s = rec_fd(privsep_sock[0])) < 0) {
 				plog(LLV_ERROR, LOCATION, NULL,
 				     "privsep_setsockopt: rec_fd failed\n");
-				goto out;
+				goto fail;
 			}
 
 			/* Make sure the string is NULL terminated */
@@ -1385,18 +1404,31 @@ privsep_init(void)
 		if (privsep_wait_io(privsep_sock[0], 1,
 		    PRIVSEP_IPC_WAIT_MAX_MS, "the reply to be accepted") != 0) {
 			racoon_free(reply);
-			goto out;
+			goto fail;
 		}
 
 		/* This frees reply */
 		if (privsep_send(privsep_sock[0],
 		    reply, reply->hdr.ac_len) != 0) {
 			racoon_free(reply);
-			goto out;
+			goto fail;
 		}
 
 		racoon_free(combuf);
 	}
+
+fail:
+	/*
+	 * Exit status matters here, and used to be lost: every fault below
+	 * shared the clean shutdown's _exit(0), telling a service manager
+	 * that a daemon which had just lost its privileged IPC had finished
+	 * normally. Under a Restart=on-failure unit that is the difference
+	 * between coming back and staying down.
+	 */
+	plog(LLV_ERROR, LOCATION, NULL,
+	    "racoon privileged process %d terminating: privsep_sock is no "
+	    "longer usable\n", getpid());
+	_exit(1);
 
 out:
 	plog(LLV_INFO, LOCATION, NULL, 
