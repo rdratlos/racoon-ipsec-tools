@@ -681,6 +681,46 @@ test_privsep_sigterm_forward_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_privsep_sigterm_forward_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Test: prune_stale_monitored_fds() (daemon-issues.md Issue 4 follow-up)
+# -- session()'s main loop used to treat any select() failure other than
+# EINTR as fatal (return -1, no cleanup; main.c just calls session();
+# return 0;, so the whole daemon process exits). A live bug (since fixed
+# in admin.c) closed an admin-socket fd directly instead of going through
+# unmonitor_fd(), and the very next select() failed with EBADF, taking
+# the entire daemon down over one dangling fd unrelated to any other live
+# Phase 1/2 SA. prune_stale_monitored_fds() recovers from exactly that:
+# scans every monitored fd for validity and drops any no longer open,
+# letting the main loop keep running instead of exiting unconditionally.
+#
+# session.c is pulled in via a local wrapper source
+# (session_unittest_src.c, -ffunction-sections/--gc-sections, same
+# pattern as the other wrapped-static-function tests above);
+# monitor_fd()/unmonitor_fd() are already exported (evt.c already calls
+# them in production), prune_stale_monitored_fds_unittest()/
+# is_fd_monitored_unittest() are new -DENABLE_UNITTEST-only accessors.
+# Drives the real function with real pipe() fds and a real close(), not
+# a simulated fd-validity check.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_prune_stale_monitored_fds
+
+test_prune_stale_monitored_fds_SOURCES  = test_prune_stale_monitored_fds.c \
+	session_unittest_src.c
+test_prune_stale_monitored_fds_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_prune_stale_monitored_fds_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_prune_stale_monitored_fds_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_prune_stale_monitored_fds_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Test: cmpsatrns() "authtype mismatched" log level (daemon-issues.md
 # Issue 3) -- this line used to log at LLV_WARNING (the default visible
 # level) once per rejected (peer, mine) transform-pair candidate a

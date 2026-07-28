@@ -870,3 +870,61 @@ reproduction that caught the first attempt's regression — `racoonctl vd`
 against a matching, established tunnel, confirming both the "Phase 1
 deleted" line *and* that racoon keeps running afterward with `racoon0`
 actually gone — is required before considering this fully closed out.
+
+### Follow-up: hardening `session()`'s main loop against this whole class of bug
+
+The first attempt's regression above raised a fair question beyond "is
+*this* specific bug fixed": why can one dangling admin-socket fd take
+down the *entire* daemon, including every other still-live Phase 1/2 SA
+and its dummy interface/SPD/routes, rather than just that one connection?
+`main.c`'s `main()` is `session(); return 0;` — nothing calls
+`close_session()` (the normal, graceful SIGTERM/SIGINT path) on the way
+out, so any `select()` failure other than `EINTR` in `session()`'s main
+loop (`session.c`) silently ends the whole process, mid-operation, with
+no attempt at cleanup for whatever else was still connected/established
+at the time.
+
+This is bigger than the one bug above: *any* future bug of the same
+shape — anything, anywhere, that `close()`s a monitored fd directly
+instead of calling `unmonitor_fd()` first — reproduces the identical
+`EBADF`/daemon-exits failure mode, regardless of whether the specific
+trigger has anything to do with `admin.c` at all.
+
+**Fix.** `session()`'s main loop now handles `select()` failing with
+`EBADF` specially, via a new `prune_stale_monitored_fds()` (`session.c`):
+scans every currently-monitored fd with `fcntl(fd, F_GETFD)` (a
+side-effect-free, POSIX-standard validity check — POSIX.1-2017 `fcntl()`
+fails with `EBADF` if `fildes` is not a valid open file descriptor) and
+`unmonitor_fd()`s any that are no longer open, logging which one(s) it
+had to drop. If it finds and drops at least one, the main loop
+`continue`s instead of exiting; if `select()` failed with `EBADF` for
+some other, unexplained reason (no stale fd actually found in our own
+set), it falls through to the same fatal handling as before, unchanged.
+This does not paper over the underlying bug class silently — the log
+line makes clear *this happened* and *which fd*, so whatever left it
+dangling (this specific one, now fixed, or a future one) is still
+diagnosable; it just stops that bug from taking the whole daemon, and
+every peer connected through it, down with it.
+
+**Verification performed.**
+
+- Full rebuild and `make check`: 40/40 pass (up from 39 — one new test),
+  no regressions.
+- `test/test_prune_stale_monitored_fds.c` (new `check_PROGRAMS` unit
+  test, `session_unittest_src.c` wrapper following this project's
+  established pattern): drives the real `prune_stale_monitored_fds()`
+  with real `pipe()` fds and a real `close()` — not a simulated
+  fd-validity check — covering a stale fd being dropped, a still-open fd
+  being left alone, and a mix of both monitored at once (confirming only
+  the stale one is pruned). Confirmed to **fail** with the fix's
+  `fcntl()` check temporarily inverted and **pass** with it restored,
+  verifying the test actually exercises the fix rather than trivially
+  passing.
+
+**`/* UNVERIFIED: */`** — this specific recovery path (an admin-socket fd
+going stale and `session()` pruning it mid-run rather than exiting) has
+not been exercised end-to-end against a live daemon in this environment,
+for the same `PF_KEY`/XFRM constraint noted throughout this document.
+The unit test above exercises the actual, compiled recovery function
+directly with real file descriptors, which is the closest verification
+achievable here.
