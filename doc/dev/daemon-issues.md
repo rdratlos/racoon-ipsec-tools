@@ -800,22 +800,53 @@ a bounded, blocking wait (extending Issue 1's mechanism) or stay
 fire-and-forget with the hooks' existing generation-based retry as the
 safety net.
 
-**Fix (event-subscribe ordering only).** `ADMIN_DELETE_ALL_SA_DST`'s
-case now subscribes this connection to the global event list
-(`evt_subscribe(NULL, so2)`) on the first iteration that finds a
-matching `ph1`, *before* calling `purge_remote()` for it — so the
-listener is registered before `evt_phase1(EVT_PHASE1_DOWN)` fires, not
-after. Subscribing to the global list rather than any one `ph1`'s own
-list matters because `dst` can match more than one `ph1`, and
-`evt_phase1()` broadcasts to both; deferring the subscribe until a
-match is actually found matters because subscribing unconditionally
-would leave a `racoonctl vd` against a peer with no active tunnel
-waiting forever for an event that can then never fire (worse than
-today's prompt EOF). A new local, `admin_delete_all_subscribed`, carries
-this decision to the function's shared tail, which now also returns the
-usual `-2` "keep this socket open" sentinel in that case, alongside the
-existing `event_list != NULL` condition it already checked for other
-commands — no other command's dispatch is affected.
+**Fix (event-subscribe ordering only), first attempt — caused a worse,
+live regression.** The first version of this fix subscribed this
+connection to the global event list (`evt_subscribe(NULL, so2)`) on the
+first iteration that found a matching `ph1`, *before* calling
+`purge_remote()` for it, then left this command's own reply to the
+function's shared tail (`admin_reply()`, near the end of
+`admin_process()`) as usual. Live testing (a real `racoonctl vd` against
+a matching, established tunnel — the exact case this fix targets)
+confirmed the EOF was gone and the event was delivered correctly, but
+surfaced a second, more severe bug: shortly after, racoon itself exited
+silently (no core dump), leaving `racoon0` and its SPD/routes behind —
+worse than the original symptom, since now nothing tears down at all.
+
+Root cause of *that* regression: `racoonctl`'s wait loop
+(`f_vc()`/`main()`, racoonctl.c) exits as soon as it reads *any* message
+satisfying `evt_quit_event`, regardless of whether it was also waiting
+on a reply to its own request. Subscribing before `purge_remote()` meant
+`EVT_PHASE1_DOWN` (fired synchronously, inside `purge_remote()`) reached
+the client *before* this command's own reply did (still queued for the
+shared tail at that point) — so the client, already satisfied, closed
+its end of the socket without ever reading that reply. The shared tail's
+later `admin_reply()` call then hit `EPIPE` ("Broken pipe") on a socket
+the peer had already closed. Because `evt_subscribe()` also registers
+`so2` in this process's own fd-monitor/`select()` set
+(`monitor_fd()`, `session.c`), and `admin_process()` returning that
+`EPIPE` as an ordinary error (not the usual `-2` "keep this socket
+open") made `admin_handler()` `close(so2)` in response — the
+fd-monitor registration was never unwound to match. The next `select()`
+cycle polled a closed, dangling descriptor, failed with `EBADF` ("Bad
+file descriptor"), and `session()`'s main loop (`session.c`) treats a
+`select()` failure as fatal and returns — silently ending the daemon
+before the async `SCRIPT_PHASE1_DOWN` hook it had just fired could
+finish tearing down `racoon0`.
+
+**Fix, corrected.** `ADMIN_DELETE_ALL_SA_DST`'s case now sends this
+command's own reply (`admin_reply(so2, com, 0, NULL)`) itself, first,
+*before* any subscription or teardown can race it — guaranteeing wire
+order matches what the client already assumes (its own reply, then,
+separately, the event). Only once that reply is known to have reached
+the client does the case subscribe (on the first matching `ph1`, before
+calling `purge_remote()` for it, same reasoning on the global-list-vs.
+one-`ph1`'s-own-list and defer-until-a-match-is-found points as before).
+The case now returns directly — `-2` if it subscribed, the reply's own
+error code otherwise — rather than falling through to the shared tail,
+since that tail's `admin_reply()`/`event_list`-driven `evt_subscribe()`
+calls do not apply to this command and would either double-reply or
+never fire.
 
 **Verification performed.**
 
@@ -823,15 +854,19 @@ commands — no other command's dispatch is affected.
   succeeds; `make check`: 39/39 pass, no regressions.
 - Traced by hand against `evt.c`'s actual broadcast mechanics
   (`evtmsg_broadcast()`'s `send(l->fd, ...)` is synchronous and
-  immediate, not queued for a later event-loop pass), confirming a
-  listener registered before `purge_remote()` runs will actually receive
-  the bytes.
+  immediate, not queued for a later event-loop pass) and against
+  `evt_unsubscribe()`'s own cleanup (`unmonitor_fd()` + `close()`
+  together) to confirm the corrected ordering cannot recreate the
+  dangling-registration path the first attempt hit.
+- The first attempt's regression (silent daemon exit, `racoon0` and SPD
+  left behind) was confirmed live, against a real established tunnel,
+  with the exact `EPIPE`/`EBADF` log lines predicted by the trace above
+  — not hypothetical.
 
-**`/* UNVERIFIED: */`** — this fix could not be exercised against a live
-`racoonctl vd`/established tunnel in this environment (no `PF_KEY`/XFRM
-kernel support here, same constraint noted throughout this document).
-Re-running the exact reproduction that surfaced this
-(`racoonctl vd <gateway>` against a live tunnel, checking for the
-"Phase 1 deleted" confirmation line instead of the EOF diagnostic) on a
-capable host is the right next step before considering this fully
-closed out operationally.
+**`/* UNVERIFIED: */`** — the corrected version has not yet been
+live-tested (no `PF_KEY`/XFRM kernel support in this environment, same
+constraint noted throughout this document). Re-running the exact live
+reproduction that caught the first attempt's regression — `racoonctl vd`
+against a matching, established tunnel, confirming both the "Phase 1
+deleted" line *and* that racoon keeps running afterward with `racoon0`
+actually gone — is required before considering this fully closed out.
