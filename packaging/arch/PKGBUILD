@@ -9,6 +9,8 @@ license=('BSD-3-Clause')
 depends=('openssl' 'libldap' 'linux-headers' 'pam' 'krb5')
 makedepends=('autoconf' 'automake' 'libtool' 'flex' 'bison' 'pkgconf')
 install=ipsec-tools.install
+# As Racoon is not on AUR build the debug symbol package, too
+options=(debug)
 backup=('etc/racoon/racoon.conf'
         'etc/ipsec-tools.conf'
         'etc/conf.d/racoon'
