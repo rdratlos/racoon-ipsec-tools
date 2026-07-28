@@ -42,7 +42,7 @@ usr/share/man/man8/plainrsa-gen.8
 usr/share/man/man8/racoon.8
 usr/share/man/man8/racoon-dns-detect.8
 misc/kate/racoon.xml usr/share/org.kde.syntax-highlighting/syntax/
-usr/lib/systemd/system/racoon.service
+lib/systemd/system/racoon.service
 # EnvironmentFile= for racoon.service above (systemd/racoon.envfile,
 # installed generically by `make install` via configure's
 # --with-environmentdir, default /etc/default). A real shipped conffile

@@ -50,7 +50,7 @@ override_dh_auto_configure:
 					--disable-static \
 					--disable-security-context \
 					--without-readline \
-					--with-systemdsystemunitdir=/usr/lib/systemd/system \
+					--with-systemdsystemunitdir=/lib/systemd/system \
 					$(COV_FLAGS)
 
 override_dh_clean:

@@ -1,0 +1,4 @@
+# Lintian false positive; fixed in Ubuntu Noble and beyond.
+# Only the standalone Perl utility racoon-tool is GPL-2.
+# The racoon daemon linked against OpenSSL is BSD licensed.
+racoon: possible-gpl-code-linked-with-openssl
