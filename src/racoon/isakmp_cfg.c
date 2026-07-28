@@ -412,7 +412,7 @@ isakmp_cfg_reply(iph1, attrpl)
 		case INTERNAL_IP4_NBNS:
 			isakmp_cfg_appendaddr4(attr, 
 			    &iph1->mode_cfg->wins4[iph1->mode_cfg->wins4_index],
-			    &iph1->mode_cfg->wins4_index, MAXNS);
+			    &iph1->mode_cfg->wins4_index, MAXWINS);
 			iph1->mode_cfg->flags |= ISAKMP_CFG_GOT_WINS4;
 			break;
 		case UNITY_DEF_DOMAIN:
@@ -1927,7 +1927,12 @@ isakmp_cfg_setenv(iph1, envp, envc)
 	int *envc;
 {
 	char addrstr[IP_MAX];
-	char addrlist[IP_MAX * MAXNS + MAXNS];
+	/*
+	 * Reused for both the dns4[MAXNS] and the wins4[MAXWINS] list, so
+	 * size it for the longer of the two -- MAXWINS is 4 while MAXNS is
+	 * 3 on glibc.
+	 */
+	char addrlist[IP_MAX * MAXCFGADDR + MAXCFGADDR];
 	char *splitlist = addrlist;
 	char *splitlist_cidr;
 	char defdom[MAXPATHLEN + 1];
