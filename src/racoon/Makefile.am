@@ -108,8 +108,8 @@ EXTRA_DIST = \
    doc/FAQ doc/README.certificate doc/README.gssapi doc/README.plainrsa \
    doc/README.privsep \
    contrib/sp.pl stats.pl \
-   samples/psk.txt.sample  samples/racoon.conf.sample \
-   samples/psk.txt.in samples/racoon.conf.in \
+   samples/racoon.conf.default.in \
+   samples/psk.txt.example \
    samples/racoon.conf.sample-gssapi samples/racoon.conf.sample-natt \
    samples/racoon.conf.sample-inherit samples/racoon.conf.sample-plainrsa \
    samples/roadwarrior/README \
@@ -117,6 +117,78 @@ EXTRA_DIST = \
    samples/roadwarrior/client/phase1-up.sh \
    samples/roadwarrior/client/racoon.conf \
    samples/roadwarrior/server/racoon.conf
+
+# ---------------------------------------------------------------------------
+# Default racoon.conf and documentation examples
+# ---------------------------------------------------------------------------
+# racoon.conf.default.in becomes the file `make install` places at
+# $(sysconfdir)/racoon.conf -- but only if that path is not already
+# occupied (install-data-local below); it is role-agnostic and inert
+# (no "remote"/"sainfo" block), so racoon starts and idles safely right
+# after a fresh install with no prior configuration. It is built here
+# (not shipped pre-rendered) so its own comments can point at this
+# build's *actual* configured $(sysconfdir) and $(examplesdir) instead of
+# a guess -- see the .in source for what gets substituted.
+#
+# Every other racoon.conf variant (the roadwarrior client/server pair and
+# the single-feature NAT-T/PlainRSA/GSSAPI/inherit examples) is reference
+# material, not something any install should activate unasked: those are
+# installed read-only under $(examplesdir), never $(sysconfdir), and
+# never installed over a file that might already exist there.
+# The two tokens replaced below are deliberately NOT spelled "@examplesdir@"/
+# "@sysconfdir@" in racoon.conf.default.in: config.status performs a
+# blind, whole-file @varname@ substitution pass over every AC_CONFIG_FILES
+# target, including this Makefile itself, for every name AC_SUBST'd
+# anywhere in configure.ac -- sysconfdir is one of those, so a literal
+# "@sysconfdir@" written into this recipe would be substituted away by
+# config.status before make ever runs the sed command below, leaving
+# nothing for sed's own search pattern to match. RACOON_EXAMPLESDIR/
+# RACOON_SYSCONFDIR are not AC_SUBST'd anywhere, so they pass through
+# config.status unchanged and only get substituted here, at make time,
+# with this build's actual configured directories.
+racoon.conf.default: $(srcdir)/samples/racoon.conf.default.in Makefile
+	$(AM_V_GEN)sed \
+	    -e 's,@RACOON_EXAMPLESDIR@,$(examplesdir),g' \
+	    -e 's,@RACOON_SYSCONFDIR@,$(sysconfdir),g' \
+	    $(srcdir)/samples/racoon.conf.default.in > $@
+
+all-local: racoon.conf.default
+
+CLEANFILES = racoon.conf.default
+
+examplesdir = $(docdir)/examples
+examples_DATA = \
+   racoon.conf.default \
+   samples/racoon.conf.sample-natt \
+   samples/racoon.conf.sample-plainrsa \
+   samples/racoon.conf.sample-gssapi \
+   samples/racoon.conf.sample-inherit \
+   samples/psk.txt.example
+
+roadwarriordir = $(examplesdir)/roadwarrior
+roadwarrior_DATA = samples/roadwarrior/README
+
+roadwarriorclientdir = $(roadwarriordir)/client
+roadwarriorclient_DATA = samples/roadwarrior/client/racoon.conf
+# Historical, minimal reference hooks (see samples/roadwarrior/README) --
+# installed alongside the racoon.conf they were written for, but never
+# wired into $(sysconfdir); the real, maintained hook set lives in
+# scripts/ and is installed unconditionally to $(sysconfdir)/scripts
+# above, independent of this example.
+roadwarriorclient_SCRIPTS = \
+   samples/roadwarrior/client/phase1-up.sh \
+   samples/roadwarrior/client/phase1-down.sh
+
+roadwarriorserverdir = $(roadwarriordir)/server
+roadwarriorserver_DATA = samples/roadwarrior/server/racoon.conf
+
+# hooks.conf.sample documents src/racoon/scripts' own configuration file
+# (see scripts/Makefile.am and doc/admin/split-dns.html); installed
+# directly under $(sysconfdir), alongside where an admin creates the
+# real hooks.conf, unconditionally -- unlike racoon.conf above, its
+# filename never collides with an active config, so there is nothing to
+# preserve on reinstall.
+sysconf_DATA = $(top_srcdir)/etc/racoon/hooks.conf.sample
 
 TESTS = eaytest
 
@@ -140,6 +212,28 @@ check-valgrind: $(TESTS)
 
 install-exec-local:
 	${mkinstalldirs} $(DESTDIR)${adminsockdir}
+
+# Installs racoon.conf.default (see above) at $(sysconfdir)/racoon.conf,
+# but only if nothing is there yet -- an admin's existing configuration,
+# from a previous install or hand-edited from one of the examples, is
+# never overwritten by a reinstall/upgrade. The same default is also
+# available, unconditionally, under $(examplesdir)/racoon.conf.default
+# if you ever want to start over deliberately.
+install-data-local: racoon.conf.default
+	${mkinstalldirs} $(DESTDIR)${sysconfdir}
+	@if test -f $(DESTDIR)${sysconfdir}/racoon.conf; then \
+	  echo "$(DESTDIR)${sysconfdir}/racoon.conf already exists, leaving it untouched"; \
+	else \
+	  echo "${INSTALL_DATA} racoon.conf.default $(DESTDIR)${sysconfdir}/racoon.conf"; \
+	  ${INSTALL_DATA} racoon.conf.default $(DESTDIR)${sysconfdir}/racoon.conf; \
+	fi
+
+# Symmetric with install-data-local above: automake's generated
+# uninstall rules only know about files installed through a *_DATA/
+# *_SCRIPTS primary, not the conditional install-data-local logic, so
+# racoon.conf needs its own explicit removal here.
+uninstall-local:
+	rm -f $(DESTDIR)${sysconfdir}/racoon.conf
 
 # special object rules
 crypto_openssl_test.o: crypto_openssl.c

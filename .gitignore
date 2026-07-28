@@ -33,8 +33,7 @@ Makefile
 # Generated configure output files
 /packaging/rpm/ipsec-tools.spec
 /packaging/rpm/suse/ipsec-tools.spec
-/src/racoon/samples/psk.txt
-/src/racoon/samples/racoon.conf
+/src/racoon/racoon.conf.default
 
 # Compiled binaries
 /src/racoon/racoon

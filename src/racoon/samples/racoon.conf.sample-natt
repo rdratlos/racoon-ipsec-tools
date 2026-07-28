@@ -1,97 +1,113 @@
-# Id: racoon.conf.sample-natt,v 1.5 2005/12/13 16:41:07 vanhu Exp
-# Contributed by: Michal Ludvig <mludvig@suse.cz>, SUSE Labs
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+# Part of rdratlos/racoon-ipsec-tools — https://github.com/rdratlos/racoon-ipsec-tools
+#
+# racoon.conf - NAT-Traversal (RFC 3947) Feature Example
+#
+# Focused, single-feature example: what a "remote" block needs, beyond
+# whatever authentication method you are already using, when one or both
+# peers may be behind a NAT gateway.  For a complete, ready-to-adapt
+# configuration, start from examples/roadwarrior/client/racoon.conf or
+# examples/roadwarrior/server/racoon.conf instead -- both already enable
+# NAT-Traversal (nat_traversal on;) as part of a full setup; this file
+# only isolates and explains that one feature.
+#
+# Key design decisions:
+#   - Two UDP ports must be reachable through any intervening firewall:
+#     500 (native IKE) and 4500 (NAT-T port-floated IKE + UDP-encapsulated
+#     ESP). Both are declared explicitly below via separate isakmp/
+#     isakmp_natt listen directives.
+#   - nat_traversal on (not force): NAT-T activates only when a NAT is
+#     actually detected between the peers (via RFC 3947 NAT-D payloads),
+#     which is correct for a listener serving both NATed and non-NATed
+#     peers.  force is only appropriate when you know in advance that
+#     port 500 traffic is dropped or mangled by a middlebox even without a
+#     real NAT (some restrictive corporate firewalls).
+#   - natt_keepalive: without periodic keepalive traffic, most NAT
+#     gateways expire the UDP port-4500 mapping within 30-300 seconds
+#     (vendor-dependent), silently breaking the tunnel until the next
+#     rekey.  15 seconds is a safe, conservative interval.
+#   - Certificate-based authentication (rsasig) is used here rather than
+#     pre_shared_key: RFC 3947 NAT-T rewrites the outer IP addresses in
+#     transit, which is fine for signature-based authentication (the
+#     signed payload does not depend on the outer address) but is exactly
+#     the scenario aggressive-mode PSK setups already struggle with -- see
+#     racoon-admin-guide.html §8.3.
 
-# This file can be used as a template for NAT-Traversal setups.
-# Only NAT-T related options are explained here, refer to other 
-# sample files and manual pages for details about the rest.
+path certificate "/etc/racoon/certs";
 
-path include "/etc/racoon";
-path certificate "/etc/racoon/cert";
-
-# Define addresses and ports where racoon will listen for an incoming
-# traffic. Don't forget to open these ports on your firewall!
+# ---------------------------------------------------------------------------
+# Listen Section
+# ---------------------------------------------------------------------------
 listen
 {
-	# First define an address where racoon will listen 
-	# for "normal" IKE traffic. IANA allocated port 500.
-	isakmp 172.16.0.1[500];
+    # Native IKE, port 500.  Always required, NAT-T or not: even a NATed
+    # peer starts its first packet on port 500 before floating to 4500.
+    isakmp 172.16.0.1[500];
 
-	# To use NAT-T you must also open port 4500 of 
-	# the same address so that peers can do 'Port floating'.
-	# The same port will also be used for the UDP-Encapsulated 
-	# ESP traffic.
-	isakmp_natt 172.16.0.1[4500];
+    # NAT-T port-floated IKE and UDP-encapsulated ESP, port 4500.  Must be
+    # open on any firewall between this host and its peers, or NAT-T
+    # negotiation will succeed but the resulting ESP traffic will never
+    # arrive.
+    isakmp_natt 172.16.0.1[4500];
 }
 
-
+# ---------------------------------------------------------------------------
+# Timer Section
+# ---------------------------------------------------------------------------
 timer
 {
-	# To keep the NAT-mappings on your NAT gateway, there must be
-	# traffic between the peers. Normally the UDP-Encap traffic
-	# (i.e. the real data transported over the tunnel) would be
-	# enough, but to be safe racoon will send a short
-	# "Keep-alive packet" every few seconds to every peer with
-	# whom it does NAT-Traversal.
-	# The default is 20s. Set it to 0s to disable sending completely.
-	natt_keepalive 10 sec;
+    # Keep the NAT gateway's UDP port mapping alive.  0 disables sending
+    # (only appropriate if you have independently confirmed every path
+    # between your peers has no NAT and no stateful firewall timeout).
+    natt_keepalive 15 sec;
 }
 
-# To trigger the SA negotiation there must be an appropriate 
-# policy in the kernel SPD. For example for traffic between 
-# networks 192.168.0.0/24 and 192.168.1.0/24 with gateways 
-# 172.16.0.1 and 172.16.1.1, where the first gateway is behind 
-# a NAT which translates its address to 172.16.1.3, you need the 
-# following rules:
-# On 172.16.0.1 (e.g. behind the NAT):
-#     spdadd 192.168.0.0/24 192.168.1.0/24 any -P out ipsec \
-#            esp/tunnel/172.16.0.1-172.16.1.1/require;
-#     spdadd 192.168.1.0/24 192.168.0.0/24 any -P in ipsec \
-#            esp/tunnel/172.16.1.1-172.16.0.1/require;
-# On the other side (172.16.1.1) either use a "generate_policy on"
-# statement in the remote block, or in case that you know 
-# the translated address, use the following policy:
-#     spdadd 192.168.1.0/24 192.168.0.0/24 any -P out ipsec \
-#            esp/tunnel/172.16.1.1-172.16.1.3/require;
-#     spdadd 192.168.0.0/24 192.168.1.0/24 any -P in ipsec \
-#            esp/tunnel/172.16.1.3-172.16.1.1/require;
-
-# Phase 1 configuration (for ISAKMP SA)
+# ---------------------------------------------------------------------------
+# Remote Section
+# ---------------------------------------------------------------------------
+# For traffic between networks 192.168.0.0/24 and 192.168.1.0/24, gateways
+# 172.16.0.1 and 172.16.1.1, where 172.16.0.1 sits behind a NAT that
+# translates it to 172.16.1.3 as seen from the other side: on 172.16.0.1
+# (behind the NAT) you still write policy in terms of its own real
+# address; racoon on the other end learns the translated address from the
+# NAT-T exchange itself (or you configure "generate_policy on" so it
+# doesn't need to know the translated address in advance at all).
 remote anonymous
 {
-	# NAT-T is supported with all exchange_modes.
-	exchange_mode main,base,aggressive;
+    # NAT-T is supported with every exchange_mode; main is used here for
+    # the identity-protection properties described in
+    # racoon-admin-guide.html §2.3.
+    exchange_mode main;
 
-	# With NAT-T you shouldn't use PSK. Let's go on with certs.
-	my_identifier asn1dn;
-	certificate_type x509 "your-host.cert.pem" "your-host.key.pem";
+    my_identifier asn1dn;
+    certificate_type x509 "your-host.crt" "your-host.key";
 
-	# This is the main switch that enables NAT-T.
-	# Possible values are:
-	#   off - NAT-T support is disabled, i.e. neither offered,
-	#         nor accepted. This is the default.
-	#    on - normal NAT-T support, i.e. if NAT is detected 
-	#         along the way, NAT-T is used.
-	# force - if NAT-T is supported by both peers, it is used
-	#         regardless of whether there is a NAT gateway between them
-	#         or not. This is useful for traversing some firewalls.
-	nat_traversal on;
-	
-	proposal {
-		authentication_method rsasig;
-		encryption_algorithm 3des;
-		hash_algorithm sha1;
-		dh_group 2;
-	}
+    # The switch that actually enables NAT-Traversal:
+    #   off   - never offered, never accepted (default).
+    #   on    - used automatically if a NAT is detected along the path.
+    #   force - always used, even with no NAT detected; only for
+    #           firewalls that mangle plain port-500 traffic.
+    nat_traversal on;
 
-	proposal_check strict;
+    proposal_check strict;
+
+    proposal {
+        authentication_method rsasig;
+        encryption_algorithm aes 256;
+        hash_algorithm sha256;
+        dh_group 14;
+    }
 }
 
-# Phase 2 proposal (for IPsec SA)
+# ---------------------------------------------------------------------------
+# Sainfo Section
+# ---------------------------------------------------------------------------
 sainfo anonymous
 {
-	pfs_group 2;
-	lifetime time 12 hour;
-	encryption_algorithm 3des, rijndael;
-	authentication_algorithm hmac_sha1;
-	compression_algorithm deflate;
+    pfs_group 14;
+    lifetime time 12 hour;
+    encryption_algorithm aes 256;
+    authentication_algorithm hmac_sha256, hmac_sha1;
+    compression_algorithm deflate;
 }

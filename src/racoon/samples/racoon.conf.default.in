@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+# Part of rdratlos/racoon-ipsec-tools — https://github.com/rdratlos/racoon-ipsec-tools
+#
+# racoon.conf - Default Configuration
+#
+# This is the file `make install` places at this path -- but only if no
+# racoon.conf already existed here.  If you are looking at this file after
+# an upgrade and expected to see your own edits, they are still in effect;
+# this default is never installed over an existing configuration.
+#
+# It is intentionally role-agnostic and inert: no "remote" or "sainfo"
+# block is defined, so racoon starts and idles at near-zero footprint
+# with nothing to negotiate and nothing to misconfigure.  Installing this
+# package does not, by itself, turn the machine into a VPN client or a
+# VPN gateway -- you decide that by choosing and adapting one of the
+# example configurations below.
+#
+# ---------------------------------------------------------------------------
+# Which example should I start from?
+# ---------------------------------------------------------------------------
+# racoon's role (client vs. gateway) is entirely a property of what you put
+# in racoon.conf, not something the package chooses for you.  Full,
+# heavily-commented worked examples for both roles -- and for several
+# narrower features -- are installed under:
+#
+#   @RACOON_EXAMPLESDIR@/
+#
+#   examples/roadwarrior/client/racoon.conf
+#     Connecting to somebody else's VPN gateway as a roadwarrior client:
+#     X.509 certificate + XAuth username/password authentication, Mode
+#     Config for a dynamically assigned address, DNS, and split routing.
+#     This is the common case if you were handed a certificate and a
+#     gateway address by a VPN administrator.  Pairs with
+#     examples/roadwarrior/client/phase1-up.sh and phase1-down.sh
+#     (historical, minimal reference hooks -- for a maintained split-DNS
+#     and routing hook set see racoon-hook-lib.sh(8) / racoon-dns-detect(8)
+#     and @RACOON_SYSCONFDIR@/scripts, installed unconditionally by this
+#     package as a real component, not an example).
+#
+#   examples/roadwarrior/server/racoon.conf
+#     Running the VPN gateway side of the same roadwarrior setup: address
+#     pool, split-DNS, XAuth authentication source (system/PAM/LDAP), and
+#     the Mode Config attributes the client example above expects.
+#
+#   examples/racoon.conf.sample-natt
+#     NAT-Traversal (RFC 3947) specifics: listen/timer directives for
+#     UDP 4500 port-floating and NAT keepalives.
+#
+#   examples/racoon.conf.sample-plainrsa
+#     PlainRSA authentication (raw RSA keypairs, no X.509 certificates) --
+#     useful when interoperating with, or migrating from, a *Swan-family
+#     IKEv1 stack.
+#
+#   examples/racoon.conf.sample-gssapi
+#     GSS-API (Kerberos) authentication.
+#
+#   examples/racoon.conf.sample-inherit
+#     "remote ... inherit ..." -- factoring shared proposal/identity
+#     settings out of multiple similar remote peers.
+#
+#   examples/psk.txt.example
+#     Format of the pre_shared_key file referenced below.
+#
+# Each example is self-contained and documents its own prerequisites; none
+# of them assume you have already read the others.  Copy the one closest
+# to what you need to @RACOON_SYSCONFDIR@/racoon.conf, adapt the addresses,
+# identities, and proposal to your environment, then validate before
+# reloading:
+#
+#   racoon -f @RACOON_SYSCONFDIR@/racoon.conf -t
+#
+# ---------------------------------------------------------------------------
+# Reference
+# ---------------------------------------------------------------------------
+#   racoon.conf(5), racoon(8), racoon-dns-detect(8), racoonctl(8), setkey(8)
+#   racoon-admin-guide.html - full administrator's guide (building,
+#     authentication methods, LDAP, Apple client interop, security
+#     recommendations, troubleshooting) -- see docs/admin-guide/ in the
+#     project source; packaged separately by some distributions.
+#   @RACOON_EXAMPLESDIR@/ - every example shipped with the source.
+
+# Log level: "notify" is a reasonable default for a freshly installed,
+# not-yet-configured daemon.  Raise to "debug"/"debug2" (or run
+# `racoon -d`/`-ddd`) while working out a new configuration.
+log notify;
+
+# Pre-shared key file, used by the pre_shared_key/xauth_* authentication
+# methods.  Not read until a "remote" block actually needs it, so it is
+# safe to leave unset even though the file does not exist yet.
+path pre_shared_key "@RACOON_SYSCONFDIR@/psk.txt";
+
+# Directory racoon searches for certificate/key files named by
+# certificate_type/peers_certfile/ca_type in a "remote" block.
+path certificate "@RACOON_SYSCONFDIR@/certs";

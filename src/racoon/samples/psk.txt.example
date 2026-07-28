@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+# Part of rdratlos/racoon-ipsec-tools — https://github.com/rdratlos/racoon-ipsec-tools
+#
+# psk.txt - Pre-Shared Key File Format (racoon.conf.5, "Pre-shared key File")
+#
+# Referenced from racoon.conf via:
+#   path pre_shared_key "/etc/racoon/psk.txt";
+#
+# and consulted whenever a "remote" block's proposal uses one of the
+# pre_shared_key/xauth_psk_server/xauth_psk_client/hybrid_rsa_*
+# authentication methods.
+#
+# This file must be owned by the user racoon runs as (normally root) and
+# must not be readable by anyone else:
+#   chmod 600 /etc/racoon/psk.txt
+#
+# ---------------------------------------------------------------------------
+# Syntax
+# ---------------------------------------------------------------------------
+# One entry per line: an identifier, then whitespace, then the secret key.
+# The identifier's format must match the peer's my_identifier/xauth_login
+# type -- an address, an FQDN, a USER_FQDN (user@domain), or an ASN.1 DN --
+# whichever the peer actually sends during phase 1 (or, for XAuth, whatever
+# xauth_login names).  Everything after the first run of whitespace is the
+# key, so the key itself may contain spaces.
+#
+# Lines starting with "#" are comments.  A key starting with "0x" is
+# interpreted as a hexadecimal string rather than literal text.
+#
+# Use long, high-entropy keys (>= 20 random characters).  A short or
+# guessable PSK is the weakest link in any pre-shared-key deployment,
+# and pre-shared-key + Aggressive Mode is especially exposed to offline
+# dictionary attacks -- see racoon-admin-guide.html §8.3 "Aggressive Mode
+# Considerations".
+#
+# ---------------------------------------------------------------------------
+# Examples (replace with your own identifiers and generated keys --
+# e.g. `openssl rand -base64 24` for a fresh random key)
+# ---------------------------------------------------------------------------
+
+# Address identifier (my_identifier/peers_identifier address):
+# 192.0.2.10          Kj8x2mQpR9vLNz4wTgY6uH3sD7fB1eAc
+
+# FQDN identifier (my_identifier fqdn "gw.example.com"):
+# gw.example.com      Kj8x2mQpR9vLNz4wTgY6uH3sD7fB1eAc
+
+# USER_FQDN identifier (my_identifier user_fqdn "alice@example.com"),
+# also the form used for xauth_login "alice":
+# alice@example.com   Kj8x2mQpR9vLNz4wTgY6uH3sD7fB1eAc
+
+# Hexadecimal key:
+# 198.51.100.4        0x4b6a3878326d5170523976
+
+# XAuth password for xauth_login "alice" (see
+# examples/roadwarrior/client/racoon.conf's xauth_login directive) --
+# for xauth_rsa_client the identifier is the login name, not a peer
+# address, since the RSA signature (not the PSK) does the phase 1
+# authentication and this entry only supplies the XAuth password:
+# alice                correct-horse-battery-staple

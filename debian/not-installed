@@ -2,3 +2,29 @@ usr/lib/ipsec-tools/libipsec.so
 usr/lib/ipsec-tools/libipsec.la
 usr/lib/ipsec-tools/libracoon.so
 usr/lib/ipsec-tools/libracoon.la
+
+# src/racoon/Makefile.am's generic `make install` now installs a default
+# racoon.conf and a documentation examples tree of its own (see that
+# file's "Default racoon.conf and documentation examples" comment).
+# Debian intentionally continues to ship its own equivalents by other
+# means -- debian/racoon.conf via override_dh_install, and
+# override_dh_installexamples's own glob of src/racoon/samples/* --
+# rather than these DESTDIR-staged copies, which also land under
+# usr/share/doc/ipsec-tools/ (the upstream PACKAGE_TARNAME) rather than
+# this package's own usr/share/doc/racoon/. Reconciling the two
+# (e.g. via --docdir=/usr/share/doc/racoon) is left to a follow-up,
+# distribution-specific task; until then these are deliberately listed
+# here so dh_missing does not fail the build over them.
+etc/racoon/racoon.conf
+etc/racoon/hooks.conf.sample
+usr/share/doc/ipsec-tools/examples/psk.txt.example
+usr/share/doc/ipsec-tools/examples/racoon.conf.default
+usr/share/doc/ipsec-tools/examples/racoon.conf.sample-gssapi
+usr/share/doc/ipsec-tools/examples/racoon.conf.sample-inherit
+usr/share/doc/ipsec-tools/examples/racoon.conf.sample-natt
+usr/share/doc/ipsec-tools/examples/racoon.conf.sample-plainrsa
+usr/share/doc/ipsec-tools/examples/roadwarrior/README
+usr/share/doc/ipsec-tools/examples/roadwarrior/client/phase1-down.sh
+usr/share/doc/ipsec-tools/examples/roadwarrior/client/phase1-up.sh
+usr/share/doc/ipsec-tools/examples/roadwarrior/client/racoon.conf
+usr/share/doc/ipsec-tools/examples/roadwarrior/server/racoon.conf

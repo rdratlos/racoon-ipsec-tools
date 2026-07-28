@@ -1246,8 +1246,6 @@ AC_CONFIG_FILES([
   src/setkey/Makefile
   src/racoon/Makefile
   src/racoon/scripts/Makefile
-  src/racoon/samples/psk.txt
-  src/racoon/samples/racoon.conf
   test/Makefile
   misc/kate/Makefile
   ])

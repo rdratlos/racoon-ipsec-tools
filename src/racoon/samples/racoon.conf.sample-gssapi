@@ -1,43 +1,67 @@
-# $KAME: racoon.conf.sample-gssapi,v 1.5 2001/08/16 06:33:40 itojun Exp $
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+# Part of rdratlos/racoon-ipsec-tools — https://github.com/rdratlos/racoon-ipsec-tools
+#
+# racoon.conf - GSS-API (Kerberos) Authentication Feature Example
+#
+# Focused, single-feature example: authenticating phase 1 via GSS-API
+# (in practice, Kerberos 5) instead of certificates or pre-shared keys --
+# useful in an existing Kerberos realm (e.g. Active Directory) where hosts
+# already hold machine credentials and you would rather reuse those than
+# provision a separate PKI.  Requires racoon built with --enable-gssapi
+# (see doc/README.gssapi in the source tree for the implementation
+# background and its Heimdal-specific credential-acquisition notes).
+#
+# Key design decisions:
+#   - gssapi_krb as the phase 1 authentication_method: this is what
+#     actually selects GSS-API/Kerberos rather than certificates or PSK.
+#   - gss_id: the Kerberos principal racoon acquires and presents as its
+#     GSS endpoint identity. If omitted, racoon defaults to
+#     "ike/<hostname>", matching the "special credentials" convention
+#     described in doc/README.gssapi (analogous to "host/<fqdn>" used by
+#     login-authentication daemons). This principal must already be
+#     extracted into the local keytab from the KDC
+#     (`ktutil` / `kadmin ext_keytab` depending on your Kerberos
+#     implementation) -- racoon does not provision Kerberos credentials
+#     itself, only consumes them.
+#   - No certificate_type/path certificate directives: GSS-API
+#     authentication does not use racoon's certificate machinery at all.
 
-# sample configuration for GSSAPI authentication (basically, Kerberos).
-# doc/README.gssapi gives some idea on how to configure it.
-# TODO: more documentation.
-
-#listen {
-#	strict_address;
-#}
-
-# Uncomment the following for GSS-API to work with older versions of
-# racoon that (incorrectly) used ISO-Latin-1 encoding for the GSS-API
-# identifier attribute.
+# Uncomment if interoperating with a peer running a pre-2001-vintage
+# racoon that (incorrectly) encoded the GSS-API identifier attribute as
+# ISO-Latin-1 instead of UTF-8. Not needed against any current
+# implementation. Must appear before any "remote" block.
 #gss_id_enc latin1;
 
 remote anonymous {
-	exchange_mode main;
+    # GSS-API/Kerberos is only defined for Main Mode in this
+    # implementation.
+    exchange_mode main;
 
-	lifetime time 24 hour;
+    lifetime time 24 hour;
 
-	proposal {
-		encryption_algorithm 3des;
-		hash_algorithm sha1;
-		authentication_method gssapi_krb;
-		# The default GSS-API ID is "host/hostname", where
-		# hostname is the output of the hostname(1) command.
-		# You probably want this to match your system's host
-		# principal.  ktutil(8)'s "list" command will list the
-		# principals in your system's keytab.  If you need to,
-		# you can change the GSS-API ID here.
-		#gss_id "host/some.host.name";
+    proposal {
+        encryption_algorithm aes 256;
+        hash_algorithm sha256;
 
-		dh_group 1;
-	}
+        # Selects GSS-API (Kerberos) authentication for this proposal.
+        authentication_method gssapi_krb;
+
+        # The Kerberos principal to acquire and present as this host's
+        # GSS endpoint identity. Uncomment and set explicitly if the
+        # default "ike/<hostname>" does not match your KDC's principal
+        # naming, or list the principals already in your keytab with
+        # `ktutil` (or your Kerberos implementation's equivalent) if
+        # you are not sure what is available.
+        #gss_id "ike/vpn-gateway.example.com";
+
+        dh_group 14;
+    }
 }
 
 sainfo anonymous {
-	lifetime time 2 hour;
-
-	encryption_algorithm rijndael, 3des;
-	authentication_algorithm hmac_sha1, hmac_md5;
-	compression_algorithm deflate;
+    lifetime time 2 hour;
+    encryption_algorithm aes 256;
+    authentication_algorithm hmac_sha256, hmac_sha1;
+    compression_algorithm deflate;
 }
