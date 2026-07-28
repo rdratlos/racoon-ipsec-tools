@@ -3,13 +3,13 @@ usr/lib/ipsec-tools/libipsec.la
 usr/lib/ipsec-tools/libracoon.so
 usr/lib/ipsec-tools/libracoon.la
 
-# src/racoon/Makefile.am's generic `make install` now installs a default
-# racoon.conf and a documentation examples tree of its own (see that
-# file's "Default racoon.conf and documentation examples" comment).
-# Debian intentionally continues to ship its own equivalents by other
-# means -- debian/racoon.conf via override_dh_install, and
-# override_dh_installexamples's own glob of src/racoon/samples/* --
-# rather than these DESTDIR-staged copies, which also land under
+# docs/examples/Makefile.am's generic `make install` now installs a
+# default racoon.conf (into $(sysconfdir), via src/racoon's own
+# adjoining install-data-local) and a documentation examples tree of its
+# own. Debian intentionally continues to ship its own equivalents by
+# other means -- debian/racoon.conf via override_dh_install, and
+# override_dh_installexamples's own glob of docs/examples/* -- rather
+# than these DESTDIR-staged copies, which also land under
 # usr/share/doc/ipsec-tools/ (the upstream PACKAGE_TARNAME) rather than
 # this package's own usr/share/doc/racoon/. Reconciling the two
 # (e.g. via --docdir=/usr/share/doc/racoon) is left to a follow-up,

@@ -1246,6 +1246,7 @@ AC_CONFIG_FILES([
   src/setkey/Makefile
   src/racoon/Makefile
   src/racoon/scripts/Makefile
+  docs/examples/Makefile
   test/Makefile
   misc/kate/Makefile
   ])

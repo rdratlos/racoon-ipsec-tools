@@ -9,7 +9,7 @@ ACLOCAL_AMFLAGS = -I m4
 # see legacy-cflags-canary.yml, which fails loudly if this becomes stale.
 DISTCHECK_CONFIGURE_FLAGS = CFLAGS="-Wno-old-style-definition"
 
-SUBDIRS = src test misc/kate @RPM@
+SUBDIRS = src docs/examples test misc/kate @RPM@
 
 # DIST_SUBDIRS intentionally omitted: with no override, Automake defaults
 # it to $(SUBDIRS), which already resolves packaging/rpm via the opaque

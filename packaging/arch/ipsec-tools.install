@@ -13,6 +13,10 @@
 
 post_install() {
   echo ':: racoon and setkey systemd units are installed but not enabled by default.'
-  echo ':: Review /etc/racoon/racoon.conf, /etc/racoon/psk.txt, and /etc/ipsec-tools.conf first.'
+  echo ':: /etc/racoon/racoon.conf ships inert (no remote/sainfo block) -- pick an example from'
+  echo ':: /usr/share/doc/ipsec-tools/examples/ (roadwarrior client/server, NAT-T, PlainRSA,'
+  echo ':: GSSAPI, inherit) and drop your X.509 certificate/key into /etc/racoon/certs/.'
+  echo ':: Using pre-shared-key or XAuth instead? Create /etc/racoon/psk.txt yourself --'
+  echo ':: see examples/psk.txt.example for the format. Also review /etc/ipsec-tools.conf.'
   echo ':: Then enable with: systemctl enable --now setkey.service racoon.service'
 }
