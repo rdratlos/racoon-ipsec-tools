@@ -358,6 +358,56 @@ path for `PRIVSEP_SETSOCKOPTS` — the descriptor-first reordering of §2.2,
 the bounded wait of §2.3.1 — had, on Linux, never executed at all before
 this fix. It does now.
 
+### 2.4.3 Found by live testing: `ploginit()` leaks its previous logger
+
+The third live finding, from running the real daemon under Valgrind
+against a live privsep configuration. **Pre-existing, and out of #105's
+own scope** (a leak, not an exit path) — recorded here rather than in a
+separate report because it was found by, and fixed alongside, this same
+verification effort, in a file this PR already touches the neighborhood
+of.
+
+`ploginit()` (plog.c) unconditionally assigns `logp = log_open(...)`. It
+is called twice in the privileged process's lifetime: once from `main()`
+at startup, and again from `privsep_init()` (privsep.c), after that
+function's "close everything but the socketpair" loop closes the first
+`logp`'s file descriptor out from under it. The second call orphaned the
+first `struct log` — itself, its `buf[]`/`tbuf[]` ring-buffer arrays, and
+its `fname` copy — matching Valgrind's report exactly:
+
+```
+2,056 (32 direct, 2,024 indirect) bytes ... definitely lost
+    by ... ploginit (plog.c:246) by ... main (main.c:334)
+```
+
+Fixed by freeing any existing `logp` at the top of `ploginit()`, via
+`log_free()` (already declared in `logger.h`, unused outside `logger.c`
+itself and its own test-only `main()`). `log_free()` rather than
+`log_close()`: the latter also reopens the file to flush the ring
+buffer's content first, which in real daemon operation is always empty
+(`log_add()`, the only thing that ever populates it, is called only from
+`logger.c`'s own standalone test `main()` — every real `plog()` call
+writes directly via `log_vaprint()` instead), so that reopen-and-scan
+would be pure overhead.
+
+Bounded impact even before the fix: this is a one-time ~2KB leak per
+privileged-process lifetime, not a per-request or per-connection one —
+`ploginit()` is not on any reload or negotiation path. Worth fixing
+anyway, and not just for its own sake: the entire point of the rest of
+this PR is a privileged process that survives far longer without
+restarting, which is exactly the change that makes a static "starts at
+zero, never grows again" leak worth closing rather than merely noting —
+whereas before, a process that restarted on nearly any fault reclaimed it
+constantly.
+
+Also confirms Valgrind's separate "invalid file descriptor 1024 in
+syscall close()" warning from the same run is benign and expected: that
+close-everything loop deliberately calls `close()` on descriptor numbers
+up to `_SC_OPEN_MAX` whether or not they were ever open, silently
+discarding the result (`(void)close(i)`) — Valgrind flags the resulting
+`EBADF` as a warning, not an error, and it is not counted in the run's
+`ERROR SUMMARY`.
+
 ### 2.5 Note on the privsep threat model
 
 The privileged process treats messages from the unprivileged one as
@@ -575,7 +625,19 @@ wrapped-static-function pattern (see `test/README.md` and
   found the PF_KEY omission the hard way; the gate is now a separate
   predicate so that policy is checkable without a privsep host.
 
-Full suite: **44/44 pass** (40 before, plus these four), release build,
+Plus one new case in the existing `test/test_plog.c`:
+`test_ploginit_called_twice_reopens_cleanly()` drives the exact double-call
+shape `privsep_init()` produces (§2.4.3) and checks logging still works
+correctly across it. Verified to fail the project's own `make
+check-valgrind` (`test/README.md`) against the pre-fix code — the leak
+reproduced there matches the field report byte-for-byte — and to pass
+clean (0 bytes leaked) with the fix; run against the whole suite,
+`check-valgrind` reports "All tests passed valgrind!" This is also the one
+test in this set that specifically needs Valgrind to catch a regression:
+the assertions alone only confirm correctness, not the absence of a leak.
+
+Full suite: **44/44 pass** (40 before, plus these four new binaries), plus
+the one case added to an existing binary above, release build,
 `--enable-adminport --enable-hybrid --enable-natt --enable-frag`.
 `privsep.c` and `isakmp_xauth.c` additionally syntax-checked with
 `-DHAVE_LIBPAM` (`-Wall -Werror`), since the PAM cases are not compiled in
@@ -649,6 +711,16 @@ on a real Arch roadwarrior:
     for what it is genuinely good for: the *ceiling* case, all 21 env vars
     and all 24 slots in use, which is exactly the boundary PR #94's extra
     entry once crossed.
+* **Valgrind against the real daemon, real privsep config: found §2.4.3.**
+  Not one of the four phases, run alongside them. Reproduced the
+  `ploginit()` leak exactly (same allocation sizes, same
+  `main.c:334`/`plog.c:246` call chain) and nothing else — no other leak,
+  no other error, and the one "invalid file descriptor 1024 in syscall
+  close()" warning is the expected, harmless `close()`-everything loop.
+  Fixed, and pinned by a new case in `test/test_plog.c` that fails the
+  project's own `check-valgrind` target against the pre-fix code and
+  passes clean (0 bytes leaked) with the fix — verified both ways before
+  landing it.
 
 ### What could not be verified here
 
@@ -689,7 +761,9 @@ on a real Arch roadwarrior:
 | `src/racoon/policy.c` | `cmpspidxwild()` dst check returns "no match"; masking failures likewise |
 | `src/racoon/isakmp_xauth.c` | `PAM_conv()` returns `PAM_CONV_ERR` instead of exiting |
 | `src/racoon/cfparse.y` | `cfparse()` returns -1 instead of exiting on the `yyerrorcount` branch |
+| `src/racoon/plog.c` | `ploginit()` frees any previous `logp` before reopening (§2.4.3) |
 | `test/test_monitor_fd_range.c`, `test/test_privsep_fd_passing.c`, `test/test_privsep_socket_policy.c`, `test/test_privsep_setsockopt.c`, `test/Makefile.am` | New regression tests |
+| `test/test_plog.c` | New case for `ploginit()`'s double-call reopen (§2.4.3) |
 
 ---
 

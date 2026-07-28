@@ -538,6 +538,58 @@ test_plogset_ploginit_writes_to_file(void)
 	return 0;
 }
 
+/*
+ * privsep_init() (privsep.c) calls ploginit() a second time in the
+ * privileged parent process, after closing every fd but its socketpair
+ * out from under the logp the first ploginit() call opened, to reopen the
+ * log file on a fresh descriptor. Found by Valgrind running the real
+ * daemon under privsep (issue #105 verification): that second call used
+ * to leak the first logp -- the struct itself, its buf[]/tbuf[] ring
+ * arrays, and its fname copy -- since ploginit() only ever assigned over
+ * the static logp, never freed what it was overwriting.
+ *
+ * Exercises exactly that double-call shape directly (no privsep/fork
+ * needed to reach it) and confirms logging still works correctly
+ * afterward. Run this test binary under `make check-valgrind` (test/
+ * README.md) to confirm the leak itself is gone; the assertions here only
+ * cover correctness, not the absence of a leak.
+ */
+static int
+test_ploginit_called_twice_reopens_cleanly(void)
+{
+	char path[256];
+	char *out = NULL;
+
+	TEST_START("ploginit() called twice (privsep_init()'s reopen) frees the first logp and keeps logging correct");
+
+	snprintf(path, sizeof(path), "/tmp/test_plog_reopen_%d.log", (int)getpid());
+	unlink(path);
+
+	/* First open, as main() does at startup. */
+	plogset(path);
+	ploginit();
+	_plog(LLV_INFO, __func__, NULL, "pre-reopen message\n");
+
+	/* Second open of the same path, as privsep_init() does post-fork. */
+	ploginit();
+	_plog(LLV_INFO, __func__, NULL, "post-reopen message\n");
+
+	if (read_file(path, &out) < 0) {
+		unlink(path);
+		TEST_FAIL("failed to read back log file after second ploginit()");
+	}
+	unlink(path);
+
+	if (!strstr(out, "pre-reopen message") ||
+	    !strstr(out, "post-reopen message")) {
+		free(out);
+		TEST_FAIL("expected both pre- and post-reopen messages in the log file");
+	}
+	free(out);
+	TEST_PASS();
+	return 0;
+}
+
 /* ---------------------------------------------------------------------
  * main
  * --------------------------------------------------------------------- */
@@ -570,6 +622,7 @@ main(int argc, char **argv)
 
 	/* Last: permanently switches this process to file-backed logging. */
 	failed += test_plogset_ploginit_writes_to_file();
+	failed += test_ploginit_called_twice_reopens_cleanly();
 
 	printf("\n========================================================================\n");
 	if (failed == 0)

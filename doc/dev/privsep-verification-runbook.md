@@ -75,6 +75,30 @@ you plan to run Phase 3.
 
 Build dependencies beyond the usual toolchain: `flex`, `bison`, `openssl`.
 
+### Optional: running the daemon itself under Valgrind
+
+Not one of the four phases below, but worth doing once alongside them —
+this is exactly how §2.4.3's `ploginit()` leak was found:
+
+```bash
+sudo valgrind --leak-check=full --show-leak-kinds=all \
+    /usr/bin/racoon -F -f /etc/racoon/racoon.conf -l /tmp/racoon-session.log
+```
+
+Run this in place of `systemctl start racoon` for one Phase 1 cycle (it
+replaces the *privileged* process, since that is what `-F` foreground-runs
+under `valgrind` here — the unprivileged child still forks and runs
+un-instrumented). Expect, and ignore, one benign warning:
+
+```
+Warning: invalid file descriptor 1024 in syscall close()
+```
+
+That is `privsep_init()`'s "close everything but the socketpair" loop
+deliberately calling `close()` on descriptor numbers that were never open;
+the code already discards the result. It is not in the run's `ERROR
+SUMMARY` and is not a leak.
+
 ### racoon.conf
 
 Privsep only engages when `user` resolves to a non-root uid, and
