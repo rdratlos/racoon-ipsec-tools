@@ -208,6 +208,16 @@ configuration file,
 with packaging defaults; see the Admin Guide
 .Pq Pa doc/admin/split-dns.html
 in the project source.
+These act on Mode Config data
+.Pq Ic mode_cfg
+a roadwarrior client receives from a VPN gateway, so they are only ever
+invoked by a
+.Ic remote
+block's own
+.Ic script
+directives on a roadwarrior client configuration; installed
+unconditionally alongside every other role, but inert and unused on a
+gateway-only configuration, which never issues itself Mode Config.
 .El
 .\"
 .Sh SEE ALSO

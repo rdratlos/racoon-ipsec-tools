@@ -219,8 +219,18 @@ install-exec-local:
 # never overwritten by a reinstall/upgrade. The same default is also
 # available, unconditionally, under $(examplesdir)/racoon.conf.default
 # if you ever want to start over deliberately.
+#
+# Also creates $(sysconfdir)/certs, empty, at default directory
+# permissions (0755 root-owned) -- racoon.conf.default's own "path
+# certificate" directive already points here, X.509 is this project's
+# primary authentication path, and every certificate/key file an admin
+# drops into it gets tightened individually (644 certs/CRLs, 600 keys;
+# see README.Debian) regardless of the directory's own mode, so there is
+# no reason to diverge from the same default mode $(sysconfdir) and
+# $(adminsockdir) already install at just above/below.
 install-data-local: racoon.conf.default
 	${mkinstalldirs} $(DESTDIR)${sysconfdir}
+	${mkinstalldirs} $(DESTDIR)${sysconfdir}/certs
 	@if test -f $(DESTDIR)${sysconfdir}/racoon.conf; then \
 	  echo "$(DESTDIR)${sysconfdir}/racoon.conf already exists, leaving it untouched"; \
 	else \
@@ -231,9 +241,12 @@ install-data-local: racoon.conf.default
 # Symmetric with install-data-local above: automake's generated
 # uninstall rules only know about files installed through a *_DATA/
 # *_SCRIPTS primary, not the conditional install-data-local logic, so
-# racoon.conf needs its own explicit removal here.
+# racoon.conf and certs/ need their own explicit removal here. certs/ is
+# only removed if it is still empty -- an admin's actual certificates
+# and keys are never touched by `make uninstall`.
 uninstall-local:
 	rm -f $(DESTDIR)${sysconfdir}/racoon.conf
+	-rmdir $(DESTDIR)${sysconfdir}/certs 2>/dev/null
 
 # special object rules
 crypto_openssl_test.o: crypto_openssl.c
