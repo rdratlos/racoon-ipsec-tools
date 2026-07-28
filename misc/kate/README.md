@@ -93,7 +93,7 @@ mkdir -p ~/.local/share/org.kde.syntax-highlighting/syntax/
 cp misc/kate/racoon.xml ~/.local/share/org.kde.syntax-highlighting/syntax/
 kate-syntax-highlighter -l | grep -i racoon        # confirm it's recognized at all
 kate-syntax-highlighter -s "Racoon IPSec Tools" \
-    -f ansi src/racoon/samples/racoon.conf.sample   # any warning prints to stderr
+    -f ansi docs/examples/roadwarrior/client/racoon.conf   # any warning prints to stderr
 ```
 
 A clean run prints colorized output with nothing on stderr. This

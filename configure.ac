@@ -41,6 +41,41 @@ AC_CHECK_PROG([PERL], [perl], [perl])
 AC_MSG_NOTICE([checking for pkg-config (required for optional-dependency and systemd-unit-path detection; install pkgconf or pkg-config if the next check fails)])
 PKG_PROG_PKG_CONFIG
 
+# systemd unit / environment-file directories (issue #60).
+# systemd/racoon.service.in and systemd/setkey.service.in (see
+# systemd/Makefile.am) are the single upstream source for the units
+# debian/ and packaging/arch/ used to fork independently -- only the
+# binary path (@sbindir@, already a per-build configure choice) and the
+# EnvironmentFile= directory (@environmentdir@, distro convention: Debian
+# /etc/default, Arch /etc/conf.d) actually differed between those two
+# copies. systemd/ itself is not built or installed at all unless a
+# systemdsystemunitdir is available -- see the top-level Makefile.am's
+# conditional SUBDIRS.
+AC_ARG_WITH([systemdsystemunitdir],
+	[AS_HELP_STRING([--with-systemdsystemunitdir=DIR],
+		[install systemd service units in DIR @<:@default: query pkg-config's systemd.pc, or disable if that fails@:>@])],
+	[], [with_systemdsystemunitdir=auto])
+AS_IF([test "x$with_systemdsystemunitdir" = "xyes" -o "x$with_systemdsystemunitdir" = "xauto"], [
+	def_systemdsystemunitdir=`$PKG_CONFIG --variable=systemdsystemunitdir systemd 2>/dev/null`
+	AS_IF([test "x$def_systemdsystemunitdir" != "x"],
+		[with_systemdsystemunitdir="$def_systemdsystemunitdir"],
+		[AS_IF([test "x$with_systemdsystemunitdir" = "xyes"],
+			[AC_MSG_ERROR([systemd support requested via --with-systemdsystemunitdir=yes, but pkg-config could not query systemd.pc's systemdsystemunitdir variable])])
+		 with_systemdsystemunitdir=no
+	])
+])
+AC_MSG_CHECKING([for systemd system unit directory])
+AC_MSG_RESULT([${with_systemdsystemunitdir}])
+AS_IF([test "x$with_systemdsystemunitdir" != "xno"],
+	[AC_SUBST([systemdsystemunitdir], [$with_systemdsystemunitdir])])
+AM_CONDITIONAL([HAVE_SYSTEMD], [test "x$with_systemdsystemunitdir" != "xno"])
+
+AC_ARG_WITH([environmentdir],
+	[AS_HELP_STRING([--with-environmentdir=DIR],
+		[directory for racoon/setkey systemd EnvironmentFile= defaults @<:@default=/etc/default@:>@])],
+	[], [with_environmentdir=/etc/default])
+AC_SUBST([environmentdir], [$with_environmentdir])
+
 # Determine correct runtime library path flag
 # -R on Solaris/BSD, -Wl,-rpath, on Linux/GCC
 AC_MSG_CHECKING([for runtime library path flag])
@@ -1220,9 +1255,14 @@ AS_IF([test "$enable_security_context" = "no"], [
 		[summary_secctx="no (SELinux not found)"])
 ])
 
+summary_systemd="no"
+AS_IF([test "x$with_systemdsystemunitdir" != "xno"],
+	[summary_systemd="yes ($with_systemdsystemunitdir)"])
+
 cat <<_RACOON_SUMMARY_EOF
 
 *** racoon feature summary ***
+  Systemd units     : $summary_systemd
   Shared libraries  : $enable_shared
   Hybrid auth       : $enable_hybrid
   DPD               : $enable_dpd
@@ -1246,8 +1286,8 @@ AC_CONFIG_FILES([
   src/setkey/Makefile
   src/racoon/Makefile
   src/racoon/scripts/Makefile
-  src/racoon/samples/psk.txt
-  src/racoon/samples/racoon.conf
+  docs/examples/Makefile
+  systemd/Makefile
   test/Makefile
   misc/kate/Makefile
   ])

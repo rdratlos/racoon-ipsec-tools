@@ -3,10 +3,13 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 # scripts/ (the phase1-up/phase1-down split-DNS and routing hook set) is a
-# real installed component, not example material -- unlike samples/ below,
-# which stays EXTRA_DIST-only (dist-shipped, never installed). "." keeps
-# this directory's own targets (racoon/racoonctl/plainrsa-gen/eaytest)
-# building the way they always have; recursion is additive.
+# real installed component, installed unconditionally to $(sysconfdir)/
+# scripts below -- unlike the documentation examples in docs/examples/
+# (a sibling of this project's src/ tree entirely, not a subdirectory of
+# this one; see docs/examples/Makefile.am and its own entry in the
+# top-level SUBDIRS). "." keeps this directory's own targets (racoon/
+# racoonctl/plainrsa-gen/eaytest) building the way they always have;
+# recursion is additive.
 SUBDIRS = . scripts
 
 sbin_PROGRAMS = racoon racoonctl plainrsa-gen
@@ -107,16 +110,15 @@ EXTRA_DIST = \
    missing/crypto/rijndael/boxes-fst.dat \
    doc/FAQ doc/README.certificate doc/README.gssapi doc/README.plainrsa \
    doc/README.privsep \
-   contrib/sp.pl stats.pl \
-   samples/psk.txt.sample  samples/racoon.conf.sample \
-   samples/psk.txt.in samples/racoon.conf.in \
-   samples/racoon.conf.sample-gssapi samples/racoon.conf.sample-natt \
-   samples/racoon.conf.sample-inherit samples/racoon.conf.sample-plainrsa \
-   samples/roadwarrior/README \
-   samples/roadwarrior/client/phase1-down.sh \
-   samples/roadwarrior/client/phase1-up.sh \
-   samples/roadwarrior/client/racoon.conf \
-   samples/roadwarrior/server/racoon.conf
+   contrib/sp.pl stats.pl
+
+# hooks.conf.sample documents src/racoon/scripts' own configuration file
+# (see scripts/Makefile.am and doc/admin/split-dns.html); installed
+# directly under $(sysconfdir), alongside where an admin creates the
+# real hooks.conf, unconditionally -- unlike racoon.conf above, its
+# filename never collides with an active config, so there is nothing to
+# preserve on reinstall.
+sysconf_DATA = $(top_srcdir)/etc/racoon/hooks.conf.sample
 
 TESTS = eaytest
 

@@ -33,8 +33,9 @@ Makefile
 # Generated configure output files
 /packaging/rpm/ipsec-tools.spec
 /packaging/rpm/suse/ipsec-tools.spec
-/src/racoon/samples/psk.txt
-/src/racoon/samples/racoon.conf
+/docs/examples/racoon.conf.default
+/systemd/racoon.service
+/systemd/setkey.service
 
 # Compiled binaries
 /src/racoon/racoon
@@ -51,6 +52,33 @@ Makefile
 /test/test-suite.log
 /test/unit/cert-framework/*.log
 /test/unit/cert-framework/*.trs
+
+# src/racoon/Makefile.am's own TESTS = eaytest runs (and leaves its
+# automake test-runner output) here, not under /test/
+/src/racoon/eaytest.log
+/src/racoon/eaytest.trs
+/src/racoon/test-suite.log
+
+# autoconf/autoreconf backup file (seen after a re-run clobbers an
+# existing ./configure)
+/configure~
+
+# Debian packaging build artifacts (dpkg-buildpackage/debhelper).
+# debian/racoon/ and debian/ipsec-tools/ are the per-binary-package
+# staging directories debhelper creates from the two packages this
+# source tree builds (see debian/control) -- named for the packages,
+# not a generic pattern.
+/debian/.debhelper/
+/debian/tmp/
+/debian/racoon/
+/debian/ipsec-tools/
+/debian/files
+/debian/*.substvars
+/debian/*.debhelper.log
+/debian/*.debhelper
+/debian/debhelper-build-stamp
+/debian/autoreconf.after
+/debian/autoreconf.before
 
 # Generated include symlinks
 /src/include-glibc/linux

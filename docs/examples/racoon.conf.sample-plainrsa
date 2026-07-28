@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+# Part of rdratlos/racoon-ipsec-tools — https://github.com/rdratlos/racoon-ipsec-tools
+#
+# racoon.conf - PlainRSA Authentication Feature Example
+#
+# Focused, single-feature example: authenticating phase 1 with raw RSA
+# keypairs (no X.509 certificate, no CA, no certificate chain) via
+# certificate_type/peers_certfile's "plain_rsa" form.  This is mainly
+# useful when interoperating with, or migrating configuration away from,
+# a *Swan-family IKEv1 stack (FreeS/WAN, Openswan, strongSwan, Libreswan),
+# which historically favored raw RSA keys over X.509 for site-to-site
+# tunnels.  For a certificate-based setup, start from
+# examples/roadwarrior/client/racoon.conf or .../server/racoon.conf
+# instead.
+#
+# Key design decisions:
+#   - my_identifier/peers_identifier address: *Swan implementations
+#     typically do not send an explicit phase 1 identifier, so racoon must
+#     be told to fall back to the peer's IP address as its identity rather
+#     than expecting an ASN.1 DN or FQDN payload.
+#   - certificate_type plain_rsa <privkeyfile>: this host's own private
+#     key.  Generate a keypair with plainrsa-gen(8):
+#       plainrsa-gen -b 3072 -f /etc/racoon/certs/privatekey.rsa
+#     plainrsa-gen writes both the private key file and prints the public
+#     key in the format peers_certfile below expects.
+#   - peers_certfile plain_rsa <pubkeyfile>, one line per trusted peer:
+#     unlike X.509, there is no CA and no chain validation -- every peer
+#     you intend to accept must have its public key installed locally in
+#     advance.  This does not scale past a handful of statically known
+#     peers, which is the fundamental trade-off against certificate-based
+#     authentication.
+#   - exchange_mode main only: *Swan-family peers configured for PlainRSA
+#     generally only offer Main Mode.
+
+# Racoon looks up plain_rsa key files relative to this directory unless
+# given as an absolute path.
+path certificate "/etc/racoon/certs";
+
+remote anonymous
+{
+    # *Swan-family peers typically only support Main Mode here.
+    exchange_mode main;
+
+    # *Swan-family peers typically do not send an explicit identifier
+    # payload; matching by address avoids an identity mismatch.
+    my_identifier address;
+    peers_identifier address;
+
+    # This host's own RSA keypair (generate with plainrsa-gen(8)).
+    certificate_type plain_rsa "privatekey.rsa";
+
+    # One trusted peer's public key per line.  Add one peers_certfile
+    # directive per additional peer you want this "remote anonymous"
+    # block to accept -- there is no chain-of-trust shortcut here, every
+    # accepted peer's public key must be listed explicitly.
+    peers_certfile plain_rsa "peer1-pubkey.rsa";
+    peers_certfile plain_rsa "peer2-pubkey.rsa";
+
+    proposal_check strict;
+
+    proposal {
+        encryption_algorithm aes 256;
+        hash_algorithm sha256;
+        authentication_method rsasig;
+        dh_group 14;
+    }
+}
+
+sainfo anonymous
+{
+    pfs_group 14;
+    lifetime time 12 hour;
+    encryption_algorithm aes 256;
+    authentication_algorithm hmac_sha256, hmac_sha1;
+    compression_algorithm deflate;
+}

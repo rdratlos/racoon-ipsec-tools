@@ -1,0 +1,2 @@
+# Arguments to pass to racoon (e.g. "-d" for debug, "-f /etc/racoon/racoon.conf" for a custom config)
+RACOON_ARGS=""

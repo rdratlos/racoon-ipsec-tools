@@ -10,22 +10,13 @@ depends=('openssl' 'libldap' 'linux-headers' 'pam' 'krb5')
 makedepends=('autoconf' 'automake' 'libtool' 'flex' 'bison' 'pkgconf')
 install=ipsec-tools.install
 backup=('etc/racoon/racoon.conf'
-        'etc/racoon/psk.txt'
         'etc/ipsec-tools.conf'
         'etc/conf.d/racoon'
         'etc/conf.d/setkey')
 source=("$pkgname-$pkgver.tar.xz::https://github.com/rdratlos/racoon-ipsec-tools/releases/download/v$pkgver/ipsec-tools_$pkgver.tar.xz"
-        racoon.service
-        setkey.service
-        racoon.envfile
-        setkey.envfile
         ipsec-tools.sysusers
         ipsec-tools.tmpfiles)
 sha256sums=('SKIP'
-            '48f1c1ada6c9dd7482b907fcecf675ff3dbc15b5676d4a628e3fed2d66b92012'
-            '711e266296077ee169cb91a0cbc49e1b889155cdcbd7016d0c53aa5758448e69'
-            '793e0c09e500853b9ed1667da2e7f7db28b00319653683672847e288df37e7f3'
-            '0302f5f5d900870e29b8cf96a8789ad572815827b109709dab21a783e54b93d7'
             '52f3c273e6c2e2cd0d9ee15e48ecdab07496af0b233fde0a59b6e69a02b25bee'
             '0f3cca9ed12b9790f95f76985e5317c4319fc3954eb37d627109131235ef9579')
 
@@ -42,7 +33,8 @@ build() {
     --libdir=/usr/lib/ipsec-tools \
     --mandir=\${prefix}/share/man \
     --infodir=\${prefix}/share/info \
-    --localstatedir=/var/run
+    --localstatedir=/var/run \
+    --with-environmentdir=/etc/conf.d
   make
 }
 
@@ -51,18 +43,46 @@ check() {
   make check
 }
 
-# src/racoon/scripts/{racoon-hook-lib.sh,phase1-up.sh,phase1-down.sh,
-# racoon-dns-detect} (the road-warrior split-DNS/routing hooks) are a
-# real installed component (src/racoon/scripts/Makefile.am) -- `make
-# DESTDIR=... install` below places them at /etc/racoon/scripts/ given
-# this PKGBUILD's --sysconfdir=/etc/racoon, matching the `script`
-# directive paths documented in doc/admin/split-dns.html. Only
-# hooks.conf.sample and the split-DNS admin doc still need an explicit
-# install line here, the same way LICENSE/NEWS.md/README.md already do
-# below -- neither is part of the autotools install (this project's own
-# convention keeps *.sample and doc/ files EXTRA_DIST-only, packaged by
-# the distro's own rules, matching how Debian handles them via
-# debian/racoon.examples and debian/racoon.docs).
+# `make DESTDIR=... install` now does most of what this function used to
+# do by hand (docs/examples/Makefile.am + systemd/Makefile.am +
+# src/racoon/{Makefile.am, scripts/Makefile.am}):
+#   - /etc/racoon/scripts/{racoon-hook-lib.sh,phase1-up.sh,phase1-down.sh,
+#     racoon-dns-detect} (the road-warrior split-DNS/routing hooks) --
+#     a real installed component, matching the `script` directive paths
+#     documented in doc/admin/split-dns.html.
+#   - /etc/racoon/racoon.conf -- a role-agnostic, inert default, but only
+#     if that path doesn't already exist; irrelevant for a fresh package
+#     build (pkgdir always starts empty) but means a rebuild/reinstall
+#     never clobbers a config an admin has since edited.
+#   - /etc/racoon/certs/, empty (X.509 is this project's primary
+#     authentication path).
+#   - /etc/racoon/hooks.conf.sample, alongside where hooks.conf itself
+#     goes.
+#   - The full documentation examples tree (racoon.conf.default,
+#     racoon.conf.sample-{natt,plainrsa,gssapi,inherit}, psk.txt.example,
+#     roadwarrior/**) under $(docdir)/examples. Since this PKGBUILD's
+#     pkgname is "ipsec-tools" -- the same as upstream's own
+#     PACKAGE_TARNAME -- autotools' default $(docdir) (no --docdir
+#     override needed) already resolves to
+#     usr/share/doc/ipsec-tools, exactly where this function's own
+#     doc-tree installs below (LICENSE, NEWS.md, admin-guide, ...) land.
+#   - racoon.service/setkey.service, at whatever $(systemdsystemunitdir)
+#     pkg-config's systemd.pc reports -- /usr/lib/systemd/system on Arch,
+#     no --with-systemdsystemunitdir override needed. These used to be
+#     independently forked copies of debian/racoon.service and
+#     debian/ipsec-tools.setkey.service; now there is exactly one
+#     upstream unit definition (systemd/racoon.service.in,
+#     systemd/setkey.service.in), templated per build with the right
+#     binary path and EnvironmentFile= directory.
+#   - /etc/conf.d/{racoon,setkey} (build()'s own
+#     --with-environmentdir=/etc/conf.d, matching Arch's own
+#     conf.d convention rather than upstream's /etc/default default).
+# What's left here is genuinely package-specific: Arch config file
+# locations ported from debian/ (ipsec-tools.conf, ipsec-tools.d),
+# sysusers.d/tmpfiles.d, the usrmerge/var-run adjustments, and doc
+# content the autotools install still doesn't cover (split-dns.html,
+# the admin guide, the legacy tunnel-example.txt carried over from
+# debian/examples).
 package() {
   cd "racoon-ipsec-tools"
   make DESTDIR="$pkgdir" install
@@ -70,7 +90,7 @@ package() {
   install -Dm644 NEWS.md "$pkgdir/usr/share/doc/$pkgname/NEWS.md"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
 
-  # usrmerge (/usr/sbin) and /var/run tmpfs conflicts - see PACKAGING_NOTES.md
+  # usrmerge (/usr/sbin) and /var/run tmpfs conflicts
   if [ -d "$pkgdir/usr/sbin" ]; then
     mkdir -p "$pkgdir/usr/bin"
     mv "$pkgdir"/usr/sbin/* "$pkgdir/usr/bin/" 2>/dev/null || true
@@ -78,29 +98,28 @@ package() {
   fi
   rm -rf "$pkgdir/var/run"
 
-  # config, ported from debian/ - see PACKAGING_NOTES.md
-  install -dm755 "$pkgdir/etc/racoon/certs" \
-                 "$pkgdir/etc/racoon/scripts" \
-                 "$pkgdir/etc/ipsec-tools.d"
-  install -Dm644 debian/racoon.conf "$pkgdir/etc/racoon/racoon.conf"
-  install -Dm600 src/racoon/samples/psk.txt.sample "$pkgdir/etc/racoon/psk.txt"
+  # Arch-specific config, ported from debian/. racoon.conf and psk.txt
+  # are deliberately NOT installed here: `make install` above already
+  # installed a safe, role-agnostic racoon.conf (only if one wasn't
+  # already there), and there is no default psk.txt to ship at all --
+  # create one from usr/share/doc/ipsec-tools/examples/psk.txt.example
+  # if/when a remote block actually needs pre-shared-key or XAuth
+  # authentication.
+  install -dm755 "$pkgdir/etc/ipsec-tools.d"
   install -Dm644 debian/ipsec-tools.conf "$pkgdir/etc/ipsec-tools.conf"
-  install -Dm644 etc/racoon/hooks.conf.sample "$pkgdir/usr/share/doc/$pkgname/examples/hooks.conf.sample"
   install -Dm644 doc/admin/split-dns.html "$pkgdir/usr/share/doc/$pkgname/split-dns.html"
 
-  # systemd units + runtime plumbing
-  install -Dm644 "$srcdir/racoon.service" "$pkgdir/usr/lib/systemd/system/racoon.service"
-  install -Dm644 "$srcdir/setkey.service" "$pkgdir/usr/lib/systemd/system/setkey.service"
-  install -Dm644 "$srcdir/racoon.envfile" "$pkgdir/etc/conf.d/racoon"
-  install -Dm644 "$srcdir/setkey.envfile" "$pkgdir/etc/conf.d/setkey"
+  # sysusers.d/tmpfiles.d: still Arch-specific (Debian creates the
+  # racoon user via postinst's adduser instead) -- racoon.service/
+  # setkey.service and /etc/conf.d/{racoon,setkey} are no longer
+  # installed here at all, `make install` above already placed them.
   install -Dm644 "$srcdir/ipsec-tools.sysusers" "$pkgdir/usr/lib/sysusers.d/$pkgname.conf"
   install -Dm644 "$srcdir/ipsec-tools.tmpfiles" "$pkgdir/usr/lib/tmpfiles.d/$pkgname.conf"
 
-  # docs, examples, admin guide - see PACKAGING_NOTES.md
-  install -dm755 "$pkgdir/usr/share/doc/$pkgname/examples"
-  install -m644 src/racoon/samples/racoon.conf.sample* \
-    "$pkgdir/usr/share/doc/$pkgname/examples/"
-  install -m644 debian/examples/tunnel-openbsd-to-debian-example.txt \
+  # Doc content the autotools install doesn't cover: the legacy
+  # site-to-site tunnel walkthrough carried over from debian/examples,
+  # the packaging README, and the admin guide.
+  install -Dm644 debian/examples/tunnel-openbsd-to-debian-example.txt \
     "$pkgdir/usr/share/doc/$pkgname/examples/tunnel-example.txt"
   install -Dm644 debian/racoon.README.Debian "$pkgdir/usr/share/doc/$pkgname/README.packaging"
   cp -r docs/admin-guide "$pkgdir/usr/share/doc/$pkgname/admin-guide"

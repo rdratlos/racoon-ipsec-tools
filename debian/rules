@@ -50,6 +50,7 @@ override_dh_auto_configure:
 					--disable-static \
 					--disable-security-context \
 					--without-readline \
+					--with-systemdsystemunitdir=/usr/lib/systemd/system \
 					$(COV_FLAGS)
 
 override_dh_clean:
@@ -65,8 +66,6 @@ override_dh_install:
 	mkdir -p debian/racoon/var/lib/racoon
 	install -m 755 debian/racoon-tool.pl \
 	    debian/racoon/usr/sbin/racoon-tool
-	install -D -m 600 src/racoon/samples/psk.txt.sample \
-	    debian/racoon/etc/racoon/psk.txt
 	install -m 644 debian/racoon-tool.conf \
 	    debian/racoon/etc/racoon
 	install -m 644 debian/racoon.conf \
@@ -92,8 +91,18 @@ override_dh_installexamples:
 	# Glob the contents rather than passing the directory itself, so
 	# examples land at /usr/share/doc/racoon/examples/roadwarrior/... (as
 	# referenced by debian/racoon.conf) instead of being nested one level
-	# deeper under an extra .../examples/samples/... path segment.
-	dh_installexamples -pracoon -X.in src/racoon/samples/*
+	# deeper under an extra .../examples/examples/... path segment.
+	#
+	# Unlike the old src/racoon/samples/ (plain static files, no build
+	# role of its own), docs/examples/ is a real automake directory with
+	# its own Makefile.am -- by the time this runs (after dh_autoreconf +
+	# dh_auto_build), the glob below would also match Makefile.am,
+	# Makefile.in, and the generated Makefile sitting right alongside the
+	# actual example files. -XMakefile excludes all three (substring
+	# match); -X.in still separately excludes racoon.conf.default.in
+	# (its rendered racoon.conf.default is the intended, generated
+	# example, and is not itself excluded).
+	dh_installexamples -pracoon -X.in -XMakefile docs/examples/*
 	dh_installexamples
 
 override_dh_installman:
