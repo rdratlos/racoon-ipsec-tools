@@ -574,16 +574,32 @@ Full suite: **44/44 pass** (40 before, plus these four), release build,
 `-DHAVE_LIBPAM` (`-Wall -Werror`), since the PAM cases are not compiled in
 the default configuration.
 
-### What could not be verified here
+### Live verification
 
-* **`privsep_priv()`'s loop end to end.** It only runs inside
-  `privsep_init()`'s privilege-dropping `fork()`, which needs a real
-  PF_KEY/XFRM-capable kernel — the same constraint noted throughout
-  `daemon-issues.md` and in `test_privsep_sigterm_forward.c`. The
-  descriptor handshake the containment depends on is tested directly
-  instead. A live run under `user`/`group` privsep config, exercising a
-  certificate load, a PSK lookup and a phase1-up hook, is the recommended
-  next step.
+The dispatch loop only runs inside `privsep_init()`'s privilege-dropping
+`fork()`, so no test binary reaches it — the same constraint noted
+throughout `daemon-issues.md` and in `test_privsep_sigterm_forward.c`.
+`privsep-verification-runbook.md` drives it on a real host instead. Status
+on a real Arch roadwarrior:
+
+* **Phase 1 (happy path): pass**, after the two pre-existing bugs it found
+  (§2.4.1, §2.4.2) were fixed. One connect/disconnect cycle covers a
+  certificate load, a PF_KEY dump, socket/bind/setsockopt escalation and
+  both hooks.
+* **Phase 2 (handshake order): pass.** 10 commands, 10 body reads, 10
+  replies — no drift. One descriptor message per request in each
+  direction: 5 `recvmsg` for 4 `SETSOCKOPTS` + 1 `BIND`, 2 `sendmsg` for
+  2 `SOCKET`. The passed descriptor number does not climb across requests,
+  so none are leaked. `setsockopt(SOL_IPV6, IPV6_IPSEC_POLICY) = 0`
+  executes in the privileged process — §2.4.2's fix working end to end,
+  and the first time `PRIVSEP_SETSOCKOPTS`' escalation path (hence §2.2's
+  reordering and §2.3.1's bounded wait) has run on Linux at all. A
+  1392-byte `EAY_GET_PKCS1PRIVKEY` reply exercised §2.1's rewritten
+  `racoon_realloc()` grow path. No timeouts, no desync.
+* **Phases 3-4 (bounded wait; containment under fault injection):
+  pending.**
+
+### What could not be verified here
 * **`policy.c`'s `#ifndef __linux__` branch**, which is not compiled on
   this project's primary platform. It is exercised by the NetBSD CI
   workflow; the change mirrors the sibling check immediately above it,

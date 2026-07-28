@@ -208,51 +208,112 @@ because it would mean the bypass has never worked on that host, not that
 the fix is wrong.
 
 Note that `privsep_setsockopt()` and `privsep_bind()` only escalate to the
-privileged process when the direct call fails with `EACCES`. If the unit
-grants the daemon `CAP_NET_ADMIN`/`CAP_NET_BIND_SERVICE`, they succeed
-directly and those commands are never sent. Phase 2 tells you which
-happened.
+privileged process when the direct call fails with a privilege errno
+(`EACCES` or, on Linux, `EPERM` — see §2.4.2). If the unit grants the
+daemon `CAP_NET_ADMIN`/`CAP_NET_BIND_SERVICE`, they succeed directly and
+those commands are never sent. Phase 2 tells you which happened.
 
 ---
 
 ## 3. Phase 2 — watch the handshake
 
 ```bash
-sudo strace -f -tt -p $PRIV \
+sudo strace -tt -p $PRIV \
      -e trace=socket,bind,setsockopt,recvmsg,sendmsg,sendto,recvfrom
 ```
 
-Then initiate a connection from another shell. The order is the whole point
-of §2.2. For `PRIVSEP_BIND` / `PRIVSEP_SETSOCKOPTS` the descriptor is now
-received **before** any validation:
+**Do not add `-f` here.** Under privsep the privileged process is the one
+that forks hooks, so following forks drags in the entire `phase1-up` tree —
+every `ip`, `setkey` and `resolvectl` it runs. The first capture of this
+phase came to 3041 lines, of which 2601 were `+++ exited with 0 +++` and
+`SIGCHLD` from those children and 50 were the privileged process itself.
+Without `-f` you get just the 50. If you do want to watch the hook fork,
+add `-f -e signal=none --quiet=attach,exit` so the child bookkeeping stays
+quiet.
+
+### Reading it
+
+Every request is a peek of the 8-byte `admin_com` header, a read of the
+whole message, and one reply. The command is the third and fourth bytes,
+little-endian (`privsep.h`):
+
+| bytes | command |
+| --- | --- |
+| `\1\10` | `PRIVSEP_EAY_GET_PKCS1PRIVKEY` (0x0801) |
+| `\3\10` | `PRIVSEP_SCRIPT_EXEC` (0x0803) |
+| `\4\10` | `PRIVSEP_GETPSK` (0x0804) |
+| `\n\10` | `PRIVSEP_SETSOCKOPTS` (0x080A) |
+| `\v\10` | `PRIVSEP_BIND` (0x080B) |
+| `\f\10` | `PRIVSEP_SOCKET` (0x080C) |
+
+A bare reply is 200 bytes (`sizeof(struct privsep_com_msg)`); anything
+larger is carrying data back.
+
+The ordering is the whole point of §2.2. For `BIND`/`SETSOCKOPTS` the
+descriptor is received **immediately after the command, before any
+validation**:
 
 ```
-recvfrom(3, ...)                 <- the command
-recvmsg(3, {... SCM_RIGHTS ...}) <- the descriptor, immediately after
-setsockopt(7, SOL_IP, IP_IPSEC_POLICY, ...)
-sendto(3, ...)                   <- the reply
+recvfrom(18, "\370\0\n\10...", 8, MSG_PEEK)      <- SETSOCKOPTS header
+recvfrom(18, "\370\0\n\10...", 248, 0)           <- the command
+recvmsg(18, {... SCM_RIGHTS ...})              <- the descriptor
+setsockopt(3, SOL_IPV6, IPV6_IPSEC_POLICY, ...) = 0
+sendto(18, "\310\0\n\10...", 200, 0)             <- the reply
 ```
 
-and for `PRIVSEP_SOCKET` exactly one descriptor message goes out per
-request, on success and failure alike:
+and `SOCKET` sends exactly one descriptor message per request, on success
+and failure alike:
 
 ```
-recvfrom(3, ...)
-socket(AF_INET, SOCK_DGRAM, 0)   = 7
-sendmsg(3, {... SCM_RIGHTS [7] ...})
-sendto(3, ...)
+recvfrom(18, "\324\0\f\10...", 8, MSG_PEEK)
+recvfrom(18, "\324\0\f\10...", 212, 0)
+socket(AF_INET6, SOCK_DGRAM, IPPROTO_IP) = 3
+sendmsg(18, {... SCM_RIGHTS [3] ...})
+sendto(18, "\310\0\f\10...", 200, 0)
 ```
 
-**Pass:** every `recvfrom` of a command is followed by exactly one
-`sendto` of a reply, with the descriptor message on the correct side of it,
-and the pattern repeats indefinitely without drift.
+**Pass criteria**, all four checkable by counting:
 
-If `setsockopt`/`bind` never appear, the daemon has the capabilities to do
-them itself — see the note at the end of Phase 1. Phase 3 depends on those
-two escalating (they are the only commands where the *child* passes a
-descriptor), so in that case remove the capabilities from the unit for the
-duration of the test. The shipped unit grants none, so by default they do
-escalate.
+1. peeks == body reads == replies. Drift by one is the desync §2.2 exists
+   to prevent.
+2. `recvmsg` count == number of `BIND` + `SETSOCKOPTS` commands; `sendmsg`
+   count == number of `SOCKET` commands. Exactly one descriptor message
+   each way per request.
+3. The `socket()` return value does not climb across requests — the
+   privileged process closes each descriptor after passing it. A rising
+   fd number is a leak.
+4. No `privsep: timed out` in the log, and no gap between a command and
+   its reply (a stalled request would show as `<unfinished ...>` on
+   something other than the idle header peek).
+
+### Result of the first run
+
+Pass, and it confirmed more than the ordering:
+
+* **10 commands, 10 body reads, 10 replies.** No drift.
+* **5 `recvmsg` for 4 `SETSOCKOPTS` + 1 `BIND`; 2 `sendmsg` for 2
+  `SOCKET`.** Descriptor accounting exact in both directions.
+* **`socket(AF_INET6, SOCK_DGRAM, IPPROTO_IP) = 3` twice** — the same
+  descriptor number reused, so the privileged process is releasing each
+  one after handing it over.
+* **`setsockopt(3, SOL_IPV6, IPV6_IPSEC_POLICY, ...) = 0`, four times** —
+  two sockets × inbound/outbound (the policy blobs differ only in their
+  direction byte, `\4\0\1\0` vs `\4\0\2\0`). This is the §2.4.2 fix
+  working end to end: before it, the unprivileged process never escalated
+  these at all on Linux, so this is the first time racoon's own bypass
+  policies have actually been installed under privsep on this platform.
+  It also means `PRIVSEP_SETSOCKOPTS`' escalation path — the reordering of
+  §2.2 and the bounded wait of §2.3.1 — has now executed for real.
+* **A 1392-byte reply to `EAY_GET_PKCS1PRIVKEY`** (1192 bytes of key past
+  the 200-byte header), which is the `racoon_realloc()` grow path rewritten
+  in §2.1 doing its job.
+* No timeouts, no `EPERM`, no `EACCES`, no desync.
+
+The one line worth a second look is not a fault: a `PRIVSEP_GETPSK`
+(224-byte request, 208-byte reply — so 8 bytes of key came back) between
+the private-key load and the hook. Whether a PSK lookup belongs in an
+X.509 negotiation is a question about the remote's configuration, not
+about privsep.
 
 ---
 
