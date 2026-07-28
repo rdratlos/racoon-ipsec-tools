@@ -1882,8 +1882,32 @@ privsep_setsockopt(s, level, optname, optval, optlen)
 	struct sockopt_args sockopt_args;
 	int err, saved_errno = 0;
 
-	if ((err = setsockopt(s, level, optname, optval, optlen) == 0) || 
-	    (saved_errno = errno) != EACCES ||
+	/*
+	 * Try it directly first, and only ask the privileged process when
+	 * the refusal was a privilege one.
+	 *
+	 * Two long-standing defects met here, both found by issue #105's
+	 * live privsep testing on Linux (see the audit report's §2.4.2):
+	 *
+	 * - EPERM was not treated as a privilege refusal. This code was
+	 *   written for the KAME stack, where IP_IPSEC_POLICY on an
+	 *   unprivileged socket fails with EACCES; Linux's xfrm returns
+	 *   EPERM instead. So on Linux the escalation below was never
+	 *   reached at all, and racoon's own "in/out bypass" policies
+	 *   (setsockopt_bypass(), sockmisc.c) were silently never applied
+	 *   under privsep -- leaving racoon's IKE traffic exposed to
+	 *   whatever the SPD says about it.
+	 *
+	 * - "err = setsockopt(...) == 0" assigns the *comparison*, not the
+	 *   call's result: err was 1 on success and 0 on failure, so this
+	 *   function returned 0 -- which every caller reads as success --
+	 *   on every failure it did not escalate. That is what kept the
+	 *   first defect quiet: the error was logged and then reported as
+	 *   an all-clear.
+	 */
+	err = setsockopt(s, level, optname, optval, optlen);
+	if (err == 0 ||
+	    ((saved_errno = errno) != EACCES && saved_errno != EPERM) ||
 	    geteuid() == 0) {
 		if (saved_errno)
 			plog(LLV_ERROR, LOCATION, NULL,

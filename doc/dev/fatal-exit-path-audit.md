@@ -302,6 +302,55 @@ for `SOCK_DGRAM`/0, so narrowing it would cost nothing — but that is a
 privilege change unrelated to this bug, so §7 records it rather than this
 commit making it.
 
+### 2.4.2 Found by live testing: privsep never escalated setsockopt on Linux
+
+The second live finding, from the same Phase 1 run once `racoonctl vd`
+worked. Also **pre-existing**, also not an exit path — but it is the same
+"silently succeeds" failure §1's first rule is about, and it had kept a
+real defect quiet for as long as the code has existed.
+
+The log showed, repeatedly, next to sockets that then carried on normally:
+
+```
+ERROR: privsep_setsockopt (Operation not permitted)
+INFO:  fe80::...%racoon0[500] used as isakmp port (fd=17)
+```
+
+Two defects, one hiding the other:
+
+1. **The escalation condition tested `EACCES` alone.** That is what the
+   KAME stack returns for `IP_IPSEC_POLICY` on an unprivileged socket;
+   Linux's xfrm returns `EPERM`. So on Linux the privileged process was
+   *never asked* — meaning `setsockopt_bypass()`'s "in bypass"/"out bypass"
+   policies (sockmisc.c) have never been applied to racoon's own sockets
+   under privsep on this platform.
+
+2. **`if ((err = setsockopt(...) == 0) || …)`** assigns the *comparison*,
+   not the call's result. `err` was 1 on success and 0 on failure, and
+   every caller tests `< 0` — so every failure this function did not
+   escalate was handed back as success. That is why defect 1 produced only
+   a stray log line rather than a visible malfunction:
+   `setsockopt_bypass()` was told it had worked.
+
+Both fixed: `EPERM` now counts as a privilege refusal alongside `EACCES`,
+and `err` holds what `setsockopt()` actually returned.
+
+**This changes behaviour beyond the log noise, deliberately.** With the
+return value corrected, a bypass `setsockopt()` that genuinely fails now
+propagates: `setsockopt_bypass()` returns -1 and `isakmp_open()` takes its
+`goto err` — refusing to open that socket rather than opening one without
+the bypass policy. That is what the surrounding code was always written to
+do; the precedence bug is what stopped it. On a host where the privileged
+process can set the policy (root, `CONFIG_XFRM`), the escalation now
+succeeds and nothing is refused. On one where even root cannot, sockets
+that used to open silently unprotected will now fail to open — loudly,
+which is the right way round, but worth knowing before it is seen.
+
+Worth noting what this means for the audit's own subject: the escalation
+path for `PRIVSEP_SETSOCKOPTS` — the descriptor-first reordering of §2.2,
+the bounded wait of §2.3.1 — had, on Linux, never executed at all before
+this fix. It does now.
+
 ### 2.5 Note on the privsep threat model
 
 The privileged process treats messages from the unprivileged one as
@@ -488,7 +537,7 @@ buffer idiom rather than to the macro.
 
 ## 5. Tests
 
-Three new regression tests, following this project's established
+Four new regression tests, following this project's established
 wrapped-static-function pattern (see `test/README.md` and
 `test_prune_stale_monitored_fds.c`), plus the existing suite:
 
@@ -508,6 +557,10 @@ wrapped-static-function pattern (see `test/README.md` and
   peer sends nothing, and works in the reply-send direction too. Note the
   failure signature of a regression here: an unbounded wait does not fail
   that test, it hangs the harness — which is the production symptom.
+* **`test/test_privsep_setsockopt.c`** — `privsep_setsockopt()`'s return
+  contract (§2.4.2): a failure must look like a failure. Verified against
+  the pre-fix code, where both its cases fail. Needs no privsep host and
+  behaves identically as root or not.
 * **`test/test_privsep_socket_policy.c`** — the `PRIVSEP_SOCKET` policy
   gate (§2.4.1), asserted in both directions: the three sockets racoon
   legitimately asks for are admitted, PF_KEY only in `pfkey_open()`'s exact
@@ -515,7 +568,7 @@ wrapped-static-function pattern (see `test/README.md` and
   found the PF_KEY omission the hard way; the gate is now a separate
   predicate so that policy is checkable without a privsep host.
 
-Full suite: **43/43 pass** (40 before, plus these three), release build,
+Full suite: **44/44 pass** (40 before, plus these four), release build,
 `--enable-adminport --enable-hybrid --enable-natt --enable-frag`.
 `privsep.c` and `isakmp_xauth.c` additionally syntax-checked with
 `-DHAVE_LIBPAM` (`-Wall -Werror`), since the PAM cases are not compiled in
@@ -551,7 +604,7 @@ the default configuration.
 | `src/racoon/policy.c` | `cmpspidxwild()` dst check returns "no match"; masking failures likewise |
 | `src/racoon/isakmp_xauth.c` | `PAM_conv()` returns `PAM_CONV_ERR` instead of exiting |
 | `src/racoon/cfparse.y` | `cfparse()` returns -1 instead of exiting on the `yyerrorcount` branch |
-| `test/test_monitor_fd_range.c`, `test/test_privsep_fd_passing.c`, `test/test_privsep_socket_policy.c`, `test/Makefile.am` | New regression tests |
+| `test/test_monitor_fd_range.c`, `test/test_privsep_fd_passing.c`, `test/test_privsep_socket_policy.c`, `test/test_privsep_setsockopt.c`, `test/Makefile.am` | New regression tests |
 
 ---
 
@@ -559,12 +612,16 @@ the default configuration.
 
 In priority order, with the reason each is separate rather than folded in:
 
-1. **Narrow `PRIVSEP_SOCKET`'s INET policy** (§2.4.1). The INET families
-   are admitted for any type/protocol; every caller asks for
-   `SOCK_DGRAM`/0. Narrowing removes a compromised child's ability to
-   obtain a raw socket from the privileged process. One line, plus
-   flipping two rows in `test_privsep_socket_policy.c`'s table — both
-   already marked in place.
+1. **Narrow the two privsep policy gates** (§2.4.1, §2.4.2). `PRIVSEP_SOCKET`
+   admits the INET families for any type/protocol, though every caller asks
+   for `SOCK_DGRAM`/0 — so a compromised child can obtain a raw socket it
+   would need `CAP_NET_RAW` for. `PRIVSEP_SETSOCKOPTS` picks its expected
+   option with `level == IPPROTO_IP ? IP_IPSEC_POLICY : IPV6_IPSEC_POLICY`,
+   so any level that is neither is checked against the IPv6 constant rather
+   than rejected. Both are a few lines, plus flipping two already-marked
+   rows in `test_privsep_socket_policy.c`'s table. Held back only because
+   tightening privileges mid-verification would muddy the signal from the
+   runbook's phases.
 2. **Carry the descriptor on the command message** (§2.3.1). Would remove
    the two-message exchange for `BIND`/`SETSOCKOPTS`/`SOCKET` outright, and
    with it the last place where a timeout has to end the process instead of

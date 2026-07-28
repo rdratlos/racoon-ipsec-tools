@@ -873,6 +873,41 @@ test_privsep_socket_policy_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_privsep_socket_policy_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Test: privsep_setsockopt()'s return contract (issue #105) -- it opened
+# with "err = setsockopt(...) == 0", assigning the comparison rather than
+# the call's result, so err was 1 on success and 0 on failure and every
+# caller (which all test "< 0") read an unescalated failure as success.
+# That hid a second defect: the escalation condition tested EACCES alone,
+# which is what KAME returns for IP_IPSEC_POLICY on an unprivileged
+# socket, while Linux's xfrm returns EPERM -- so under privsep on Linux
+# the privileged process was never asked, setsockopt_bypass()'s in/out
+# bypass policies were never applied to racoon's own sockets, and the
+# caller was told it had worked.
+#
+# Needs no privsep host and no PF_KEY/XFRM kernel, and behaves identically
+# as root and as an ordinary user: it drives the real function against a
+# real socket with an option that fails for a non-privilege reason.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_privsep_setsockopt
+
+test_privsep_setsockopt_SOURCES  = test_privsep_setsockopt.c \
+	privsep_unittest_src.c
+test_privsep_setsockopt_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_setsockopt_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_privsep_setsockopt_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_setsockopt_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
 # They follow automake's default "simple" test protocol (exit 0 = pass,

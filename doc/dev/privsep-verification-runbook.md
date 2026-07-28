@@ -124,6 +124,7 @@ because the unprivileged side cannot do any of this for itself:
 | Step | Commands reached |
 | --- | --- |
 | Resolving a local address for the peer (`getlocaladdr()`, sockmisc.c) | `PRIVSEP_SOCKET`, `PRIVSEP_SETSOCKOPTS` ×2 (in/out bypass) |
+| Dumping the SADB (`pfkey_dump_sadb()`, pfkey.c — `vd`, `show-sa esp`, DPD) | `PRIVSEP_SOCKET` (PF_KEY) |
 | Opening/binding an ISAKMP socket (`isakmp_open()`) | `PRIVSEP_SOCKET`, `PRIVSEP_SETSOCKOPTS`, `PRIVSEP_BIND` |
 | Authentication | `PRIVSEP_EAY_GET_PKCS1PRIVKEY` (X.509) or `PRIVSEP_GETPSK` (PSK) |
 | `phase1-up` / `phase1-down` hooks | `PRIVSEP_SCRIPT_EXEC` |
@@ -180,6 +181,31 @@ legible log lines above. Fixed by admitting PF_KEY in
 If you see those lines, you are running a build from before that fix —
 `git pull` and rebuild. The trailing `: Success` is `ipsec_strerror()`
 reporting on an `errno` libipsec never set, not a second fault.
+
+The re-run then found a second pre-existing bug (§2.4.2), visible as a
+stray error next to sockets that opened anyway:
+
+```
+racoon[CHILD]: ERROR: privsep_setsockopt (Operation not permitted)
+racoon[CHILD]: INFO:  fe80::...%racoon0[500] used as isakmp port (fd=17)
+```
+
+`privsep_setsockopt()` escalated only on `EACCES` — KAME's errno for this
+— while Linux returns `EPERM`, so the privileged process was never asked
+and `setsockopt_bypass()`'s in/out bypass policies were never applied
+under privsep on Linux. An operator-precedence bug in the same statement
+returned that failure to the caller as success, which is why it showed up
+as a log line rather than a malfunction. Both fixed.
+
+**Watch for one consequence** on the re-run: with the return value
+corrected, a bypass `setsockopt()` that genuinely fails now stops
+`isakmp_open()` from opening that socket, instead of opening it
+unprotected. Expected result is that the errors simply disappear (the
+privileged process can set the policy). If instead you see the
+`used as isakmp port` lines *disappear* for some address, that is this
+change turning a previously silent failure into a hard one — report it,
+because it would mean the bypass has never worked on that host, not that
+the fix is wrong.
 
 Note that `privsep_setsockopt()` and `privsep_bind()` only escalate to the
 privileged process when the direct call fails with `EACCES`. If the unit
