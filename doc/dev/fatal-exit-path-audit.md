@@ -615,7 +615,21 @@ on a real Arch roadwarrior:
     `privsep_do_exit()` → `close_session()` path. The runbook now uses a
     scripted `gdb -batch … detach` so the window does not depend on
     operator timing.
-* **Phase 4 (containment under fault injection): pending.**
+* **Phase 4 (containment under fault injection): 5a and 5b pass.**
+  * *5a, refused hook:* the privileged side logged its refusal and the
+    child logged `Script phase1_up execution failed` — §2.4's fix, which
+    is what makes a refusal visible to the caller at all. Before it the
+    reply carried `ac_errno == 0` and the hook silently did not run. The
+    daemon carried on; a later `racoonctl vd` purged normally.
+  * *5b, corrupted `ac_cmd`:* the privileged process logged
+    `unexpected privsep command 48879` (`0xBEEF`) and answered `EINVAL`;
+    the child failed **that negotiation only** (`failed to get private
+    key` → `phase1 negotiation failed`). The daemon stayed up — proven
+    independently by a `phase1-down` hook running after the fault, since
+    under privsep only the privileged process can fork one. On `develop`
+    that command reaches the `default:` case and `_exit()`s, taking the
+    daemon and every live SA with it.
+  * *5c (natural `E2BIG` overflow): not yet run.*
 
 ### What could not be verified here
 * **`policy.c`'s `#ifndef __linux__` branch**, which is not compiled on

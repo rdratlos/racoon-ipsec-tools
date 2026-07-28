@@ -525,6 +525,53 @@ sudo rm -r /etc/systemd/system/racoon.service.d/fault.conf
 sudo systemctl daemon-reload && sudo systemctl restart racoon
 ```
 
+### Result of the first run
+
+**5a: pass.** Both halves of the exchange showed up, which is the point —
+the refusal on one side and the caller learning about it on the other:
+
+```
+racoon[PRIV]:  ERROR: privsep_script_exec: unsafe script "/tmp/phase1-up.sh"
+racoon[CHILD]: ERROR: Script phase1_up execution failed
+```
+
+That second line is `script_hook()` (isakmp.c) reacting to `EPERM` in the
+reply. Before §2.4 the refusal was answered with `ac_errno == 0`, so
+`privsep_script_exec()` returned success and that line never printed: the
+hook silently did not run. The daemon then carried on normally — a later
+`racoonctl vd` purged the SA and ran `phase1-down` — and `phase1-down`'s
+own "no live state generation matches this session's IKE_COOKIE" warning
+is the expected consequence of a `phase1-up` that never ran, not a second
+fault.
+
+**5b: pass, and this is the audit's headline claim confirmed on real
+hardware.**
+
+```
+racoon[PRIV]:  ERROR: unexpected privsep command 48879
+racoon[CHILD]: ERROR: failed to get private key.
+racoon[CHILD]: [10.77.254.7] ERROR: failed to process ph1 packet (side: 0, status: 6).
+racoon[CHILD]: [10.77.254.7] ERROR: phase1 negotiation failed.
+```
+
+48879 is `0xBEEF`, the shim's mangled `ac_cmd`; it landed on the
+`EAY_GET_PKCS1PRIVKEY` request. The privileged process refused it with
+`EINVAL`, `privsep_eay_get_pkcs1privkey()` returned NULL, and
+`oakley_ph1sign()` (oakley.c) failed *that negotiation* — nothing else.
+
+The decisive evidence that the daemon survived is in the next line of the
+log, and it is worth knowing to look for: a `racoon-phase1-down[...]`
+process ran *after* the fault. Under privsep only the privileged process
+can `fork()+execve()` a hook, so a hook running after the corrupted
+command is direct proof that process was still alive and still serving
+requests. On `develop` that same command reaches the dispatch loop's
+`default:` case and `_exit()`s, so there is nothing left to fork it.
+
+For a second, independent check: the shim fires once, so a repeat
+`racoonctl vc` should simply succeed.
+
+**5c: not yet run.**
+
 ### 5c. Natural overflow (opportunistic)
 
 `PRIVSEP_SCRIPT_EXEC`'s "too many args" path (`E2BIG`, §2.1) has a real-world
