@@ -1736,7 +1736,16 @@ isakmp_open(struct sockaddr *addr, int udp_encap)
 	     "%s used as isakmp port (fd=%d)\n",
 	     saddr2str(addr), fd);
 
-	monitor_fd(fd, isakmp_handler, NULL, 1);
+	/*
+	 * Addresses can appear while the daemon is running (myaddr_open(),
+	 * grabmyaddr.c, on a routing-socket/netlink update), so a descriptor
+	 * that does not fit in the main loop's fd_set has to fail just this
+	 * address, exactly like the socket/setsockopt/bind failures above --
+	 * not the whole process.
+	 */
+	if (monitor_fd(fd, isakmp_handler, NULL, 1) != 0)
+		goto err;
+
 	return fd;
 
 err:

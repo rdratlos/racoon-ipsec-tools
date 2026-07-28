@@ -253,10 +253,13 @@ cmpspidxwild(a, b)
 		return 1;
 	}
 #endif
-	mask_sockaddr((struct sockaddr *)&sa1, (struct sockaddr *)&a->src,
-		b->prefs);
-	mask_sockaddr((struct sockaddr *)&sa2, (struct sockaddr *)&b->src,
-		b->prefs);
+	/* a masking failure means the two cannot be compared: no match */
+	if (mask_sockaddr((struct sockaddr *)&sa1, (struct sockaddr *)&a->src,
+		b->prefs) != 0)
+		return 1;
+	if (mask_sockaddr((struct sockaddr *)&sa2, (struct sockaddr *)&b->src,
+		b->prefs) != 0)
+		return 1;
 	plog(LLV_DEBUG, LOCATION, NULL, "%p masked with /%d: %s\n",
 		a, b->prefs, saddr2str((struct sockaddr *)&sa1));
 	plog(LLV_DEBUG, LOCATION, NULL, "%p masked with /%d: %s\n",
@@ -265,16 +268,29 @@ cmpspidxwild(a, b)
 		return 1;
 
 #ifndef __linux__
-	/* compare dst address */
+	/*
+	 * compare dst address
+	 *
+	 * Treated exactly like the src check above (which already returns
+	 * "no match"): this runs per policy lookup, driven by PF_KEY
+	 * messages and configured policies, so an over-long sockaddr means
+	 * this one comparison cannot be made -- not that the daemon and
+	 * every SA it holds has to end (issue #105).
+	 */
 	if (sizeof(sa1) < a->dst.ss_len || sizeof(sa2) < b->dst.ss_len) {
-		plog(LLV_ERROR, LOCATION, NULL, "unexpected error\n");
-		exit(1);
+		plog(LLV_ERROR, LOCATION, NULL,
+			"unexpected error: "
+			"dst.ss_len:%d dst.ss_len:%d\n",
+			a->dst.ss_len, b->dst.ss_len);
+		return 1;
 	}
 #endif
-	mask_sockaddr((struct sockaddr *)&sa1, (struct sockaddr *)&a->dst,
-		b->prefd);
-	mask_sockaddr((struct sockaddr *)&sa2, (struct sockaddr *)&b->dst,
-		b->prefd);
+	if (mask_sockaddr((struct sockaddr *)&sa1, (struct sockaddr *)&a->dst,
+		b->prefd) != 0)
+		return 1;
+	if (mask_sockaddr((struct sockaddr *)&sa2, (struct sockaddr *)&b->dst,
+		b->prefd) != 0)
+		return 1;
 	plog(LLV_DEBUG, LOCATION, NULL, "%p masked with /%d: %s\n",
 		a, b->prefd, saddr2str((struct sockaddr *)&sa1));
 	plog(LLV_DEBUG, LOCATION, NULL, "%p masked with /%d: %s\n",

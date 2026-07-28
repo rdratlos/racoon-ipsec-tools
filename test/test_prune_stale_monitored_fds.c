@@ -53,7 +53,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
-extern void monitor_fd(int fd, int (*callback)(void *, int), void *ctx,
+extern int monitor_fd(int fd, int (*callback)(void *, int), void *ctx,
     int priority);
 extern void unmonitor_fd(int fd);
 extern int prune_stale_monitored_fds_unittest(void);
