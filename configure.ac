@@ -1262,6 +1262,7 @@ AS_IF([test "x$with_systemdsystemunitdir" != "xno"],
 cat <<_RACOON_SUMMARY_EOF
 
 *** racoon feature summary ***
+  Systemd units     : $summary_systemd
   Shared libraries  : $enable_shared
   Hybrid auth       : $enable_hybrid
   DPD               : $enable_dpd
@@ -1273,7 +1274,6 @@ cat <<_RACOON_SUMMARY_EOF
   PAM               : $summary_pam
   Readline          : $summary_readline
   Security Context  : $summary_secctx
-  Systemd units     : $summary_systemd
 
 _RACOON_SUMMARY_EOF
 
