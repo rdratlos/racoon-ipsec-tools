@@ -302,6 +302,13 @@ for `SOCK_DGRAM`/0, so narrowing it would cost nothing — but that is a
 privilege change unrelated to this bug, so §7 records it rather than this
 commit making it.
 
+One further observation from the same reading, recorded rather than fixed:
+`PRIVSEP_BUFLEN_MAX` (privsep.h, 4096) is defined and referenced nowhere
+in the tree. It implies a per-buffer cap that does not exist. Worth either
+enforcing or deleting, so that nobody later reads it as a guarantee — the
+mode-config values that reach `PRIVSEP_SCRIPT_EXEC` (joined split-include
+and split-DNS lists) are the ones that could plausibly approach it.
+
 ### 2.4.2 Found by live testing: privsep never escalated setsockopt on Linux
 
 The second live finding, from the same Phase 1 run once `racoonctl vd`
@@ -629,7 +636,19 @@ on a real Arch roadwarrior:
     under privsep only the privileged process can fork one. On `develop`
     that command reaches the `default:` case and `_exit()`s, taking the
     daemon and every live SA with it.
-  * *5c (natural `E2BIG` overflow): not yet run.*
+  * *5c: withdrawn as originally written.* It assumed a gateway pushing a
+    large mode-config attribute set could fill `PRIVSEP_NBUF_MAX` and
+    trigger `E2BIG`. It cannot: every list-shaped attribute is joined into
+    a single `script_env_append()` value (so a peer lengthens entries, never
+    adds them), the env count is fixed-shape at 21, and
+    `PRIVSEP_SCRIPT_EXEC_MAX_ENVC_FITS_WIRE_BUDGET` (isakmp.c) asserts
+    `3 + 21 <= 24` at compile time. `privsep_script_exec()`'s own
+    client-side guard would also refuse before anything reached the wire.
+    So the `E2BIG` row in §2.1 guards a corrupted or hostile message —
+    5b's territory — not a configuration. The runbook now uses that config
+    for what it is genuinely good for: the *ceiling* case, all 21 env vars
+    and all 24 slots in use, which is exactly the boundary PR #94's extra
+    entry once crossed.
 
 ### What could not be verified here
 * **`policy.c`'s `#ifndef __linux__` branch**, which is not compiled on

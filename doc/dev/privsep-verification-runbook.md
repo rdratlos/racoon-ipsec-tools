@@ -572,17 +572,63 @@ For a second, independent check: the shim fires once, so a repeat
 
 **5c: not yet run.**
 
-### 5c. Natural overflow (opportunistic)
+### 5c. The wire budget at its ceiling
 
-`PRIVSEP_SCRIPT_EXEC`'s "too many args" path (`E2BIG`, §2.1) has a real-world
-trigger: a gateway pushing a large modecfg attribute set — split-DNS, split-
-include, several domains — can fill `PRIVSEP_NBUF_MAX`'s 24 slots. This
-project has hit that boundary live before (see the comment on the arg-count
-check in `privsep.c`). If your gateway pushes such a set, connecting is
-itself the test: on `develop` the daemon dies at connect time, on this
-branch the hook fails with `E2BIG` and the tunnel still comes up.
+**Correction.** An earlier draft of this runbook said a gateway pushing a
+large mode-config attribute set could fill `PRIVSEP_NBUF_MAX`'s 24 slots
+and trigger the `E2BIG` path of §2.1. That is wrong, and the code says so
+in three independent places:
 
----
+* **Every list-shaped attribute is joined into one string** before it is
+  handed to `script_env_append()` — `SPLIT_INCLUDE`,
+  `INTERNAL_SPLITDNS_DOMAINS`, `INTERNAL_DNS4_LIST` and the rest. A
+  gateway with ten split-DNS domains and eleven split networks makes those
+  *values* longer; it does not add entries. No `script_env_append()` call
+  in either file sits inside a loop.
+* **The env count is fixed-shape**: 6 from `script_hook()` (isakmp.c) plus
+  at most 15 from `isakmp_cfg_setenv()` (isakmp_cfg.c) — and the split-DNS
+  pair at isakmp_cfg.c:2127/2134 is an if/else, so it contributes one
+  either way. 21 maximum, plus script, name and terminator: exactly 24.
+* **It is a compile-time assertion**, not a runtime condition:
+  `typedef char privsep_script_exec_max_envc_fits_wire_budget[(3 +
+  PRIVSEP_SCRIPT_EXEC_MAX_ENVC <= PRIVSEP_NBUF_MAX) ? 1 : -1]` (isakmp.c).
+  Exceeding the budget fails the build.
+
+And if it somehow were exceeded, `privsep_script_exec()`'s own guard
+(privsep.c) refuses **before anything reaches the wire**:
+
+```
+Unexpected error: privsep_script_exec count > PRIVSEP_NBUF_MAX
+```
+
+so the privileged side's `E2BIG` is not reachable from a conformant client
+at all. It guards a corrupted or hostile message, which is 5b's territory,
+not a configuration.
+
+**What is worth running instead.** A mode-config gateway pushing the full
+attribute set is the *ceiling* case — all 21 env vars, all 24 slots used,
+which is precisely the landmine PR #94 hit when it added a 22nd entry. A
+config like
+
+```
+default_domain "example.org";
+split_dns      "a.example.org b.example.org ... j.example.org";   # 10 domains
+split_network  include 10.66.0.0/24, 192.168.66.0/24, ... ;       # 11 networks
+```
+
+with XAuth in play (so `XAUTH_USER` is present too) packs the budget
+exactly full. Connect with it and confirm:
+
+1. **Neither guard fires.** Nothing in the log saying
+   `privsep_script_exec count > PRIVSEP_NBUF_MAX` (client side) or
+   `privsep_script_exec: too many args` (privileged side).
+2. **The hook runs and receives everything.** `phase1-up` should see
+   `SPLIT_INCLUDE`, `INTERNAL_SPLITDNS_DOMAINS`, `DEFAULT_DOMAIN` and the
+   rest populated — a truncated or missing variable would mean the joining
+   is losing data even though the slot count is fine.
+
+That validates the accounting where it actually matters, which the
+unreachable `E2BIG` path never could.
 
 ## 6. What to report back
 
