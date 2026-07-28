@@ -836,6 +836,43 @@ test_privsep_fd_passing_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_privsep_fd_passing_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Test: PRIVSEP_SOCKET's policy gate (issue #105) -- the privileged
+# process used to allow PF_INET/PF_INET6 only, refusing the PF_KEY socket
+# pfkey_dump_sadb() needs and that the unprivileged process cannot open
+# for itself. That broke every SADB dump under privsep ("racoonctl vd",
+# "show-sa esp|ah|ipsec", purge_remote()'s fallback path and so DPD and
+# peer-initiated teardown) and, before the same issue's containment work,
+# took the whole daemon down each time. It survived that long because the
+# gate is unreachable outside privsep_init()'s privilege-dropping fork():
+# a live "racoonctl vd" on a real host is what finally evaluated it.
+# privsep_socket_allowed() is a separate predicate so the policy can be
+# asserted here, in both directions -- what must be allowed, and what must
+# not.
+#
+# Same privsep.c wrapper source and explicit plog.o/logger.o linkage as
+# the two privsep tests above; privsep_socket_allowed_unittest() is a new
+# -DENABLE_UNITTEST-only accessor.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_privsep_socket_policy
+
+test_privsep_socket_policy_SOURCES  = test_privsep_socket_policy.c \
+	privsep_unittest_src.c
+test_privsep_socket_policy_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_socket_policy_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_privsep_socket_policy_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_socket_policy_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
 # They follow automake's default "simple" test protocol (exit 0 = pass,

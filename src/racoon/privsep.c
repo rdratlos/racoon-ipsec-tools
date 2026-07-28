@@ -120,6 +120,7 @@ static pid_t privsep_child_pid = 0;
 static int privsep_recv(int, struct privsep_com_msg **, size_t *);
 static int privsep_send(int, struct privsep_com_msg *, size_t);
 static int privsep_wait_io(int, int, int, const char *);
+static int privsep_socket_allowed(int, int, int);
 static int safety_check(struct privsep_com_msg *, int i);
 static int port_check(int);
 static int unsafe_env(char *const *);
@@ -344,6 +345,48 @@ privsep_handshake_failed(reply)
 		    reply->hdr.ac_len);
 }
 
+/*
+ * Which socket() calls the privileged process is willing to make on the
+ * unprivileged one's behalf (PRIVSEP_SOCKET). Returns nonzero if allowed.
+ *
+ * The two INET families cover the ISAKMP sockets. PF_KEY is allowed too,
+ * but in exactly the one flavour libipsec's pfkey_open() uses
+ * (SOCK_RAW/PF_KEY_V2) and no other: pfkey_dump_sadb() (pfkey.c) needs a
+ * PF_KEY socket of its own and has no way to get one otherwise -- the
+ * unprivileged process has no CAP_NET_ADMIN, so its own socket() call
+ * fails, and the daemon's main pfkey socket is busy carrying the main
+ * loop's traffic.
+ *
+ * Refusing PF_KEY, as this did until issue #105's live privsep testing
+ * caught it, breaks every SADB dump under privsep: "racoonctl vd" and
+ * "racoonctl show-sa esp|ah|ipsec", plus purge_remote()'s fallback path
+ * (isakmp_inf.c), which is also how DPD and peer-initiated teardown reach
+ * the SADB. Before the containment work in the same issue it did worse
+ * than break them: the refusal ended the privileged process, so any of
+ * those took the whole daemon down.
+ *
+ * Allowing it grants the unprivileged process nothing it does not already
+ * hold. pfkey_init() (session.c) opens lcconf->sock_pfkey while still
+ * root, well before privsep_init() forks, and the child inherits that
+ * descriptor and keeps it for its whole life. The narrow type/protocol
+ * match keeps this the exact shape of pfkey_open() rather than a general
+ * "any PF_KEY socket you like".
+ */
+static int
+privsep_socket_allowed(domain, type, protocol)
+	int domain;
+	int type;
+	int protocol;
+{
+	if (domain == PF_INET || domain == PF_INET6)
+		return 1;
+
+	if (domain == PF_KEY && type == SOCK_RAW && protocol == PF_KEY_V2)
+		return 1;
+
+	return 0;
+}
+
 static int
 privsep_do_exit(void *ctx, int fd)
 {
@@ -445,6 +488,18 @@ int
 privsep_wait_io_unittest(int sock, int write, int max_ms)
 {
 	return privsep_wait_io(sock, write, max_ms, "unittest");
+}
+
+/*
+ * The PRIVSEP_SOCKET policy gate. Static, and reachable in production only
+ * from inside privsep_init()'s privileged fork() -- which is exactly why
+ * its PF_KEY omission survived until someone ran "racoonctl vd" on a live
+ * privsep host. Exposed so the policy itself can be asserted in CI.
+ */
+int
+privsep_socket_allowed_unittest(int domain, int type, int protocol)
+{
+	return privsep_socket_allowed(domain, type, protocol);
 }
 #endif /* ENABLE_UNITTEST */
 
@@ -955,8 +1010,9 @@ privsep_init(void)
 				memcpy(&socket_args, bufs[0],
 				       sizeof(struct socket_args));
 
-				if (socket_args.domain != PF_INET &&
-				    socket_args.domain != PF_INET6) {
+				if (!privsep_socket_allowed(
+				    socket_args.domain, socket_args.type,
+				    socket_args.protocol)) {
 					plog(LLV_ERROR, LOCATION, NULL,
 					    "privsep_socket: "
 					     "unauthorized domain (%d)\n",

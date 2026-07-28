@@ -255,6 +255,53 @@ happened. Fixed as part of making containment meaningful:
   unprivileged side's `script_hook()` log line is the only place this
   shows up in the child's log, and it never fired.
 
+### 2.4.1 Found by live testing: PF_KEY refused under privsep
+
+The first live `racoonctl vd` on a privsep host (Phase 1 of
+`privsep-verification-runbook.md`) turned up a **pre-existing** bug that
+this audit's containment work changed the symptom of, and that is worth
+recording precisely because of how it presented.
+
+`pfkey_dump_sadb()` (pfkey.c) opens a PF_KEY socket of its own via
+`privsep_socket()`. `PRIVSEP_SOCKET`'s policy gate allowed `PF_INET` and
+`PF_INET6` only, so it refused. The gate and the call site have coexisted
+unchanged since the project's import.
+
+What that costs is not one obscure command. `pfkey_dump_sadb()` is reached
+from `racoonctl vd` and `racoonctl show-sa esp|ah|ipsec`, and from
+`purge_remote()`'s fallback path (isakmp_inf.c) — which is also how DPD
+expiry and peer-initiated teardown reach the SADB.
+
+* **Before this audit:** the refusal did `goto out` → `_exit(0)`, so *any*
+  of those took the whole daemon down. On a privsep host, `racoonctl vd`
+  could not do anything else.
+* **After §2.1, before this fix:** the refusal was contained. The daemon
+  survived and logged `privsep_socket: unauthorized domain (15)` — `AF_KEY`
+  — and `libipsec failed pfkey open`, and `vd` simply did not flush.
+* **Now:** `privsep_socket_allowed()` admits PF_KEY in exactly libipsec
+  `pfkey_open()`'s shape (`SOCK_RAW`/`PF_KEY_V2`) and no other.
+
+Allowing it grants the unprivileged process nothing it does not already
+hold: `pfkey_init()` (session.c) opens `lcconf->sock_pfkey` while still
+root, well before `privsep_init()` forks, and the child inherits that
+descriptor for its whole life.
+
+Two things are worth drawing out of this. First, it is a live reproduction
+of exactly the class #105 is about — a single request's policy refusal
+ending the entire daemon — found by the containment fix turning a silent
+death into a legible error message. Second, it is a reminder of what the
+`_exit()` was costing: the same wrong decision has been in this gate the
+whole time, and the exit is what made it undiagnosable.
+
+The gate is now a separate predicate, `privsep_socket_allowed()`, covered
+by `test/test_privsep_socket_policy.c` — see §5. Writing that test also
+surfaced a second, unrelated looseness: the INET families are admitted for
+*any* type and protocol, so a compromised child can request a raw socket
+it would need `CAP_NET_RAW` to open itself. Every caller in the tree asks
+for `SOCK_DGRAM`/0, so narrowing it would cost nothing — but that is a
+privilege change unrelated to this bug, so §7 records it rather than this
+commit making it.
+
 ### 2.5 Note on the privsep threat model
 
 The privileged process treats messages from the unprivileged one as
@@ -441,7 +488,7 @@ buffer idiom rather than to the macro.
 
 ## 5. Tests
 
-Two new regression tests, following this project's established
+Three new regression tests, following this project's established
 wrapped-static-function pattern (see `test/README.md` and
 `test_prune_stale_monitored_fds.c`), plus the existing suite:
 
@@ -461,8 +508,14 @@ wrapped-static-function pattern (see `test/README.md` and
   peer sends nothing, and works in the reply-send direction too. Note the
   failure signature of a regression here: an unbounded wait does not fail
   that test, it hangs the harness — which is the production symptom.
+* **`test/test_privsep_socket_policy.c`** — the `PRIVSEP_SOCKET` policy
+  gate (§2.4.1), asserted in both directions: the three sockets racoon
+  legitimately asks for are admitted, PF_KEY only in `pfkey_open()`'s exact
+  shape, and no other family at all. Written after a live `racoonctl vd`
+  found the PF_KEY omission the hard way; the gate is now a separate
+  predicate so that policy is checkable without a privsep host.
 
-Full suite: **42/42 pass** (40 before, plus these two), release build,
+Full suite: **43/43 pass** (40 before, plus these three), release build,
 `--enable-adminport --enable-hybrid --enable-natt --enable-frag`.
 `privsep.c` and `isakmp_xauth.c` additionally syntax-checked with
 `-DHAVE_LIBPAM` (`-Wall -Werror`), since the PAM cases are not compiled in
@@ -498,7 +551,7 @@ the default configuration.
 | `src/racoon/policy.c` | `cmpspidxwild()` dst check returns "no match"; masking failures likewise |
 | `src/racoon/isakmp_xauth.c` | `PAM_conv()` returns `PAM_CONV_ERR` instead of exiting |
 | `src/racoon/cfparse.y` | `cfparse()` returns -1 instead of exiting on the `yyerrorcount` branch |
-| `test/test_monitor_fd_range.c`, `test/test_privsep_fd_passing.c`, `test/Makefile.am` | New regression tests |
+| `test/test_monitor_fd_range.c`, `test/test_privsep_fd_passing.c`, `test/test_privsep_socket_policy.c`, `test/Makefile.am` | New regression tests |
 
 ---
 
@@ -506,17 +559,23 @@ the default configuration.
 
 In priority order, with the reason each is separate rather than folded in:
 
-1. **Carry the descriptor on the command message** (§2.3.1). Would remove
+1. **Narrow `PRIVSEP_SOCKET`'s INET policy** (§2.4.1). The INET families
+   are admitted for any type/protocol; every caller asks for
+   `SOCK_DGRAM`/0. Narrowing removes a compromised child's ability to
+   obtain a raw socket from the privileged process. One line, plus
+   flipping two rows in `test_privsep_socket_policy.c`'s table — both
+   already marked in place.
+2. **Carry the descriptor on the command message** (§2.3.1). Would remove
    the two-message exchange for `BIND`/`SETSOCKOPTS`/`SOCKET` outright, and
    with it the last place where a timeout has to end the process instead of
    just failing a request. Needs `privsep_recv()` restructured off its
    `MSG_PEEK` header read, since peeking `SCM_RIGHTS` installs the
    descriptor on Linux. A protocol change, not a hardening change.
-2. **Remove the `saddr2str()` `strdup` idiom** (§4.5). Deletes ~30
+3. **Remove the `saddr2str()` `strdup` idiom** (§4.5). Deletes ~30
    `STRDUP_FATAL` exits *and* ~30 allocations per busy negotiation. Should
    be scoped to the buffer idiom, not to the macro — changing the macro
    alone trades a controlled exit for an uncontrolled `%s`-of-`NULL`.
-3. **Error propagation through the config-duplication chain** (§4.4).
+4. **Error propagation through the config-duplication chain** (§4.4).
    Belongs with `reload_conf()`'s own documented "no way to go back"
    problem rather than ahead of it.
 

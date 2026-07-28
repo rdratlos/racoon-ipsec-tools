@@ -157,6 +157,30 @@ reordering in §2.2. `privsep: timed out …` appearing here (nobody is
 interfering) would mean the reordering left the two sides out of step —
 which is the specific thing §2.2 had to get right.
 
+### Already found here
+
+The first run of this phase found a real bug — a **pre-existing** one,
+predating the audit (§2.4.1):
+
+```
+racoon[PRIV]:  ERROR: privsep_socket: unauthorized domain (15)
+racoon[CHILD]: ERROR: libipsec failed pfkey open: Success
+```
+
+Domain 15 is `AF_KEY`. `pfkey_dump_sadb()` needs a PF_KEY socket of its
+own, and `PRIVSEP_SOCKET`'s policy gate admitted only the two INET
+families — so under privsep, `racoonctl vd`, `racoonctl show-sa
+esp|ah|ipsec`, and `purge_remote()`'s fallback path (hence DPD and
+peer-initiated teardown) could not dump the SADB at all. On `develop` that
+refusal ran into the dispatch loop's `_exit()`, so each of them took the
+whole daemon down; the containment work is what turned it into the two
+legible log lines above. Fixed by admitting PF_KEY in
+`pfkey_open()`'s exact shape.
+
+If you see those lines, you are running a build from before that fix —
+`git pull` and rebuild. The trailing `: Success` is `ipsec_strerror()`
+reporting on an `errno` libipsec never set, not a second fault.
+
 Note that `privsep_setsockopt()` and `privsep_bind()` only escalate to the
 privileged process when the direct call fails with `EACCES`. If the unit
 grants the daemon `CAP_NET_ADMIN`/`CAP_NET_BIND_SERVICE`, they succeed
