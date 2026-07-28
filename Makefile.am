@@ -9,6 +9,36 @@ ACLOCAL_AMFLAGS = -I m4
 # see legacy-cflags-canary.yml, which fails loudly if this becomes stale.
 DISTCHECK_CONFIGURE_FLAGS = CFLAGS="-Wno-old-style-definition"
 
+# systemdsystemunitdir (default: queried from systemd.pc) and
+# environmentdir (default: /etc/default) are both real, distro-convention
+# absolute paths -- deliberately NOT relative to $(prefix), since a
+# systemd unit has to live where systemd actually looks for it regardless
+# of where the rest of the package gets installed. `make distcheck`
+# sandboxes a build by overriding --prefix to a throwaway directory under
+# _inst/, but that override does nothing for paths that were never
+# prefix-relative to begin with: `make install` in that sandboxed build
+# still tries to write to the real /etc/default and the real
+# /usr/lib/systemd/system on the machine running distcheck, which fails
+# with "Permission denied" for anyone who isn't root (or silently pollutes
+# a real system's units for anyone who is). AM_DISTCHECK_CONFIGURE_FLAGS
+# re-points both at $(prefix) *only* for this nested distcheck configure
+# invocation, so the sandboxed install stays inside _inst/ like every
+# other file distcheck installs; the $${prefix} (not $(prefix)) is
+# deliberate -- it must reach the shell, and then the sandboxed configure
+# script, as the literal, unexpanded string "${prefix}/...", so that
+# config.status substitutes it into systemd/Makefile verbatim and it is
+# GNU Make -- not this outer make, and not the shell -- that resolves
+# $(prefix) against the sandbox's own --prefix="$$dc_install_base" at
+# `make install` time, the same deferred-expansion trick autoconf's own
+# directory variables (e.g. bindir's default "${exec_prefix}/bin") rely
+# on. Ordinary builds (a plain ./configure, with or without
+# --with-systemdsystemunitdir/--with-environmentdir) are unaffected --
+# this only ever applies to the extra configure run distcheck itself
+# performs.
+AM_DISTCHECK_CONFIGURE_FLAGS = \
+	--with-systemdsystemunitdir='$${prefix}/lib/systemd/system' \
+	--with-environmentdir='$${prefix}/etc/default'
+
 # systemd/ (racoon.service/setkey.service) is only built/installed when
 # configure found (or was told) a systemdsystemunitdir -- see
 # configure.ac's --with-systemdsystemunitdir and systemd/Makefile.am.
