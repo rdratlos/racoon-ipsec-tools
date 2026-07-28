@@ -700,6 +700,42 @@ fi
 tail -n "+$((PRE_DISCONNECT_LOGLINE_COUNT + 1))" "$RACOON_LOG" 2>/dev/null | grep -E "racoon-phase1-down" > "$OUT/04-phase1-down-report.log" 2>/dev/null
 
 # ==========================================================================
+# Step 4c: racoon liveness check after disconnect. Found live (not
+# hypothetical): a bug in admin.c's ADMIN_DELETE_ALL_SA_DST handling could
+# make racoon's own main loop exit silently right after a real
+# racoonctl vpn-disconnect, no core dump, logging only
+# "ERROR: failed to send admin command: Broken pipe" /
+# "ERROR: failed to select (Bad file descriptor)" moments before dying
+# (doc/dev/daemon-issues.md's Issue 4 follow-up has the full trace). This
+# run's own earlier evidence (task-f-results-20260727T172711Z) had exactly
+# this in racoon-syslog.log at the time and still reported a clean run:
+# the async SCRIPT_PHASE1_DOWN hook had already been fork()'d before
+# racoon died, so it kept running and reporting success independently,
+# and step 5's SPD check queries the kernel directly, not racoon --
+# neither could see racoon was already gone. Only cleanup (the very last
+# step) noticed at all, and only narrated it as benign ("already gone by
+# cleanup time -- nothing to terminate"), not as a failure. Checking here,
+# right after disconnect (when racoon is expected to still be running --
+# nothing in this script's own design stops it before final cleanup),
+# closes that gap.
+# ==========================================================================
+narrate "=== Step 4c: racoon liveness check after disconnect ==="
+RACOON_DIED_AFTER_DISCONNECT=0
+if [ -n "${RACOON_PID:-}" ] && ! kill -0 "$RACOON_PID" 2>/dev/null; then
+	RACOON_DIED_AFTER_DISCONNECT=1
+	narrate "*** FAIL: racoon (pid $RACOON_PID) is no longer running after vpn-disconnect -- it should still be alive here (this script does not stop it until final cleanup). See $RACOON_LOG around the disconnect timestamp for the ERROR line(s) that likely explain why. ***"
+else
+	narrate "racoon (pid ${RACOON_PID:-unknown}) still running after disconnect, as expected"
+fi
+
+RACOON_LOGGED_ERROR_AFTER_DISCONNECT=0
+tail -n "+$((PRE_DISCONNECT_LOGLINE_COUNT + 1))" "$RACOON_LOG" 2>/dev/null | grep -E "ERROR:" > "$OUT/04c-post-disconnect-errors.log" 2>/dev/null
+if [ -s "$OUT/04c-post-disconnect-errors.log" ]; then
+	RACOON_LOGGED_ERROR_AFTER_DISCONNECT=1
+	narrate "*** FAIL: racoon logged ERROR-level line(s) after vpn-disconnect -- see $OUT/04c-post-disconnect-errors.log ***"
+fi
+
+# ==========================================================================
 # Step 5: THE FORK IN THE ROAD. Filtered setkey -DPN immediately after
 # phase1-down.sh's own confirmed completion.
 # ==========================================================================
@@ -843,6 +879,8 @@ fi
 	echo "Original connected ISAKMP-SA: ${ORIGINAL_SPI:-<not captured, see 04-show-sa-connected.log>}"
 	echo "phase1-up.sh completion confirmed via syslog: $([ "$PHASE1_UP_CONFIRMED" -eq 1 ] && echo yes || echo NO -- see warning above)"
 	echo "phase1-down.sh completion confirmed via syslog: $([ "$PHASE1_DOWN_CONFIRMED" -eq 1 ] && echo yes || echo NO -- see warning above)"
+	echo "racoon still running after disconnect: $([ "$RACOON_DIED_AFTER_DISCONNECT" -eq 0 ] && echo yes || echo "*** NO -- racoon died, see 00-narration.log's Step 4c and $RACOON_LOG ***")"
+	echo "racoon logged an ERROR after disconnect: $([ "$RACOON_LOGGED_ERROR_AFTER_DISCONNECT" -eq 0 ] && echo no || echo "*** YES -- see $OUT/04c-post-disconnect-errors.log ***")"
 	echo "FIFO generation check (did phase1-down.sh consume THIS run's own state, or an orphaned one?): $FIFO_MATCH -- see $OUT/05b-fifo-generation-check.log"
 	echo
 	echo "## Step 5 fork-in-the-road result: tentatively BRANCH $BRANCH"
@@ -927,7 +965,13 @@ NEW_SPI="$(grep -oE 'ISAKMP-SA established.*spi:[0-9a-fA-F]+:[0-9a-fA-F]+' "$OUT
 		fi
 	fi
 	echo
-	if [ "$BRANCH" = "B" ] && [ "$ACQUIRE_FIRED" -eq 0 ]; then
+	if [ "$RACOON_DIED_AFTER_DISCONNECT" -eq 1 ]; then
+		echo "INCONCLUSIVE, NOT a Branch B confirmation: racoon itself was already dead"
+		echo "before this ping (see Step 4c above) -- no ACQUIRE firing here proves"
+		echo "nothing when there is no running daemon left to fire one. Fix racoon's"
+		echo "own crash first (see $OUT/04c-post-disconnect-errors.log and $RACOON_LOG),"
+		echo "then re-run this step's provocation against a daemon confirmed alive."
+	elif [ "$BRANCH" = "B" ] && [ "$ACQUIRE_FIRED" -eq 0 ]; then
 		echo "CONFIRMS BRANCH B: empty SPD after teardown, and no ACQUIRE fired."
 		echo "Per the task brief, this is the expected, correct kernel behaviour given"
 		echo "an empty SPD -- treat this as a clean positive confirmation, not an"
@@ -1030,7 +1074,11 @@ elif [ -n "${RACOON_PID:-}" ] && kill -0 "$RACOON_PID" 2>/dev/null; then
 		narrate "racoon (pid $RACOON_PID) terminated"
 	fi
 else
-	narrate "racoon (pid ${RACOON_PID:-unknown}) already gone by cleanup time -- nothing to terminate"
+	if [ "$RACOON_DIED_AFTER_DISCONNECT" -eq 1 ]; then
+		narrate "racoon (pid ${RACOON_PID:-unknown}) already gone by cleanup time -- nothing to terminate (already flagged as a FAILURE at Step 4c above, not a coincidence)"
+	else
+		narrate "racoon (pid ${RACOON_PID:-unknown}) already gone by cleanup time -- nothing to terminate (unexpected: Step 4c found it still alive right after disconnect, so it died somewhere between there and here -- check $RACOON_LOG for what happened in between)"
+	fi
 fi
 
 {
