@@ -985,3 +985,104 @@ surfaces against a real gateway with the right mode-config shape.
 new runtime code path), and its only job — catching a future accounting
 mismatch at build time — was directly exercised above by deliberately
 introducing one.
+
+---
+
+## Issue 5: under privsep on Linux, the IKE sockets' `IP_IPSEC_POLICY` bypass is silently never applied
+
+**Status: resolved** — `src/racoon/privsep.c` (branch
+`claude/distcheck-systemd-path-fix`)
+
+**Severity:** low-to-moderate — cosmetic on hosts with no conflicting
+IPsec policy for the IKE ports (the observed symptom was log noise only;
+`racoonctl`-driven connect/disconnect and negotiation both worked), but
+the intent of this bypass is to keep IKE's own UDP traffic from ever
+being subject to an IPsec policy racoon itself installed — on a host
+where such a policy *does* apply to ports 500/4500, this would actually
+break negotiation, not just log about it.
+
+**Reported as:** live syslog from a Manjaro road warrior running with
+`user`/`group` set (privsep active), every connect logging repeated
+`ERROR: privsep_setsockopt (Operation not permitted)` lines right
+alongside the normal `used as isakmp port (fd=N)` INFO lines — two errors
+per socket (ports 500 and 4500), i.e. one per `setsockopt_bypass()`
+policy direction ("in bypass"/"out bypass").
+
+**Root cause — two separate bugs in `privsep_setsockopt()`
+(`src/racoon/privsep.c`), both on the exact same lines.**
+
+1. **Wrong errno gates escalation to the privileged process.** The
+   unprivileged child first tries the `setsockopt(IP_IPSEC_POLICY, ...)`
+   call directly; only if that fails with `EACCES` does it forward the
+   request to the privileged process instead. That mirrors
+   `privsep_bind()` just above it, where an unprivileged `bind()` to a
+   low port really is `EACCES` on both Linux and BSD. But
+   `IP_IPSEC_POLICY`/`IPV6_IPSEC_POLICY` need `CAP_NET_ADMIN` on Linux,
+   and a `capable()` failure there is reported as **`EPERM`**, not
+   `EACCES` — confirmed directly from the log text quoted above:
+   `strerror(EPERM)` is exactly "Operation not permitted" (`EACCES`
+   would read "Permission denied"). Gating escalation on `EACCES` alone
+   meant the privileged process was never actually asked on Linux: the
+   direct attempt failed with `EPERM`, matched neither disjunct in the
+   original condition, and the function gave up and logged the error
+   instead of forwarding the request. The IKE sockets' bypass policy was
+   then silently never applied under privsep on Linux.
+
+2. **A precedence bug independently broke failure reporting on the
+   "fast path" this gate falls through to.** The original line read:
+
+   ```c
+   if ((err = setsockopt(s, level, optname, optval, optlen) == 0) ||
+       (saved_errno = errno) != EACCES ||
+       geteuid() == 0) {
+   	...
+   	return err;
+   }
+   ```
+
+   `==` binds tighter than `=`, so `err` was assigned the *boolean*
+   result of `setsockopt(...) == 0` (1 success / 0 failure) — not
+   `setsockopt()`'s actual 0/-1 return value, unlike `privsep_bind()`
+   just above, which does this correctly (`err = bind(...);` as its own
+   statement, then `err == 0` as a separate comparison). Every caller of
+   `privsep_setsockopt()` (`SETSOCKOPT()` in `setsockopt_bypass()`,
+   `sockmisc.c`) checks failure via `< 0`, which a `0` can never satisfy.
+   So whenever this fast path's direct attempt genuinely failed, the
+   caller was told it had succeeded — masking the "in bypass" policy
+   failing and letting `setsockopt_bypass()` plow ahead to attempt "out
+   bypass" too, instead of bailing out after the first failure. That is
+   exactly why the log showed *two* consecutive errors per socket
+   (one per policy direction) rather than one.
+
+**Fix.** Extracted the escalation decision into a small, directly
+testable helper, `privsep_setsockopt_should_escalate(err, saved_errno,
+is_root)`: escalate when the direct attempt failed with `EACCES` *or*
+`EPERM` and the caller isn't already root. `err = setsockopt(...)` is
+now its own statement (fixing the precedence bug at the same time), and
+`privsep_setsockopt()` calls the helper instead of inlining the
+condition.
+
+**Verification performed.**
+
+- New unit test, `test/test_privsep_setsockopt_escalation.c`, drives
+  `privsep_setsockopt_should_escalate()` directly via a new
+  `-DENABLE_UNITTEST`-only accessor (same wrapped-static-function
+  pattern as `test_privsep_sigterm_forward.c`, no privileged process or
+  real socket needed since this is a pure decision function): covers
+  success (never escalate), non-root `EACCES` (escalate — the
+  `bind()`-shaped case), non-root `EPERM` (escalate — the regression
+  itself), an unrelated errno like `EINVAL` (never escalate), and root
+  `EACCES`/`EPERM` (never escalate, nothing to ask).
+- Confirmed the test genuinely catches the regression: temporarily
+  reverted the errno check to `EACCES`-only, rebuilt, and watched
+  exactly the `EPERM` case fail with a clear message; reverted back and
+  confirmed all cases pass again.
+- Full rebuild and `make check`: 41/41 pass, no regressions.
+
+**`/* UNVERIFIED: */`** — the fix has not yet been confirmed against a
+live gateway where a conflicting host IPsec policy actually exists for
+ports 500/4500 (the scenario this bypass exists to prevent); the
+reporting user's own environment only ever showed the log noise, with
+negotiation unaffected either way. Awaiting live re-test confirmation
+that the `ERROR: privsep_setsockopt` lines are gone entirely under
+privsep on Linux.

@@ -1344,6 +1344,48 @@ out:
 }
 
 /*
+ * True if a direct, unprivileged setsockopt() attempt (result `err`, 0
+ * success / -1 failure, with errno `saved_errno` when it failed) should be
+ * escalated to the privileged process rather than have its result returned
+ * as-is.
+ *
+ * Unlike privsep_bind() above -- where an unprivileged bind() to a low port
+ * is EACCES on both Linux and BSD -- IP_IPSEC_POLICY/IPV6_IPSEC_POLICY needs
+ * CAP_NET_ADMIN on Linux, and a capable() failure there is reported as
+ * EPERM, not EACCES (the two errnos that BSD's securelevel/generic-
+ * permission checks and Linux's capability checks respectively favor for
+ * "not privileged enough"). Gating escalation on EACCES alone meant this
+ * never actually asked the privileged process on Linux: the unprivileged
+ * child's own direct setsockopt() attempt failed with EPERM, matched
+ * neither disjunct below, and privsep_setsockopt() gave up and logged the
+ * error instead of forwarding the request -- so under privsep on Linux, the
+ * IKE sockets' IPsec-policy bypass was silently never applied.
+ */
+static int
+privsep_setsockopt_should_escalate(err, saved_errno, is_root)
+	int err;
+	int saved_errno;
+	int is_root;
+{
+	if (err == 0)
+		return 0;
+	if (saved_errno != EACCES && saved_errno != EPERM)
+		return 0;
+	if (is_root)
+		return 0;
+	return 1;
+}
+
+#ifdef ENABLE_UNITTEST
+int
+privsep_setsockopt_should_escalate_unittest(int err, int saved_errno,
+    int is_root)
+{
+	return privsep_setsockopt_should_escalate(err, saved_errno, is_root);
+}
+#endif /* ENABLE_UNITTEST */
+
+/*
  * Set socket options.  This works just like regular setsockopt(), except that
  * if you want to change IP_IPSEC_POLICY or IPV6_IPSEC_POLICY and you don't
  * have the privilege to do so, it will ask a privileged process to do it.
@@ -1362,9 +1404,27 @@ privsep_setsockopt(s, level, optname, optval, optlen)
 	struct sockopt_args sockopt_args;
 	int err, saved_errno = 0;
 
-	if ((err = setsockopt(s, level, optname, optval, optlen) == 0) || 
-	    (saved_errno = errno) != EACCES ||
-	    geteuid() == 0) {
+	/*
+	 * `err = setsockopt(...)` is deliberately its own statement, not
+	 * folded into the condition below the way privsep_bind() above does
+	 * it either -- `err = setsockopt(...) == 0` (note the embedded
+	 * "== 0") is what this line used to read, and due to `==` binding
+	 * tighter than `=`, that made `err` hold a *boolean* (1 success / 0
+	 * failure) instead of setsockopt(2)'s actual 0/-1 return value. Every
+	 * caller of this function (SETSOCKOPT() in setsockopt_bypass(),
+	 * sockmisc.c) checks failure via "< 0", which a 0 can never satisfy
+	 * -- so whenever this fast path's direct attempt genuinely failed,
+	 * the caller was told it had succeeded. That silently masked the
+	 * "in bypass" policy failing and setsockopt_bypass() plowing ahead
+	 * to attempt "out bypass" too, instead of bailing out after the
+	 * first failure -- exactly the back-to-back error pairs seen in the
+	 * logs, one per policy direction, rather than a single one.
+	 */
+	err = setsockopt(s, level, optname, optval, optlen);
+	if (err != 0)
+		saved_errno = errno;
+	if (!privsep_setsockopt_should_escalate(err, saved_errno,
+	    geteuid() == 0)) {
 		if (saved_errno)
 			plog(LLV_ERROR, LOCATION, NULL,
 			     "privsep_setsockopt (%s)\n",

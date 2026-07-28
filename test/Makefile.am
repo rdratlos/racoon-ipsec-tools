@@ -681,6 +681,37 @@ test_privsep_sigterm_forward_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_privsep_sigterm_forward_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Test: privsep_setsockopt_should_escalate() -- under privsep on Linux, an
+# unprivileged direct setsockopt(IP_IPSEC_POLICY/IPV6_IPSEC_POLICY) attempt
+# (the IKE sockets' bypass policy) fails with EPERM (CAP_NET_ADMIN), not
+# EACCES (the errno privsep_bind()'s low-port check actually gets on both
+# Linux and BSD). Gating escalation to the privileged process on EACCES
+# alone meant this was never actually escalated on Linux: the direct
+# attempt failed, matched neither disjunct, and privsep_setsockopt() gave
+# up and logged "privsep_setsockopt (Operation not permitted)" instead of
+# ever asking the privileged process -- so the IKE sockets' bypass policy
+# was silently never applied. Same wrapped-static-function pattern and
+# build flags as test_privsep_sigterm_forward above; no privileged process
+# or real socket is needed since privsep_setsockopt_should_escalate() is a
+# pure decision function.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_privsep_setsockopt_escalation
+
+test_privsep_setsockopt_escalation_SOURCES  = test_privsep_setsockopt_escalation.c \
+	privsep_unittest_src.c
+test_privsep_setsockopt_escalation_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_setsockopt_escalation_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_privsep_setsockopt_escalation_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_setsockopt_escalation_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Test: prune_stale_monitored_fds() (daemon-issues.md Issue 4 follow-up)
 # -- session()'s main loop used to treat any select() failure other than
 # EINTR as fatal (return -1, no cleanup; main.c just calls session();
