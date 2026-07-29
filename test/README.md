@@ -563,6 +563,83 @@ a second, separate gap this same fix closed (`make coverage` not scanning
 `test/` at all, so every `<module>_unittest_src.c`-only module, not just
 `privsep.c`, was previously missing from the report entirely).
 
+#### The Other Half: Client-Side Wrappers and `privsep_init()` Itself
+
+`test_privsep_priv_*.c` above only ever drives the *privileged* side of
+privsep.c's wire protocol, playing the unprivileged side itself by
+hand-crafting wire messages by hand. Three more `check_PROGRAMS` targets
+cover the other half -- the client-side wrapper functions
+(`privsep_eay_get_pkcs1privkey()`, `privsep_getpsk()`,
+`privsep_script_exec()`, `privsep_socket()`, `privsep_bind()`, and the
+`ENABLE_HYBRID`/`HAVE_LIBPAM` ones) and `privsep_init()` itself, the one
+privsep.c entry point every other test in this suite deliberately
+bypasses:
+
+- **`test_privsep_client_wrappers.c`** / **`test_privsep_hybrid_client_wrappers.c`**
+  (the latter split out because its content -- `port_check()`,
+  `privsep_xauth_login_system()`, `privsep_accounting_system()`, and,
+  nested under `HAVE_LIBPAM`, `privsep_accounting_pam()`/
+  `privsep_xauth_login_pam()`/`privsep_cleanup_pam()` -- is
+  `ENABLE_HYBRID`-only, guarded by `#ifdef ENABLE_HYBRID`/nested `#ifdef
+  HAVE_LIBPAM` at the C level rather than a second automake conditional,
+  so a build with either off still gets the binary in `make check`'s
+  output with fewer, or for `ENABLE_HYBRID` none, cases actually run).
+  Every function gets two cases: "passthrough" (called as this binary's
+  own root, taking each wrapper's own `if (geteuid() == 0) return <real
+  syscall/function>(...)` branch directly) and "wire protocol" (this
+  process's effective uid dropped to `nobody`, so the same call instead
+  builds and sends the real wire message, against a forked child running
+  the real `privsep_priv()` -- `privsep_unittest_src.c` +
+  `privsep_priv_test_stubs.c`, same as `test_privsep_priv_*.c` above).
+  Real production code on both ends of the real wire protocol; the two
+  test suites together just never run both ends in the same process
+  (`privsep_init()`'s own fork() is the only thing that does that for
+  real -- see below).
+
+  The shared driver for the "wire protocol" case, `privsep_wire_roundtrip.c`
+  (linked into both binaries), needs two new `privsep.c` `ENABLE_UNITTEST`
+  accessors: `privsep_set_sock_unittest()`/`privsep_get_sock_unittest()`
+  point the client wrappers' own static `privsep_sock[]` -- normally only
+  ever written by a real `privsep_init()` -- at a test socketpair, and
+  `privsep_reset_state_unittest()` clears it (and `privsep_child_pid`)
+  between scenarios in the same process. `port_check_unittest()` exposes
+  the other new static accessor, `port_check()` itself.
+
+- **`test_privsep_init.c`** drives `privsep_init()` directly for its two
+  side-effect-free early-return cases (`lcconf->uid == 0`; a missing
+  cert/script path), and, for the real `socketpair()`+`fork()`+
+  `chroot()`/`setgid()`/`setuid()`+`monitor_fd()`+`privsep_priv()` happy
+  path, forks a disposable child first so every one of those side effects
+  happens inside a process this test binary itself never becomes --
+  `privsep_init()`'s *own* internal `fork()` then produces a second,
+  further-nested child that actually drops privilege and makes one real
+  `ENABLE_HYBRID` client-wrapper call over the *real* `privsep_sock` (no
+  test accessor involved at that point -- it is the genuine, fully
+  production `privsep_init()` setup), reporting its verdict back up a
+  pipe since it is not the outer test process's own direct child and gets
+  reparented once its parent exits. See the file's own header comment for
+  the full three-process breakdown. This is the one scenario in this
+  suite that reaches `privsep_priv()`'s `ENABLE_HYBRID` dispatch cases
+  through the real production entry point rather than a synthetic direct
+  `privsep_priv(sock)` call.
+
+  Needs `session_unittest_src.c` linked alongside the usual
+  `privsep_unittest_src.c` (for `monitor_fd()`, which `privsep_init()`'s
+  child branch calls) and, less obviously, `session.c`'s own
+  `init_fd_monitor_unittest()` accessor called *before* forking: in
+  production, `monitor_fd()`'s `TAILQ_INSERT_TAIL()` into `fd_monitor_tree[]`
+  is only safe because `session()`'s own startup always `TAILQ_INIT()`s it
+  long before `privsep_init()` ever forks, so the real child just inherits
+  already-initialized state. A test that calls `privsep_init()` directly,
+  with none of that surrounding startup, hits a `TAILQ_INSERT_TAIL()` into
+  a head that is still its all-zero static default -- confirmed to
+  segfault the real forked child immediately until this was added.
+
+  Left as a documented gap rather than a silent one: `lcconf->chroot`
+  stays `NULL` throughout (real `chroot()` jail setup is an orthogonal
+  concern from what this file tests, and getting it wrong risks the test
+  host rather than just a failing test).
+
 #### Overriding a Production Timing Constant for One Binary
 
 `privsep_priv()`'s mid-request bound (`PRIVSEP_IPC_WAIT_MAX_MS`,

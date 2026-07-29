@@ -514,6 +514,45 @@ privsep_socket_allowed_unittest(int domain, int type, int protocol)
 {
 	return privsep_socket_allowed(domain, type, protocol);
 }
+
+/*
+ * privsep_sock[] is what every client-side privsep_*() wrapper below
+ * reads: each opens with "if (geteuid() == 0) return <real syscall/
+ * function>(...)" and falls through to the wire protocol -- built on
+ * privsep_send()/privsep_recv() over privsep_sock[1] -- only when that is
+ * false. Both the array and privsep_child_pid are static/file-scope and
+ * normally only ever written by privsep_init()'s own socketpair()/fork(),
+ * so a test that wants to drive a client wrapper's wire-protocol path
+ * (rather than its passthrough one) over a plain socketpair() -- the same
+ * privsep_priv()-over-socketpair() pattern test_privsep_priv_*.c already
+ * uses for the other side of this same protocol -- needs a way to point
+ * privsep_sock[1] there without a real privsep_init() fork(). A test that
+ * runs more than one such scenario in one process calls
+ * privsep_reset_state_unittest() between them so a leftover descriptor
+ * from the previous scenario is never mistaken for the next one's.
+ */
+void
+privsep_set_sock_unittest(int parent_end, int child_end)
+{
+	privsep_sock[0] = parent_end;
+	privsep_sock[1] = child_end;
+}
+
+void
+privsep_reset_state_unittest(void)
+{
+	privsep_sock[0] = -1;
+	privsep_sock[1] = -1;
+	privsep_child_pid = 0;
+}
+
+/* Read back one half of privsep_sock[], e.g. to close() it in a test's
+ * own teardown -- see privsep_set_sock_unittest() above. */
+int
+privsep_get_sock_unittest(int idx)
+{
+	return privsep_sock[idx & 1];
+}
 #endif /* ENABLE_UNITTEST */
 
 int
@@ -2122,7 +2161,7 @@ port_check(port)
 	int port;
 {
 	if ((port < 0) || (port >= isakmp_cfg_config.pool_size)) {
-		plog(LLV_ERROR, LOCATION, NULL, 
+		plog(LLV_ERROR, LOCATION, NULL,
 		    "privsep: port %d outside of allowed range [0,%zu]\n",
 		    port, isakmp_cfg_config.pool_size - 1);
 		return -1;
@@ -2130,6 +2169,22 @@ port_check(port)
 
 	return 0;
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * port_check() is static and ENABLE_HYBRID-only, gating every PAM/system
+ * accounting command's port argument (PRIVSEP_ACCOUNTING_SYSTEM/PAM,
+ * PRIVSEP_XAUTH_LOGIN_PAM, PRIVSEP_CLEANUP_PAM above) against
+ * isakmp_cfg_config.pool_size. Exposed so the predicate itself -- and the
+ * pool_size boundary it enforces -- can be asserted directly, the same
+ * reasoning as privsep_socket_allowed_unittest() above.
+ */
+int
+port_check_unittest(int port)
+{
+	return port_check(port);
+}
+#endif /* ENABLE_UNITTEST */
 #endif
 
 static int 
