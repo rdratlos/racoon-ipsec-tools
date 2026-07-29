@@ -6,16 +6,48 @@ Part of rdratlos/racoon-ipsec-tools — https://github.com/rdratlos/racoon-ipsec
 
 # Manual verification: privsep dispatch loop (issue #105)
 
-The one thing `make check` cannot reach. The privileged dispatch loop only
-runs inside `privsep_init()`'s privilege-dropping `fork()`, which needs a
-real PF_KEY/XFRM kernel and a real unprivileged peer — so it has to be
-driven on a real host. This runbook does that on a roadwarrior client.
+> **Update (privsep-priv-extraction task, follow-up to #105 and this
+> runbook's own §7 "Making this permanent"): Phases 2, 3, and 4 are
+> superseded.** The privileged dispatch loop is no longer reachable only
+> inside `privsep_init()`'s privilege-dropping `fork()` — it was extracted
+> into its own directly-callable `privsep_priv(int sock)` (pure code
+> motion, no behaviour change; see `doc/dev/privsep-priv-extraction.md`),
+> and `make check` now drives it for real over a `socketpair()`, with a
+> real `fork()` and real `_exit()`s, via:
+>
+> | Superseded phase | `check_PROGRAMS` test |
+> | --- | --- |
+> | Phase 2 (handshake framing, §3 below) | `test_privsep_priv_framing` |
+> | Phase 3 (the bounded wait, §4 below) | `test_privsep_priv_bounded_wait` |
+> | Phase 4 / §5a / §5b / §5c (containment, §5 below) | `test_privsep_priv_containment` |
+> | *(no runbook phase — new coverage)* | `test_privsep_priv_control_cases` (one well-formed request per command family) |
+>
+> **Phase 1 is not superseded** and still needs a real host — see §2.4
+> below and `doc/dev/privsep-priv-extraction.md`'s own "what could not be
+> verified" section for why. This runbook stays as the procedure for that
+> phase, and as the historical record of what the automated Phases 2–4
+> replaced (their "Result of the first run" sections below are kept
+> as-is). It also remains the starting point for whoever stands up RFC
+> 0001's itlab scenarios for Phase 1 itself — see
+> `fatal-exit-path-audit.md` §8, which already scopes that mapping and is
+> unchanged by this update.
+
+The one thing `make check` cannot reach *at all* is the real happy
+path — Phase 1 below. The privileged dispatch loop's other phases used to
+share that limitation (they only ran inside `privsep_init()`'s
+privilege-dropping `fork()`, which needs a real PF_KEY/XFRM kernel and a
+real unprivileged peer), which is why this runbook originally drove all
+four phases on a roadwarrior client by hand. Phase 1 still needs that; the
+rest is automated now, per the table above.
 
 Companion to `fatal-exit-path-audit.md`; section references (§2.2, §2.3.1,
 …) point into that report.
 
-**Run this on a test machine.** Phase 3 deliberately takes the daemon down,
-and Phase 4 deliberately corrupts its IPC.
+**Run this on a test machine if reproducing Phase 1.** Phases 3 and 4
+below are kept for their historical "first run" results and as the
+procedure the automated tests replace; running them by hand is no longer
+necessary, but if you do, Phase 3 deliberately takes the daemon down and
+Phase 4 deliberately corrupts its IPC.
 
 ---
 
@@ -251,6 +283,12 @@ those commands are never sent. Phase 2 tells you which happened.
 
 ## 3. Phase 2 — watch the handshake
 
+> **Superseded by `test_privsep_priv_framing`** (`make check`), which
+> asserts the same invariants ("Pass criteria" below) mechanically over a
+> real `socketpair()` instead of by eyeballing an `strace` capture. Kept
+> for its historical first-run result and as the manual procedure the
+> automated test replaces.
+
 ```bash
 sudo strace -tt -p $PRIV \
      -e trace=socket,bind,setsockopt,recvmsg,sendmsg,sendto,recvfrom
@@ -353,6 +391,17 @@ about privsep.
 
 ## 4. Phase 3 — the bounded wait (§2.3.1)
 
+> **Superseded by `test_privsep_priv_bounded_wait`** (`make check`).
+> "This is the fix that has no unit-test equivalent" (below) was true
+> until `privsep_priv()` could be driven directly: the test forks, sends a
+> `PRIVSEP_BIND`/`PRIVSEP_SETSOCKOPTS` command and then a scripted peer
+> that simply stops (the same silence this phase used `gdb` to freeze),
+> and asserts the real `PRIVSEP_IPC_WAIT_MAX_MS` timeout fires — sped up
+> for the test via a compile-time-only override, `PRIVSEP_IPC_WAIT_MAX_MS`
+> itself is untouched in production (see `test/README.md`). Kept for its
+> historical first-run result and as the manual procedure the automated
+> test replaces.
+
 This is the fix that has no unit-test equivalent, because the failure it
 prevents is *silence*: a child that stops talking mid-request, with no EOF
 and no error for the privileged process to notice.
@@ -444,6 +493,17 @@ unlike the state before the fix.
 ---
 
 ## 5. Phase 4 — containment: one bad request (§2.1)
+
+> **Superseded by `test_privsep_priv_containment`** (`make check`): §5a's
+> refused hook, §5b's corrupted `ac_cmd` (the same `0xBEEF` case, without
+> needing the `LD_PRELOAD` shim), and §5c's corrected E2BIG-via-corrupted-
+> message case are each a test there, and — the assertion that actually
+> proves containment — each one is followed by a well-formed request on
+> the same connection to confirm the loop really did keep serving, not
+> just that the bad request failed. §5c's own "not yet run" status below
+> is resolved by this, in the corrected form the runbook already
+> describes. Kept for its historical first-run results and as the manual
+> procedure the automated test replaces.
 
 The headline claim: a single malformed or refused request fails *itself*
 and the daemon keeps running. On `develop`, each of these ends the process.
@@ -674,14 +734,29 @@ is the result, not the log itself.
 
 ## 7. Making this permanent
 
-This runbook exists because the dispatch loop is not reachable from a test
-binary: it is inline in `privsep_init()`, after the `fork()`. Extracting it
-into its own `privsep_priv(void)` — a pure code motion, no behaviour change
-— would let a test drive the real loop over a `socketpair()` with a scripted
-adversarial client, and would cover in CI everything Phases 3 and 5b here do
-by hand: silence mid-request, corrupted headers, unknown commands, refused
-arguments, descriptor messages that never arrive.
+**Done.** This section originally proposed extracting the dispatch loop
+into its own `privsep_priv(void)` — pure code motion, no behaviour change
+— so a test could drive the real loop over a `socketpair()` with a
+scripted adversarial client, covering in CI everything Phases 3 and 5b
+used to require a real host for: silence mid-request, corrupted headers,
+unknown commands, refused arguments, descriptor messages that never
+arrive.
 
-Worth doing before the X.509 client-identity work adds new commands to this
-loop. Filed as a follow-up rather than done here, because it is a
-refactor-plus-harness change and this branch is a behaviour fix.
+That extraction landed in the privsep-priv-extraction task (see
+`doc/dev/privsep-priv-extraction.md`), ahead of the X.509 client-identity
+work this section named as the reason to do it "before" — the signature
+ended up taking the socket as a parameter (`privsep_priv(int sock)`)
+rather than `void`, since the loop's `privsep_sock[0]` references needed
+to become the parameter for a test to point them at its own
+`socketpair()`; everything else about the loop is byte-for-byte
+unchanged (verified by diff, not just by tests passing — see that
+document's own record of how). The `check_PROGRAMS` tests this produced
+are cross-referenced from §§3–5 above, next to the phases they replace.
+
+Two things this did *not* resolve, both still open per
+`fatal-exit-path-audit.md` §7: narrowing the `PRIVSEP_SOCKET`/
+`PRIVSEP_SETSOCKOPTS` policy gates, and removing the two-message
+descriptor exchange. Neither was in scope — the privsep-priv-extraction
+task was pure code motion plus a test harness, deliberately not a policy
+or protocol change (see that document's own §1 for why, and for what it
+would have meant to do otherwise).
