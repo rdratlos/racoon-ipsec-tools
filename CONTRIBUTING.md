@@ -47,23 +47,41 @@ of this — its one scenario forces `fork()` itself to fail via a linker-level
 wrap, so no real fork or privilege drop ever happens, and it always runs
 in full regardless of who invokes `make check`.)
 
-**Run as root** (the containers/CI this project targets, or locally via
-`sudo`) and every test runs and is asserted on — this is the only way to
+**Run as root** (locally via `sudo`, or a container set aside specifically
+for it) and every test runs and is asserted on — this is the only way to
 get full coverage of `test_privsep_client_wrappers`,
-`test_privsep_hybrid_client_wrappers`, and `test_privsep_init`.
+`test_privsep_hybrid_client_wrappers`, and `test_privsep_init`. This is a
+deliberate, manual step (`sudo make check`/`sudo make check-valgrind`),
+not what this project's CI does by default — see below.
 
-**Run as an ordinary user** and the two binaries where *every* case needs
-root (`test_privsep_client_wrappers`, `test_privsep_hybrid_client_wrappers`)
-detect that up front and report `SKIP` (exit code 77 — automake's own
-convention for "this test doesn't apply here", distinct from a failure)
-instead of failing. `test_privsep_init` is different: two of its four
-scenarios (the `lcconf->uid == 0` no-op, and the missing-cert/script-path
-refusal) don't touch privilege at all and always run; its other two (a
-`chroot()`-setup-failure case, and the real fork/privilege-drop/
-dispatch-loop round trip) check root themselves and print
-`SKIPPED (needs real root ...)` without failing the binary. Either way,
-`make check`'s summary distinguishes `SKIP` from `FAIL` — a `SKIP` here is
-expected and not a problem to chase down; a `FAIL` is.
+**Run as an ordinary user** — this project's own CI's normal mode, and
+the recommended default even for a local run — and the two binaries where
+*every* case needs root (`test_privsep_client_wrappers`,
+`test_privsep_hybrid_client_wrappers`) detect that up front and report
+`SKIP` (exit code 77 — automake's own convention for "this test doesn't
+apply here", distinct from a failure) instead of failing. `test_privsep_init`
+is different: two of its four scenarios (the `lcconf->uid == 0` no-op, and
+the missing-cert/script-path refusal) don't touch privilege at all and
+always run; its other two (a `chroot()`-setup-failure case, and the real
+fork/privilege-drop/dispatch-loop round trip) check root themselves and
+print `SKIPPED (needs real root ...)` without failing the binary. Either
+way, `make check`'s summary distinguishes `SKIP` from `FAIL` — a `SKIP`
+here is expected and not a problem to chase down; a `FAIL` is.
+`make check-valgrind`'s own driver (`test/Makefile.am`) honors the same
+exit-77 convention `make check`'s automake-generated driver does, so a
+binary that legitimately skips reports as skipped there too, rather than
+aborting the whole `check-valgrind` run.
+
+**Why CI itself doesn't run as root:** running a full CI pipeline with
+real root is a larger blast radius (a bug in a test, or in whatever it
+exercises, now runs unconfined) than the coverage gap skipping these few
+root-only scenarios leaves — they are exercised locally, deliberately,
+by a human running `sudo make check`/`sudo make check-valgrind`, or on a
+runner set aside specifically for that purpose, not on every push. This
+is the common shape for privilege-dependent test suites generally: default
+CI runs unprivileged and treats "needs root" as a first-class `SKIP`
+outcome (not a failure to route around), with full-privilege coverage
+reserved for an explicit, separately-gated job or a manual run.
 
 ### `fakeroot` does not help here
 
