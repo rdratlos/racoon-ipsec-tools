@@ -42,6 +42,8 @@
 
 #include "var.h"
 #include "vmbuf.h"
+#include "misc.h"
+#include "plog.h"
 #include "crypto_openssl.h"
 #include "isakmp_var.h"
 #include "localconf.h"
@@ -121,6 +123,28 @@ test_fork_failure(void)
 	lcconf->gid = 65534;
 	lcconf->chroot = NULL;
 	privsep_reset_state_unittest();
+
+	/*
+	 * Warm up plog()'s own lazy fd first, at the same priority
+	 * privsep_init()'s "case -1:" branch itself logs at (LLV_ERROR):
+	 * with no logfile and not foreground -- this binary's own defaults,
+	 * untouched -- plogv() (plog.c) reaches vsyslog(), whose first call
+	 * in a process opens (and, unlike this test's own privsep_sock,
+	 * never closes) a socket to the system log. Whether that succeeds
+	 * depends on whether a syslog/journald socket is actually reachable
+	 * on this host -- true on a real Linux install, not necessarily true
+	 * in a minimal container -- so without this, the fd count below
+	 * would be comparing "no syslog fd" against "one syslog fd" on some
+	 * hosts and "no syslog fd" against "no syslog fd" (the connect()
+	 * failed and glibc gave up) on others, sometimes reporting a false
+	 * leak that has nothing to do with privsep_sock[]. Calling it once
+	 * here, before either fd count, means privsep_init()'s own identical
+	 * plog() call a few lines below reuses the same already-open (or
+	 * still-absent) fd instead of changing the count itself.
+	 */
+	plog(LLV_ERROR, LOCATION, NULL,
+	    "test_privsep_init_fork_failure: warming up plog()'s lazy fd, "
+	    "ignore this line\n");
 
 	if ((before = count_open_fds()) < 0) {
 		rmdir(certdir);
