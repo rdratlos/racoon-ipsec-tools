@@ -1028,6 +1028,13 @@ endif
 # wrapped-static-function tests above.
 # SANITIZER_BUILD variant, same reasoning as test_privsep_sigterm_forward
 # above (doc/dev/privsep-hardening-followup-audit.md §4/§9).
+#
+# HAVE_PF_PACKET-gated (configure.ac): this test's own PF_PACKET refusal
+# case, and its #include <net/pfkeyv2.h>, are both Linux-specific -- see
+# configure.ac's own comment on HAVE_PF_PACKET for the two ways this
+# fails to compile on a host without it (NetBSD confirmed), rather than
+# actually testing anything there.
+if HAVE_PF_PACKET
 if SANITIZER_BUILD
 check_PROGRAMS += test_privsep_socket_policy
 
@@ -1065,6 +1072,7 @@ test_privsep_socket_policy_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 if ENABLE_COVERAGE
 test_privsep_socket_policy_SOURCES += privsep_gcov_dump_shim.c
 test_privsep_socket_policy_LDFLAGS += -Wl,--wrap=_exit
+endif
 endif
 endif
 
