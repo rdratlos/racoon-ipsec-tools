@@ -12,11 +12,21 @@
  * and, since this build has ENABLE_HYBRID on by default, the
  * isakmp_cfg_config global and isakmp_cfg_accounting_system()/
  * xauth_login_system() PRIVSEP_ACCOUNTING_SYSTEM/PRIVSEP_XAUTH_LOGIN_SYSTEM
- * pull in (isakmp_cfg.c/isakmp_xauth.c) -- those two commands are not
- * exercised by any test using this file (they are outside the runbook's
- * own six-command scope, doc/dev/privsep-priv-extraction.md explains why),
- * but privsep_priv()'s switch still references them at compile time, so
- * the symbols must resolve at link time regardless.
+ * pull in (isakmp_cfg.c/isakmp_xauth.c) -- plus, when the build also has
+ * HAVE_LIBPAM (libpam-dev auto-detected by --with-libpam=auto), the PAM
+ * counterparts privsep_priv()'s PRIVSEP_ACCOUNTING_PAM/
+ * PRIVSEP_XAUTH_LOGIN_PAM/PRIVSEP_CLEANUP_PAM cases pull in:
+ * isakmp_cfg_resize_pool()/isakmp_cfg_accounting_pam()/cleanup_pam()
+ * (isakmp_cfg.c) and xauth_login_pam() (isakmp_xauth.c). None of these
+ * six commands are exercised by any test using this file (they are
+ * outside the runbook's own six-command scope, doc/dev/
+ * privsep-priv-extraction.md explains why), but privsep_priv()'s switch
+ * still references them at compile time, so the symbols must resolve at
+ * link time regardless -- and whether HAVE_LIBPAM is defined depends on
+ * what's installed on the build host, not on anything this file controls,
+ * so the PAM stubs must be present whenever ENABLE_HYBRID is (matching
+ * privsep.c's own #ifdef HAVE_LIBPAM nesting inside #ifdef ENABLE_HYBRID),
+ * not just when the author's own build happened to have libpam-dev.
  *
  * Shared by all test_privsep_priv_*.c binaries, the same way
  * rsalist_test_stubs.c is shared across the tests that pull in
@@ -235,4 +245,45 @@ xauth_login_system(usr, pwd)
 {
 	return 0;
 }
+
+/*
+ * PRIVSEP_ACCOUNTING_PAM/PRIVSEP_XAUTH_LOGIN_PAM/PRIVSEP_CLEANUP_PAM
+ * (privsep.c) link targets only, same "not exercised by any test using
+ * this file" reasoning as the _system stubs above -- see the file
+ * comment. Only compiled in when the build also has HAVE_LIBPAM, matching
+ * privsep.c's own nesting of these three cases inside its own
+ * #ifdef HAVE_LIBPAM (itself inside #ifdef ENABLE_HYBRID).
+ */
+#ifdef HAVE_LIBPAM
+int
+isakmp_cfg_resize_pool(pool_size)
+	int pool_size;
+{
+	return 0;
+}
+
+int
+isakmp_cfg_accounting_pam(port, inout)
+	int port;
+	int inout;
+{
+	return 0;
+}
+
+int
+xauth_login_pam(port, raddr, usr, pwd)
+	int port;
+	struct sockaddr *raddr;
+	char *usr;
+	char *pwd;
+{
+	return 0;
+}
+
+void
+cleanup_pam(port)
+	int port;
+{
+}
+#endif /* HAVE_LIBPAM */
 #endif /* ENABLE_HYBRID */
