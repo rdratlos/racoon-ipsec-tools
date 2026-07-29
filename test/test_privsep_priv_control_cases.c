@@ -493,8 +493,20 @@ bind_done:
 			 * the real setsockopt() at all -- EPERM is what the
 			 * gate itself would answer for a disallowed optname,
 			 * so that specifically must not come back here.
+			 *
+			 * But EPERM is not unambiguous evidence of that: on
+			 * Linux, xfrm's own setsockopt(IP_IPSEC_POLICY, ...)
+			 * returns EPERM for an unprivileged (no CAP_NET_ADMIN)
+			 * process regardless of what the gate did -- the exact
+			 * ambiguity issue #105 pins for privsep_setsockopt()
+			 * itself (test_privsep_setsockopt.c). This binary is
+			 * forked from whatever ran `make check`, which is root
+			 * in the containers/CI this suite targets but not
+			 * guaranteed to be for a human running it locally, so
+			 * only geteuid() == 0 rules the kernel's own privilege
+			 * check out and leaves the gate as the sole source.
 			 */
-			if (reply->hdr.ac_errno == EPERM) {
+			if (reply->hdr.ac_errno == EPERM && geteuid() == 0) {
 				printf("\n    SETSOCKOPTS: policy gate refused an authorized option");
 				failed++;
 			}
