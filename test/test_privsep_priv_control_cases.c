@@ -411,6 +411,33 @@ test_control_cases(void)
 			goto bind_done;
 		}
 
+		/*
+		 * Every real caller of privsep_bind() (isakmp.c's own socket
+		 * setup) sets this before ever reaching it -- SO_REUSEADDR
+		 * on Linux, SO_REUSEPORT elsewhere, the same #ifdef split
+		 * isakmp.c itself uses. Without it, this test's own bind to
+		 * PORT_ISAKMP_NATT below collides with EADDRINUSE on any
+		 * host already running a real racoon (or another NAT-T
+		 * listener) bound to that port system-wide -- an environment
+		 * difference, not a wire-protocol bug, but the test wasn't
+		 * reproducing what a real client actually does either.
+		 */
+		{
+			int yes = 1;
+			if (setsockopt(s, SOL_SOCKET,
+#ifdef __linux__
+			    SO_REUSEADDR,
+#else
+			    SO_REUSEPORT,
+#endif
+			    &yes, sizeof(yes)) != 0) {
+				printf("\n    BIND: setsockopt(REUSE) failed");
+				failed++;
+				close(s);
+				goto bind_done;
+			}
+		}
+
 		memset(&sin, 0, sizeof(sin));
 		sin.sin_family = AF_INET;
 		sin.sin_port = htons(PORT_ISAKMP_NATT);
