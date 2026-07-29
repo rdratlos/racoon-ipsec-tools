@@ -13,6 +13,69 @@ This configures the `merge.ours.driver` needed for clean rebases of
 Ubuntu LTS branches onto develop. Without it, Git will error when a
 rebase touches `debian/control`, `debian/compat`, or `debian/rules`.
 
+## Running the Test Suite
+
+```bash
+./bootstrap && ./configure && make
+cd test && make check
+```
+
+Full details (coverage, valgrind, the wrapped-static-function pattern,
+etc.) are in `test/README.md`. This section covers one thing specifically:
+**a handful of tests need real root, and behave differently depending on
+who runs `make check`.**
+
+### Why some tests need root
+
+`test_privsep_client_wrappers`, `test_privsep_hybrid_client_wrappers`, and
+part of `test_privsep_init` exercise `privsep.c`'s client-side wrapper
+functions (`privsep_socket()`, `privsep_bind()`, `privsep_script_exec()`,
+etc.) over their real wire protocol. Each of those wrappers only takes the
+wire-protocol branch when the *calling* process is not root
+(`if (geteuid() == 0) return <real syscall/function>(...)`), so exercising
+that branch means the test process must `seteuid()` itself to an
+unprivileged account (`nobody`) partway through, then back to root
+afterwards, around a still-root forked child that plays the privileged
+side for real. `seteuid()` to a *different* account (not one the process
+already held) needs `CAP_SETUID` — which only a process that started as
+root has. There is no way around this: the whole point is testing what
+happens when privilege is dropped, which requires having it to drop from.
+
+**Run as root** (the containers/CI this project targets, or locally via
+`sudo`) and every test runs and is asserted on — this is the only way to
+get full coverage of these three binaries.
+
+**Run as an ordinary user** and the two binaries where *every* case needs
+root (`test_privsep_client_wrappers`, `test_privsep_hybrid_client_wrappers`)
+detect that up front and report `SKIP` (exit code 77 — automake's own
+convention for "this test doesn't apply here", distinct from a failure)
+instead of failing. `test_privsep_init` is different: two of its three
+scenarios (the `lcconf->uid == 0` no-op, and the missing-cert/script-path
+refusal) don't touch privilege at all and always run; only its third
+scenario (the real fork/privilege-drop/dispatch-loop round trip) checks
+root itself and prints `SKIPPED (needs real root ...)` without failing the
+binary. Either way, `make check`'s summary distinguishes `SKIP` from
+`FAIL` — a `SKIP` here is expected and not a problem to chase down; a
+`FAIL` is.
+
+### `fakeroot` does not help here
+
+`fakeroot` (and similar `LD_PRELOAD` shims) intercepts and fakes
+*file-ownership* library calls (`chown()`, `stat()`, and friends) so
+package-building tools can produce root-owned archive entries without
+actually being root. It does not change the process's real, effective, or
+saved uid at the kernel level, and does not grant `CAP_SETUID` or
+`CAP_NET_BIND_SERVICE`. Since these tests need a genuine `seteuid()` to a
+different account to succeed (and, for `privsep_bind()`'s authorized case,
+a genuine `bind()` to a privileged port), `fakeroot` would not make any of
+this pass — the tests would still hit real `EPERM`s from the kernel, just
+with confusing extra layers involved. A Linux user namespace
+(`unshare -U --map-root-user`, which grants real capabilities within the
+namespace) would work as a local sandbox alternative to actually being
+root, but is not something this project's build sets up or requires; real
+root (or root-in-a-container, which is what CI already provides) remains
+the straightforward option.
+
 ## Reporting Issues
 
 Please include:

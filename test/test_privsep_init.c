@@ -130,6 +130,16 @@ extern void init_fd_monitor_unittest(void);
 #define TEST_FAIL(msg) do { printf("\xe2\x9c\x97 FAIL: %s\n", msg); return -1; } while (0)
 #define TEST_START(name) do { printf("\n[TEST] %s ... ", name); fflush(stdout); } while (0)
 
+/*
+ * A third outcome alongside 0 (pass, TEST_PASS()) and -1 (fail,
+ * TEST_FAIL()): unlike test_root_is_noop()/test_missing_paths_refused(),
+ * test_real_fork_hybrid_roundtrip() genuinely needs real root (CAP_SETUID)
+ * and skips rather than fails when run without it, without also skipping
+ * the two scenarios in this binary that need no privilege at all -- see
+ * that function and main()'s own handling of this value.
+ */
+#define TEST_SKIPPED 2
+
 #define WAIT_POLL_MS   20
 #define WAIT_MAX_POLLS 250   /* 5s bound, same as the rest of this suite */
 #define IO_TIMEOUT_MS  5000
@@ -232,8 +242,20 @@ test_real_fork_hybrid_roundtrip(void)
 
 	TEST_START("privsep_init(), real fork+privilege-drop+ENABLE_HYBRID round trip");
 
-	if (geteuid() != 0)
-		TEST_FAIL("must run as root to exercise the real fork/drop path");
+	/*
+	 * Unlike test_root_is_noop()/test_missing_paths_refused() above, this
+	 * one scenario needs real root -- forking a child that itself
+	 * setgid()s/setuid()s to a different, real unprivileged account
+	 * needs CAP_SETUID, which only a process that started as root has.
+	 * Skipped (not failed -- see main()'s TEST_SKIPPED handling) rather
+	 * than run unprivileged and fail for an unrelated reason. See
+	 * CONTRIBUTING.md's "Running the test suite" section.
+	 */
+	if (geteuid() != 0) {
+		printf("SKIPPED (needs real root for the fork/privilege-drop "
+		    "path)\n");
+		return TEST_SKIPPED;
+	}
 
 	if ((nobody = getpwnam("nobody")) == NULL)
 		TEST_FAIL("no \"nobody\" account on this host");
@@ -335,6 +357,9 @@ int
 main(void)
 {
 	int failed = 0;
+#ifdef ENABLE_HYBRID
+	int rc;
+#endif
 
 	printf("\n=== privsep_init() (privsep-priv-extraction follow-up) "
 	    "===\n");
@@ -342,7 +367,9 @@ main(void)
 	if (test_root_is_noop() != 0) failed++;
 	if (test_missing_paths_refused() != 0) failed++;
 #ifdef ENABLE_HYBRID
-	if (test_real_fork_hybrid_roundtrip() != 0) failed++;
+	rc = test_real_fork_hybrid_roundtrip();
+	if (rc != 0 && rc != TEST_SKIPPED)
+		failed++;
 #else
 	printf("\n[TEST] privsep_init(), real fork+privilege-drop+ENABLE_HYBRID "
 	    "round trip ... SKIPPED (ENABLE_HYBRID not compiled in)\n");
