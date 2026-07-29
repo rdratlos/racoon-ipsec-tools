@@ -671,6 +671,17 @@ endif
 #
 # Also excluded from sanitizer builds, same reason as the other
 # wrapped-static-function tests above.
+#
+# Under --enable-coverage (ENABLE_COVERAGE, configure.ac), also links
+# privsep_gcov_dump_shim.c and adds -Wl,--wrap=_exit: privsep_priv()'s own
+# _exit() at every exit point bypasses gcov's atexit()-registered flush, so
+# without this a coverage build's forked privsep_priv() child never writes
+# its .gcda and `make coverage` reports privsep.c as unexecuted even though
+# it demonstrably ran (doc/dev/privsep-priv-extraction.md §5 has the full
+# writeup -- this wires that report's diagnostic workaround into the
+# regular build instead of a one-off rebuild). The same two lines are
+# repeated on every check_PROGRAMS target below that pulls in privsep.c via
+# privsep_unittest_src.c, for the same reason.
 if !SANITIZER_BUILD
 check_PROGRAMS += test_privsep_sigterm_forward
 
@@ -687,6 +698,10 @@ test_privsep_sigterm_forward_LDADD    = $(top_builddir)/src/racoon/plog.o \
 	$(top_builddir)/src/racoon/vmbuf.o \
 	$(top_builddir)/src/racoon/misc_noplog.o
 test_privsep_sigterm_forward_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+if ENABLE_COVERAGE
+test_privsep_sigterm_forward_SOURCES += privsep_gcov_dump_shim.c
+test_privsep_sigterm_forward_LDFLAGS += -Wl,--wrap=_exit
+endif
 endif
 
 # Test: prune_stale_monitored_fds() (daemon-issues.md Issue 4 follow-up)
@@ -834,6 +849,10 @@ test_privsep_fd_passing_LDADD    = $(top_builddir)/src/racoon/plog.o \
 	$(top_builddir)/src/racoon/vmbuf.o \
 	$(top_builddir)/src/racoon/misc_noplog.o
 test_privsep_fd_passing_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+if ENABLE_COVERAGE
+test_privsep_fd_passing_SOURCES += privsep_gcov_dump_shim.c
+test_privsep_fd_passing_LDFLAGS += -Wl,--wrap=_exit
+endif
 endif
 
 # Test: PRIVSEP_SOCKET's policy gate (issue #105) -- the privileged
@@ -871,6 +890,10 @@ test_privsep_socket_policy_LDADD    = $(top_builddir)/src/racoon/plog.o \
 	$(top_builddir)/src/racoon/vmbuf.o \
 	$(top_builddir)/src/racoon/misc_noplog.o
 test_privsep_socket_policy_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+if ENABLE_COVERAGE
+test_privsep_socket_policy_SOURCES += privsep_gcov_dump_shim.c
+test_privsep_socket_policy_LDFLAGS += -Wl,--wrap=_exit
+endif
 endif
 
 # Test: privsep_setsockopt()'s return contract (issue #105) -- it opened
@@ -906,6 +929,10 @@ test_privsep_setsockopt_LDADD    = $(top_builddir)/src/racoon/plog.o \
 	$(top_builddir)/src/racoon/vmbuf.o \
 	$(top_builddir)/src/racoon/misc_noplog.o
 test_privsep_setsockopt_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+if ENABLE_COVERAGE
+test_privsep_setsockopt_SOURCES += privsep_gcov_dump_shim.c
+test_privsep_setsockopt_LDFLAGS += -Wl,--wrap=_exit
+endif
 endif
 
 # Tests: privsep_priv() -- the privileged dispatch loop itself, extracted
@@ -947,6 +974,10 @@ test_privsep_priv_control_cases_LDADD    = $(top_builddir)/src/racoon/plog.o \
 	$(top_builddir)/src/racoon/vmbuf.o \
 	$(top_builddir)/src/racoon/misc_noplog.o
 test_privsep_priv_control_cases_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+if ENABLE_COVERAGE
+test_privsep_priv_control_cases_SOURCES += privsep_gcov_dump_shim.c
+test_privsep_priv_control_cases_LDFLAGS += -Wl,--wrap=_exit
+endif
 endif
 
 if !SANITIZER_BUILD
@@ -966,6 +997,10 @@ test_privsep_priv_framing_LDADD    = $(top_builddir)/src/racoon/plog.o \
 	$(top_builddir)/src/racoon/vmbuf.o \
 	$(top_builddir)/src/racoon/misc_noplog.o
 test_privsep_priv_framing_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+if ENABLE_COVERAGE
+test_privsep_priv_framing_SOURCES += privsep_gcov_dump_shim.c
+test_privsep_priv_framing_LDFLAGS += -Wl,--wrap=_exit
+endif
 endif
 
 if !SANITIZER_BUILD
@@ -985,6 +1020,10 @@ test_privsep_priv_containment_LDADD    = $(top_builddir)/src/racoon/plog.o \
 	$(top_builddir)/src/racoon/vmbuf.o \
 	$(top_builddir)/src/racoon/misc_noplog.o
 test_privsep_priv_containment_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+if ENABLE_COVERAGE
+test_privsep_priv_containment_SOURCES += privsep_gcov_dump_shim.c
+test_privsep_priv_containment_LDFLAGS += -Wl,--wrap=_exit
+endif
 endif
 
 # Bounded-wait variant needs privsep_priv()'s own mid-request timeout to
@@ -1012,6 +1051,10 @@ test_privsep_priv_bounded_wait_LDADD    = $(top_builddir)/src/racoon/plog.o \
 	$(top_builddir)/src/racoon/vmbuf.o \
 	$(top_builddir)/src/racoon/misc_noplog.o
 test_privsep_priv_bounded_wait_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+if ENABLE_COVERAGE
+test_privsep_priv_bounded_wait_SOURCES += privsep_gcov_dump_shim.c
+test_privsep_priv_bounded_wait_LDFLAGS += -Wl,--wrap=_exit
+endif
 endif
 
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
@@ -1147,11 +1190,28 @@ check-quick: test_dh_modp_groups test_rsa_comprehensive
 	./test_rsa_comprehensive
 
 # Generate code coverage report (requires --enable-coverage and lcov)
+#
+# Modules that are only ever compiled via a local <module>_unittest_src.c
+# wrapper (privsep.c, session.c, isakmp.c, proposal.c, kmpstat.c, ... --
+# "Testing Static Functions" in test/README.md) never produce a .gcda under
+# $(top_builddir)/src: that wrapper's #include pulls the real .c file's
+# source lines in (so gcov correctly attributes their coverage back to
+# e.g. src/racoon/privsep.c, not to the wrapper), but the .gcda/.gcno pair
+# itself is written next to the *compiled object*, i.e. under
+# $(top_builddir)/test. Capturing with only --directory "$$SRC_DIR" (as
+# this target used to) never looks there, so every such module was
+# entirely absent from the report -- not just under-counted. TEST_DIR adds
+# that second capture root; '*/test/*' in the --remove filter below then
+# drops the *test driver's own* files (test_*.c, *_test_stubs.c,
+# privsep_gcov_dump_shim.c) that capturing test/ also picks up, while
+# correctly keeping the production sources whose path resolves under
+# src/racoon/ regardless of which directory their .gcda lives in.
 coverage: $(check_PROGRAMS)
 	@which lcov > /dev/null 2>&1 || \
 		{ echo "Error: lcov not found. Install lcov to generate coverage reports."; exit 1; }
 	@LCOV_DIR=$$(cd $(top_builddir) && pwd); \
 	SRC_DIR=$$(cd $(top_builddir)/src && pwd); \
+	TEST_DIR=$$(pwd); \
 	LCOV_MAJOR=$$(lcov --version 2>/dev/null | grep -oE '[0-9]+' | head -1); \
 	echo "lcov major version: $${LCOV_MAJOR:-1}"; \
 	if [ "$${LCOV_MAJOR:-1}" -ge 2 ]; then \
@@ -1162,7 +1222,7 @@ coverage: $(check_PROGRAMS)
 		LCOV_FILTER=""; \
 	fi; \
 	echo "Running tests to collect coverage data..."; \
-	lcov --directory "$$SRC_DIR" --zerocounters; \
+	lcov --directory "$$SRC_DIR" --directory "$$TEST_DIR" --zerocounters; \
 	for test in $(TESTS); do \
 		echo "Running $$test for coverage..."; \
 		./$$test || exit 1; \
@@ -1170,13 +1230,14 @@ coverage: $(check_PROGRAMS)
 	echo "Excluding eaytest's EAYDEBUG crypto_openssl build from the report..."; \
 	rm -f "$$SRC_DIR/racoon/crypto_openssl_test.gcda"; \
 	echo "Collecting coverage data..."; \
-	lcov --directory "$$SRC_DIR" --capture \
+	lcov --directory "$$SRC_DIR" --directory "$$TEST_DIR" --capture \
 		$$LCOV_CAPTURE \
 		--output-file "$$LCOV_DIR/coverage_raw.info"; \
 	lcov --remove "$$LCOV_DIR/coverage_raw.info" \
 		'*/missing/*' '*/libipsec/*' '/usr/*' \
 		'*/prsa_par.c' '*/prsa_par.y' \
 		'*/prsa_tok.c' '*/prsa_tok.l' \
+		'*/test/*' \
 		$$LCOV_FILTER \
 		--output-file "$$LCOV_DIR/coverage_filtered.info"; \
 	lcov --list "$$LCOV_DIR/coverage_filtered.info"; \

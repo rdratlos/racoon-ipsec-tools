@@ -214,69 +214,110 @@ finding `fatal-exit-path-audit.md`'s prior reports flagged when
 
 ---
 
-## 5. Coverage: a caveat first, then the data
+## 5. Coverage: two caveats, both now fixed, then the data
+
+### Update: both caveats below are now fixed in the shipped build
+
+This section originally documented `make coverage` under-reporting
+`privsep.c` and named a one-off, unshipped workaround for it. Follow-up
+review surfaced that the workaround never made it into the actual build,
+*and* that there was a second, more fundamental gap underneath it — a
+plain `make coverage` run reported `privsep.c` as entirely absent, not
+merely under-counted. Both are now fixed permanently in `test/Makefile.am`/
+`configure.ac`, gated behind `--enable-coverage` (`ENABLE_COVERAGE`) so the
+ordinary build is untouched; the original writeup is kept below for the
+reasoning, updated to reflect what actually ships now.
 
 ### The `_exit()` / gcov interaction
 
-Before presenting numbers: **`make coverage`'s ordinary output for
-`privsep.c` is misleading, and the reason is `_exit()` — the same design
-choice §1 above explains keeping.** gcov normally flushes each process's
-counters to its `.gcda` file via an `atexit()`-registered handler, run
-when a process exits through `exit()`/`return` from `main()`. `_exit()`
-(and `_Exit()`) deliberately bypasses every `atexit()` handler — that is
-what makes it safe to call after `fork()` without double-flushing
-inherited stdio buffers, and it is why `privsep_priv()` uses it at every
-exit point, in production and unchanged here. The consequence: every
-line that only runs *inside the forked child* — which, for these tests,
-means the entire dispatch loop — never gets its counters written to
-disk, and a naive `lcov`/`gcov` capture reports it as 0% executed **even
-though it demonstrably ran** (the child's own log lines prove it, and
-the parent's assertions on the wire traffic and exit status pass).
+`make coverage`'s ordinary output for `privsep.c` used to be misleading,
+and the reason is `_exit()` — the same design choice §1 above explains
+keeping. gcov normally flushes each process's counters to its `.gcda`
+file via an `atexit()`-registered handler, run when a process exits
+through `exit()`/`return` from `main()`. `_exit()` (and `_Exit()`)
+deliberately bypasses every `atexit()` handler — that is what makes it
+safe to call after `fork()` without double-flushing inherited stdio
+buffers, and it is why `privsep_priv()` uses it at every exit point, in
+production and unchanged here. The consequence: every line that only
+runs *inside the forked child* — which, for these tests, means the
+entire dispatch loop — never got its counters written to disk, and a
+naive `lcov`/`gcov` capture reported it as 0% executed **even though it
+demonstrably ran** (the child's own log lines prove it, and the parent's
+assertions on the wire traffic and exit status pass).
 
-Confirmed directly: capturing coverage the ordinary way after a full
-`make check` run shows `privsep.c` at 11.5% lines / 40% functions system;
-annotating the same `.gcda` with `gcov`'s per-line output shows
+Confirmed directly at the time: capturing coverage the ordinary way after
+a full `make check` run showed `privsep.c` at 11.5% lines / 40% functions;
+annotating the same `.gcda` with `gcov`'s per-line output showed
 `privsep_recv()` and `privsep_priv()` themselves marked `#####`
 (unexecuted) despite every one of these tests calling them and printing
 proof of it.
 
-**The number that follows uses a diagnostic workaround, built once for
-this report and not part of the shipped test suite:** the eight
-`test_privsep_*` binaries (the four new ones plus the four pre-existing
-ones that also touch `privsep.c`) were rebuilt with
-`-Wl,--wrap=_exit`, backed by a two-line shim —
+**Fix, now shipped (`test/Makefile.am`, `configure.ac`):** under
+`--enable-coverage`, the eight `check_PROGRAMS` that compile `privsep.c`
+via `privsep_unittest_src.c` (the four `test_privsep_priv_*` binaries plus
+the four pre-existing ones that also touch `privsep.c`) link
+`test/privsep_gcov_dump_shim.c` and add `-Wl,--wrap=_exit` to their own
+`_LDFLAGS`. The shim —
 
 ```c
 extern void __gcov_dump(void);
-extern void __real__exit(int) __attribute__((noreturn));
+extern void __real__exit(int status);
 
 void
-__wrap__exit(int status)
+__wrap__exit(status)
+	int status;
 {
 	__gcov_dump();
 	__real__exit(status);
 }
 ```
 
-— the same `--wrap=` linker technique `test_script_hook_leak.c` already
-uses for `free()` in this suite, applied to `_exit()` instead so the
-forked child's gcov counters get written before it actually exits. This
-changes nothing about what runs; it only makes the *measurement* see it.
-**If a future coverage pass on `privsep.c` reads a low single-digit
-percentage from a plain `make coverage` run, this is why — rebuild with
-the wrap above (or an equivalent) before trusting the number.**
+— is the same `--wrap=` linker technique `test_script_hook_leak.c` already
+uses for `free()`, applied to `_exit()` instead so the forked child's gcov
+counters get written before it actually exits. This changes nothing about
+what runs (all binaries still pass identically with it linked in); it only
+makes the *measurement* see it. `__gcov_dump()` is only available when the
+binary itself is built with `-fprofile-arcs`/`-ftest-coverage`, which is
+exactly what `ENABLE_COVERAGE` gates this on — the ordinary (non-coverage)
+build never sees the wrap or the shim at all.
+
+### The second gap: `make coverage` never looked in `test/` at all
+
+Fixing the flush was not enough on its own. `test/Makefile.am`'s
+`coverage:` target ran `lcov --directory "$SRC_DIR" --capture ...`, where
+`$SRC_DIR` is `$(top_builddir)/src` — but `privsep_unittest_src.c` (like
+every other `<module>_unittest_src.c` wrapper this suite uses — `session.c`,
+`isakmp.c`, `proposal.c`, `kmpstat.c`, and others, all documented under
+"Testing Static Functions" in `test/README.md`) `#include`s the real `.c`
+file directly and is compiled as its own object *inside* `test/`, so its
+`.gcda`/`.gcno` pair is written to `$(top_builddir)/test`, not
+`$(top_builddir)/src`. `lcov`'s directory-scoped capture never looked
+there, so `privsep.c` — along with every other wrapped-only module — was
+completely **absent** from `make coverage`'s report, not just
+under-counted. (gcov itself still attributes the coverage data to the
+correct original source path, `src/racoon/privsep.c`, once its `.gcda` is
+actually captured — this was purely a "which directory does `lcov` scan"
+gap.)
+
+**Fix, now shipped:** the `coverage:` target also captures
+`$(top_builddir)/test` (`TEST_DIR`), and the `--remove` filter step gained
+a `'*/test/*'` pattern to drop the *test driver's own* files that doing so
+also picks up (`test_*.c`, `*_test_stubs.c`, `privsep_gcov_dump_shim.c`) —
+matched against each entry's actual source path in the captured `.info`,
+so it strips only the drivers and leaves every production source (whose
+path always resolves under `src/`) exactly where it belongs.
 
 ### The numbers
 
-With the wrap in place, all eight binaries still pass identically
-(confirming the wrap changes nothing observable):
+With both fixes in place, a plain `make coverage` (`--enable-coverage`,
+`ENABLE_HYBRID` on, `HAVE_LIBPAM` off — this project's default) now
+reports `privsep.c` directly, no special rebuild required:
 
 | Scope | Lines | Functions |
 | --- | --- | --- |
-| `privsep.c`, whole file | 35.5% (290/817) | 66.7% (20/30) |
-| `privsep_priv()` alone (its ~291 executable lines) | 53.3% (155/291) |  |
+| `privsep.c`, whole file | 37.4% (321/858) | 66.7% (20/30) |
 
-The uncovered ~47% of `privsep_priv()` is concentrated in two places,
+The uncovered portion of `privsep_priv()` is concentrated in two places,
 both deliberate, not accidental:
 
 1. **`ENABLE_HYBRID`'s `PRIVSEP_ACCOUNTING_SYSTEM`/`PRIVSEP_XAUTH_LOGIN_SYSTEM`

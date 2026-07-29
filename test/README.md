@@ -551,6 +551,18 @@ for the stub layer (a real, minimal `struct localconf`; canned
 its call, never `fork()+execve()`s) that lets the real dispatch loop run
 without a privilege drop or a real kernel.
 
+Because `privsep_priv()` always exits via `_exit()`, its own module's
+coverage under `--enable-coverage` needs one more piece: `_exit()`
+bypasses gcov's normal `atexit()`-registered flush, so the forked child's
+counters never reach disk on their own. Every `check_PROGRAMS` target that
+compiles `privsep.c` (via `privsep_unittest_src.c`) links
+`privsep_gcov_dump_shim.c` and `-Wl,--wrap=_exit` under `ENABLE_COVERAGE`
+(`test/Makefile.am`) to flush counters before the real `_exit()` runs --
+see `doc/dev/privsep-priv-extraction.md` §5 for the full writeup, including
+a second, separate gap this same fix closed (`make coverage` not scanning
+`test/` at all, so every `<module>_unittest_src.c`-only module, not just
+`privsep.c`, was previously missing from the report entirely).
+
 #### Overriding a Production Timing Constant for One Binary
 
 `privsep_priv()`'s mid-request bound (`PRIVSEP_IPC_WAIT_MAX_MS`,
