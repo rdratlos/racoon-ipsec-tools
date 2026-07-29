@@ -39,13 +39,14 @@ replaces it.
 
 | | Count |
 | --- | --- |
-| Production defects found and fixed in `privsep.c` | 2 confirmed + 1 latent-fragility finding |
+| Production defects found and fixed in `privsep.c` | 2 confirmed + 1 latent-fragility finding (closed with a real fix in the review follow-up, §9.1) |
 | Test-infrastructure defects found and fixed | 4 |
-| New `check_PROGRAMS` test binaries added | 4 |
+| New `check_PROGRAMS` test binaries added | 4 + 2 (review follow-up: `test_monitor_fd_cold_start`, `test_privsep_do_exit` — §9.1/§9.2) = 6 |
 | New tests added to the pre-existing 4 `test_privsep_priv_*` binaries | 0 (unchanged; new coverage went into the new binaries) |
-| `make check` totals | 45 → 53 (root); 51 pass + 2 skip (unprivileged, by design — §4.4) |
+| `make check` totals | 45 → 53 → 55 (root; review follow-up added 2); 53 pass + 2 skip (unprivileged, by design — §4.4) |
 | `check-valgrind` | clean throughout; **caught §2.1 directly** |
 | `privsep.c` line/function coverage | effectively unmeasurable → 72.9% / 97.1% (§5) |
+| Sanitizer-build coverage of privsep-related tests | 0/16 → 11/16 (review follow-up spike, §9.4); the other 5 stay excluded for a documented `session.c`-dependency reason |
 
 ---
 
@@ -67,7 +68,9 @@ follow-up on top of the extraction commit, in this order:
 | `d725113` | Fix: a false-positive fd-leak report in the new fork()-failure test itself (§3.4) |
 
 Each is expanded below, findings first (§2–3), then what was added and
-why (§4), then numbers and open items (§5–7).
+why (§4), then numbers and open items (§5–7). §9 covers a later round of
+commits, also on this branch: the maintainer review follow-up on this
+document itself, closing out items from §2.3, §2.1, and §6.
 
 ---
 
@@ -164,6 +167,18 @@ buffer (`addr`, `optval`, `raddr`, `usr`, `pwd` — owned by whatever called
 the wrapper, not a `privsep.c`-local variable, and so out of this file's
 control to zero).
 
+**Reply direction, checked separately (review follow-up, PR #108, §9.3):**
+the sweep above only covers the request direction (unprivileged →
+privileged: `bind_args`, `sockopt_args`, `socket_args`). The reply
+direction — every `memcpy()` `privsep_priv()` itself performs while
+building `reply`/`newreply` before sending back to the unprivileged
+process, the direction that actually matters for confidentiality since the
+privileged process is the one holding the more sensitive state — was
+audited in the same follow-up and found clean: no reply-side struct is
+field-assigned and then whole-struct-`memcpy()`'d without an intervening
+`bzero()`/equivalent the way `bind_args`/`sockopt_args` were. See §9.3 for
+the specifics.
+
 ### 2.2 `privsep_sock[]` descriptor leak on `fork()` failure
 
 **Severity: low.** `privsep_init()`'s `socketpair()` call happens *before*
@@ -237,6 +252,32 @@ on here since both are behavior changes beyond this task's scope:
    one-time-init guard inside `monitor_fd()` itself) so the invariant
    cannot be violated by call order at all (a real code change, needs its
    own review).
+
+**Resolution (review follow-up, PR #108, §9.1): option 2, implemented.**
+A comment was judged insufficient — it is exactly the kind of protection
+that already failed here once, since the precondition was always implicit
+in `privsep_init()`'s one call site, not enforced by anything a future
+caller would be forced to read. `monitor_fd()` (session.c) now guards
+`fd_monitor_tree[]`'s initialization itself: before inserting, it checks
+each `fd_monitor_tree[i].tqh_last == NULL` — the array's true, otherwise
+unreachable all-zero static-default state — and calls `TAILQ_INIT()` on
+any priority still in it. This was confirmed, not assumed, against both
+`sys/queue.h`s this project actually compiles against (the Linux compat
+header under `src/include-glibc`, and NetBSD's own upstream header,
+fetched live for comparison): both define `TAILQ_HEAD`'s `tqh_last` field
+and have `TAILQ_INIT()` set it to `&head->tqh_first`, never `NULL`, so the
+guard is a reliable one on both of this project's target platforms.
+`session_init_before_cfparse()`'s own `TAILQ_INIT()` call is unchanged —
+this is defense in depth, not a replacement for the normal startup path.
+
+A new regression test, `test_monitor_fd_cold_start.c`, calls `monitor_fd()`
+as the very first thing a fresh process does, with none of `session()`'s
+surrounding startup anywhere in its call history — the same shape of call
+that segfaulted by accident when `test_privsep_init.c` was first written
+(described above). Reverting the guard and re-running that test reproduces
+the exact segfault; with the guard in place it passes, including under
+Valgrind. This is the test that should have caught the original
+`test_privsep_init.c` segfault before a human had to.
 
 ---
 
@@ -505,11 +546,13 @@ next step this document recommends.
 
 ## 6. Test suite state (final)
 
-- `make check`: **53/53** as root (was 45 before this task; the
-  extraction task's own commit brought it to 49, this task's work to 53).
-- `make check` as an unprivileged user: 51 pass, 2 skip, 0 fail (by
+- `make check`: **55/55** as root (was 45 before this task; the
+  extraction task's own commit brought it to 49, this task's work to 53,
+  the review follow-up's two new binaries — `test_monitor_fd_cold_start`,
+  `test_privsep_do_exit`, §9.1/§9.2 — to 55).
+- `make check` as an unprivileged user: 53 pass, 2 skip, 0 fail (by
   design — §4.4).
-- `make check-valgrind`: clean across all 53 binaries — and, over the
+- `make check-valgrind`: clean across all 55 binaries — and, over the
   course of this task, Valgrind is specifically what caught §2.1 (an
   ordinary `make check` run, without Valgrind, sees `privsep_bind()`
   return the correct value either way and would not have noticed the
@@ -519,26 +562,43 @@ next step this document recommends.
   machine's `/dev/log` behaves differently than this task's own
   development sandbox; see §3.4 for why.
 - Sanitizer builds (`--enable-sanitizer` or equivalent, wherever this
-  project's CI configures one): **every privsep test in this suite,
-  including all the new ones, is excluded** (`if !SANITIZER_BUILD` in
-  `test/Makefile.am`), for the same reason the four pre-existing
-  `test_privsep_priv_*.c` binaries already were —
-  `-ffunction-sections`/`--gc-sections` dead-code elimination, needed to
-  keep these binaries' dependency closures small, does not get along
-  with ASan/UBSan instrumentation. **This means `privsep.c` and
-  `session.c`'s `monitor_fd()` currently have zero coverage under
-  whatever sanitizer configuration this project runs**, memory-safety
-  verification for this file resting entirely on Valgrind (which did
-  catch a real bug here) rather than also on ASan/UBSan (which might
-  catch different classes of bug, e.g. certain UB Valgrind's runtime
-  instrumentation model does not model as precisely). Flagged here as a
-  residual gap for the reviewer's judgment, not addressed in this task.
+  project's CI configures one): **resolved for 11 of the 16 privsep-related
+  binaries in the review follow-up (§9.4).** The 11 `privsep.c`-only
+  targets (`test_privsep_sigterm_forward`, `test_privsep_fd_passing`,
+  `test_privsep_socket_policy`, `test_privsep_setsockopt`,
+  `test_privsep_priv_control_cases`, `test_privsep_priv_framing`,
+  `test_privsep_priv_containment`, `test_privsep_priv_bounded_wait`,
+  `test_privsep_client_wrappers`, `test_privsep_hybrid_client_wrappers`,
+  `test_privsep_do_exit`) now build and pass under a real
+  `-fsanitize=address,undefined` configure, genuinely instrumented
+  (confirmed via `nm`/`ldd`), by dropping `-ffunction-sections`/
+  `--gc-sections` for a `SANITIZER_BUILD`-conditional variant and
+  supplying a minimal link-only `monitor_fd()` stub
+  (`privsep_sanitizer_monitor_fd_stub.c`) for the one symbol
+  `privsep_init()` (unreached at runtime by any of these tests, but still
+  part of the linked translation unit once `--gc-sections` is gone) still
+  references. **The remaining 5 — `test_monitor_fd_range`,
+  `test_prune_stale_monitored_fds`, `test_monitor_fd_cold_start`,
+  `test_privsep_init`, `test_privsep_init_fork_failure` — stay excluded**,
+  for a documented, harder reason than the original blanket one:
+  `session.c`'s own dependency closure (`isakmp_init()`, `pfkey_init()`,
+  `admin_init()`, `cfparse()`, and effectively most of the daemon) is not
+  practical to stub just to link one test binary, and doing so would
+  defeat the point of those specific tests anyway. See §9.4 for the full
+  spike writeup, including the exact reproducible link errors this ruled
+  out.
 
 ---
 
 ## 7. Recommendations for the reviewer
 
-In rough priority order:
+In rough priority order. Items 3 and 4 were review follow-up items on PR
+#108 and are now closed (or closed-as-investigated); their original text
+is kept below, struck through, with the resolution appended — see §9 for
+the full writeup of everything closed in that follow-up, including two
+items (the reply-direction padding audit and a standalone
+`privsep_do_exit()` unit test, §9.2/§9.3) that were not separate numbered
+recommendations here but are part of the same closure.
 
 1. **Confirm the threat-model reasoning in §2.1 independently.** The
    severity judgment there (leaked stack bytes flow toward the more-
@@ -547,21 +607,35 @@ In rough priority order:
    finding as "fixed and done" rather than "fixed, but reassess whether
    anything else reads privileged-process memory this way." A second set
    of eyes on that specific reasoning is the single highest-value thing
-   this document is asking for.
+   this document is asking for. Still open.
 2. **Consider a `test_setsockopt_wire()`** (§5) — `sockopt_args`' bug was
    found by inspection, not by a Valgrind-driven test the way
    `bind_args`' was; closing that asymmetry would remove the one
    remaining "we believe this is fixed but nothing actually proves it
-   under Valgrind" case among the three structs audited in §2.1.
-3. **Decide on §2.3's `monitor_fd()`/`fd_monitor_tree[]` ordering
+   under Valgrind" case among the three structs audited in §2.1. Still
+   open — out of scope for the PR #108 review follow-up (§9's own
+   non-goals).
+3. ~~**Decide on §2.3's `monitor_fd()`/`fd_monitor_tree[]` ordering
    dependency** — document the precondition, make it self-enforcing, or
    explicitly accept the current call-order-only guarantee as sufficient
-   given `privsep_init()` has exactly one call site today.
-4. **Weigh whether the sanitizer-build gap in §6 is acceptable** for a
+   given `privsep_init()` has exactly one call site today.~~ **Closed
+   (review follow-up, PR #108, §9.1):** implemented as a self-enforcing
+   guard inside `monitor_fd()` itself (option 2 of §2.3's original list),
+   verified against both this project's actual `sys/queue.h` headers and
+   pinned by a new regression test that reproduces the original segfault
+   when reverted. `session_init_before_cfparse()`'s own `TAILQ_INIT()`
+   call is retained as defense in depth.
+4. ~~**Weigh whether the sanitizer-build gap in §6 is acceptable** for a
    feature this task's own framing calls "new to production" — Valgrind
    coverage is real and already found a genuine bug, but it is not a
    substitute for ASan/UBSan on the same code if this project's CI
-   otherwise relies on those for its memory-safety signal elsewhere.
+   otherwise relies on those for its memory-safety signal elsewhere.~~
+   **Closed-as-investigated (review follow-up, PR #108, §9.4):** the gap
+   is now real ASan/UBSan coverage for 11 of the 16 previously-excluded
+   binaries — every `privsep.c`-only target. The remaining 5
+   (`session.c`-dependent) targets stay excluded, but for a documented,
+   harder reason than the original blanket one, not a restatement of it.
+   See §9.4 for the reproducible spike results either way.
 5. **Runbook Phase 1 remains required, unchanged by any of this work.**
    Nothing in this task or the original extraction touches the real
    `PF_KEY`/XFRM code path; that is still the one thing that needs a real
@@ -601,3 +675,269 @@ Documentation:
   shipped coverage fix (§3.3) instead of the one-off workaround it
   originally documented
 - This document.
+
+**Review follow-up (PR #108, §9) additionally changed:**
+
+Production code:
+- `src/racoon/session.c` — §9.1 (`monitor_fd()` self-enforcing
+  `fd_monitor_tree[]` init guard)
+- `src/racoon/privsep.c` — §9.2 (`privsep_do_exit_unittest()`
+  `ENABLE_UNITTEST` accessor; no other change — §2.1's reply-direction
+  audit, §9.3, found nothing to fix)
+
+Build system:
+- `test/Makefile.am` — new `test_monitor_fd_cold_start`/
+  `test_privsep_do_exit` targets (§9.1/§9.2); `SANITIZER_BUILD`-conditional
+  variants for the 11 `privsep.c`-only targets (§9.4)
+
+New test sources:
+- `test/test_monitor_fd_cold_start.c` (§9.1)
+- `test/test_privsep_do_exit.c` (§9.2)
+- `test/privsep_sanitizer_monitor_fd_stub.c` — shared link-only
+  `monitor_fd()` stand-in for the `SANITIZER_BUILD` variants (§9.4)
+
+Documentation:
+- This document — §9 and the closure notes threaded through §2.1, §2.3,
+  §6, and §7.
+
+---
+
+## 9. Review follow-up (PR #108)
+
+A maintainer review of this document's own §2.3 and §6 findings asked for
+four things: fix (not just decide on) the `monitor_fd()` ordering
+fragility from §2.3; give `privsep_do_exit()` its own standalone unit
+test, decoupled from `monitor_fd()`'s dispatch machinery; confirm the
+reply-direction half of §2.1's padding audit was actually checked; and
+spike whether §6's blanket sanitizer-build exclusion could be scoped more
+narrowly than "every privsep test, no exceptions." All four are closed
+below. Explicitly out of scope for this follow-up, per the review's own
+framing: any change to `privsep.c` beyond what closing these four items
+required (none turned out to be required beyond §9.2's one new accessor),
+and folding in unrelated work items or issues — this section closes out
+review feedback on PR #108 specifically, nothing broader.
+
+### 9.1 `monitor_fd()` / `fd_monitor_tree[]`: self-enforcing initialization
+
+Closes §2.3, option 2 of the two the original finding left to the
+maintainer's judgment. A comment-only fix (option 1) was rejected: a
+comment is exactly the kind of protection that already failed here once
+— the precondition was always implicit in `privsep_init()`'s one call
+site, never enforced by anything a future caller would be forced to read
+before violating it.
+
+**The mechanism**, verified rather than assumed: `TAILQ_INIT(head)` sets
+`head->tqh_last = &head->tqh_first` — never `NULL` — while
+`fd_monitor_tree[]`'s all-zero static default (before any `TAILQ_INIT()`
+call has ever touched it) has `tqh_last == NULL`. That makes
+`tqh_last == NULL` a reliable one-time-init guard, provided it holds for
+every `sys/queue.h` this project actually compiles against. Checked
+directly, not assumed to be true "because BSD":
+
+- This project's own Linux compat header (`src/include-glibc/sys/queue.h`)
+  — a project-shipped file, not the system's own — defines `TAILQ_HEAD`
+  with a `tqh_last` field and `TAILQ_INIT()` sets it to `&(head)->tqh_first`.
+- NetBSD's own upstream `sys/queue.h` (fetched live for comparison, since
+  NetBSD is this project's other target platform and its *system* header
+  is what would be used there, not the Linux compat one) defines the same
+  field and the same `TAILQ_INIT()` behavior.
+
+Both platforms agree, so the guard added to `monitor_fd()` (session.c)
+holds on both:
+
+```c
+for (i = 0; i < NUM_PRIORITIES; i++) {
+	if (fd_monitor_tree[i].tqh_last == NULL)
+		TAILQ_INIT(&fd_monitor_tree[i]);
+}
+```
+
+placed at the top of `monitor_fd()`, before the existing `FD_SET()`/
+`TAILQ_INSERT_TAIL()` logic. `session_init_before_cfparse()`'s own
+`TAILQ_INIT()` call is unchanged — this is defense in depth on top of the
+normal startup path, not a replacement for it; the normal path still runs
+first in every real invocation and the guard above is then a same-state
+no-op for it.
+
+**Regression test:** `test_monitor_fd_cold_start.c` is a dedicated
+single-purpose binary whose entire `main()` calls `monitor_fd()` as the
+first thing in a fresh process — no `init_fd_monitor_unittest()`, no
+`session()` startup, nothing — proving the guard works from a genuinely
+uninitialized state, which is exactly the shape of call that segfaulted by
+accident when `test_privsep_init.c` was first written (§2.3, above). This
+is the test that should have caught that original segfault before a human
+hit it. Verified three ways: (1) it passes against the fixed
+`monitor_fd()`; (2) reverting the guard and re-running it reproduces the
+exact segfault, confirming the test and the fix are actually linked, not
+coincidentally both present; (3) clean under Valgrind (`--leak-check=full`)
+with the fix in place.
+
+### 9.2 `privsep_do_exit()`: standalone unit test
+
+Closes the review's ask for `privsep_do_exit()` to be directly testable on
+its own, not merely verified as a side effect of §9.1's `monitor_fd()`
+fix — a test that only ever drove it through `monitor_fd()`'s full
+dispatch path could not distinguish "the callback's own logic is wrong"
+from "the dispatch machinery around it is wrong."
+
+**From source, not assumed** (the review brief's own instruction, and
+worth stating because the brief itself guessed wrong about which file the
+function lives in — it assumed `session.c`; `privsep_do_exit()` is
+actually defined in `privsep.c`, `static`):
+
+```c
+static int
+privsep_do_exit(void *ctx, int fd)
+{
+	kill(getpid(), SIGTERM);
+	return 0;
+}
+```
+
+It ignores both arguments and does exactly one thing: signal its own
+calling process with `SIGTERM`, then return `0`. `monitor_fd()` dispatches
+to it in production only when `privsep_sock[1]` shows readable/EOF in the
+unprivileged child's own select loop, so it is otherwise unreachable
+directly.
+
+**Accessor:** `privsep_do_exit()` being `static` needed the same
+`ENABLE_UNITTEST`-only accessor pattern already used elsewhere in this
+file (§4.1) — `privsep_do_exit_unittest(void *ctx, int fd)`, defined
+immediately after `privsep_socket_allowed_unittest()`, just calls through.
+
+**Test:** `test_privsep_do_exit.c`, following the fork+real-signal+
+`waitpid()` pattern `test_privsep_sigterm_forward.c` already established
+in this suite rather than inventing a new one. Two cases, each in its own
+disposable forked child so a signal that *does* terminate the process
+takes down only that child:
+
+1. **Terminates via `SIGTERM`** — default disposition. Fork, have the
+   child call `privsep_do_exit_unittest()` directly (a function call, not
+   through `monitor_fd()`), assert via `waitpid()` that
+   `WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM`.
+2. **Returns `0` when the signal is caught, not fatal** — the shape a real
+   unprivileged child is normally already in by the time this callback
+   could ever fire (`session.c`'s own signal setup runs well before
+   `privsep_sock[1]` could show EOF). Installs a handler, calls the
+   accessor, and confirms both that the handler actually fired (proving
+   the signal was delivered, not merely that the process survived by
+   coincidence) and that the function's own return value was `0` —
+   communicated back through the child's exit code, the only channel
+   available across `fork()`.
+
+Both pass; verified stable across repeated runs and clean under Valgrind
+(`--trace-children=yes`). Explicitly narrower in scope than an end-to-end
+`monitor_fd()`-dispatch test driving `privsep_do_exit()` through the real
+dispatch path — that is a separate, still-valid test to consider adding
+later, not something this one replaces.
+
+### 9.3 `privsep_priv()` reply-direction padding audit
+
+Closes the review's ask to confirm §2.1's padding sweep covered the reply
+direction (privileged → unprivileged), not just the request direction it
+explicitly described. It did not say either way, so this follow-up
+checked directly: every `memcpy()` `privsep_priv()` performs while
+building `reply`/`newreply` before sending it back over `privsep_sock`,
+cross-checked against `vchar_t`'s definition
+(`struct _vchar_t_ { size_t l; caddr_t v; }` — a length and a heap
+pointer, no fixed-layout struct with alignment gaps to leak in the first
+place) and every reply-side local variable's own layout.
+
+**Result: no issue found.** Unlike `bind_args`/`sockopt_args` (request
+direction, §2.1), nothing on the reply side is field-assigned and then
+whole-struct-`memcpy()`'d the way those two were. This sentence, together
+with the one added directly to §2.1 above, is the audit-completeness
+statement the review asked for: the reply direction was checked, and is
+clean. No code change was needed or made.
+
+### 9.4 Sanitizer-build exclusion: scoping spike
+
+Closes the review's ask to investigate — explicitly framed as a spike, not
+a guaranteed fix — whether §6's blanket `if !SANITIZER_BUILD` exclusion of
+every privsep test binary could be scoped more narrowly than "all of
+them, unconditionally."
+
+**Hypothesis:** the conflict blamed in §6 is between
+`-ffunction-sections`/`-fdata-sections` + `-Wl,--gc-sections` (needed under
+the *ordinary* build to keep these binaries' dependency closures small —
+`privsep_unittest_src.c` `#include`s the whole of `privsep.c`, which
+statically references far more of the daemon than any one test actually
+calls) and ASan/UBSan instrumentation. Confirmed, precisely: on this
+project's GCC 13.3.0/Ubuntu 24.04 toolchain, combining
+`-fsanitize=address,undefined` with `--gc-sections` reliably drops
+`main()`'s own section, producing `undefined reference to 'main'` from
+`Scrt1.o` — reproduced and isolated by toggling `--gc-sections` and
+`-ffunction-sections` independently under a real
+`-fsanitize=address,undefined` configure. Removing just `--gc-sections`
+(and its precondition, `-ffunction-sections`/`-fdata-sections`) for a
+`SANITIZER_BUILD`-conditional variant resolves that specific error, which
+answered the review's actual question: the conflict is about
+`--gc-sections` specifically, not some broader, unnamed incompatibility
+between the two flag families.
+
+**What dropping `--gc-sections` costs:** without it, the linker requires
+every symbol the *whole* `privsep.c` translation unit references, not just
+what a given test calls — the same set `privsep_priv_test_stubs.c` already
+supplies for `test_privsep_priv_*.c` (`eay_get_pkcs1privkey()`, `getpsk()`,
+`script_exec()`, the `ENABLE_HYBRID`/`HAVE_LIBPAM` link targets), now
+needed by every privsep target uniformly rather than just the four that
+happened to need it already under `--gc-sections`. It also needs one more
+symbol none of the ordinary-build variants do: `monitor_fd()`, referenced
+by `privsep_init()` (itself unreached at runtime by any of these tests,
+which all drive `privsep_priv()` or the client wrappers directly, but
+still part of the linked object once `--gc-sections` can no longer prune
+it away). The real `monitor_fd()` lives in `session.c`, whose own
+dependency closure — `isakmp_init()`, `pfkey_init()`, `admin_init()`,
+`cfparse()`, `sched_init()`, `myaddr_*`, `sainfo_*`, `rmconf_*`, and more,
+confirmed by attempting exactly this and capturing the resulting cascade
+of further undefined references — is not practical to pull into a
+privsep-only test binary just to satisfy one link-time reference nothing
+in these tests ever calls at runtime. `privsep_sanitizer_monitor_fd_stub.c`
+supplies a minimal, link-only stand-in instead (`return 0`, ignoring all
+four arguments); see that file's own header comment for the same reasoning
+in place.
+
+**Applied to 11 targets** — every `privsep.c`-only binary in this suite:
+`test_privsep_sigterm_forward`, `test_privsep_fd_passing`,
+`test_privsep_socket_policy`, `test_privsep_setsockopt`,
+`test_privsep_priv_control_cases`, `test_privsep_priv_framing`,
+`test_privsep_priv_containment`, `test_privsep_priv_bounded_wait`,
+`test_privsep_client_wrappers`, `test_privsep_hybrid_client_wrappers`,
+`test_privsep_do_exit`. Each got a `SANITIZER_BUILD`-conditional variant
+in `test/Makefile.am` (dropping `-ffunction-sections`/`--gc-sections`,
+adding `privsep_priv_test_stubs.c` and
+`privsep_sanitizer_monitor_fd_stub.c` where the ordinary build did not
+already need them) alongside its unchanged ordinary-build variant,
+replacing the `if !SANITIZER_BUILD` exclusion. All 11 were verified, under
+a real `./configure ... CFLAGS="-fsanitize=address,undefined -g -O0"
+LDFLAGS=-fsanitize=address,undefined` build: link cleanly, are genuinely
+instrumented (confirmed via `nm | grep '__asan_\|__ubsan_'` — 33-plus
+matches each — and `ldd | grep asan` showing real `libasan.so.8` linkage,
+not just the flag having been passed), and pass. The full sanitizer-build
+`make check` (all 41 binaries that exist under that configure) is clean:
+41/41.
+
+**Does not work, and was not forced, for 5 targets** —
+`test_monitor_fd_range`, `test_prune_stale_monitored_fds`,
+`test_monitor_fd_cold_start`, `test_privsep_init`,
+`test_privsep_init_fork_failure`. These need `session.c`'s *real*
+`monitor_fd()` (the first three) or a real `privsep_init()` fork/privilege
+drop that itself calls into `session.c` (the last two) — the stub above is
+by design not a substitute, and would defeat the point of these specific
+tests if it were. Pulling in the real `session.c` instead (attempted, to
+be thorough rather than assume) produces the dependency cascade described
+above; not pursued further; these 5 remain excluded from sanitizer builds
+under the unchanged `if !SANITIZER_BUILD` conditional. This is a genuinely
+different, harder problem than the one this spike closed, not a
+restatement of it — see the file comment in
+`privsep_sanitizer_monitor_fd_stub.c` for the same distinction made in
+the code itself.
+
+**Full regression, both configurations:** the sanitizer-configured
+`make check` (41/41, including the 11 newly-instrumented targets) and,
+after a clean rebuild under the project's ordinary (non-sanitizer)
+configure, the full `make check` (55/55) and `make check-valgrind` for the
+two new §9.1/§9.2 binaries specifically (clean, 0 errors, no leaks) both
+pass — the same verification discipline used throughout this task,
+confirming the sanitizer-build changes did not regress the ordinary build
+this project's CI actually runs day to day.
