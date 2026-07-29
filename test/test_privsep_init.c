@@ -18,7 +18,7 @@
  * calls privsep_init() when lcconf->uid == 0, the one path guaranteed to
  * return immediately with no fork and no side effects at all.
  *
- * Three scenarios:
+ * Four scenarios:
  *
  *  1. lcconf->uid == 0: privsep_init() must return 0 having done nothing
  *     else -- no socketpair, no fork. Safe to call directly, no forked
@@ -26,7 +26,13 @@
  *  2. lcconf->uid != 0 but pathinfo[LC_PATHTYPE_CERT]/[LC_PATHTYPE_SCRIPT]
  *     are NULL: must return -1 before ever reaching socketpair()/fork().
  *     Also safe to call directly.
- *  3. The real fork()+privilege-drop+privsep_priv() happy path, run
+ *  3. lcconf->chroot points at a path that does not exist: the real forked
+ *     child's chdir() must fail and privsep_init() must return -1 from
+ *     inside it, before ever reaching setgid()/setuid()/monitor_fd(). Only
+ *     the *failure* of chroot() setup is covered -- see the note at the
+ *     end of this comment for why a real, successful chroot() stays out of
+ *     scope. Needs the same real fork() as scenario 4 below.
+ *  4. The real fork()+privilege-drop+privsep_priv() happy path, run
  *     entirely inside a disposable child (OC, "outer child"):
  *
  *       TP (this test binary, real root)
@@ -71,10 +77,11 @@
  *     privsep_init() entry point.
  *
  * Explicitly out of scope, and left as a documented gap rather than a
- * silent one: lcconf->chroot is left NULL throughout (chroot()'s own
- * setup -- a real, populated jail directory -- is an orthogonal concern
- * from what this file is testing, and getting it wrong risks corrupting
- * the test host rather than just failing a test).
+ * silent one: a real, *successful* chroot() (as opposed to scenario 3's
+ * deliberate chdir() failure) is never exercised -- setting up a real,
+ * populated jail directory is an orthogonal concern from what this file
+ * is testing, and getting it wrong risks corrupting the test host rather
+ * than just failing a test.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -133,10 +140,12 @@ extern void init_fd_monitor_unittest(void);
 /*
  * A third outcome alongside 0 (pass, TEST_PASS()) and -1 (fail,
  * TEST_FAIL()): unlike test_root_is_noop()/test_missing_paths_refused(),
- * test_real_fork_hybrid_roundtrip() genuinely needs real root (CAP_SETUID)
- * and skips rather than fails when run without it, without also skipping
- * the two scenarios in this binary that need no privilege at all -- see
- * that function and main()'s own handling of this value.
+ * test_chroot_failure() and test_real_fork_hybrid_roundtrip() both need a
+ * real fork() and (had test_chroot_failure()'s own chdir() not failed
+ * first) real root (CAP_SETUID), and skip rather than fail when run
+ * without it, without also skipping the two scenarios in this binary that
+ * need no privilege at all -- see those functions and main()'s own
+ * handling of this value.
  */
 #define TEST_SKIPPED 2
 
@@ -182,18 +191,6 @@ test_missing_paths_refused(void)
 	return 0;
 }
 
-#ifdef ENABLE_HYBRID
-
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include "resolv.h"
-#include "isakmp_xauth.h"
-#include "isakmp_cfg.h"
-
-extern int privsep_accounting_system(int port, struct sockaddr *raddr,
-    char *usr, int inout);
-extern struct isakmp_cfg_config isakmp_cfg_config;
-
 /* Bounded read of exactly one byte -- see IO_TIMEOUT_MS above. */
 static int
 read_verdict_bounded(int fd, char *out)
@@ -229,15 +226,189 @@ wait_child_bounded(pid_t child, int *status)
 	return -1;
 }
 
+/*
+ * Shared by test_chroot_failure() below and (guarded by ENABLE_HYBRID,
+ * further down) test_real_fork_hybrid_roundtrip(): both need the real
+ * fork()+privsep_init() topology this file's own header comment
+ * describes, differing only in what lcconf->chroot/uid/gid are set to and
+ * what runs in GC once privsep_init() returns to it. gc_body(rc) is
+ * called only by GC (OC's own call to privsep_init() never returns to
+ * this line at all -- see the header comment) and must return the 'P'/'F'
+ * verdict this function reports back to the caller via *out_verdict.
+ * out_verdict and out_status are only filled in when this itself returns
+ * 0; a nonzero return means the test infrastructure itself failed (mkdtemp(),
+ * pipe(), fork(), or the bounded wait/read), not that the scenario's own
+ * assertion failed -- the caller is expected to TEST_FAIL() on those
+ * itself, since only it knows the right message.
+ */
 static int
-test_real_fork_hybrid_roundtrip(void)
+run_forked_privsep_init(uid_t uid, gid_t gid, const char *chroot_path,
+    char (*gc_body)(int rc), char *out_verdict, int *out_status)
 {
 	char certdir[] = "/tmp/privsep_init_certs.XXXXXX";
 	char scriptdir[] = "/tmp/privsep_init_scripts.XXXXXX";
 	int resultpipe[2];
 	pid_t oc_pid;
-	int status;
 	char verdict = 'F';
+
+	if (mkdtemp(certdir) == NULL)
+		return -1;
+	if (mkdtemp(scriptdir) == NULL) {
+		rmdir(certdir);
+		return -1;
+	}
+
+	if (pipe(resultpipe) != 0) {
+		rmdir(certdir);
+		rmdir(scriptdir);
+		return -1;
+	}
+
+	privsep_priv_test_lcconf_init(certdir, scriptdir);
+	lcconf->uid = uid;
+	lcconf->gid = gid;
+	lcconf->chroot = (char *)chroot_path;
+	privsep_reset_state_unittest();
+	init_fd_monitor_unittest();
+
+	if ((oc_pid = fork()) < 0) {
+		close(resultpipe[0]);
+		close(resultpipe[1]);
+		rmdir(certdir);
+		rmdir(scriptdir);
+		return -1;
+	}
+
+	if (oc_pid == 0) {
+		/* OC (and, if privsep_init()'s own internal fork() succeeds,
+		 * GC continuing past its return -- see the file comment for
+		 * why OC itself never reaches any further than this call). */
+		int rc = privsep_init();
+		char v = gc_body(rc);
+
+		if (write(resultpipe[1], &v, 1) != 1)
+			_exit(1);
+		close(resultpipe[1]);
+		_exit(rc == 0 ? 0 : 1);
+	}
+
+	/* TP: never touched by chroot()/setuid()/the fd-closing loop --
+	 * all of that happened inside OC (and, if it got that far, GC). */
+	close(resultpipe[1]);
+
+	if (read_verdict_bounded(resultpipe[0], &verdict) != 0) {
+		close(resultpipe[0]);
+		wait_child_bounded(oc_pid, out_status);
+		rmdir(certdir);
+		rmdir(scriptdir);
+		return -1;
+	}
+	close(resultpipe[0]);
+
+	if (wait_child_bounded(oc_pid, out_status) != 0) {
+		rmdir(certdir);
+		rmdir(scriptdir);
+		return -1;
+	}
+
+	rmdir(certdir);
+	rmdir(scriptdir);
+	*out_verdict = verdict;
+	return 0;
+}
+
+/* GC-side body for test_chroot_failure(): privsep_init() must have failed
+ * (chdir() to a nonexistent chroot) before ever reaching privilege drop. */
+static char
+gc_body_expect_init_failure(int rc)
+{
+	return (rc == -1) ? 'P' : 'F';
+}
+
+static int
+test_chroot_failure(void)
+{
+	char badchroot[] = "/tmp/privsep_init_missing_chroot.XXXXXX";
+	char verdict;
+	int status;
+	struct passwd *nobody;
+
+	TEST_START("privsep_init(), chroot() setup failure: refused before privilege drop");
+
+	/* Same reasoning as test_real_fork_hybrid_roundtrip() below: this
+	 * scenario needs a real fork() and, had chdir() not failed first,
+	 * would have needed CAP_SETUID too. */
+	if (geteuid() != 0) {
+		printf("SKIPPED (needs real root for the fork/privilege-drop "
+		    "path)\n");
+		return TEST_SKIPPED;
+	}
+
+	if ((nobody = getpwnam("nobody")) == NULL)
+		TEST_FAIL("no \"nobody\" account on this host");
+
+	/* mkdtemp() then rmdir(): a real, unpredictable path guaranteed not
+	 * to exist by the time privsep_init()'s child calls chdir() on it --
+	 * safer than a fixed guessed name, and this scenario needs the
+	 * chdir() to fail, not to succeed. */
+	if (mkdtemp(badchroot) == NULL)
+		TEST_FAIL("mkdtemp(badchroot) failed");
+	if (rmdir(badchroot) != 0)
+		TEST_FAIL("rmdir(badchroot) failed");
+
+	if (run_forked_privsep_init(nobody->pw_uid, nobody->pw_gid, badchroot,
+	    gc_body_expect_init_failure, &verdict, &status) != 0)
+		TEST_FAIL("test infrastructure (mkdtemp/pipe/fork/wait) failed");
+
+	if (verdict != 'P')
+		TEST_FAIL("privsep_init() did not return -1 for a chdir() "
+		    "failure");
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+		TEST_FAIL("privileged process did not take the clean "
+		    "\"out:\"/_exit(0) shutdown path");
+
+	TEST_PASS();
+	return 0;
+}
+
+#ifdef ENABLE_HYBRID
+
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include "resolv.h"
+#include "isakmp_xauth.h"
+#include "isakmp_cfg.h"
+
+extern int privsep_accounting_system(int port, struct sockaddr *raddr,
+    char *usr, int inout);
+extern struct isakmp_cfg_config isakmp_cfg_config;
+
+static struct sockaddr_in gc_body_raddr;
+
+/* GC-side body for test_real_fork_hybrid_roundtrip(): privsep_init() must
+ * have succeeded (rc == 0), and the real ENABLE_HYBRID client-wrapper call
+ * it then makes -- over the *real* privsep_sock privsep_init() itself just
+ * set up, no test-only accessor involved -- must round-trip cleanly. */
+static char
+gc_body_hybrid_roundtrip(int rc)
+{
+	if (rc != 0)
+		return 'F';
+
+	memset(&gc_body_raddr, 0, sizeof(gc_body_raddr));
+	gc_body_raddr.sin_family = AF_INET;
+	gc_body_raddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+	return (privsep_accounting_system(0,
+	    (struct sockaddr *)&gc_body_raddr, "someuser", 1) == 0)
+	    ? 'P' : 'F';
+}
+
+static int
+test_real_fork_hybrid_roundtrip(void)
+{
+	char verdict;
+	int status;
 	struct passwd *nobody;
 
 	TEST_START("privsep_init(), real fork+privilege-drop+ENABLE_HYBRID round trip");
@@ -260,85 +431,11 @@ test_real_fork_hybrid_roundtrip(void)
 	if ((nobody = getpwnam("nobody")) == NULL)
 		TEST_FAIL("no \"nobody\" account on this host");
 
-	if (mkdtemp(certdir) == NULL)
-		TEST_FAIL("mkdtemp(certdir) failed");
-	if (mkdtemp(scriptdir) == NULL) {
-		rmdir(certdir);
-		TEST_FAIL("mkdtemp(scriptdir) failed");
-	}
-
-	if (pipe(resultpipe) != 0) {
-		rmdir(certdir);
-		rmdir(scriptdir);
-		TEST_FAIL("pipe() failed");
-	}
-
 	isakmp_cfg_config.pool_size = 10;
-	privsep_priv_test_lcconf_init(certdir, scriptdir);
-	lcconf->uid = nobody->pw_uid;
-	lcconf->gid = nobody->pw_gid;
-	lcconf->chroot = NULL;
-	privsep_reset_state_unittest();
-	init_fd_monitor_unittest();
 
-	if ((oc_pid = fork()) < 0) {
-		close(resultpipe[0]);
-		close(resultpipe[1]);
-		rmdir(certdir);
-		rmdir(scriptdir);
-		TEST_FAIL("fork() failed");
-	}
-
-	if (oc_pid == 0) {
-		/* OC (and, if privsep_init()'s own internal fork() succeeds,
-		 * GC continuing past its return -- see the file comment for
-		 * why OC itself never reaches any further than this call). */
-		int rc;
-		struct sockaddr_in raddr;
-
-		close(resultpipe[0]);
-
-		rc = privsep_init();
-		if (rc == 0) {
-			/* GC: the real, dropped-privilege unprivileged side. */
-			memset(&raddr, 0, sizeof(raddr));
-			raddr.sin_family = AF_INET;
-			raddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-
-			verdict = (privsep_accounting_system(0,
-			    (struct sockaddr *)&raddr, "someuser", 1) == 0)
-			    ? 'P' : 'F';
-		} else {
-			verdict = 'F';
-		}
-		if (write(resultpipe[1], &verdict, 1) != 1)
-			_exit(1);
-		close(resultpipe[1]);
-		_exit(rc == 0 ? 0 : 1);
-	}
-
-	/* TP: never touched by chroot()/setuid()/the fd-closing loop --
-	 * all of that happened inside OC (and, if it got that far, GC). */
-	close(resultpipe[1]);
-
-	if (read_verdict_bounded(resultpipe[0], &verdict) != 0) {
-		close(resultpipe[0]);
-		wait_child_bounded(oc_pid, &status);
-		rmdir(certdir);
-		rmdir(scriptdir);
-		TEST_FAIL("no verdict from the privileged/unprivileged pair "
-		    "within the time bound");
-	}
-	close(resultpipe[0]);
-
-	if (wait_child_bounded(oc_pid, &status) != 0) {
-		rmdir(certdir);
-		rmdir(scriptdir);
-		TEST_FAIL("privileged process did not exit within the time bound");
-	}
-
-	rmdir(certdir);
-	rmdir(scriptdir);
+	if (run_forked_privsep_init(nobody->pw_uid, nobody->pw_gid, NULL,
+	    gc_body_hybrid_roundtrip, &verdict, &status) != 0)
+		TEST_FAIL("test infrastructure (mkdtemp/pipe/fork/wait) failed");
 
 	if (verdict != 'P')
 		TEST_FAIL("the real privsep_accounting_system() round trip "
@@ -357,15 +454,18 @@ int
 main(void)
 {
 	int failed = 0;
-#ifdef ENABLE_HYBRID
 	int rc;
-#endif
 
 	printf("\n=== privsep_init() (privsep-priv-extraction follow-up) "
 	    "===\n");
 
 	if (test_root_is_noop() != 0) failed++;
 	if (test_missing_paths_refused() != 0) failed++;
+
+	rc = test_chroot_failure();
+	if (rc != 0 && rc != TEST_SKIPPED)
+		failed++;
+
 #ifdef ENABLE_HYBRID
 	rc = test_real_fork_hybrid_roundtrip();
 	if (rc != 0 && rc != TEST_SKIPPED)
