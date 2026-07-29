@@ -682,7 +682,32 @@ endif
 # regular build instead of a one-off rebuild). The same two lines are
 # repeated on every check_PROGRAMS target below that pulls in privsep.c via
 # privsep_unittest_src.c, for the same reason.
-if !SANITIZER_BUILD
+# SANITIZER_BUILD variant per the sanitizer-build spike (doc/dev/
+# privsep-hardening-followup-audit.md, §4/§9; see test_privsep_do_exit's
+# own comment above for the full reasoning). Without --gc-sections, the
+# linker needs every symbol privsep.c's whole translation unit
+# references, not just what this test calls, so this variant also links
+# privsep_priv_test_stubs.c and privsep_sanitizer_monitor_fd_stub.c even
+# though the ordinary build needs neither.
+if SANITIZER_BUILD
+check_PROGRAMS += test_privsep_sigterm_forward
+
+test_privsep_sigterm_forward_SOURCES  = test_privsep_sigterm_forward.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c \
+	privsep_sanitizer_monitor_fd_stub.c
+test_privsep_sigterm_forward_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_sigterm_forward_CFLAGS   = $(AM_CFLAGS)
+test_privsep_sigterm_forward_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_sigterm_forward_LDFLAGS  = $(AM_LDFLAGS)
+else
 check_PROGRAMS += test_privsep_sigterm_forward
 
 test_privsep_sigterm_forward_SOURCES  = test_privsep_sigterm_forward.c \
@@ -813,6 +838,37 @@ test_monitor_fd_range_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_monitor_fd_range_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Test: monitor_fd()'s self-enforcing fd_monitor_tree[] initialization
+# (doc/dev/privsep-hardening-followup-audit.md §2.3/§9) -- unlike every
+# other monitor_fd() test above, this binary deliberately never calls
+# init_fd_monitor_unittest(), so its one monitor_fd() call is the first
+# thing in the whole process that could touch fd_monitor_tree[] at all.
+# See the file's own header comment for why that specific "called cold"
+# condition needs its own binary rather than another test function in
+# test_monitor_fd_range.c above (whose own main() already initializes
+# before its first test runs).
+#
+# Same session.c wrapper source and -DENABLE_UNITTEST accessor as the
+# other monitor_fd() tests; also excluded from sanitizer builds, same
+# reason as those.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_monitor_fd_cold_start
+
+test_monitor_fd_cold_start_SOURCES  = test_monitor_fd_cold_start.c \
+	session_unittest_src.c
+test_monitor_fd_cold_start_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_monitor_fd_cold_start_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_monitor_fd_cold_start_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_monitor_fd_cold_start_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Test: privsep descriptor passing (issue #105) -- privsep.c's privileged
 # dispatch loop used to _exit(0) on any local fault, killing the daemon
 # (the unprivileged child exits as soon as privsep_sock reads EOF). Those
@@ -833,7 +889,27 @@ endif
 #
 # Also excluded from sanitizer builds, same reason as the other
 # wrapped-static-function tests above.
-if !SANITIZER_BUILD
+# SANITIZER_BUILD variant, same reasoning as test_privsep_sigterm_forward
+# above (doc/dev/privsep-hardening-followup-audit.md §4/§9).
+if SANITIZER_BUILD
+check_PROGRAMS += test_privsep_fd_passing
+
+test_privsep_fd_passing_SOURCES  = test_privsep_fd_passing.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c \
+	privsep_sanitizer_monitor_fd_stub.c
+test_privsep_fd_passing_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_fd_passing_CFLAGS   = $(AM_CFLAGS)
+test_privsep_fd_passing_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_fd_passing_LDFLAGS  = $(AM_LDFLAGS)
+else
 check_PROGRAMS += test_privsep_fd_passing
 
 test_privsep_fd_passing_SOURCES  = test_privsep_fd_passing.c \
@@ -852,6 +928,82 @@ test_privsep_fd_passing_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 if ENABLE_COVERAGE
 test_privsep_fd_passing_SOURCES += privsep_gcov_dump_shim.c
 test_privsep_fd_passing_LDFLAGS += -Wl,--wrap=_exit
+endif
+endif
+
+# Test: privsep_do_exit() (privsep.c) in isolation, decoupled from
+# monitor_fd() -- doc/dev/privsep-hardening-followup-audit.md's review
+# follow-up on §2.3: in production this is reachable only as the callback
+# monitor_fd() dispatches to when privsep_sock[1] shows readable/EOF, so a
+# test that only ever drove it through that full dispatch path could not
+# tell "the callback's own logic is wrong" apart from "the dispatch
+# machinery around it is wrong". privsep_do_exit_unittest() is a new
+# -DENABLE_UNITTEST-only accessor (privsep_do_exit() is static).
+#
+# Same privsep.c wrapper source (privsep_unittest_src.c) and explicit
+# plog.o/logger.o linkage as the other privsep tests above --
+# privsep_do_exit()'s own body (kill()+return, nothing else) needs no
+# other stubs under the ordinary (--gc-sections) build, so unlike
+# test_privsep_priv_*.c this target does not link privsep_priv_test_stubs.c
+# there; --gc-sections has nothing pulling those symbols in.
+#
+# PILOT for the sanitizer-build spike (doc/dev/privsep-hardening-followup-
+# audit.md's review follow-up, §4/§9): every other privsep test in this
+# suite is unconditionally excluded from sanitizer builds
+# (if !SANITIZER_BUILD), citing a conflict between -ffunction-sections/
+# --gc-sections (needed to keep a normal build's dependency closure small)
+# and ASan/UBSan instrumentation. This target is the one used to test
+# whether that conflict is actually about --gc-sections specifically, or
+# about something else -- see the audit document for the answer and how
+# it was reached. Unlike its ordinary build, the SANITIZER_BUILD variant
+# below does link privsep_priv_test_stubs.c: without --gc-sections
+# stripping privsep.c's unreached functions, the linker needs every
+# symbol the whole translation unit references, not just what this test
+# actually calls (the same set test_privsep_priv_*.c already needs). It
+# also needs a monitor_fd() symbol for the same reason -- privsep_init()
+# (unreached by this test, but still part of the linked translation unit
+# without --gc-sections) calls it -- but the real one lives in session.c,
+# whose own dependency closure is impractical to link into a privsep-only
+# test binary; privsep_sanitizer_monitor_fd_stub.c supplies a minimal
+# link-only stand-in instead. See that file's header comment for the full
+# reasoning.
+if SANITIZER_BUILD
+check_PROGRAMS += test_privsep_do_exit
+
+test_privsep_do_exit_SOURCES  = test_privsep_do_exit.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c \
+	privsep_sanitizer_monitor_fd_stub.c
+test_privsep_do_exit_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_do_exit_CFLAGS   = $(AM_CFLAGS)
+test_privsep_do_exit_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_do_exit_LDFLAGS  = $(AM_LDFLAGS)
+else
+check_PROGRAMS += test_privsep_do_exit
+
+test_privsep_do_exit_SOURCES  = test_privsep_do_exit.c \
+	privsep_unittest_src.c
+test_privsep_do_exit_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_do_exit_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_privsep_do_exit_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_do_exit_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+if ENABLE_COVERAGE
+test_privsep_do_exit_SOURCES += privsep_gcov_dump_shim.c
+test_privsep_do_exit_LDFLAGS += -Wl,--wrap=_exit
 endif
 endif
 
@@ -874,7 +1026,27 @@ endif
 #
 # Also excluded from sanitizer builds, same reason as the other
 # wrapped-static-function tests above.
-if !SANITIZER_BUILD
+# SANITIZER_BUILD variant, same reasoning as test_privsep_sigterm_forward
+# above (doc/dev/privsep-hardening-followup-audit.md §4/§9).
+if SANITIZER_BUILD
+check_PROGRAMS += test_privsep_socket_policy
+
+test_privsep_socket_policy_SOURCES  = test_privsep_socket_policy.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c \
+	privsep_sanitizer_monitor_fd_stub.c
+test_privsep_socket_policy_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_socket_policy_CFLAGS   = $(AM_CFLAGS)
+test_privsep_socket_policy_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_socket_policy_LDFLAGS  = $(AM_LDFLAGS)
+else
 check_PROGRAMS += test_privsep_socket_policy
 
 test_privsep_socket_policy_SOURCES  = test_privsep_socket_policy.c \
@@ -913,7 +1085,27 @@ endif
 #
 # Also excluded from sanitizer builds, same reason as the other
 # wrapped-static-function tests above.
-if !SANITIZER_BUILD
+# SANITIZER_BUILD variant, same reasoning as test_privsep_sigterm_forward
+# above (doc/dev/privsep-hardening-followup-audit.md §4/§9).
+if SANITIZER_BUILD
+check_PROGRAMS += test_privsep_setsockopt
+
+test_privsep_setsockopt_SOURCES  = test_privsep_setsockopt.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c \
+	privsep_sanitizer_monitor_fd_stub.c
+test_privsep_setsockopt_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_setsockopt_CFLAGS   = $(AM_CFLAGS)
+test_privsep_setsockopt_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_setsockopt_LDFLAGS  = $(AM_LDFLAGS)
+else
 check_PROGRAMS += test_privsep_setsockopt
 
 test_privsep_setsockopt_SOURCES  = test_privsep_setsockopt.c \
@@ -957,7 +1149,30 @@ endif
 # as the other privsep tests above, and excluded from sanitizer builds for
 # the same reason (relies on --gc-sections dead-code elimination that ASan
 # defeats).
-if !SANITIZER_BUILD
+# SANITIZER_BUILD variant, same reasoning as test_privsep_sigterm_forward
+# above (doc/dev/privsep-hardening-followup-audit.md §4/§9). Already links
+# privsep_priv_test_stubs.c in the ordinary build below, so only adds
+# privsep_sanitizer_monitor_fd_stub.c and drops -ffunction-sections/
+# --gc-sections.
+if SANITIZER_BUILD
+check_PROGRAMS += test_privsep_priv_control_cases
+
+test_privsep_priv_control_cases_SOURCES  = test_privsep_priv_control_cases.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c \
+	privsep_sanitizer_monitor_fd_stub.c
+test_privsep_priv_control_cases_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_priv_control_cases_CFLAGS   = $(AM_CFLAGS)
+test_privsep_priv_control_cases_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_priv_control_cases_LDFLAGS  = $(AM_LDFLAGS)
+else
 check_PROGRAMS += test_privsep_priv_control_cases
 
 test_privsep_priv_control_cases_SOURCES  = test_privsep_priv_control_cases.c \
@@ -980,7 +1195,25 @@ test_privsep_priv_control_cases_LDFLAGS += -Wl,--wrap=_exit
 endif
 endif
 
-if !SANITIZER_BUILD
+if SANITIZER_BUILD
+check_PROGRAMS += test_privsep_priv_framing
+
+test_privsep_priv_framing_SOURCES  = test_privsep_priv_framing.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c \
+	privsep_sanitizer_monitor_fd_stub.c
+test_privsep_priv_framing_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_priv_framing_CFLAGS   = $(AM_CFLAGS)
+test_privsep_priv_framing_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_priv_framing_LDFLAGS  = $(AM_LDFLAGS)
+else
 check_PROGRAMS += test_privsep_priv_framing
 
 test_privsep_priv_framing_SOURCES  = test_privsep_priv_framing.c \
@@ -1003,7 +1236,25 @@ test_privsep_priv_framing_LDFLAGS += -Wl,--wrap=_exit
 endif
 endif
 
-if !SANITIZER_BUILD
+if SANITIZER_BUILD
+check_PROGRAMS += test_privsep_priv_containment
+
+test_privsep_priv_containment_SOURCES  = test_privsep_priv_containment.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c \
+	privsep_sanitizer_monitor_fd_stub.c
+test_privsep_priv_containment_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_priv_containment_CFLAGS   = $(AM_CFLAGS)
+test_privsep_priv_containment_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_priv_containment_LDFLAGS  = $(AM_LDFLAGS)
+else
 check_PROGRAMS += test_privsep_priv_containment
 
 test_privsep_priv_containment_SOURCES  = test_privsep_priv_containment.c \
@@ -1033,7 +1284,28 @@ endif
 # to this target's own CPPFLAGS (test/README.md), never the production
 # build. 200ms is far above what a healthy exchange over a local
 # socketpair needs and far below this suite's own IO_TIMEOUT_MS bounds.
-if !SANITIZER_BUILD
+# SANITIZER_BUILD variant, same reasoning as test_privsep_sigterm_forward
+# above (doc/dev/privsep-hardening-followup-audit.md §4/§9).
+if SANITIZER_BUILD
+check_PROGRAMS += test_privsep_priv_bounded_wait
+
+test_privsep_priv_bounded_wait_SOURCES  = test_privsep_priv_bounded_wait.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c \
+	privsep_sanitizer_monitor_fd_stub.c
+test_privsep_priv_bounded_wait_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST \
+	-DPRIVSEP_IPC_WAIT_MAX_MS_UNITTEST_OVERRIDE=200
+test_privsep_priv_bounded_wait_CFLAGS   = $(AM_CFLAGS)
+test_privsep_priv_bounded_wait_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_priv_bounded_wait_LDFLAGS  = $(AM_LDFLAGS)
+else
 check_PROGRAMS += test_privsep_priv_bounded_wait
 
 test_privsep_priv_bounded_wait_SOURCES  = test_privsep_priv_bounded_wait.c \
@@ -1081,7 +1353,28 @@ endif
 # elimination that ASan defeats), and gets the same ENABLE_COVERAGE
 # -Wl,--wrap=_exit treatment as every other check_PROGRAMS target that
 # compiles privsep.c via privsep_unittest_src.c.
-if !SANITIZER_BUILD
+# SANITIZER_BUILD variant, same reasoning as test_privsep_sigterm_forward
+# above (doc/dev/privsep-hardening-followup-audit.md §4/§9).
+if SANITIZER_BUILD
+check_PROGRAMS += test_privsep_client_wrappers
+
+test_privsep_client_wrappers_SOURCES  = test_privsep_client_wrappers.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c \
+	privsep_wire_roundtrip.c \
+	privsep_sanitizer_monitor_fd_stub.c
+test_privsep_client_wrappers_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_client_wrappers_CFLAGS   = $(AM_CFLAGS)
+test_privsep_client_wrappers_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_client_wrappers_LDFLAGS  = $(AM_LDFLAGS)
+else
 check_PROGRAMS += test_privsep_client_wrappers
 
 test_privsep_client_wrappers_SOURCES  = test_privsep_client_wrappers.c \
@@ -1118,7 +1411,28 @@ endif
 #
 # Also excluded from sanitizer builds and gets the same ENABLE_COVERAGE
 # treatment, same reasons as test_privsep_client_wrappers above.
-if !SANITIZER_BUILD
+# SANITIZER_BUILD variant, same reasoning as test_privsep_client_wrappers
+# above (doc/dev/privsep-hardening-followup-audit.md §4/§9).
+if SANITIZER_BUILD
+check_PROGRAMS += test_privsep_hybrid_client_wrappers
+
+test_privsep_hybrid_client_wrappers_SOURCES  = test_privsep_hybrid_client_wrappers.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c \
+	privsep_wire_roundtrip.c \
+	privsep_sanitizer_monitor_fd_stub.c
+test_privsep_hybrid_client_wrappers_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_hybrid_client_wrappers_CFLAGS   = $(AM_CFLAGS)
+test_privsep_hybrid_client_wrappers_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_hybrid_client_wrappers_LDFLAGS  = $(AM_LDFLAGS)
+else
 check_PROGRAMS += test_privsep_hybrid_client_wrappers
 
 test_privsep_hybrid_client_wrappers_SOURCES  = test_privsep_hybrid_client_wrappers.c \

@@ -516,6 +516,24 @@ privsep_socket_allowed_unittest(int domain, int type, int protocol)
 }
 
 /*
+ * privsep_do_exit() is static and, in production, reachable only as the
+ * callback monitor_fd() dispatches to when privsep_sock[1] shows up
+ * readable/EOF in the unprivileged child's select() loop -- i.e. only
+ * through the exact monitor_fd() call this task's other fix (the
+ * fd_monitor_tree[] self-init guard, above monitor_fd() in session.c)
+ * hardens. Exposed so privsep_do_exit()'s own logic (it raises SIGTERM on
+ * its caller, full stop -- see privsep-hardening-followup-audit.md §9)
+ * can be tested in isolation, decoupled from monitor_fd()'s own dispatch
+ * machinery: a test driving it only through monitor_fd() cannot tell "the
+ * callback itself is wrong" apart from "the dispatch around it is wrong".
+ */
+int
+privsep_do_exit_unittest(void *ctx, int fd)
+{
+	return privsep_do_exit(ctx, fd);
+}
+
+/*
  * privsep_sock[] is what every client-side privsep_*() wrapper below
  * reads: each opens with "if (geteuid() == 0) return <real syscall/
  * function>(...)" and falls through to the wire protocol -- built on
