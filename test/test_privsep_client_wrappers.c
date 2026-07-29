@@ -408,6 +408,31 @@ test_bind_passthrough(void)
 	if ((s = socket(PF_INET, SOCK_DGRAM, 0)) < 0)
 		TEST_FAIL("socket() failed");
 
+	/*
+	 * Every real caller of privsep_bind() (isakmp.c's own socket setup)
+	 * sets this immediately before calling it -- SO_REUSEADDR on Linux,
+	 * SO_REUSEPORT elsewhere, the same #ifdef split isakmp.c itself
+	 * uses. Without it, this bind to PORT_ISAKMP below collides with
+	 * EADDRINUSE on any host already running a real racoon (or another
+	 * ISAKMP listener) bound to that port system-wide -- see
+	 * test_privsep_priv_control_cases.c's identical fix for
+	 * PRIVSEP_BIND's PORT_ISAKMP_NATT case, reported the same way
+	 * against a real Ubuntu Bionic host running racoon.
+	 */
+	{
+		int yes = 1;
+		if (setsockopt(s, SOL_SOCKET,
+#ifdef __linux__
+		    SO_REUSEADDR,
+#else
+		    SO_REUSEPORT,
+#endif
+		    &yes, sizeof(yes)) != 0) {
+			close(s);
+			TEST_FAIL("setsockopt(REUSE) failed");
+		}
+	}
+
 	memset(&sin, 0, sizeof(sin));
 	sin.sin_family = AF_INET;
 	sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
@@ -454,6 +479,24 @@ test_bind_wire(void)
 		privsep_wire_roundtrip_restore_priv();
 		privsep_wire_roundtrip_finish(child);
 		TEST_FAIL("socket() failed");
+	}
+	/* Same REUSE fix as test_bind_passthrough() above -- required here
+	 * too, not just for the passthrough case, since the escalated bind
+	 * below is a real bind() on the privileged side. */
+	{
+		int yes = 1;
+		if (setsockopt(s, SOL_SOCKET,
+#ifdef __linux__
+		    SO_REUSEADDR,
+#else
+		    SO_REUSEPORT,
+#endif
+		    &yes, sizeof(yes)) != 0) {
+			close(s);
+			privsep_wire_roundtrip_restore_priv();
+			privsep_wire_roundtrip_finish(child);
+			TEST_FAIL("setsockopt(REUSE) failed");
+		}
 	}
 	memset(&sin, 0, sizeof(sin));
 	sin.sin_family = AF_INET;
