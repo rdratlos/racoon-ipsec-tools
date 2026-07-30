@@ -36,27 +36,34 @@ wire-protocol branch when the *calling* process is not root
 that branch means the test process must `seteuid()` itself to an
 unprivileged account (`nobody`) partway through, then back to root
 afterwards, around a still-root forked child that plays the privileged
-side for real. `seteuid()` to a *different* account (not one the process
+side for real. Two of `test_privsep_init`'s own scenarios go further and
+need a real forked child to itself `setgid()`/`setuid()` to that account.
+`seteuid()`/`setuid()` to a *different* account (not one the process
 already held) needs `CAP_SETUID` — which only a process that started as
 root has. There is no way around this: the whole point is testing what
 happens when privilege is dropped, which requires having it to drop from.
+(`test_privsep_init_fork_failure` is the one privsep test that needs none
+of this — its one scenario forces `fork()` itself to fail via a linker-level
+wrap, so no real fork or privilege drop ever happens, and it always runs
+in full regardless of who invokes `make check`.)
 
 **Run as root** (the containers/CI this project targets, or locally via
 `sudo`) and every test runs and is asserted on — this is the only way to
-get full coverage of these three binaries.
+get full coverage of `test_privsep_client_wrappers`,
+`test_privsep_hybrid_client_wrappers`, and `test_privsep_init`.
 
 **Run as an ordinary user** and the two binaries where *every* case needs
 root (`test_privsep_client_wrappers`, `test_privsep_hybrid_client_wrappers`)
 detect that up front and report `SKIP` (exit code 77 — automake's own
 convention for "this test doesn't apply here", distinct from a failure)
-instead of failing. `test_privsep_init` is different: two of its three
+instead of failing. `test_privsep_init` is different: two of its four
 scenarios (the `lcconf->uid == 0` no-op, and the missing-cert/script-path
-refusal) don't touch privilege at all and always run; only its third
-scenario (the real fork/privilege-drop/dispatch-loop round trip) checks
-root itself and prints `SKIPPED (needs real root ...)` without failing the
-binary. Either way, `make check`'s summary distinguishes `SKIP` from
-`FAIL` — a `SKIP` here is expected and not a problem to chase down; a
-`FAIL` is.
+refusal) don't touch privilege at all and always run; its other two (a
+`chroot()`-setup-failure case, and the real fork/privilege-drop/
+dispatch-loop round trip) check root themselves and print
+`SKIPPED (needs real root ...)` without failing the binary. Either way,
+`make check`'s summary distinguishes `SKIP` from `FAIL` — a `SKIP` here is
+expected and not a problem to chase down; a `FAIL` is.
 
 ### `fakeroot` does not help here
 

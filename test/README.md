@@ -607,21 +607,27 @@ bypasses:
 
 - **`test_privsep_init.c`** drives `privsep_init()` directly for its two
   side-effect-free early-return cases (`lcconf->uid == 0`; a missing
-  cert/script path), and, for the real `socketpair()`+`fork()`+
-  `chroot()`/`setgid()`/`setuid()`+`monitor_fd()`+`privsep_priv()` happy
-  path, forks a disposable child first so every one of those side effects
-  happens inside a process this test binary itself never becomes --
-  `privsep_init()`'s *own* internal `fork()` then produces a second,
-  further-nested child that actually drops privilege and makes one real
-  `ENABLE_HYBRID` client-wrapper call over the *real* `privsep_sock` (no
-  test accessor involved at that point -- it is the genuine, fully
-  production `privsep_init()` setup), reporting its verdict back up a
-  pipe since it is not the outer test process's own direct child and gets
-  reparented once its parent exits. See the file's own header comment for
-  the full three-process breakdown. This is the one scenario in this
-  suite that reaches `privsep_priv()`'s `ENABLE_HYBRID` dispatch cases
-  through the real production entry point rather than a synthetic direct
-  `privsep_priv(sock)` call.
+  cert/script path); for a third, `lcconf->chroot` pointed at a path that
+  does not exist, so the real forked child's `chdir()` fails and
+  `privsep_init()` returns `-1` before ever reaching `setgid()`/`setuid()`/
+  `monitor_fd()`; and, for the real `socketpair()`+`fork()`+`chroot()`/
+  `setgid()`/`setuid()`+`monitor_fd()`+`privsep_priv()` happy path, forks a
+  disposable child first so every one of those side effects happens inside
+  a process this test binary itself never becomes -- `privsep_init()`'s
+  *own* internal `fork()` then produces a second, further-nested child
+  that actually drops privilege and makes one real `ENABLE_HYBRID`
+  client-wrapper call over the *real* `privsep_sock` (no test accessor
+  involved at that point -- it is the genuine, fully production
+  `privsep_init()` setup), reporting its verdict back up a pipe since it
+  is not the outer test process's own direct child and gets reparented
+  once its parent exits. See the file's own header comment for the full
+  three-process breakdown, shared by both of these last two scenarios via
+  one `run_forked_privsep_init()` helper parameterized by a
+  per-scenario callback for what the innermost child does with
+  `privsep_init()`'s return value. The `ENABLE_HYBRID` round trip is the
+  one scenario in this suite that reaches `privsep_priv()`'s
+  `ENABLE_HYBRID` dispatch cases through the real production entry point
+  rather than a synthetic direct `privsep_priv(sock)` call.
 
   Needs `session_unittest_src.c` linked alongside the usual
   `privsep_unittest_src.c` (for `monitor_fd()`, which `privsep_init()`'s
@@ -635,18 +641,40 @@ bypasses:
   a head that is still its all-zero static default -- confirmed to
   segfault the real forked child immediately until this was added.
 
-  Left as a documented gap rather than a silent one: `lcconf->chroot`
-  stays `NULL` throughout (real `chroot()` jail setup is an orthogonal
-  concern from what this file tests, and getting it wrong risks the test
-  host rather than just a failing test).
+  Left as a documented gap rather than a silent one: a real, *successful*
+  `chroot()` (as opposed to the deliberate `chdir()` failure above) is
+  never exercised -- setting up a real, populated jail directory is an
+  orthogonal concern from what this file tests, and getting it wrong risks
+  the test host rather than just a failing test.
 
-All three of the above need real root to reach their wire-protocol/
-privilege-drop cases (`seteuid()` to a different account needs
-`CAP_SETUID`) and detect and skip (exit 77, or -- for `test_privsep_init`'s
-two root-independent scenarios -- just keep running normally) rather than
-fail when they don't have it. See `CONTRIBUTING.md`'s "Running the Test
-Suite" section for what that looks like in `make check`'s own output and
-why `fakeroot` is not a substitute for actually being root here.
+- **`test_privsep_init_fork_failure.c`** covers `privsep_init()`'s
+  remaining branch: `fork()` itself failing. A separate binary, because it
+  is linked with `-Wl,--wrap=fork` (same technique as `test_script_hook_leak.c`'s
+  own `-Wl,--wrap=free`), redirecting *every* `fork()` call in the binary
+  to a `__wrap_fork()` that always fails with `EAGAIN` -- which would break
+  `test_privsep_init.c`'s own real-fork scenarios if applied there instead.
+  Asserts `privsep_init()` returns `-1` and, via an open-file-descriptor
+  count from `/proc/self/fd` taken immediately before and after the call,
+  that it leaks nothing. Writing this test caught a real bug it now pins:
+  `privsep_init()`'s `socketpair()` call happens *before* its `fork()`
+  call, so a failing `fork()` used to return `-1` having leaked both
+  `privsep_sock[]` descriptors -- fixed in `privsep.c` alongside this test.
+  Needs no real root at all (`fork()` never actually runs, wrapped or
+  not), so this one runs unconditionally regardless of who invokes
+  `make check`.
+
+`test_privsep_client_wrappers`, `test_privsep_hybrid_client_wrappers`, and
+two of `test_privsep_init`'s four scenarios need real root to reach their
+wire-protocol/privilege-drop/real-`chroot()`-attempt cases (`seteuid()` to
+a different account, or a real forked child's own `setgid()`/`setuid()`,
+both need `CAP_SETUID`) and detect and skip (exit 77, or -- for
+`test_privsep_init`'s two root-independent scenarios -- just keep running
+normally) rather than fail when they don't have it.
+`test_privsep_init_fork_failure` is the one exception: since its wrapped
+`fork()` never actually runs, it needs no privilege at all and always
+runs in full. See `CONTRIBUTING.md`'s "Running the Test Suite" section for
+what all of this looks like in `make check`'s own output and why
+`fakeroot` is not a substitute for actually being root here.
 
 #### Overriding a Production Timing Constant for One Binary
 

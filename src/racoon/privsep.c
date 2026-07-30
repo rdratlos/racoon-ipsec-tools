@@ -584,11 +584,27 @@ privsep_init(void)
 	}
 
 	switch (child_pid = fork()) {
-	case -1:
-		plog(LLV_ERROR, LOCATION, NULL, "Cannot fork privsep: %s\n", 
-		    strerror(errno));
+	case -1: {
+		/*
+		 * The socketpair() above already succeeded, so privsep_sock[]
+		 * holds two real descriptors this process is about to
+		 * abandon: nothing else in privsep_init() reaches this point
+		 * again to clean them up, and this early-return used to leave
+		 * both open. Save/restore errno around the cleanup so the
+		 * caller still sees fork()'s own errno, not close()'s, if it
+		 * ever inspects it.
+		 */
+		int saved_errno = errno;
+
+		plog(LLV_ERROR, LOCATION, NULL, "Cannot fork privsep: %s\n",
+		    strerror(saved_errno));
+		close(privsep_sock[0]);
+		close(privsep_sock[1]);
+		privsep_sock[0] = -1;
+		privsep_sock[1] = -1;
+		errno = saved_errno;
 		return -1;
-		break;
+	}
 
 	case 0: /* Child: drop privileges */
 		(void)close(privsep_sock[0]);

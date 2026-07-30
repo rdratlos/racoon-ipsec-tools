@@ -1184,6 +1184,48 @@ test_privsep_init_LDFLAGS += -Wl,--wrap=_exit
 endif
 endif
 
+# Test: privsep_init()'s "case -1:" -- fork() itself failing -- which
+# test_privsep_init.c's own scenarios never reach (they need a real,
+# successful fork() for their own forked-child topology). A separate
+# binary because -Wl,--wrap=fork redirects *every* fork() call in
+# whatever it is linked into, which would break test_privsep_init.c's own
+# real-fork scenarios if applied there instead. __wrap_fork() is defined
+# directly in test_privsep_init_fork_failure.c itself (same as
+# test_script_hook_leak.c's own __wrap_free()), always failing with
+# EAGAIN, so privsep_init()'s internal fork() has only one branch it can
+# ever take here. Same SOURCES/LDADD as test_privsep_init above (privsep.c
+# still references monitor_fd()/privsep_priv() from its "case 0:"/
+# default: branches even though neither ever runs in this binary -- the
+# linker still needs them resolved) plus this one extra -Wl,--wrap=fork.
+#
+# Also excluded from sanitizer builds and gets the same ENABLE_COVERAGE
+# treatment, same reasons as the other privsep.c wrapped-static-function
+# tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_privsep_init_fork_failure
+
+test_privsep_init_fork_failure_SOURCES  = test_privsep_init_fork_failure.c \
+	privsep_unittest_src.c \
+	session_unittest_src.c \
+	privsep_priv_test_stubs.c
+test_privsep_init_fork_failure_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_init_fork_failure_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_privsep_init_fork_failure_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_init_fork_failure_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
+	-Wl,--wrap=fork
+if ENABLE_COVERAGE
+test_privsep_init_fork_failure_SOURCES += privsep_gcov_dump_shim.c
+test_privsep_init_fork_failure_LDFLAGS += -Wl,--wrap=_exit
+endif
+endif
+
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
 # They follow automake's default "simple" test protocol (exit 0 = pass,
