@@ -1674,13 +1674,28 @@ check-valgrind: $(check_PROGRAMS)
 	echo "All tests passed valgrind! ($$skipped skipped)"
 
 # Run with verbose output
+#
+# Same SKIP handling as check-valgrind above, for the same reason: a
+# binary that correctly detects it needs real root and exits 77
+# (automake's own SKIP convention -- test_privsep_client_wrappers/
+# test_privsep_hybrid_client_wrappers under an unprivileged run, see
+# CONTRIBUTING.md's "Running the Test Suite" section) must be reported as
+# skipped here too, not treated as this target's own failure.
 check-verbose: $(check_PROGRAMS)
-	@for test in $(TESTS); do \
+	@skipped=0; \
+	for test in $(TESTS); do \
 		echo "========================================"; \
 		echo "Running $$test..."; \
 		echo "========================================"; \
-		./$$test || exit 1; \
-	done
+		./$$test; \
+		rc=$$?; \
+		if [ $$rc -eq 77 ]; then \
+			skipped=$$((skipped + 1)); \
+		elif [ $$rc -ne 0 ]; then \
+			exit 1; \
+		fi; \
+	done; \
+	echo "All tests passed! ($$skipped skipped)"
 
 # Run only DH tests
 check-dh: test_dh_modp_groups
@@ -1743,7 +1758,11 @@ coverage: $(check_PROGRAMS)
 	lcov --directory "$$SRC_DIR" --directory "$$TEST_DIR" --zerocounters; \
 	for test in $(TESTS); do \
 		echo "Running $$test for coverage..."; \
-		./$$test || exit 1; \
+		./$$test; \
+		rc=$$?; \
+		if [ $$rc -ne 0 ] && [ $$rc -ne 77 ]; then \
+			exit 1; \
+		fi; \
 	done; \
 	echo "Excluding eaytest's EAYDEBUG crypto_openssl build from the report..."; \
 	rm -f "$$SRC_DIR/racoon/crypto_openssl_test.gcda"; \

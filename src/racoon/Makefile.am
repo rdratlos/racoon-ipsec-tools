@@ -128,16 +128,30 @@ TESTS = eaytest
 # error count: glibc's dynamic linker keeps a few dlopen()-related
 # allocations (for the OpenSSL provider .so files) reachable for the
 # life of the process by design -- they are not leaks.
+#
+# Same SKIP handling as test/Makefile.am's check-valgrind (a binary
+# exiting 77, automake's own SKIP convention, must be reported as
+# skipped here too, not treated as this target's own failure) -- eaytest
+# itself never skips today, but the loop shape is shared with test/'s,
+# where it does matter, and there is no reason for this copy to regress
+# quietly if that ever changes here too.
 check-valgrind: $(TESTS)
 	@echo "Running eaytest with valgrind..."
-	@for test in $(TESTS); do \
+	@skipped=0; \
+	for test in $(TESTS); do \
 		echo "Testing $$test..."; \
 		valgrind --leak-check=full --show-leak-kinds=all \
 			--errors-for-leak-kinds=definite,indirect,possible \
 			--track-origins=yes --error-exitcode=1 \
-			./$$test || exit 1; \
-	done
-	@echo "All tests passed valgrind!"
+			./$$test; \
+		rc=$$?; \
+		if [ $$rc -eq 77 ]; then \
+			skipped=$$((skipped + 1)); \
+		elif [ $$rc -ne 0 ]; then \
+			exit 1; \
+		fi; \
+	done; \
+	echo "All tests passed valgrind! ($$skipped skipped)"
 
 
 install-exec-local:
