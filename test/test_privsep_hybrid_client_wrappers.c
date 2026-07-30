@@ -428,10 +428,38 @@ test_cleanup_pam_wire(void)
 
 #endif /* HAVE_LIBPAM */
 
+/*
+ * Same reasoning as test_privsep_client_wrappers.c's own
+ * skip_if_not_root(): every case here but test_port_check() itself needs
+ * real root (CAP_SETUID, for the seteuid()-to-"nobody"-and-back dance
+ * around a still-root forked privsep_priv() child), and skipping the
+ * whole binary rather than only those cases keeps this suite's skip
+ * granularity at the same per-binary level automake's own exit-77
+ * convention already works at. See CONTRIBUTING.md's "Running the test
+ * suite" section.
+ */
+static int
+skip_if_not_root(void)
+{
+	if (geteuid() == 0)
+		return 0;
+
+	printf("\n=== privsep.c ENABLE_HYBRID client-side wrapper functions "
+	    "(privsep-priv-extraction follow-up) ===\n"
+	    "SKIP: this binary needs real root -- it seteuid()s to \"nobody\" "
+	    "around a still-root forked privsep_priv() child to exercise "
+	    "privsep.c's wire protocol, which itself needs CAP_SETUID. "
+	    "See CONTRIBUTING.md's \"Running the test suite\" section.\n\n");
+	return 1;
+}
+
 int
 main(void)
 {
 	int failed = 0;
+
+	if (skip_if_not_root())
+		return 77;
 
 	printf("\n=== privsep.c ENABLE_HYBRID client-side wrapper functions "
 	    "(privsep-priv-extraction follow-up) ===\n");

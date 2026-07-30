@@ -503,10 +503,40 @@ test_bind_wire(void)
 	return 0;
 }
 
+/*
+ * Every case in this binary needs real root, not just permission to read
+ * privsep.c's own state: the "passthrough" cases require geteuid() == 0
+ * directly, and the "wire protocol" cases seteuid() to "nobody" and back
+ * around a still-root forked child -- seteuid() to a *different* uid
+ * (rather than back to one this process already held) needs CAP_SETUID,
+ * which only a process that started as root has. There is no privileged
+ * operation here fakeroot's LD_PRELOAD file-ownership shims can stand in
+ * for (see CONTRIBUTING.md's "Running the test suite" section) -- this
+ * binary skips (exit 77, automake's own convention -- see that section)
+ * rather than failing when it is not actually root.
+ */
+static int
+skip_if_not_root(void)
+{
+	if (geteuid() == 0)
+		return 0;
+
+	printf("\n=== privsep.c client-side wrapper functions "
+	    "(privsep-priv-extraction follow-up) ===\n"
+	    "SKIP: this binary needs real root -- it seteuid()s to \"nobody\" "
+	    "around a still-root forked privsep_priv() child to exercise "
+	    "privsep.c's wire protocol, which itself needs CAP_SETUID. "
+	    "See CONTRIBUTING.md's \"Running the test suite\" section.\n\n");
+	return 1;
+}
+
 int
 main(void)
 {
 	int failed = 0;
+
+	if (skip_if_not_root())
+		return 77;
 
 	printf("\n=== privsep.c client-side wrapper functions "
 	    "(privsep-priv-extraction follow-up) ===\n");

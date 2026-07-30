@@ -640,6 +640,14 @@ bypasses:
   concern from what this file tests, and getting it wrong risks the test
   host rather than just a failing test).
 
+All three of the above need real root to reach their wire-protocol/
+privilege-drop cases (`seteuid()` to a different account needs
+`CAP_SETUID`) and detect and skip (exit 77, or -- for `test_privsep_init`'s
+two root-independent scenarios -- just keep running normally) rather than
+fail when they don't have it. See `CONTRIBUTING.md`'s "Running the Test
+Suite" section for what that looks like in `make check`'s own output and
+why `fakeroot` is not a substitute for actually being root here.
+
 #### Overriding a Production Timing Constant for One Binary
 
 `privsep_priv()`'s mid-request bound (`PRIVSEP_IPC_WAIT_MAX_MS`,
