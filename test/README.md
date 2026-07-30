@@ -533,9 +533,19 @@ and others):
    actually reaches (plus whatever `--gc-sections` cannot prove dead) end
    up in the binary -- see any `test_privsep_*` block in `test/Makefile.am`
    for the concrete flags.
-4. Guarded (`if !SANITIZER_BUILD`): `--gc-sections` dead-code elimination
-   and ASan do not get along, so these binaries are skipped under a
-   sanitizer build.
+4. Guarded (`if !SANITIZER_BUILD`) by default: `--gc-sections` dead-code
+   elimination and ASan do not get along on this project's toolchain, so a
+   binary built this way is ordinarily skipped under a sanitizer build.
+   Where the module under test needs no dependencies outside itself (every
+   `privsep.c`-only `test_privsep_*` binary — see `doc/dev/
+   privsep-hardening-followup-audit.md` §9.4 for the investigation), a
+   `SANITIZER_BUILD`-conditional variant that drops `-ffunction-sections`/
+   `--gc-sections` and links whatever those flags were otherwise pruning
+   away can build a genuinely ASan/UBSan-instrumented binary instead of
+   skipping it outright; not every module's dependency closure is small
+   enough for that to be practical, though (`session.c`'s is not, for
+   example), so this is a per-target judgment call, not something to apply
+   uniformly.
 
 `privsep_priv()` (privsep.c's privileged dispatch loop, extracted from
 `privsep_init()` -- see `doc/dev/privsep-priv-extraction.md`) is a
