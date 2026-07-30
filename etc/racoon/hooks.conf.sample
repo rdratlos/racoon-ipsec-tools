@@ -1,5 +1,5 @@
 # hooks.conf.sample - configuration for the racoon phase1-up/phase1-down
-# split-DNS and routing hooks (src/racoon/scripts/phase1-up.sh, phase1-down.sh,
+# split-DNS and routing hooks (/etc/racoon/scripts/phase1-up.sh, phase1-down.sh,
 # racoon-hook-lib.sh, racoon-dns-detect).
 #
 # Copy to /etc/racoon/hooks.conf (or point RACOON_HOOK_CONF at another

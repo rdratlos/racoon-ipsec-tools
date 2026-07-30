@@ -15,10 +15,9 @@
 # racoon-hook-lib.sh so phase1-down.sh never has to re-derive a decision
 # this script already made.
 #
-# R2' (brief 3 §E, superseding brief 1's R2): this script *does* install
-# SPD entries via setkey now -- verified against this tree's own
-# src/racoon sources that no code path installs SPD for a Mode Config
-# initiator (SPD generation is responder-only, isakmp_quick.c's
+# This script *does* install SPD entries via setkey now -- verified against
+# this tree's own src/racoon sources that no code path installs SPD for a
+# Mode Config initiator (SPD generation is responder-only, isakmp_quick.c's
 # get_proposal_r()/quick_r1recv()), so without this the split-include
 # routes below have nothing telling the kernel to encrypt that traffic,
 # which is what produced the F1/F4 reconnect loop. It owns exactly what it
