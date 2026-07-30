@@ -153,11 +153,42 @@ static struct sched scflushsa = SCHED_INITIALIZER();
 int
 monitor_fd(int fd, int (*callback)(void *, int), void *ctx, int priority)
 {
+	int i;
+
 	if (fd < 0 || fd >= FD_SETSIZE) {
 		plog(LLV_ERROR, LOCATION, NULL,
 		    "cannot monitor fd %d: outside fd_set range "
 		    "[0,%d)\n", fd, FD_SETSIZE);
 		return -1;
+	}
+
+	/*
+	 * Self-enforcing TAILQ_INIT(): fd_monitor_tree[]'s normal
+	 * initialization is session_init_before_cfparse() below, called once
+	 * at real startup well before this function's first real call --
+	 * but that is a call-order convention, not something this function
+	 * can see violated from its caller's side. A TAILQ_HEAD
+	 * TAILQ_INIT() has not yet touched has tqh_last == NULL (a queue
+	 * head's all-zero static default); TAILQ_INIT() itself always
+	 * leaves tqh_last pointing at the head's own tqh_first, which can
+	 * never be NULL for a real struct. That distinction doubles as a
+	 * one-time-init guard with no extra state: any head still at its
+	 * zero default gets TAILQ_INIT()ed here before the insert below
+	 * ever touches it, so a future caller that reaches this function
+	 * before session_init_before_cfparse() has run degrades to "still
+	 * works" instead of a NULL-pointer dereference inside
+	 * TAILQ_INSERT_TAIL(). Confirmed against both this project's own
+	 * compat sys/queue.h (src/include-glibc, Linux) and NetBSD's native
+	 * one -- both define TAILQ_HEAD with a tqh_last field and have
+	 * TAILQ_INIT() set it to &head->tqh_first, never NULL. See
+	 * doc/dev/privsep-hardening-followup-audit.md §2.3/§9 for the
+	 * finding this closes: privsep_init()'s child branch used to
+	 * segfault calling this function directly, without
+	 * session_init_before_cfparse() having run first.
+	 */
+	for (i = 0; i < NUM_PRIORITIES; i++) {
+		if (fd_monitor_tree[i].tqh_last == NULL)
+			TAILQ_INIT(&fd_monitor_tree[i]);
 	}
 
 	FD_SET(fd, &preset_mask);

@@ -113,6 +113,17 @@ struct privsep_com_msg {
 
 int privsep_init __P((void));
 
+/*
+ * The privileged dispatch loop itself, extracted out of privsep_init() so
+ * it can be driven directly -- by privsep_init() over privsep_sock[0] in
+ * production, and by a unit test over a plain socketpair() (see
+ * test/test_privsep_priv_dispatch.c and doc/dev/privsep-priv-extraction.md).
+ * Never returns: every path out of it ends in _exit(0) (an ordinary
+ * shutdown) or _exit(1) (a fault), exactly as when this was still
+ * privsep_init()'s inline while(1) loop.
+ */
+int privsep_priv __P((int));
+
 vchar_t *privsep_eay_get_pkcs1privkey __P((char *));
 int privsep_script_exec __P((char *, int, char * const *, int));
 int privsep_setsockopt __P((int, int, int, const void *, socklen_t));
