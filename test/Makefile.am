@@ -1057,6 +1057,133 @@ test_privsep_priv_bounded_wait_LDFLAGS += -Wl,--wrap=_exit
 endif
 endif
 
+# Tests: privsep.c's client-side wrappers -- privsep_eay_get_pkcs1privkey(),
+# privsep_getpsk(), privsep_script_exec(), privsep_socket(), privsep_bind()
+# (privsep-priv-extraction follow-up: these five, plus the ENABLE_HYBRID/
+# HAVE_LIBPAM ones in test_privsep_hybrid_client_wrappers.c below, were the
+# untested half of privsep.c's own wire protocol -- test_privsep_priv_*.c
+# above only ever drove the *privileged* side, playing the unprivileged
+# side itself by hand-crafting wire messages).
+#
+# privsep_wire_roundtrip.c (shared with test_privsep_hybrid_client_wrappers.c
+# and, for its uid-dropping helpers only, test_privsep_init.c) forks a
+# child running the real privsep_priv() over a socketpair(), the same
+# pattern as test_privsep_priv_*.c, then points this process's own
+# privsep_sock[1] (privsep.c, ENABLE_UNITTEST) at the other end so the
+# client-side wrapper under test can be called directly and for real.
+# Needs privsep_priv_test_stubs.c for the same reason as test_privsep_priv_*.c
+# (privsep_priv()'s switch still references eay_get_pkcs1privkey()/getpsk()/
+# script_exec() and, since ENABLE_HYBRID is on by default, its two _system
+# link targets).
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above (relies on --gc-sections dead-code
+# elimination that ASan defeats), and gets the same ENABLE_COVERAGE
+# -Wl,--wrap=_exit treatment as every other check_PROGRAMS target that
+# compiles privsep.c via privsep_unittest_src.c.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_privsep_client_wrappers
+
+test_privsep_client_wrappers_SOURCES  = test_privsep_client_wrappers.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c \
+	privsep_wire_roundtrip.c
+test_privsep_client_wrappers_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_client_wrappers_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_privsep_client_wrappers_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_client_wrappers_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+if ENABLE_COVERAGE
+test_privsep_client_wrappers_SOURCES += privsep_gcov_dump_shim.c
+test_privsep_client_wrappers_LDFLAGS += -Wl,--wrap=_exit
+endif
+endif
+
+# Test: privsep.c's ENABLE_HYBRID-only client-side wrappers --
+# privsep_xauth_login_system(), privsep_accounting_system(), port_check(),
+# and (nested under HAVE_LIBPAM) privsep_accounting_pam()/
+# privsep_xauth_login_pam()/privsep_cleanup_pam(). Same
+# privsep_wire_roundtrip.c driver and stub layer as
+# test_privsep_client_wrappers.c above; this file's own content is guarded
+# by #ifdef ENABLE_HYBRID (and, for the three PAM cases, a nested #ifdef
+# HAVE_LIBPAM) at the C level rather than a second automake conditional,
+# so a build with either off still gets this binary in `make check`'s
+# output -- see the file's own header comment.
+#
+# Also excluded from sanitizer builds and gets the same ENABLE_COVERAGE
+# treatment, same reasons as test_privsep_client_wrappers above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_privsep_hybrid_client_wrappers
+
+test_privsep_hybrid_client_wrappers_SOURCES  = test_privsep_hybrid_client_wrappers.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c \
+	privsep_wire_roundtrip.c
+test_privsep_hybrid_client_wrappers_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_hybrid_client_wrappers_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_privsep_hybrid_client_wrappers_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_hybrid_client_wrappers_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+if ENABLE_COVERAGE
+test_privsep_hybrid_client_wrappers_SOURCES += privsep_gcov_dump_shim.c
+test_privsep_hybrid_client_wrappers_LDFLAGS += -Wl,--wrap=_exit
+endif
+endif
+
+# Test: privsep_init() itself -- the one privsep.c entry point every test
+# above deliberately bypasses (they all drive privsep_priv() directly over
+# a plain socketpair(), precisely because privsep_init()'s own
+# socketpair()+fork()+setgid()/setuid()+monitor_fd() sequence needs real
+# privilege to run at all). Every side effect that matters happens inside
+# a forked child this test process itself never becomes -- see the file's
+# own header comment for the full three-process (test binary / forked
+# "outer child" / privsep_init()'s own further-forked child) breakdown.
+#
+# Needs session_unittest_src.c (-ffunction-sections, same as
+# test_monitor_fd_range/test_prune_stale_monitored_fds above) alongside the
+# usual privsep_unittest_src.c + privsep_priv_test_stubs.c: privsep_init()'s
+# own privilege-dropping child branch calls monitor_fd() (session.c,
+# already exported) on privsep_sock[1].
+#
+# Also excluded from sanitizer builds and gets the same ENABLE_COVERAGE
+# treatment, same reasons as the other privsep.c wrapped-static-function
+# tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_privsep_init
+
+test_privsep_init_SOURCES  = test_privsep_init.c \
+	privsep_unittest_src.c \
+	session_unittest_src.c \
+	privsep_priv_test_stubs.c
+test_privsep_init_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_init_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_privsep_init_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_init_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+if ENABLE_COVERAGE
+test_privsep_init_SOURCES += privsep_gcov_dump_shim.c
+test_privsep_init_LDFLAGS += -Wl,--wrap=_exit
+endif
+endif
+
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
 # They follow automake's default "simple" test protocol (exit 0 = pass,
