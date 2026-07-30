@@ -102,6 +102,25 @@ AM_CONDITIONAL([HAVE_LINUX_NETLINK],
   [test "x$ac_cv_header_linux_netlink_h" = "xyes" -a \
         "x$ac_cv_header_linux_rtnetlink_h" = "xyes"])
 
+# test/test_privsep_socket_policy.c asserts privsep_socket_allowed()
+# refuses PF_PACKET (a Linux-only socket family, used nowhere in
+# production code -- it exists purely as "something wider than PF_KEY the
+# gate must still refuse"). On a non-Linux host that constant is simply
+# undeclared, and this file's own #include <net/pfkeyv2.h> additionally
+# collides there: src/include-glibc/net/pfkeyv2.h's non-Linux branch
+# #includes the real system <net/pfkeyv2.h> and then layers a handful of
+# "private allocation" compat #defines on top, written against an older
+# NetBSD pfkeyv2.h than the one on a current release already defines
+# natively -- a problem production code never hits, since GLIBC_BUGS
+# (and so this whole compat directory) is only ever added to the include
+# path on Linux there. Both are symptoms of the same thing: this test is
+# inherently Linux-specific. Gated the same way HAVE_LINUX_NETLINK gates
+# test_grabmyaddr_netlink.c above -- excluded from the build on a host
+# that doesn't have what it tests, rather than failing to compile.
+AC_CHECK_DECL([PF_PACKET], [have_pf_packet=yes], [have_pf_packet=no],
+  [[#include <sys/socket.h>]])
+AM_CONDITIONAL([HAVE_PF_PACKET], [test "x$have_pf_packet" = "xyes"])
+
 AC_ARG_ENABLE([coverage],
   [AS_HELP_STRING([--enable-coverage],
     [enable coverage instrumentation (gcov) @<:@default=no@:>@])],
