@@ -1626,17 +1626,44 @@ clean-local:
 # "make check" run.  test_x509_cert stays in the list: it is a real ELF
 # binary, and its openssl/bash children (spawned via system()) run natively
 # because --trace-children is off.
+#
+# A handful of these binaries (test_privsep_client_wrappers,
+# test_privsep_hybrid_client_wrappers, and the two real-fork scenarios in
+# test_privsep_init) need real root -- CAP_SETUID to seteuid() around a
+# still-root forked privsep_priv() child, per CONTRIBUTING.md's "Running
+# the Test Suite" section. Run unprivileged (the normal CI case), they
+# detect that up front and exit 77, automake's own SKIP convention -- see
+# test/README.md §4.4 of doc/dev/privsep-hardening-followup-audit.md.
+# --error-exitcode=1 only overrides valgrind's own exit code when
+# *valgrind itself* reports an error; with none found, valgrind exits
+# with the child's own code unchanged, so a clean SKIP surfaces here as
+# exit 77 -- not 0, and not the 1 "|| exit 1" was written to catch. Left
+# unhandled, that turns "correctly skipped, no root" into a hard
+# check-valgrind failure on every unprivileged run (i.e. every CI run,
+# since running CI itself as root is a bigger blast radius than the thing
+# it would save this from mattering for -- privileged valgrind runs stay
+# a manual, local `sudo make check-valgrind` step). Handled the same way
+# check-TESTS's own automake-generated driver already does: count and
+# report skips, but only a genuine valgrind-flagged error (or any other
+# nonzero/non-77 exit) fails the target.
 check-valgrind: $(check_PROGRAMS)
 	@echo "Running tests with valgrind..."
-	@for test in $(check_PROGRAMS); do \
+	@skipped=0; \
+	for test in $(check_PROGRAMS); do \
 		echo "Testing $$test..."; \
 		valgrind --suppressions=$(srcdir)/valgrind.supp \
 			--num-callers=40 \
 			--leak-check=full --show-leak-kinds=all \
 			--track-origins=yes --error-exitcode=1 \
-			./$$test || exit 1; \
-	done
-	@echo "All tests passed valgrind!"
+			./$$test; \
+		rc=$$?; \
+		if [ $$rc -eq 77 ]; then \
+			skipped=$$((skipped + 1)); \
+		elif [ $$rc -ne 0 ]; then \
+			exit 1; \
+		fi; \
+	done; \
+	echo "All tests passed valgrind! ($$skipped skipped)"
 
 # Run with verbose output
 check-verbose: $(check_PROGRAMS)
