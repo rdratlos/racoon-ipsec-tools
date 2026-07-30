@@ -511,6 +511,79 @@ test_new_feature_LDFLAGS = $(AM_LDFLAGS)
 make -C test
 ```
 
+### Testing a Static (or Otherwise Unreachable) Function Directly
+
+Several racoon source files export nothing a test could link against --
+the function under test is `static`, or it is reachable only from inside a
+real `fork()`/privilege-drop (`privsep_init()`) that not every build host
+can perform. The established pattern for both, used throughout this suite
+(`session_unittest_src.c`, `kmpstat_unittest_src.c`, `privsep_unittest_src.c`,
+and others):
+
+1. A tiny wrapper source file (`<module>_unittest_src.c`) `#include`s the
+   real `.c` file directly, so the test binary gets its own private
+   compilation of it -- `static` functions included.
+2. The module itself gets a handful of `#ifdef ENABLE_UNITTEST` accessors
+   at its own end for whatever internal state or `static` function a test
+   needs to reach, but does not otherwise change: no new production API,
+   no behaviour change.
+3. The test's own `check_PROGRAMS` entry in `test/Makefile.am` compiles
+   the wrapper with `-DENABLE_UNITTEST -ffunction-sections -fdata-sections`
+   and links with `-Wl,--gc-sections`, so only the functions the test
+   actually reaches (plus whatever `--gc-sections` cannot prove dead) end
+   up in the binary -- see any `test_privsep_*` block in `test/Makefile.am`
+   for the concrete flags.
+4. Guarded (`if !SANITIZER_BUILD`): `--gc-sections` dead-code elimination
+   and ASan do not get along, so these binaries are skipped under a
+   sanitizer build.
+
+`privsep_priv()` (privsep.c's privileged dispatch loop, extracted from
+`privsep_init()` -- see `doc/dev/privsep-priv-extraction.md`) is a
+variant worth calling out explicitly: it is *not* wrapped in an
+`ENABLE_UNITTEST`-only accessor the way `send_fd()`/`rec_fd()` etc. are.
+It has ordinary external linkage and is called directly, by design -- a
+test forks, the child calls `privsep_priv(sock)` for real (same
+`_exit(0)`/`_exit(1)` as production, untouched), and the parent drives
+`sock` as the unprivileged side over a plain `socketpair()`. See
+`test_privsep_priv_*.c` for the pattern and `privsep_priv_test_stubs.c`
+for the stub layer (a real, minimal `struct localconf`; canned
+`eay_get_pkcs1privkey()`/`getpsk()`; a `script_exec()` that only records
+its call, never `fork()+execve()`s) that lets the real dispatch loop run
+without a privilege drop or a real kernel.
+
+#### Overriding a Production Timing Constant for One Binary
+
+`privsep_priv()`'s mid-request bound (`PRIVSEP_IPC_WAIT_MAX_MS`,
+privsep.c -- 3s in production, doc/dev/fatal-exit-path-audit.md §2.3.1)
+needs to actually *fire* to be tested, which nobody wants costing 3 real
+seconds per run. `privsep.c` exposes a compile-time-only seam for this:
+
+```c
+#ifdef PRIVSEP_IPC_WAIT_MAX_MS_UNITTEST_OVERRIDE
+#define PRIVSEP_IPC_WAIT_MAX_MS  PRIVSEP_IPC_WAIT_MAX_MS_UNITTEST_OVERRIDE
+#else
+#define PRIVSEP_IPC_WAIT_MAX_MS  3000
+#endif
+```
+
+Only `test_privsep_priv_bounded_wait`'s own `_CPPFLAGS` in
+`test/Makefile.am` defines
+`-DPRIVSEP_IPC_WAIT_MAX_MS_UNITTEST_OVERRIDE=200`; every other
+`check_PROGRAMS` target -- including the other three `test_privsep_priv_*`
+binaries, which recompile the same `privsep.c` via the same
+`privsep_unittest_src.c` wrapper -- gets the ordinary 3000ms constant,
+because each `check_PROGRAMS` target compiles its own private copy of
+every wrapper source with its own flags (the `<target>-<source>.o` naming
+`make check`'s build output shows is this in action). The production
+`racoon`/`racoonctl` build never defines the override macro at all, so
+`src/racoon/privsep.o` is completely unaffected -- this is "a compile-time
+... seam, not a runtime knob the production binary also exposes" (the
+constraint this pattern was written to satisfy), and the general
+technique -- an `#ifdef SOMETHING_UNITTEST_OVERRIDE` around one constant,
+defined only in one test target's own `_CPPFLAGS` -- generalises to any
+future case where a real production constant needs shrinking for exactly
+one test binary without becoming a runtime option anywhere else.
+
 ## Maintenance
 
 ### Regular Tasks

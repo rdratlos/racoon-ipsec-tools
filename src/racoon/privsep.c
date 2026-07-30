@@ -104,7 +104,19 @@ static int privsep_sock[2] = { -1, -1 };
  * ours to bound, and an fd_set overrun here would be the very failure mode
  * monitor_fd() was fixed for in this same audit.
  */
+#ifdef PRIVSEP_IPC_WAIT_MAX_MS_UNITTEST_OVERRIDE
+/*
+ * Test-only seam (privsep-priv-extraction task): lets one check_PROGRAMS
+ * binary drive privsep_priv()'s real mid-request wait through a full
+ * timeout without spending the production 3s budget on every run of the
+ * suite. Set via -D on that binary's own CPPFLAGS in test/Makefile.am,
+ * never on the production build -- unlike PRIVSEP_IPC_WAIT_MAX_MS itself,
+ * this is not something the daemon exposes at runtime.
+ */
+#define PRIVSEP_IPC_WAIT_MAX_MS  PRIVSEP_IPC_WAIT_MAX_MS_UNITTEST_OVERRIDE
+#else
 #define PRIVSEP_IPC_WAIT_MAX_MS  3000
+#endif
 #define PRIVSEP_IPC_WAIT_POLL_MS 50
 
 /*
@@ -331,7 +343,8 @@ privsep_wait_io(sock, write, max_ms, what)
  * follows.
  */
 static void
-privsep_handshake_failed(reply)
+privsep_handshake_failed(sock, reply)
+	int sock;
 	struct privsep_com_msg *reply;
 {
 	plog(LLV_ERROR, LOCATION, NULL,
@@ -339,9 +352,9 @@ privsep_handshake_failed(reply)
 	    "privsep_sock cannot be resynchronised, terminating\n");
 
 	reply->hdr.ac_errno = ETIMEDOUT;
-	if (privsep_wait_io(privsep_sock[0], 1,
+	if (privsep_wait_io(sock, 1,
 	    PRIVSEP_IPC_WAIT_MAX_MS, "the timeout reply to be accepted") == 0)
-		(void)privsep_send(privsep_sock[0], reply,
+		(void)privsep_send(sock, reply,
 		    reply->hdr.ac_len);
 }
 
@@ -634,43 +647,64 @@ privsep_init(void)
 	signal(SIGUSR2, SIG_DFL);
 	signal(SIGCHLD, SIG_DFL);
 
-	/*
-	 * The dispatch loop below serves one request per iteration, and every
-	 * failure inside it used to "goto out" -- i.e. _exit(0) this process.
-	 * (The remaining fatal paths now use "goto fail"/_exit(1); only the
-	 * child closing its end of privsep_sock still reaches "out".)
-	 * Under privsep this process is the only one that can fork()+execve()
-	 * a hook or perform any other privileged operation (see
-	 * privsep_sigterm_forward() above), and the unprivileged child kills
-	 * itself as soon as privsep_sock reads EOF (privsep_do_exit(), also
-	 * above), so any such exit takes the whole daemon down with it --
-	 * every still-live Phase 1/2 SA included. That is the same
-	 * disproportionate failure shape that session.c's main select() loop
-	 * had before prune_stale_monitored_fds() (issue #102/#105): a fault
-	 * scoped to a single request ending the entire process.
-	 *
-	 * Failures here are therefore split in two, and the split is about
-	 * the *channel*, not about how serious the fault looks:
-	 *
-	 *  - Request-scoped: the message was framed correctly (privsep_recv()
-	 *    consumed exactly ac_len bytes and, for the two fd-passing
-	 *    commands, its descriptor message was consumed too), so the two
-	 *    sides are still in step and this request can simply be answered
-	 *    with an errno in reply->hdr.ac_errno. The requesting call in the
-	 *    unprivileged process then fails on its own -- one negotiation,
-	 *    one hook, one socket -- and the daemon keeps running. These now
-	 *    "break" out of the switch into the normal reply path.
-	 *
-	 *  - Channel-scoped: privsep_sock itself is unusable or has lost
-	 *    framing (EOF/reset, a descriptor that could not be handed over,
-	 *    a reply that could not be sent, or no memory to build any reply
-	 *    at all -- in which case the client would block forever waiting
-	 *    for one). There is no way to answer this request or to trust the
-	 *    next one, so these still end the process ("goto fail"), which
-	 *    the child turns into its ordinary SIGTERM shutdown path -- but
-	 *    with a nonzero exit status now, so a service manager can tell
-	 *    them from the clean shutdown that "goto out" reports.
-	 */
+	return privsep_priv(privsep_sock[0]);
+}
+
+/*
+ * The privileged dispatch loop, serving one request per iteration over
+ * sock (privsep_sock[0] at the real privsep_init() call site below; a
+ * plain socketpair() in unit tests, which drive this function directly --
+ * see privsep_unittest_src.c and test/test_privsep_priv_dispatch.c). Every
+ * failure inside it used to "goto out" -- i.e. _exit(0) this process.
+ * (The remaining fatal paths now use "goto fail"/_exit(1); only the child
+ * closing its end of privsep_sock still reaches "out".)
+ *
+ * Extracted out of privsep_init() as pure code motion (no behaviour
+ * change -- see doc/dev/privsep-priv-extraction.md): before this, the
+ * loop was only reachable inside privsep_init()'s privilege-dropping
+ * fork(), which needs a real PF_KEY/XFRM kernel and could only be
+ * exercised by hand (doc/dev/privsep-verification-runbook.md). Now a test
+ * can fork(), have the child call privsep_priv(sock) for real -- with the
+ * same _exit(0)/_exit(1) at "out:"/"fail:", untouched -- and have the
+ * parent drive sock as the unprivileged side, asserting on both the wire
+ * traffic and waitpid()'s reported exit status.
+ *
+ * Under privsep this process is the only one that can fork()+execve() a
+ * hook or perform any other privileged operation (see
+ * privsep_sigterm_forward() above), and the unprivileged child kills
+ * itself as soon as privsep_sock reads EOF (privsep_do_exit(), also
+ * above), so any exit here takes the whole daemon down with it -- every
+ * still-live Phase 1/2 SA included. That is the same disproportionate
+ * failure shape that session.c's main select() loop had before
+ * prune_stale_monitored_fds() (issue #102/#105): a fault scoped to a
+ * single request ending the entire process.
+ *
+ * Failures here are therefore split in two, and the split is about the
+ * *channel*, not about how serious the fault looks:
+ *
+ *  - Request-scoped: the message was framed correctly (privsep_recv()
+ *    consumed exactly ac_len bytes and, for the two fd-passing commands,
+ *    its descriptor message was consumed too), so the two sides are
+ *    still in step and this request can simply be answered with an errno
+ *    in reply->hdr.ac_errno. The requesting call in the unprivileged
+ *    process then fails on its own -- one negotiation, one hook, one
+ *    socket -- and the daemon keeps running. These now "break" out of
+ *    the switch into the normal reply path.
+ *
+ *  - Channel-scoped: sock itself is unusable or has lost framing
+ *    (EOF/reset, a descriptor that could not be handed over, a reply
+ *    that could not be sent, or no memory to build any reply at all --
+ *    in which case the client would block forever waiting for one).
+ *    There is no way to answer this request or to trust the next one, so
+ *    these still end the process ("goto fail"), which the child turns
+ *    into its ordinary SIGTERM shutdown path -- but with a nonzero exit
+ *    status now, so a service manager can tell them from the clean
+ *    shutdown that "goto out" reports.
+ */
+int
+privsep_priv(sock)
+	int sock;
+{
 	while (1) {
 		size_t len;
 		struct privsep_com_msg *combuf;
@@ -687,7 +721,7 @@ privsep_init(void)
 		 * to resynchronise on. A positive return is the child having
 		 * closed its end -- an ordinary shutdown, not a fault.
 		 */
-		ret = privsep_recv(privsep_sock[0], &combuf, &len);
+		ret = privsep_recv(sock, &combuf, &len);
 		if (ret > 0)
 			goto out;
 		if (ret != 0)
@@ -1032,7 +1066,7 @@ privsep_init(void)
 			 * privsep_sock stalls this send for at most the
 			 * handshake budget rather than forever.
 			 */
-			if (privsep_wait_io(privsep_sock[0], 1,
+			if (privsep_wait_io(sock, 1,
 			    PRIVSEP_IPC_WAIT_MAX_MS,
 			    "privsep_socket's descriptor to be accepted") != 0) {
 				if (s != -1)
@@ -1040,7 +1074,7 @@ privsep_init(void)
 				goto fail;
 			}
 
-			if (send_fd(privsep_sock[0], s) < 0) {
+			if (send_fd(sock, s) < 0) {
 				plog(LLV_ERROR, LOCATION, NULL,
 				     "privsep_socket: send_fd failed\n");
 				if (s != -1)
@@ -1071,15 +1105,15 @@ privsep_init(void)
 			 * why a timeout here cannot be answered-and-resumed
 			 * the way the request-scoped faults are.
 			 */
-			if (privsep_wait_io(privsep_sock[0], 0,
+			if (privsep_wait_io(sock, 0,
 			    PRIVSEP_IPC_WAIT_MAX_MS,
 			    "privsep_bind's descriptor") != 0) {
-				privsep_handshake_failed(reply);
+				privsep_handshake_failed(sock, reply);
 				goto fail;
 			}
 
 			/* Channel-scoped: the descriptor was lost */
-			if ((s = rec_fd(privsep_sock[0])) < 0) {
+			if ((s = rec_fd(sock)) < 0) {
 				plog(LLV_ERROR, LOCATION, NULL,
 				     "privsep_bind: rec_fd failed\n");
 				goto fail;
@@ -1146,15 +1180,15 @@ privsep_init(void)
 			int err, s;
 
 			/* Bounded, as for PRIVSEP_BIND above */
-			if (privsep_wait_io(privsep_sock[0], 0,
+			if (privsep_wait_io(sock, 0,
 			    PRIVSEP_IPC_WAIT_MAX_MS,
 			    "privsep_setsockopt's descriptor") != 0) {
-				privsep_handshake_failed(reply);
+				privsep_handshake_failed(sock, reply);
 				goto fail;
 			}
 
 			/* Channel-scoped: the descriptor was lost */
-			if ((s = rec_fd(privsep_sock[0])) < 0) {
+			if ((s = rec_fd(sock)) < 0) {
 				plog(LLV_ERROR, LOCATION, NULL,
 				     "privsep_setsockopt: rec_fd failed\n");
 				goto fail;
@@ -1457,14 +1491,14 @@ privsep_init(void)
 		 * otherwise fill the socket buffer and block this send
 		 * indefinitely.
 		 */
-		if (privsep_wait_io(privsep_sock[0], 1,
+		if (privsep_wait_io(sock, 1,
 		    PRIVSEP_IPC_WAIT_MAX_MS, "the reply to be accepted") != 0) {
 			racoon_free(reply);
 			goto fail;
 		}
 
 		/* This frees reply */
-		if (privsep_send(privsep_sock[0],
+		if (privsep_send(sock,
 		    reply, reply->hdr.ac_len) != 0) {
 			racoon_free(reply);
 			goto fail;

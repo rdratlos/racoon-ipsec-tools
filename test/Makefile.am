@@ -908,6 +908,112 @@ test_privsep_setsockopt_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_privsep_setsockopt_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Tests: privsep_priv() -- the privileged dispatch loop itself, extracted
+# out of privsep_init()'s inline while(1) as pure code motion (doc/dev/
+# privsep-priv-extraction.md, follow-up to issue #105 and
+# privsep-verification-runbook.md §7 "Making this permanent"). Before this
+# extraction the loop was reachable only inside privsep_init()'s real
+# privilege-dropping fork(), so every one of the runbook's phases had to be
+# run by hand on a live host; now a test can fork(), have the child call
+# privsep_priv(sock) directly over a socketpair() -- the same
+# _exit(0)/_exit(1) at "out:"/"fail:", completely untouched -- and have the
+# parent play the unprivileged side, driving the real wire protocol and
+# checking both what comes back over it and waitpid()'s reported exit
+# status. No behaviour change: privsep_init() itself just calls
+# privsep_priv(privsep_sock[0]) where its while(1) loop used to start.
+#
+# All four binaries below share privsep_priv_test_stubs.c (lcconf,
+# eay_get_pkcs1privkey(), getpsk(), script_exec(), and the ENABLE_HYBRID-
+# only link targets privsep_priv()'s switch still references) alongside the
+# usual privsep_unittest_src.c wrapper; same -ffunction-sections/
+# --gc-sections and explicit plog.o/logger.o/vmbuf.o/misc_noplog.o linkage
+# as the other privsep tests above, and excluded from sanitizer builds for
+# the same reason (relies on --gc-sections dead-code elimination that ASan
+# defeats).
+if !SANITIZER_BUILD
+check_PROGRAMS += test_privsep_priv_control_cases
+
+test_privsep_priv_control_cases_SOURCES  = test_privsep_priv_control_cases.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c
+test_privsep_priv_control_cases_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_priv_control_cases_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_privsep_priv_control_cases_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_priv_control_cases_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
+if !SANITIZER_BUILD
+check_PROGRAMS += test_privsep_priv_framing
+
+test_privsep_priv_framing_SOURCES  = test_privsep_priv_framing.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c
+test_privsep_priv_framing_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_priv_framing_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_privsep_priv_framing_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_priv_framing_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
+if !SANITIZER_BUILD
+check_PROGRAMS += test_privsep_priv_containment
+
+test_privsep_priv_containment_SOURCES  = test_privsep_priv_containment.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c
+test_privsep_priv_containment_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_privsep_priv_containment_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_privsep_priv_containment_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_priv_containment_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
+# Bounded-wait variant needs privsep_priv()'s own mid-request timeout to
+# actually fire, so this one binary alone overrides PRIVSEP_IPC_WAIT_MAX_MS
+# (privsep.c) down from the production 3s via
+# -DPRIVSEP_IPC_WAIT_MAX_MS_UNITTEST_OVERRIDE -- a compile-time seam gated
+# to this target's own CPPFLAGS (test/README.md), never the production
+# build. 200ms is far above what a healthy exchange over a local
+# socketpair needs and far below this suite's own IO_TIMEOUT_MS bounds.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_privsep_priv_bounded_wait
+
+test_privsep_priv_bounded_wait_SOURCES  = test_privsep_priv_bounded_wait.c \
+	privsep_unittest_src.c \
+	privsep_priv_test_stubs.c
+test_privsep_priv_bounded_wait_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST \
+	-DPRIVSEP_IPC_WAIT_MAX_MS_UNITTEST_OVERRIDE=200
+test_privsep_priv_bounded_wait_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_privsep_priv_bounded_wait_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_privsep_priv_bounded_wait_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
 # They follow automake's default "simple" test protocol (exit 0 = pass,
