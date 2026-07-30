@@ -563,6 +563,7 @@ t2isakmpsa(trns, sa, vendorid_mask)
 					OAKLEY_ATTR_SA_LD_TYPE) {
 				plog(LLV_ERROR, LOCATION, NULL,
 				    "life duration must follow ltype\n");
+				vfree(val);
 				break;
 			}
 
