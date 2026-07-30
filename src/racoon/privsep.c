@@ -1900,6 +1900,26 @@ privsep_bind(s, addr, addrlen)
 	msg->hdr.ac_cmd = PRIVSEP_BIND;
 	msg->hdr.ac_len = len;
 
+	/*
+	 * Zeroed first, not just field-assigned: struct bind_args has a
+	 * 4-byte compiler-inserted padding gap between "s" (int) and "addr"
+	 * (a pointer, needing 8-byte alignment) that no field assignment
+	 * below ever touches. Without this, that gap is whatever this stack
+	 * slot last held, and the memcpy() below copies it -- padding and
+	 * all -- straight into the wire message this process sendto()s a
+	 * few lines later, which is what Valgrind's memcheck is actually
+	 * catching (an uninitialised-bytes-passed-to-a-syscall warning, not
+	 * a real bind() failure): it is watching the definedness of every
+	 * byte reaching that syscall, and these are stack bytes this
+	 * function itself never assigned. Found via test_bind_wire()'s
+	 * Valgrind run (test/test_privsep_client_wrappers.c) -- the first
+	 * test to ever drive this escalation path under Valgrind. Low-severity
+	 * on its own (privsep_sock is a local,
+	 * unauthenticated-by-design IPC channel between this process and its
+	 * own already-privileged sibling, not something remote), but
+	 * needless and cheap to close.
+	 */
+	bzero(&bind_args, sizeof(bind_args));
 	bind_args.s = -1;
 	bind_args.addr = NULL;
 	bind_args.addrlen = addrlen;
@@ -2002,6 +2022,15 @@ privsep_setsockopt(s, level, optname, optval, optlen)
 	msg->hdr.ac_cmd = PRIVSEP_SETSOCKOPTS;
 	msg->hdr.ac_len = len;
 
+	/*
+	 * Zeroed first, same reasoning as privsep_bind()'s bind_args above:
+	 * struct sockopt_args has two compiler-inserted padding gaps (after
+	 * "optname", before the "optval" pointer; and trailing, after
+	 * "optlen") that no field assignment below touches, and the memcpy()
+	 * a few lines down copies the whole struct -- padding included --
+	 * into the wire message this process sendto()s right after.
+	 */
+	bzero(&sockopt_args, sizeof(sockopt_args));
 	sockopt_args.s = -1;
 	sockopt_args.level = level;
 	sockopt_args.optname = optname;
