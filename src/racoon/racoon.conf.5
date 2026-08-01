@@ -177,6 +177,26 @@ and do not need to be reachable in the
 .Xr chroot 2 Ap ed
 tree.
 .El
+.Pp
+Privilege separation only changes what a compromised, peer-facing
+.Xr racoon 8
+process can reach if it does not also match the filesystem ownership the
+threat model assumes: the
+.Ic user
+and
+.Ic group
+above must own nothing that the privileged instance will later trust, and
+must be able to reach the certificate directory named by
+.Ic path certificate
+below (traversal plus read access on the certificate files themselves).
+This project's own packaging (Debian, Arch) applies this ownership
+automatically; a plain
+.Ic make install
+does not, since it cannot assume the
+.Ic user Ns / Ns Ic group
+account already exists.
+See the Admin Guide's Privilege Separation section for the exact
+ownership table.
 .El
 .Ss Path Specification
 This section specifies various paths used by racoon.

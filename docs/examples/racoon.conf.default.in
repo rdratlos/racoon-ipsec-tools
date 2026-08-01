@@ -71,6 +71,19 @@
 #   racoon -f @RACOON_SYSCONFDIR@/racoon.conf -t
 #
 # ---------------------------------------------------------------------------
+# Privilege separation
+# ---------------------------------------------------------------------------
+# Privilege separation (privsep {}) is the recommended default for
+# production deployments -- both roadwarrior examples above ship it
+# active. It is deliberately NOT enabled here: privsep {} requires a
+# pre-existing "racoon" system user/group and both "path certificate" and
+# "path script" to be set, none of which this near-zero-footprint default
+# should assume in advance. See racoon-admin-guide.html §8.5 for the
+# preconditions, the ownership this file's own directory
+# (@RACOON_SYSCONFDIR@) needs once you enable it, and how to tell the
+# resulting privileged/unprivileged processes apart in your logs.
+#
+# ---------------------------------------------------------------------------
 # Reference
 # ---------------------------------------------------------------------------
 #   racoon.conf(5), racoon(8), racoon-dns-detect(8), racoonctl(8), setkey(8)

@@ -25,6 +25,11 @@
 #   - This mechanism only reduces repetition in racoon.conf itself; it has
 #     no effect on the wire and no security implications of its own --
 #     each resulting "remote" block negotiates completely independently.
+#
+# For a complete deployment, including privilege separation (privsep {},
+# the recommended default for production -- see racoon-admin-guide.html
+# §8.5), start from examples/roadwarrior/client/racoon.conf or
+# .../server/racoon.conf and apply the inherit pattern below to it.
 
 path pre_shared_key "/etc/racoon/psk.txt";
 path certificate "/etc/racoon/certs";

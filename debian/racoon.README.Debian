@@ -38,18 +38,29 @@ peers_identifier must be set to the DNS IDs specified in
 SubjectAltName, with verify_identifier and verify_cert enabled, and
 authentication_method set to rsasig.
 
-Certificates, CA certificate and CRL should be installed owned by
-root:root with permissions 644:
+This package runs racoon with privilege separation active by default in
+both roadwarrior examples (see racoon-admin-guide.html §8.5) -- an
+unprivileged, peer-facing process does the actual IKE negotiation, and
+is assumed compromised if anything goes wrong. Certificates, the CA
+certificate, and the CRL are not secret, but this package's postinst
+still keeps /etc/racoon and /etc/racoon/certs at root:racoon 0750 (no
+world access at all) rather than the traditional 644/755, since the
+unprivileged process opens these files directly and nothing outside
+root and the racoon group has any reason to. When you add your own
+certificate/CRL files under /etc/racoon/certs, match that policy:
 
-# chmod 644 *cert.pem *crl.pem
-# chown root:root *cert.pem *crl.pem
+# chmod 640 *cert.pem *crl.pem
+# chown root:racoon *cert.pem *crl.pem
 
-and private keys with permissions 600:
+Private keys are read exclusively by the privileged process (never by
+the unprivileged, peer-facing one), so they stay root:root 600:
 
 # chmod 600 *key.pem
 # chown root:root *key.pem
 
-This matters if you want to use privilege separation.
+This matters if you want to use privilege separation (the default) --
+loosening these modes does not break anything, but it does defeat the
+reason privilege separation exists in the first place.
 
 Once installed, configure the key and certificate with the
 certificate_type x509 statement in racoon.conf, or certificate_type

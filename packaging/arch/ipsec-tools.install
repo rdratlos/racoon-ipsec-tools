@@ -5,6 +5,14 @@
 # usr/lib/tmpfiles.d/. No manual systemd-sysusers/systemd-tmpfiles call
 # is needed here - doing so would just duplicate that work.
 #
+# This is also why /etc/racoon and /etc/racoon/certs ownership (root:racoon,
+# needed for privilege separation -- racoon-admin-guide.html §8.5) is set
+# via 'z' lines in ipsec-tools.tmpfiles rather than a chown/chmod here in
+# post_install(): package scriptlets run mid-transaction, before either
+# hook, so the "racoon" group from ipsec-tools.sysusers does not exist yet
+# at this point -- a chown here would silently fail on every fresh
+# install, which is exactly when it matters most.
+#
 # The racoon system user is also deliberately NOT removed on
 # post_remove: reusing a UID/GID after removal is bad practice, and
 # pacman has no reliable way to know whether files elsewhere on the
@@ -16,6 +24,9 @@ post_install() {
   echo ':: /etc/racoon/racoon.conf ships inert (no remote/sainfo block) -- pick an example from'
   echo ':: /usr/share/doc/ipsec-tools/examples/ (roadwarrior client/server, NAT-T, PlainRSA,'
   echo ':: GSSAPI, inherit) and drop your X.509 certificate/key into /etc/racoon/certs/.'
+  echo ':: Both roadwarrior examples enable privilege separation by default -- chown'
+  echo ':: certificate/CA files root:racoon 0640, keep private keys root:root 0600'
+  echo ':: (racoon-admin-guide.html Sec 8.5 has the full ownership table).'
   echo ':: Using pre-shared-key or XAuth instead? Create /etc/racoon/psk.txt yourself --'
   echo ':: see examples/psk.txt.example for the format. Also review /etc/ipsec-tools.conf.'
   echo ':: Then enable with: systemctl enable --now setkey.service racoon.service'

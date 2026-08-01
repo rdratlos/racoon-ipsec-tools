@@ -9,6 +9,13 @@ StartLimitBurst=5
 Type=simple
 EnvironmentFile=-@RACOON_ENVIRONMENTDIR@/racoon
 RuntimeDirectory=racoon
+# No group/other access: only root-privileged script hooks write here
+# (hook state/trace files, the split-DNS dummy-interface lock); the
+# unprivileged, peer-facing process under privsep requests script
+# execution through privsep rather than touching this directory itself
+# (racoon-admin-guide.html Sec 8.5). Matches packaging/arch/
+# ipsec-tools.tmpfiles' equivalent entry for non-systemd-unit installs.
+RuntimeDirectoryMode=0750
 # Fail the start rather than launch racoon with a broken config; see racoon(8) -t.
 ExecStartPre=@RACOON_SBINDIR@/racoon -t $RACOON_ARGS
 ExecStart=@RACOON_SBINDIR@/racoon -F $RACOON_ARGS

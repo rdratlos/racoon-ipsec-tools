@@ -68,7 +68,11 @@ override_dh_install:
 	    debian/racoon/usr/sbin/racoon-tool
 	install -m 644 debian/racoon-tool.conf \
 	    debian/racoon/etc/racoon
-	install -m 644 debian/racoon.conf \
+	# Conservative default (root-only): racoon.conf can carry secrets
+	# (e.g. an inline ldap_cfg bind_pw) once an admin edits it, and the
+	# unprivileged process re-reads this file directly on SIGHUP under
+	# privsep -- see racoon-admin-guide.html §8.5 for the exact tradeoff.
+	install -m 600 debian/racoon.conf \
 	    debian/racoon/etc/racoon/racoon.conf
 	mkdir -p debian/ipsec-tools/etc
 	install -m 755 debian/ipsec-tools.conf \

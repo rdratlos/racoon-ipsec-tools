@@ -239,3 +239,25 @@ Yokogawa IPsec implementation.
 The use of IKE phase 1 aggressive mode is not recommended,
 as described in
 .Pa http://www.kb.cert.org/vuls/id/886601 .
+.Pp
+Running with privilege separation
+.Pq Ic privsep
+in
+.Xr racoon.conf 5
+is the recommended default for production gateways: the unprivileged
+instance that negotiates directly with peers is the one assumed
+compromised if anything goes wrong, and privilege separation limits what
+it can reach.
+It refuses to start unless both
+.Ic path certificate
+and
+.Ic path script
+are set, and the
+.Ic user Ns / Ns Ic group
+account it drops to must own nothing the privileged instance will later
+trust \(em see
+.Xr racoon.conf 5 Ns 's
+.Sx Privilege separation
+section for the ownership requirements this implies, and the Admin
+Guide's Privilege Separation section for the full ownership table and
+packaging notes.

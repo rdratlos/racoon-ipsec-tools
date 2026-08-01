@@ -82,21 +82,31 @@ EXTRA_DIST = \
 # available, unconditionally, under $(examplesdir)/racoon.conf.default
 # if you ever want to start over deliberately.
 #
-# Also creates $(sysconfdir)/certs, empty, at default directory
-# permissions (0755 root-owned) -- racoon.conf.default's own "path
-# certificate" directive already points here, X.509 is this project's
-# primary authentication path, and every certificate/key file an admin
-# drops into it gets tightened individually (644 certs/CRLs, 600 keys;
-# see README.Debian) regardless of the directory's own mode, so there is
-# no reason to diverge from $(sysconfdir) itself's own default mode.
+# racoon.conf is installed root-only (0600), not INSTALL_DATA's usual
+# 0644: an admin-edited racoon.conf can carry secrets (e.g. an inline
+# ldap_cfg bind_pw), and this project's privilege-separation ownership
+# policy (racoon-admin-guide.html Sec 8.5) treats root:root 0600 as the
+# conservative default for that reason.
+#
+# Also creates $(sysconfdir)/certs, root-only (0700) -- racoon.conf's own
+# "path certificate" directive already points here, X.509 is this
+# project's primary authentication path. This plain `make install` has no
+# sysusers/adduser mechanism and so cannot assume a "racoon" system group
+# exists to grant it the narrower root:racoon 0750 privsep needs (Sec
+# 8.5's ownership table); packaging (debian/racoon.postinst,
+# packaging/arch/ipsec-tools.tmpfiles), which does have that account
+# available, applies the group grant afterward. A from-source install
+# that enables privsep {} must apply that same grant by hand -- see Sec
+# 8.5.
 install-data-local: racoon.conf.default
 	${mkinstalldirs} $(DESTDIR)${sysconfdir}
 	${mkinstalldirs} $(DESTDIR)${sysconfdir}/certs
+	chmod 0700 $(DESTDIR)${sysconfdir}/certs
 	@if test -f $(DESTDIR)${sysconfdir}/racoon.conf; then \
 	  echo "$(DESTDIR)${sysconfdir}/racoon.conf already exists, leaving it untouched"; \
 	else \
-	  echo "${INSTALL_DATA} racoon.conf.default $(DESTDIR)${sysconfdir}/racoon.conf"; \
-	  ${INSTALL_DATA} racoon.conf.default $(DESTDIR)${sysconfdir}/racoon.conf; \
+	  echo "${INSTALL} -m 600 racoon.conf.default $(DESTDIR)${sysconfdir}/racoon.conf"; \
+	  ${INSTALL} -m 600 racoon.conf.default $(DESTDIR)${sysconfdir}/racoon.conf; \
 	fi
 
 # Symmetric with install-data-local above: automake's generated
