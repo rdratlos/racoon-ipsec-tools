@@ -357,15 +357,20 @@ otherwise remove and replace while running as root.
 .Ar mode
 is the access mode in octal.
 The default is 0600.
-When running
-.Xr racoon 8
-manually, e.g. in the foreground for debugging, the daemon will
-automatically create the runtime directory holding the admin socket
-if possible, so it does not need to already exist beforehand.
-This is normally taken care of by the service manager, e.g. via
-systemd's
+The directory holding the admin socket does not need to already exist,
+or already have the right ownership: racoon creates it if necessary and
+sets its group to
+.Ar group
+above (mode 0750) on every start, whether it is started as a service
+(e.g. via systemd's
 .Ic RuntimeDirectory=
-directive, when racoon is started as a service.
+directive, which creates the directory itself but does not know which
+group this directive grants) or run manually, e.g. in the foreground for
+debugging.
+This is deliberately re-applied on every start rather than assumed:
+a service manager's own directory-management feature may otherwise
+reset this directory's ownership before racoon runs, since it has no
+way to know what this directive configures.
 .It Ic adminsock disabled ;
 This directive tells racoon to not listen on the admin socket.
 .El

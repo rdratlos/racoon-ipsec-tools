@@ -116,14 +116,9 @@ the directory holding that socket (by default the
 runtime state directory, e.g.
 .Pa /run/racoon )
 grants that same group traversal access.
-Under systemd this is
-.Ic RuntimeDirectoryMode=
-in the shipped
-.Pa racoon.service
-unit; starting
 .Xr racoon 8
-manually instead requires creating that directory by hand at the same
-group and mode first.
+sets this itself on every start, whether started via systemd or
+manually \(em nothing needs to be created or fixed up by hand first.
 .It
 the user is actually a member of that group.
 .El

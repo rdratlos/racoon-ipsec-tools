@@ -1,9 +1,14 @@
-# Group "racoon", not "root": hook state/trace files and the split-DNS
-# dummy-interface lock are written here only by root-privileged script
-# hooks and need no group access, but the racoonctl(1) admin socket also
-# lives in this directory, and a non-root operator's racoonctl needs
-# group traversal to reach it (racoon-admin-guide.html Sec 8.5).
-d /run/racoon 0750 root racoon -
+# This entry does not actually control /run/racoon's final ownership:
+# racoon.service's own RuntimeDirectory=racoon (systemd/racoon.service.in)
+# resets this directory to match the unit's Group= (unset, i.e.
+# root:root) before every process it spawns, and racoon itself
+# (admin_init(), admin.c) then sets the real, effective group to match
+# whatever "listen { adminsock ... group ... }" configures, on every
+# start -- see racoon-admin-guide.html Sec 8.5. This line is harmless,
+# pre-creating the directory so it exists even before racoon's first
+# run, but the group given here (root, matching what actually survives
+# either way) is not load-bearing.
+d /run/racoon 0750 root root -
 
 # 'z' (not 'd'): adjust ownership/mode on these already-installed, persistent
 # config paths without the create-and-clean semantics 'd'/'D' apply to
