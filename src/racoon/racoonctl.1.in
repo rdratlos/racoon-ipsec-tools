@@ -105,10 +105,11 @@ directive naming a group that user belongs to, e.g.
 adminsock "/var/run/racoon/racoon.sock" "root" "racoon" 0660;
 .Ed
 .Pp
-(both packaged roadwarrior client/server examples ship this active by
-default; see
-.Pa examples/roadwarrior/ Ns Ar role Ns Pa /racoon.conf
-under this project's documentation examples directory).
+(both packaged roadwarrior client/server configuration templates ship
+this active by default \(em see
+.Pa racoon.conf.default Ap s
+own header comment for exactly where those templates are installed on
+this system).
 .It
 the directory holding that socket (by default the
 .Xr racoon 8

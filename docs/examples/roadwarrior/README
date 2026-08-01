@@ -8,10 +8,12 @@ the client. After a successful login, the client will receive an
 internal address, netmask and DNS from the VPN gateway.
 
 Once installed (via `make install`, or by your distribution's package),
-this directory's contents live under the examples/roadwarrior/
-subdirectory of this project's documentation -- see
-racoon.conf.default's own header comment for how to locate that path on
-your system.
+this directory's contents live under the roadwarrior/ subdirectory of
+this project's configuration templates directory -- a location of its
+own, not a subdirectory of /usr/share/doc, specifically so it survives
+on distributions that strip /usr/share/doc/* on minimal/container
+installs. See racoon.conf.default's own header comment for how to
+locate that path on your system.
 
 
 Server setup

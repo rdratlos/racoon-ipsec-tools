@@ -93,8 +93,8 @@ override_dh_installchangelogs:
 
 override_dh_installexamples:
 	# Glob the contents rather than passing the directory itself, so
-	# examples land at /usr/share/doc/racoon/examples/roadwarrior/... (as
-	# referenced by debian/racoon.conf) instead of being nested one level
+	# examples land at /usr/share/doc/racoon/examples/... (as referenced
+	# by debian/racoon.README.Debian) instead of being nested one level
 	# deeper under an extra .../examples/examples/... path segment.
 	#
 	# Unlike the old src/racoon/samples/ (plain static files, no build
@@ -106,7 +106,20 @@ override_dh_installexamples:
 	# match); -X.in still separately excludes racoon.conf.default.in
 	# (its rendered racoon.conf.default is the intended, generated
 	# example, and is not itself excluded).
-	dh_installexamples -pracoon -X.in -XMakefile docs/examples/*
+	#
+	# -Xroadwarrior excludes the roadwarrior client/server templates:
+	# those install to templatesdir (usr/share/racoon/templates, via
+	# debian/racoon.install, straight out of debian/tmp) rather than
+	# docdir precisely so they survive a minimal/container install that
+	# strips /usr/share/doc/* -- letting this glob also copy them here
+	# under docdir would silently defeat that (a stale second copy that
+	# gets removed on exactly the installs where it matters). Note for
+	# anyone touching this recipe: writing "$$(templatesdir)" (or any
+	# $$(...)) directly into a shell comment here needs that doubled $$ --
+	# Make expands $(...) in a recipe line even inside a "#" comment, not
+	# knowing it is "just a comment" until after variable expansion runs,
+	# and templatesdir is not one of this Makefile's own variables.
+	dh_installexamples -pracoon -X.in -XMakefile -Xroadwarrior docs/examples/*
 	dh_installexamples
 
 override_dh_installman:

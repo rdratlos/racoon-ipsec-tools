@@ -13,9 +13,9 @@
 # background and its Heimdal-specific credential-acquisition notes). For
 # a complete configuration, including privilege separation (privsep {},
 # the recommended default for production deployments -- see
-# racoon-admin-guide.html §8.5), start from
-# examples/roadwarrior/client/racoon.conf or .../server/racoon.conf and
-# swap in the gssapi_krb settings shown below.
+# racoon-admin-guide.html §8.5), start from the roadwarrior client/server
+# templates instead (see racoon.conf.default's own directory listing for
+# their install path) and swap in the gssapi_krb settings shown below.
 #
 # Key design decisions:
 #   - gssapi_krb as the phase 1 authentication_method: this is what

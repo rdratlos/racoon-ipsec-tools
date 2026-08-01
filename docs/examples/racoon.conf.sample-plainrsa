@@ -10,11 +10,12 @@
 # useful when interoperating with, or migrating configuration away from,
 # a *Swan-family IKEv1 stack (FreeS/WAN, Openswan, strongSwan, Libreswan),
 # which historically favored raw RSA keys over X.509 for site-to-site
-# tunnels.  For a certificate-based setup, start from
-# examples/roadwarrior/client/racoon.conf or .../server/racoon.conf
-# instead -- both also demonstrate privilege separation (privsep {}, the
-# recommended default for production deployments -- see
-# racoon-admin-guide.html §8.5), which this narrow example omits.
+# tunnels.  For a certificate-based setup, start from the roadwarrior
+# client/server templates instead (see racoon.conf.default's own
+# directory listing for their install path) -- both also demonstrate
+# privilege separation (privsep {}, the recommended default for
+# production deployments -- see racoon-admin-guide.html §8.5), which
+# this narrow example omits.
 #
 # Key design decisions:
 #   - my_identifier/peers_identifier address: *Swan implementations

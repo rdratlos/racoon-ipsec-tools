@@ -9,7 +9,8 @@
 # block only has to state what differs from it.  Useful once you have more
 # than a couple of statically configured peers with mostly-identical
 # proposals -- for a single peer, write the settings directly instead
-# (see examples/roadwarrior/client/racoon.conf or .../server/racoon.conf).
+# (see the roadwarrior client/server templates, whose install path is
+# listed in racoon.conf.default itself).
 #
 # Key design decisions:
 #   - "remote <name> inherit <parent> { ... }": <name>'s block starts as a
@@ -28,8 +29,8 @@
 #
 # For a complete deployment, including privilege separation (privsep {},
 # the recommended default for production -- see racoon-admin-guide.html
-# §8.5), start from examples/roadwarrior/client/racoon.conf or
-# .../server/racoon.conf and apply the inherit pattern below to it.
+# §8.5), start from the roadwarrior client/server templates instead and
+# apply the inherit pattern below to it.
 
 path pre_shared_key "/etc/racoon/psk.txt";
 path certificate "/etc/racoon/certs";

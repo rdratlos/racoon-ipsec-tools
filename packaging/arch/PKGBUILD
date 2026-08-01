@@ -60,14 +60,21 @@ check() {
 #     authentication path).
 #   - /etc/racoon/hooks.conf.sample, alongside where hooks.conf itself
 #     goes.
-#   - The full documentation examples tree (racoon.conf.default,
-#     racoon.conf.sample-{natt,plainrsa,gssapi,inherit}, psk.txt.example,
-#     roadwarrior/**) under $(docdir)/examples. Since this PKGBUILD's
-#     pkgname is "ipsec-tools" -- the same as upstream's own
-#     PACKAGE_TARNAME -- autotools' default $(docdir) (no --docdir
-#     override needed) already resolves to
-#     usr/share/doc/ipsec-tools, exactly where this function's own
-#     doc-tree installs below (LICENSE, NEWS.md, admin-guide, ...) land.
+#   - The narrower single-feature reference material (racoon.conf.default,
+#     racoon.conf.sample-{natt,plainrsa,gssapi,inherit}, psk.txt.example)
+#     under $(docdir)/examples. Since this PKGBUILD's pkgname is
+#     "ipsec-tools" -- the same as upstream's own PACKAGE_TARNAME --
+#     autotools' default $(docdir) (no --docdir override needed) already
+#     resolves to usr/share/doc/ipsec-tools, exactly where this
+#     function's own doc-tree installs below (LICENSE, NEWS.md,
+#     admin-guide, ...) land.
+#   - The roadwarrior client/server configuration templates
+#     (roadwarrior/**), separately, under $(templatesdir) -- default
+#     usr/share/racoon/templates, no --with-templatesdir override needed
+#     -- rather than under docdir: they are this project's documented
+#     onboarding path (see racoon.conf.default's own header comment), not
+#     optional reading, so they need to survive independently of whatever
+#     a given install does with /usr/share/doc.
 #   - racoon.service/setkey.service, at whatever $(systemdsystemunitdir)
 #     pkg-config's systemd.pc reports -- /usr/lib/systemd/system on Arch,
 #     no --with-systemdsystemunitdir override needed. These used to be
