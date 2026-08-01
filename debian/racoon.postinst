@@ -100,8 +100,20 @@ if [ -d /etc/racoon/certs ]; then
     chmod 0750 /etc/racoon/certs
 fi
 if [ -d /etc/racoon/scripts ]; then
-    chown -R root:root /etc/racoon/scripts
-    chmod -R 0700 /etc/racoon/scripts
+    chown root:root /etc/racoon/scripts
+    chmod 0700 /etc/racoon/scripts
+    # Named explicitly rather than "chown -R"/"chmod -R" (lintian
+    # recursive-privilege-change): -R follows symlinks into whatever
+    # they point at, and this directory is entirely package-shipped
+    # content (see debian/racoon.install) rather than admin-added data
+    # like certs/, so enumerating the exact fileset is both safer and
+    # more precise than recursing.
+    for f in racoon-hook-lib.sh phase1-up.sh phase1-down.sh racoon-dns-detect; do
+        if [ -e "/etc/racoon/scripts/$f" ]; then
+            chown root:root "/etc/racoon/scripts/$f"
+            chmod 0700 "/etc/racoon/scripts/$f"
+        fi
+    done
 fi
 [ -f /etc/racoon/racoon.conf ] && chown root:root /etc/racoon/racoon.conf && chmod 0600 /etc/racoon/racoon.conf
 
