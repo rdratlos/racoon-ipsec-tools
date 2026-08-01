@@ -180,17 +180,16 @@ Dump
 internal event scheduler queue: pending timer-driven work such as
 rekeys, retransmissions, and DPD probes.
 Primarily a debugging aid, not something a routine VPN operator needs.
-.It Ic show-sa Op Ar protocol
-Dump the current Security Associations: all of them if
-.Ar protocol
-is omitted, or only
+.It Ic show-sa Ar protocol
+Dump the current Security Associations matching
+.Ar protocol :
 .Ic isakmp
 (Phase 1),
 .Ic esp ,
 .Ic ah ,
 or
 .Ic ipsec
-(both ESP and AH) if given.
+(both ESP and AH).
 Use
 .Fl l
 for more detail per SA.
@@ -199,9 +198,12 @@ Output the raw certificate that authenticated the Phase 1 SA between
 .Ar src
 and
 .Ar dst .
-.It Ic flush-sa Op Ar protocol
-Tear down all Security Associations, filtered the same way as
-.Ic show-sa .
+.It Ic flush-sa Ar protocol
+Tear down every Security Association matching
+.Ar protocol ,
+the same values
+.Ic show-sa
+accepts.
 .It Ic delete-sa Ar saopts
 Delete one specific Security Association; see
 .Sx Parameter specifications
