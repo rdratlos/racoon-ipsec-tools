@@ -803,6 +803,27 @@ yycf_clean_buffer()
 {
 	int i;
 
+	/*
+	 * On a clean parse, every include level's glob(3) results
+	 * (incstack[i].matches) were already released by the <<EOF>> rule
+	 * above as each level's file list was exhausted, and incstackp is
+	 * back at 0 with every path already NULLed out there too -- both
+	 * loops below are then a no-op.
+	 *
+	 * On an aborted parse -- the top-level racoon.conf itself failed
+	 * to open (yycf_switch_buffer() call in cfparse() below), or an
+	 * "include" statement's yycf_switch_buffer() call failed partway
+	 * through parsing (cfparse.y's include_statement action returns
+	 * -1 straight out of yyparse() without going through <<EOF>>) --
+	 * one or more levels from 0 to incstackp never reached that
+	 * exhaustion check. Free their glob(3) results here so a reload
+	 * that fails (e.g. racoon.conf unreadable by the unprivileged
+	 * privsep process, or a syntax error inside an included file)
+	 * does not leak memory on every attempt.
+	 */
+	for (i = 0; i <= incstackp && i < MAX_INCLUDE_DEPTH; i++)
+		globfree(&incstack[i].matches);
+
 	for (i = 0; i < MAX_INCLUDE_DEPTH; i++) {
 		if (incstack[i].path != NULL) {
 			fclose(incstack[i].fp);
@@ -810,5 +831,6 @@ yycf_clean_buffer()
 			incstack[i].path = NULL;
 		}
 	}
+	incstackp = 0;
 }
 
