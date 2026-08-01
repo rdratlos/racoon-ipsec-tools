@@ -52,6 +52,7 @@
 #include <limits.h>
 #include <ctype.h>
 #include <glob.h>
+#include <unistd.h>
 #ifdef HAVE_STDARG_H
 #include <stdarg.h>
 #else
@@ -767,11 +768,34 @@ yycf_set_buffer(path)
 {
 	yyin = fopen(path, "r");
 	if (yyin == NULL) {
+		int saved_errno = errno;
+
 		fprintf(stderr, "failed to open file %s (%s)\n",
-			path, strerror(errno));
+			path, strerror(saved_errno));
 		plog(LLV_ERROR, LOCATION, NULL,
 			"failed to open file %s (%s)\n",
-			path, strerror(errno));
+			path, strerror(saved_errno));
+		/*
+		 * The single most common cause of this on a running system:
+		 * a reload-config request (racoonctl(1), SIGHUP) reached the
+		 * privsep unprivileged process, which -- unlike at startup,
+		 * still root -- cannot read a root-only racoon.conf/include
+		 * file by design. Say so explicitly rather than leaving the
+		 * operator to work out why a config that parsed fine at
+		 * startup suddenly "doesn't exist" on reload; see
+		 * racoon-admin-guide.html Sec 8.5/9.6.
+		 */
+		if (saved_errno == EACCES && geteuid() != 0) {
+			plog(LLV_ERROR, LOCATION, NULL,
+				"this looks like privilege separation: the "
+				"unprivileged process cannot read %s with "
+				"its current owner/group/mode; either accept "
+				"that reload-config requires a full restart "
+				"for this file, or relax its permissions "
+				"(e.g. group-readable by the racoon group) "
+				"if you want reload to pick up its changes\n",
+				path);
+		}
 		return -1;
 	}
 
