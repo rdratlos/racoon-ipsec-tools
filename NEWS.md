@@ -1,5 +1,32 @@
 # NEWS
 
+## 0.9.1 (unreleased)
+
+### Packaging: roadwarrior templates moved out of /usr/share/doc
+
+Some distributions configure their package manager to silently strip
+`/usr/share/doc/*` on minimal/container base images (common since
+Ubuntu Jammy), keeping only `copyright`/`changelog.*`. The roadwarrior
+client/server configuration templates -- the documented "which example
+should I start from?" onboarding path in `racoon.conf.default` -- used
+to live under `/usr/share/doc/racoon/examples/roadwarrior/`, which such
+installs would delete without any error or warning, leaving that
+onboarding path pointing at nothing.
+
+They now install to their own directory,
+`/usr/share/racoon/templates/roadwarrior/` by default (configurable via
+the new `--with-templatesdir` to `configure`), independent of whatever
+a given install does with `/usr/share/doc`. The narrower single-feature
+samples (NAT-T, PlainRSA, GSSAPI, `inherit`) and the admin guide remain
+under `/usr/share/doc/racoon` -- genuinely optional reading, not
+something any documented workflow depends on being present.
+
+If you have existing tooling, scripts, or documentation of your own
+referencing the old
+`/usr/share/doc/racoon/examples/roadwarrior/` path, update it to
+`/usr/share/racoon/templates/roadwarrior/` (or your distribution's
+equivalent).
+
 ## 0.9.0
 
 Changes since `code-freeze/0.8.2+20140711-13`, the last upstream

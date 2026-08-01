@@ -2,6 +2,19 @@ etc/racoon/scripts/racoon-hook-lib.sh
 etc/racoon/scripts/phase1-up.sh
 etc/racoon/scripts/phase1-down.sh
 etc/racoon/scripts/racoon-dns-detect
+# Roadwarrior client/server configuration templates: installed to
+# --with-templatesdir (usr/share/racoon/templates, not under
+# usr/share/doc/racoon) specifically so they survive on minimal/
+# container installs that configure dpkg to strip /usr/share/doc/* --
+# see docs/examples/Makefile.am and configure.ac's --with-templatesdir
+# for the full reasoning. debian/rules' override_dh_installexamples
+# deliberately excludes docs/examples/roadwarrior from its own docdir
+# glob to avoid shipping a second, stale copy here.
+usr/share/racoon/templates/roadwarrior/README
+usr/share/racoon/templates/roadwarrior/client/racoon.conf
+usr/share/racoon/templates/roadwarrior/client/phase1-up.sh
+usr/share/racoon/templates/roadwarrior/client/phase1-down.sh
+usr/share/racoon/templates/roadwarrior/server/racoon.conf
 usr/include/libipsec/libpfkey.h
 usr/include/racoon/admin.h
 usr/include/racoon/evt.h
@@ -22,13 +35,13 @@ usr/lib/ipsec-tools/libracoon.so.0
 usr/lib/ipsec-tools/libracoon.so.0.0.0
 usr/sbin/plainrsa-gen
 usr/sbin/racoon
-usr/sbin/racoonctl
+usr/bin/racoonctl
+usr/share/man/man1/racoonctl.1
 usr/share/man/man3/ipsec_set_policy.3
 usr/share/man/man3/ipsec_strerror.3
 usr/share/man/man5/racoon.conf.5
 usr/share/man/man8/plainrsa-gen.8
 usr/share/man/man8/racoon.8
 usr/share/man/man8/racoon-dns-detect.8
-usr/share/man/man8/racoonctl.8
 misc/kate/racoon.xml usr/share/org.kde.syntax-highlighting/syntax/
 usr/lib/systemd/system/racoon.service

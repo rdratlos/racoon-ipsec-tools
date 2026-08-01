@@ -20,65 +20,91 @@
 # Which example should I start from?
 # ---------------------------------------------------------------------------
 # racoon's role (client vs. gateway) is entirely a property of what you put
-# in racoon.conf, not something the package chooses for you.  Full,
-# heavily-commented worked examples for both roles -- and for several
-# narrower features -- are installed under:
+# in racoon.conf, not something the package chooses for you. Two full,
+# heavily-commented worked configuration templates -- one per role -- are
+# installed under:
 #
-#   @RACOON_EXAMPLESDIR@/
+#   @RACOON_TEMPLATESDIR@/
 #
-#   examples/roadwarrior/client/racoon.conf
+#   roadwarrior/client/racoon.conf
 #     Connecting to somebody else's VPN gateway as a roadwarrior client:
 #     X.509 certificate + XAuth username/password authentication, Mode
 #     Config for a dynamically assigned address, DNS, and split routing.
 #     This is the common case if you were handed a certificate and a
 #     gateway address by a VPN administrator.  Pairs with
-#     examples/roadwarrior/client/phase1-up.sh and phase1-down.sh
-#     (historical, minimal reference hooks -- for a maintained split-DNS
-#     and routing hook set see racoon-hook-lib.sh(8) / racoon-dns-detect(8)
-#     and @RACOON_SYSCONFDIR@/scripts, installed unconditionally by this
-#     package as a real component, not an example).
+#     roadwarrior/client/phase1-up.sh and phase1-down.sh (historical,
+#     minimal reference hooks -- for a maintained split-DNS and routing
+#     hook set see racoon-hook-lib.sh(8) / racoon-dns-detect(8) and
+#     @RACOON_SYSCONFDIR@/scripts, installed unconditionally by this
+#     package as a real component, not a template).
 #
-#   examples/roadwarrior/server/racoon.conf
+#   roadwarrior/server/racoon.conf
 #     Running the VPN gateway side of the same roadwarrior setup: address
 #     pool, split-DNS, XAuth authentication source (system/PAM/LDAP), and
-#     the Mode Config attributes the client example above expects.
+#     the Mode Config attributes the client template above expects.
 #
-#   examples/racoon.conf.sample-natt
+# These two are placed outside @RACOON_SYSCONFDIR@'s ordinary documentation
+# tree deliberately: some distributions configure their package manager to
+# silently strip /usr/share/doc/* on minimal/container installs (keeping
+# only copyright/changelog), and this pair is where every fresh install's
+# onboarding path above sends you first -- unlike the narrower single-
+# feature samples below, it needs to still be there afterward.
+#
+# Further reference material for single, narrower features -- read one,
+# then adapt it into a "remote" block of your own -- is installed under:
+#
+#   @RACOON_EXAMPLESDIR@/
+#
+#   racoon.conf.sample-natt
 #     NAT-Traversal (RFC 3947) specifics: listen/timer directives for
 #     UDP 4500 port-floating and NAT keepalives.
 #
-#   examples/racoon.conf.sample-plainrsa
+#   racoon.conf.sample-plainrsa
 #     PlainRSA authentication (raw RSA keypairs, no X.509 certificates) --
 #     useful when interoperating with, or migrating from, a *Swan-family
 #     IKEv1 stack.
 #
-#   examples/racoon.conf.sample-gssapi
+#   racoon.conf.sample-gssapi
 #     GSS-API (Kerberos) authentication.
 #
-#   examples/racoon.conf.sample-inherit
+#   racoon.conf.sample-inherit
 #     "remote ... inherit ..." -- factoring shared proposal/identity
 #     settings out of multiple similar remote peers.
 #
-#   examples/psk.txt.example
+#   psk.txt.example
 #     Format of the pre_shared_key file referenced below.
 #
-# Each example is self-contained and documents its own prerequisites; none
-# of them assume you have already read the others.  Copy the one closest
-# to what you need to @RACOON_SYSCONFDIR@/racoon.conf, adapt the addresses,
-# identities, and proposal to your environment, then validate before
-# reloading:
+# Each template/example is self-contained and documents its own
+# prerequisites; none of them assume you have already read the others.
+# Copy the one closest to what you need to @RACOON_SYSCONFDIR@/racoon.conf,
+# adapt the addresses, identities, and proposal to your environment, then
+# validate before reloading:
 #
 #   racoon -f @RACOON_SYSCONFDIR@/racoon.conf -t
 #
 # ---------------------------------------------------------------------------
+# Privilege separation
+# ---------------------------------------------------------------------------
+# Privilege separation (privsep {}) is the recommended default for
+# production deployments -- both roadwarrior examples above ship it
+# active. It is deliberately NOT enabled here: privsep {} requires a
+# pre-existing "racoon" system user/group and both "path certificate" and
+# "path script" to be set, none of which this near-zero-footprint default
+# should assume in advance. See racoon-admin-guide.html §8.5 for the
+# preconditions, the ownership this file's own directory
+# (@RACOON_SYSCONFDIR@) needs once you enable it, and how to tell the
+# resulting privileged/unprivileged processes apart in your logs.
+#
+# ---------------------------------------------------------------------------
 # Reference
 # ---------------------------------------------------------------------------
-#   racoon.conf(5), racoon(8), racoon-dns-detect(8), racoonctl(8), setkey(8)
+#   racoon.conf(5), racoon(8), racoon-dns-detect(8), racoonctl(1), setkey(8)
 #   racoon-admin-guide.html - full administrator's guide (building,
 #     authentication methods, LDAP, Apple client interop, security
 #     recommendations, troubleshooting) -- see docs/admin-guide/ in the
 #     project source; packaged separately by some distributions.
-#   @RACOON_EXAMPLESDIR@/ - every example shipped with the source.
+#   @RACOON_TEMPLATESDIR@/ - the roadwarrior client/server templates.
+#   @RACOON_EXAMPLESDIR@/ - every narrower single-feature sample.
 
 # Log level: "notify" is a reasonable default for a freshly installed,
 # not-yet-configured daemon.  Raise to "debug"/"debug2" (or run

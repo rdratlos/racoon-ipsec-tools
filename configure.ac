@@ -76,6 +76,23 @@ AC_ARG_WITH([environmentdir],
 	[], [with_environmentdir=/etc/default])
 AC_SUBST([environmentdir], [$with_environmentdir])
 
+# Load-bearing configuration templates (roadwarrior client/server) vs.
+# pure reference material (NAT-T/PlainRSA/GSSAPI/inherit single-feature
+# samples): the former is where racoon.conf.default's own "which example
+# should I start from?" section sends every new install, so it cannot
+# live under --docdir. Some distributions' minimal/container base images
+# configure dpkg to silently drop everything under /usr/share/doc/* on
+# install (kept: copyright, changelog) -- fine for the latter, which is
+# genuinely optional reading, but it would make the documented onboarding
+# path a dead reference for the former. templatesdir is therefore its own
+# directory, not a subdirectory of docdir, same reasoning as
+# --with-environmentdir just above.
+AC_ARG_WITH([templatesdir],
+	[AS_HELP_STRING([--with-templatesdir=DIR],
+		[directory for the roadwarrior client/server configuration templates @<:@default=DATADIR/racoon/templates@:>@])],
+	[], [with_templatesdir='${datadir}/racoon/templates'])
+AC_SUBST([templatesdir], [$with_templatesdir])
+
 # Determine correct runtime library path flag
 # -R on Solaris/BSD, -Wl,-rpath, on Linux/GCC
 AC_MSG_CHECKING([for runtime library path flag])

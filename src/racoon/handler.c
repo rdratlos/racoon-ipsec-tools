@@ -114,10 +114,22 @@ enumph1(sel, enum_func, enum_arg)
 	int (* enum_func)(struct ph1handle *iph1, void *arg);
 	void *enum_arg;
 {
-	struct ph1handle *p;
+	struct ph1handle *p, *next;
 	int ret;
 
-	LIST_FOREACH(p, &ph1tree, chain) {
+	/*
+	 * Precompute "next" before calling enum_func(): admin.c's
+	 * admin_ph1_delete_sa() (the delete-sa/flush-sa racoonctl(1)
+	 * commands) calls back into purge_remote()/delph1(), which frees
+	 * the very "p" a plain LIST_FOREACH would only read *after* the
+	 * call returns to advance -- a use-after-free confirmed by
+	 * valgrind on a live delete-sa/flush-sa run. Mirrors the same
+	 * precomputed-next pattern already used everywhere else in this
+	 * file an entry can be deleted mid-loop (delph1(), delph2(), ...).
+	 */
+	for (p = LIST_FIRST(&ph1tree); p; p = next) {
+		next = LIST_NEXT(p, chain);
+
 		if (sel != NULL) {
 			if (sel->local != NULL &&
 			    cmpsaddr(sel->local, p->local) > CMPSADDR_WILDPORT_MATCH)
@@ -538,10 +550,23 @@ enumph2(sel, enum_func, enum_arg)
 	int (*enum_func)(struct ph2handle *ph2, void *arg);
 	void *enum_arg;
 {
-	struct ph2handle *p;
+	struct ph2handle *p, *next;
 	int ret;
 
-	LIST_FOREACH(p, &ph2tree, chain) {
+	/*
+	 * Precompute "next" before calling enum_func() -- same
+	 * use-after-free hazard fixed in enumph1() above applies here:
+	 * a plain LIST_FOREACH only reads "p" to advance *after* the
+	 * call returns, which is unsafe against any enum_func() that
+	 * frees the current entry (delph2()). No caller does that today
+	 * (pfkey.c's MIGRATE handlers only rewrite addresses in place),
+	 * but this keeps enumph2() as safe against that as enumph1() now
+	 * is, matching every other iterate-and-maybe-delete loop in this
+	 * file.
+	 */
+	for (p = LIST_FIRST(&ph2tree); p; p = next) {
+		next = LIST_NEXT(p, chain);
+
 		if (sel != NULL) {
 			if (sel->spid != 0 && sel->spid != p->spid)
 				continue;

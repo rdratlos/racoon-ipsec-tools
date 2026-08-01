@@ -254,6 +254,7 @@
     <li><a href="#sec-dh">8.2 Diffie-Hellman Groups</a></li>
     <li><a href="#sec-aggressive">8.3 Aggressive Mode Considerations</a></li>
     <li><a href="#sec-legacy">8.4 Legacy Algorithms</a></li>
+    <li><a href="#sec-privsep">8.5 Privilege Separation</a></li>
 
     <li class="section-head"><a>9. Troubleshooting</a></li>
     <li><a href="#debug-logging">9.1 Debug Logging</a></li>
@@ -261,6 +262,7 @@
     <li><a href="#debug-apple">9.3 Apple Client Issues</a></li>
     <li><a href="#debug-ldap">9.4 LDAP Issues</a></li>
     <li><a href="#debug-certs">9.5 Certificate Problems</a></li>
+    <li><a href="#debug-privsep">9.6 Privilege Separation Startup Failures</a></li>
 
     <li class="section-head"><a>10. Migration Notes</a></li>
     <li><a href="#migrate-legacy">10.1 Legacy ipsec-tools Installs</a></li>
@@ -2514,6 +2516,145 @@ echo 1 > /proc/sys/net/ipv4/ip_forward
       production-supported release in the way that strongSwan or Libreswan
       releases are.
     </div>
+
+    <h3 id="sec-privsep">8.5 Privilege Separation (default)</h3>
+    <p>
+      racoon can split itself into two processes: a small privileged process
+      that retains root and performs the handful of operations that
+      genuinely need it (reading private keys and PSKs, forking/executing
+      the phase1-up/phase1-down script hooks), and an unprivileged process
+      that does the actual IKE negotiation with the peer. The negotiation
+      side is the one exposed to the network and to a potentially hostile
+      peer, so it is the one assumed compromised if anything goes wrong;
+      privilege separation limits what an attacker gains from that. This is
+      the <strong>recommended default for production gateways</strong> —
+      both roadwarrior examples (<a href="#build-packaging">§3.7</a>'s
+      packaged samples) ship an active <code>privsep {}</code> block. In
+      practice this means a peer that manages to exploit a bug in the IKE
+      negotiation code lands in a process that cannot read your private
+      keys or PSKs, cannot modify <code>racoon.conf</code> or the script
+      hooks, and cannot act as root on the system — it can only ask the
+      privileged process to perform a small, fixed set of operations on
+      its behalf, each scoped to exactly what negotiation legitimately
+      needs. This section covers what to do as an operator, not the
+      implementation history behind it.
+    </p>
+    <h4>Preconditions</h4>
+    <p>
+      <code>privsep { user "..."; group "..."; }</code> requires:
+    </p>
+    <ul>
+      <li>the named <code>user</code>/<code>group</code> to already exist as
+        a system account — racoon does not create one (see packaging notes
+        below);</li>
+      <li><code>path certificate</code> <em>and</em> <code>path script</code>
+        to both be set, even if a particular deployment's <code>remote</code>
+        blocks do not reference a script directive themselves.</li>
+      <li>Only users belonging to the <code>racoon</code> system group can
+        perform VPN operations (connect, disconnect, status review) via
+        <code>racoonctl(1)</code> — see <code>racoonctl(1)</code> for how
+        to grant that access.</li>
+    </ul>
+    <div class="warn">
+      If either path directive is missing, racoon logs <code>privilege
+      separation require path cert and path script in the config
+      file</code> and refuses to start — it does not silently fall back to
+      running everything as root. If you see this at startup, add the
+      missing <code>path certificate "...";</code> and/or
+      <code>path script "...";</code> lines near the top of
+      <code>racoon.conf</code>, even if this particular configuration has no
+      script hooks to run.
+    </div>
+    <h4>Telling the two processes apart</h4>
+    <p>
+      Both processes log through the same facility, so at startup racoon
+      logs each role's PID explicitly:
+    </p>
+    <pre><code>racoon privileged process running with PID 1234
+racoon unprivileged process running with PID 1235</code></pre>
+    <p>
+      <code>systemctl status racoon</code> and <code>ps</code> report the
+      privileged process's PID as the service's main PID (it is the parent;
+      the unprivileged process is its child) — use the PID pair from the
+      startup log lines above to match subsequent log lines, or
+      <code>ps --ppid &lt;privileged-pid&gt;</code>, to whichever process
+      logged them.
+    </p>
+    <h4>Restart behavior on a faulted privileged process</h4>
+    <p>
+      The shipped <code>racoon.service</code> unit runs with
+      <code>Restart=on-failure</code>, <code>RestartSec=5</code>,
+      <code>StartLimitIntervalSec=300</code>, and
+      <code>StartLimitBurst=5</code>: a privileged process that exits with a
+      real fault (a containment failure or a bounded-wait timeout on a
+      hook, not a clean shutdown) is restarted automatically, but no more
+      than 5 times in any 5-minute window. If a peer can reliably trigger
+      the fault, this caps it at a bounded restart rate rather than an
+      unbounded crash loop. A daemon stuck in that state is visible from
+      <code>systemctl status racoon</code> as repeated
+      <code>Main process exited, code=exited, status=1</code> lines
+      followed eventually by <code>start-limit-hit</code>; that combination
+      — not a single restart — is the signal something is actually wrong
+      and worth investigating, rather than a transient blip.
+    </p>
+    <h4>Filesystem ownership under <code>/etc/racoon</code></h4>
+    <p>
+      Every path below is judged against one question: if the unprivileged,
+      network-facing process is compromised, can it change anything the
+      privileged process will later trust? The following table is the
+      policy this project ships and packages to — treat it as fixed, not as
+      a starting point to relax while debugging (in particular,
+      <code>scripts/</code> is the one most tempting to loosen while
+      chasing a hook problem; put it back immediately afterward):
+    </p>
+    <table>
+      <thead><tr><th>Path</th><th>Owner</th><th>Mode</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><code>/etc/racoon/</code></td><td><code>root:racoon</code></td><td><code>0750</code></td><td>Directory write access lets an attacker unlink and replace any file inside regardless of that file's own mode; the <code>racoon</code> group needs traversal to reach <code>certs/</code> below, nothing more.</td></tr>
+        <tr><td><code>/etc/racoon/certs/</code></td><td><code>root:racoon</code></td><td><code>0750</code></td><td>The unprivileged process opens its own and its peers' certificate files directly (not proxied through privsep), so it needs to traverse and list this directory.</td></tr>
+        <tr><td>&nbsp;&nbsp;public cert/CA files (<code>*.crt</code>)</td><td><code>root:racoon</code></td><td><code>0640</code></td><td>Read directly by the unprivileged process; not secret, but still not group- or world-writable.</td></tr>
+        <tr><td>&nbsp;&nbsp;private key files (<code>*.key</code>)</td><td><code>root:root</code></td><td><code>0600</code></td><td>Read exclusively by the privileged process via the <code>EAY_GET_PKCS1PRIVKEY</code> privsep command; the unprivileged process never sees the key material itself.</td></tr>
+        <tr><td><code>/etc/racoon/psk.txt</code></td><td><code>root:root</code></td><td><code>0600</code></td><td>Read exclusively by the privileged process via the <code>GETPSK</code> privsep command.</td></tr>
+        <tr><td><code>/etc/racoon/scripts/</code></td><td><code>root:root</code></td><td><code>0700</code></td><td>The most security-critical path in this table: these hooks run with full root privilege whenever the privileged side forks/execs them on a phase1-up/down event. The unprivileged process never invokes or reads them directly — all script execution is requested through privsep — so it gets no access at all, not even read.</td></tr>
+        <tr><td><code>/etc/racoon/racoon.conf</code></td><td><code>root:root</code></td><td><code>0600</code></td><td>Conservative default — see the note below.</td></tr>
+        <tr><td><code>/run/racoon</code></td><td><code>root:racoon</code></td><td><code>0750</code></td><td>Hook state/trace files and the split-DNS dummy-interface lock are written by the script hooks themselves, which run as root, and the unprivileged process never touches those directly (script execution is requested through privsep). The <code>racoon</code> group grant exists for a different reason: this is also where the <code>racoonctl(1)</code> admin socket lives, and a non-root operator's <code>racoonctl</code> needs traversal into this directory to reach it. racoon itself (<code>admin_init()</code>) sets this ownership on every start, matching whatever group the active <code>adminsock</code> directive configures — not systemd, and not packaging: <code>RuntimeDirectory=</code> in the shipped unit has no group of its own to grant here (see the note on <code>racoon.service</code>'s own <code>RuntimeDirectoryMode=</code> line for why an external fixup does not work), so this is the one place actually authoritative over this directory's group.</td></tr>
+      </tbody>
+    </table>
+    <div class="note">
+      <strong><code>racoon.conf</code> and SIGHUP reload:</strong> on
+      <code>SIGHUP</code>, racoon re-reads and re-parses
+      <code>racoon.conf</code> from disk — and under privsep, this reload
+      runs in the unprivileged process, not the privileged one (unlike PSK
+      and private-key access, it is not proxied). With the conservative
+      <code>root:root 0600</code> default above, that direct read fails:
+      racoon logs a reload failure and keeps running on its last-loaded
+      configuration, so it fails safe rather than crashing, but
+      <code>SIGHUP</code>-triggered reload simply will not pick up your
+      edits. If your <code>racoon.conf</code> has no embedded secrets (in
+      particular, no inline <code>ldap_cfg</code> <code>bind_pw</code>) and
+      you want reload to work, you may deliberately loosen it to
+      <code>root:racoon 0640</code> as a documented exception. If it does
+      contain a secret, leave it at <code>0600</code> and restart the
+      service instead of reloading it to apply changes.
+    </div>
+    <h4>Packaging: the <code>racoon</code> account</h4>
+    <p>
+      Both packaged examples' <code>privsep {}</code> blocks assume a
+      <code>racoon</code> system user/group already exists — Debian
+      packages create it via <code>adduser --system --group</code> in the
+      package's postinst, Arch via <code>systemd-sysusers</code>
+      (<code>ipsec-tools.sysusers</code>). Building and installing from a
+      plain source checkout (<code>make install</code>, no packaging) does
+      <em>not</em> create this account for you, and deliberately does not
+      assume one exists: every path <code>make install</code> places under
+      <code>/etc/racoon</code> is installed root-owned at the conservative
+      end of the table above. If you enable <code>privsep {}</code> after a
+      from-source install, create the system account yourself first, then
+      apply the group ownership from the table above to
+      <code>/etc/racoon</code> and <code>/etc/racoon/certs</code> (and to
+      individual certificate files as you add them) — packaging does this
+      for you automatically, a from-source install does not.
+    </p>
   </section>
 
   <!-- ═══════════ 9. TROUBLESHOOTING ═══════════ -->
@@ -2649,6 +2790,20 @@ racoonctl vpn-connect 192.168.1.1</code></pre>
         <tr><td>Deprecated function warnings</td><td>OpenSSL 1.x low-level API</td><td>Set OPENSSL_API_COMPAT or migrate</td></tr>
         <tr><td>PKCS#12 import fails</td><td>Legacy provider not active</td><td>Activate legacy section in openssl.cnf</td></tr>
         <tr><td>DH group not initialized</td><td>DH_new() deprecated</td><td>Use EVP_PKEY_CTX / DH MODP via EVP</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="debug-privsep">9.6 Privilege Separation Startup Failures</h3>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely Cause</th><th>Check</th></tr></thead>
+      <tbody>
+        <tr><td><code>privilege separation require path cert and path script in the config file</code>, racoon exits immediately</td><td><code>privsep {}</code> is configured but <code>path certificate</code> and/or <code>path script</code> is missing</td><td>Add both path directives near the top of <code>racoon.conf</code> — required whenever <code>privsep {}</code> is active, even if this configuration's <code>remote</code> blocks reference no script hooks (<a href="#sec-privsep">§8.5</a>)</td></tr>
+        <tr><td><code>Cannot setuid(...)</code> / <code>Cannot setgid(...)</code> at startup</td><td>The <code>user</code>/<code>group</code> named in <code>privsep {}</code> does not resolve to an existing system account</td><td>Create the account (packaging does this automatically; a from-source install does not — <a href="#sec-privsep">§8.5</a>) and confirm the spelling matches <code>privsep {}</code> exactly</td></tr>
+        <tr><td>Negotiation fails with a certificate/key read error, only when <code>privsep {}</code> is active</td><td><code>/etc/racoon/certs</code> or a certificate file inside it is not readable by the unprivileged process's group</td><td>Check ownership against the table in <a href="#sec-privsep">§8.5</a> — this is most often a from-source install where the group grant was never applied</td></tr>
+        <tr><td><code>SIGHUP</code> reload logs a parse/read failure but the daemon keeps running</td><td>Expected under privsep with the conservative <code>racoon.conf</code> permissions — see <a href="#sec-privsep">§8.5</a>'s note on reload</td><td>Restart the service to apply the change, or deliberately loosen <code>racoon.conf</code> to <code>root:racoon 0640</code> if it has no embedded secrets</td></tr>
+        <tr><td><code>systemctl status racoon</code> shows repeated restarts, then <code>start-limit-hit</code></td><td>The privileged process is faulting repeatedly (a real containment failure or hook timeout, not a clean shutdown)</td><td>Check the log lines around each <code>Main process exited, code=exited, status=1</code> for which request triggered it; see <a href="#sec-privsep">§8.5</a></td></tr>
+        <tr><td><code>racoonctl</code> gets <code>connection refused</code>/<code>no such file or directory</code> for the admin socket</td><td>Racoon is not running, or its <code>adminsock</code> directive points somewhere <code>racoonctl</code> is not looking (see <code>-s</code> in <code>racoonctl(1)</code>)</td><td><code>admin_init()</code> creates the runtime state directory (<code>/run/racoon</code>, sometimes still seen at its legacy path <code>/var/run/racoon</code>) itself if it does not already exist, and sets its ownership to match the active <code>adminsock</code> directive, whether racoon is started via <code>systemctl</code> or manually — nothing needs to be created by hand first. If this still fails, double-check the socket path both sides agree on</td></tr>
+        <tr><td><code>racoonctl</code> gets <code>permission denied</code> for the admin socket</td><td>The invoking user is not in the group <code>adminsock</code> was configured with, or <code>racoon.conf</code> does not grant that group at all (the default is root:root <code>0600</code>, root-only)</td><td>Check <code>id</code> for the user against the ownership table in <a href="#sec-privsep">§8.5</a>, and confirm <code>racoon.conf</code>'s <code>listen { adminsock ... }</code> directive actually names that group</td></tr>
       </tbody>
     </table>
   </section>

@@ -10,6 +10,22 @@ libipsec_HEADERS = libpfkey.h
 
 man3_MANS = ipsec_set_policy.3 ipsec_strerror.3
 
+# Built from their .in sources, .Dd stamped with this build's own
+# $(PACKAGE_VERSION) -- see src/racoon/Makefile.am's racoon.8 rule for
+# why the sed pattern uses RACOON_PACKAGE_VERSION rather than the real,
+# AC_SUBST'd PACKAGE_VERSION name.
+ipsec_set_policy.3: $(srcdir)/ipsec_set_policy.3.in Makefile
+	$(AM_V_GEN)sed -e 's,@RACOON_PACKAGE_VERSION@,$(PACKAGE_VERSION),g' \
+	    $(srcdir)/ipsec_set_policy.3.in > $@
+
+ipsec_strerror.3: $(srcdir)/ipsec_strerror.3.in Makefile
+	$(AM_V_GEN)sed -e 's,@RACOON_PACKAGE_VERSION@,$(PACKAGE_VERSION),g' \
+	    $(srcdir)/ipsec_strerror.3.in > $@
+
+all-local: ipsec_set_policy.3 ipsec_strerror.3
+
+CLEANFILES = ipsec_set_policy.3 ipsec_strerror.3
+
 AM_CFLAGS = @GLIBC_BUGS@
 AM_YFLAGS = -d -p __libipsec
 AM_LFLAGS = -P__libipsec -olex.yy.c
@@ -38,7 +54,7 @@ noinst_HEADERS = ipsec_strerror.h
 #test_policy_priority_SOURCES = test-policy-priority.c
 #test_policy_priority_LDFLAGS = libipsec.la
 
-EXTRA_DIST = ${man3_MANS}
+EXTRA_DIST = ipsec_set_policy.3.in ipsec_strerror.3.in
 
 MAINTAINERCLEANFILES = \
     policy_token.c \

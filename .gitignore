@@ -37,6 +37,16 @@ Makefile
 /systemd/racoon.service
 /systemd/setkey.service
 
+# Man pages generated from .in sources (.Dd stamped with PACKAGE_VERSION)
+/src/racoon/racoon.8
+/src/racoon/racoon.conf.5
+/src/racoon/plainrsa-gen.8
+/src/racoon/racoonctl.1
+/src/racoon/scripts/racoon-dns-detect.8
+/src/libipsec/ipsec_set_policy.3
+/src/libipsec/ipsec_strerror.3
+/src/setkey/setkey.8
+
 # Compiled binaries
 /src/racoon/racoon
 /src/racoon/racoonctl

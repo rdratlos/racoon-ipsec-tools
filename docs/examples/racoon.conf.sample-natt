@@ -7,10 +7,13 @@
 # Focused, single-feature example: what a "remote" block needs, beyond
 # whatever authentication method you are already using, when one or both
 # peers may be behind a NAT gateway.  For a complete, ready-to-adapt
-# configuration, start from examples/roadwarrior/client/racoon.conf or
-# examples/roadwarrior/server/racoon.conf instead -- both already enable
-# NAT-Traversal (nat_traversal on;) as part of a full setup; this file
-# only isolates and explains that one feature.
+# configuration, start from the roadwarrior client/server templates
+# instead (see racoon.conf.default's own directory listing for their
+# install path) -- both already enable NAT-Traversal (nat_traversal on;),
+# as well as privilege separation (privsep {}, the recommended default
+# for production deployments -- see racoon-admin-guide.html §8.5), as
+# part of a full setup; this file only isolates and explains the one
+# feature named above.
 #
 # Key design decisions:
 #   - Two UDP ports must be reachable through any intervening firewall:

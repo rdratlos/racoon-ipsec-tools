@@ -52,6 +52,7 @@
 #include <limits.h>
 #include <ctype.h>
 #include <glob.h>
+#include <unistd.h>
 #ifdef HAVE_STDARG_H
 #include <stdarg.h>
 #else
@@ -767,11 +768,34 @@ yycf_set_buffer(path)
 {
 	yyin = fopen(path, "r");
 	if (yyin == NULL) {
+		int saved_errno = errno;
+
 		fprintf(stderr, "failed to open file %s (%s)\n",
-			path, strerror(errno));
+			path, strerror(saved_errno));
 		plog(LLV_ERROR, LOCATION, NULL,
 			"failed to open file %s (%s)\n",
-			path, strerror(errno));
+			path, strerror(saved_errno));
+		/*
+		 * The single most common cause of this on a running system:
+		 * a reload-config request (racoonctl(1), SIGHUP) reached the
+		 * privsep unprivileged process, which -- unlike at startup,
+		 * still root -- cannot read a root-only racoon.conf/include
+		 * file by design. Say so explicitly rather than leaving the
+		 * operator to work out why a config that parsed fine at
+		 * startup suddenly "doesn't exist" on reload; see
+		 * racoon-admin-guide.html Sec 8.5/9.6.
+		 */
+		if (saved_errno == EACCES && geteuid() != 0) {
+			plog(LLV_ERROR, LOCATION, NULL,
+				"this looks like privilege separation: the "
+				"unprivileged process cannot read %s with "
+				"its current owner/group/mode; either accept "
+				"that reload-config requires a full restart "
+				"for this file, or relax its permissions "
+				"(e.g. group-readable by the racoon group) "
+				"if you want reload to pick up its changes\n",
+				path);
+		}
 		return -1;
 	}
 
@@ -803,6 +827,27 @@ yycf_clean_buffer()
 {
 	int i;
 
+	/*
+	 * On a clean parse, every include level's glob(3) results
+	 * (incstack[i].matches) were already released by the <<EOF>> rule
+	 * above as each level's file list was exhausted, and incstackp is
+	 * back at 0 with every path already NULLed out there too -- both
+	 * loops below are then a no-op.
+	 *
+	 * On an aborted parse -- the top-level racoon.conf itself failed
+	 * to open (yycf_switch_buffer() call in cfparse() below), or an
+	 * "include" statement's yycf_switch_buffer() call failed partway
+	 * through parsing (cfparse.y's include_statement action returns
+	 * -1 straight out of yyparse() without going through <<EOF>>) --
+	 * one or more levels from 0 to incstackp never reached that
+	 * exhaustion check. Free their glob(3) results here so a reload
+	 * that fails (e.g. racoon.conf unreadable by the unprivileged
+	 * privsep process, or a syntax error inside an included file)
+	 * does not leak memory on every attempt.
+	 */
+	for (i = 0; i <= incstackp && i < MAX_INCLUDE_DEPTH; i++)
+		globfree(&incstack[i].matches);
+
 	for (i = 0; i < MAX_INCLUDE_DEPTH; i++) {
 		if (incstack[i].path != NULL) {
 			fclose(incstack[i].fp);
@@ -810,5 +855,6 @@ yycf_clean_buffer()
 			incstack[i].path = NULL;
 		}
 	}
+	incstackp = 0;
 }
 

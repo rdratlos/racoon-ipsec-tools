@@ -873,6 +873,21 @@ admin_init()
 	 * running, and nothing recreates it when racoon is started
 	 * manually (e.g. in foreground, for debugging). Create it here so
 	 * admin_init() does not depend on external tooling.
+	 *
+	 * Ownership is set explicitly afterwards, unconditionally -- not
+	 * only when mkdir_p() just created it. Whatever created this
+	 * directory (systemd's RuntimeDirectory=, a distribution's
+	 * tmpfiles.d entry, or mkdir_p() just above) has no idea which
+	 * group, if any, this specific "listen { adminsock ... group ...
+	 * }" directive grants access to; only this code does. This also
+	 * has to be reasserted here even when the directory pre-exists
+	 * with the wrong group: systemd's own RuntimeDirectory= handling
+	 * reconciles ownership against the unit's User=/Group= (unset, so
+	 * root:root) before *every* process it spawns for the unit, so a
+	 * one-time fixup from outside racoon (e.g. an ExecStartPre chgrp)
+	 * is silently undone again before ExecStart itself runs -- this
+	 * runs from inside the already-spawned, still-root racoon process
+	 * instead, which nothing spawned afterward can revert.
 	 */
 	{
 		char dir[MAXPATHLEN];
@@ -882,10 +897,24 @@ admin_init()
 		slash = strrchr(dir, '/');
 		if (slash != NULL && slash != dir) {
 			*slash = '\0';
-			if (mkdir_p(dir, 0755) != 0) {
+			if (mkdir_p(dir, 0750) != 0) {
 				plog(LLV_ERROR, LOCATION, NULL,
 					"failed to create admin socket "
 					"directory %s: %s\n",
+					dir, strerror(errno));
+				return -1;
+			}
+
+			if (chown(dir, 0, adminsock_group) != 0) {
+				plog(LLV_ERROR, LOCATION, NULL,
+					"chown(%s, 0, %d): %s\n",
+					dir, adminsock_group, strerror(errno));
+				return -1;
+			}
+
+			if (chmod(dir, 0750) != 0) {
+				plog(LLV_ERROR, LOCATION, NULL,
+					"chmod(%s, 0750): %s\n",
 					dir, strerror(errno));
 				return -1;
 			}

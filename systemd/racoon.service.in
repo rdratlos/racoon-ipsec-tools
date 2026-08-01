@@ -9,6 +9,28 @@ StartLimitBurst=5
 Type=simple
 EnvironmentFile=-@RACOON_ENVIRONMENTDIR@/racoon
 RuntimeDirectory=racoon
+# No world access: hook state/trace files and the split-DNS
+# dummy-interface lock are written here only by root-privileged script
+# hooks. Group access IS needed, though, for a different reason: this is
+# also where the racoonctl(1) admin socket lives, and a non-root
+# operator's racoonctl needs traversal here to reach it
+# (racoon-admin-guide.html Sec 8.5).
+#
+# The actual group grant does NOT come from this directive, though --
+# RuntimeDirectory= has no group=/owner= knob of its own; it inherits
+# this unit's own Group=, which stays unset here (racoon starts as root
+# to do the privsep fork/setuid dance, and this unit deliberately does
+# not set Group=racoon, so racoon still starts even when the "racoon"
+# account does not exist and privsep is not in use). An ExecStartPre
+# chgrp was tried here and removed: systemd reconciles this directory's
+# ownership against Group= (unset, so root:root) before *every* process
+# it spawns for this unit, silently undoing an ExecStartPre chgrp again
+# before ExecStart itself runs. admin_init() (admin.c) sets this
+# directory's real, effective group instead, from inside the
+# already-spawned racoon process, matching the group configured in
+# racoon.conf's own "listen { adminsock ... group ... }" directive --
+# nothing spawned afterward can revert that.
+RuntimeDirectoryMode=0750
 # Fail the start rather than launch racoon with a broken config; see racoon(8) -t.
 ExecStartPre=@RACOON_SBINDIR@/racoon -t $RACOON_ARGS
 ExecStart=@RACOON_SBINDIR@/racoon -F $RACOON_ARGS

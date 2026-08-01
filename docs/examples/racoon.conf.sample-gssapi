@@ -10,7 +10,12 @@
 # already hold machine credentials and you would rather reuse those than
 # provision a separate PKI.  Requires racoon built with --enable-gssapi
 # (see doc/README.gssapi in the source tree for the implementation
-# background and its Heimdal-specific credential-acquisition notes).
+# background and its Heimdal-specific credential-acquisition notes). For
+# a complete configuration, including privilege separation (privsep {},
+# the recommended default for production deployments -- see
+# racoon-admin-guide.html §8.5), start from the roadwarrior client/server
+# templates instead (see racoon.conf.default's own directory listing for
+# their install path) and swap in the gssapi_krb settings shown below.
 #
 # Key design decisions:
 #   - gssapi_krb as the phase 1 authentication_method: this is what

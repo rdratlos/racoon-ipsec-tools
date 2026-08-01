@@ -29,7 +29,7 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.Dd October 13, 2018
+.Dd "ipsec-tools / racoon @RACOON_PACKAGE_VERSION@"
 .Dt RACOON.CONF 5
 .Os
 .\"
@@ -177,6 +177,26 @@ and do not need to be reachable in the
 .Xr chroot 2 Ap ed
 tree.
 .El
+.Pp
+Privilege separation only changes what a compromised, peer-facing
+.Xr racoon 8
+process can reach if it does not also match the filesystem ownership the
+threat model assumes: the
+.Ic user
+and
+.Ic group
+above must own nothing that the privileged instance will later trust, and
+must be able to reach the certificate directory named by
+.Ic path certificate
+below (traversal plus read access on the certificate files themselves).
+This project's own packaging (Debian, Arch) applies this ownership
+automatically; a plain
+.Ic make install
+does not, since it cannot assume the
+.Ic user Ns / Ns Ic group
+account already exists.
+See the Admin Guide's Privilege Separation section for the exact
+ownership table.
 .El
 .Ss Path Specification
 This section specifies various paths used by racoon.
@@ -337,15 +357,20 @@ otherwise remove and replace while running as root.
 .Ar mode
 is the access mode in octal.
 The default is 0600.
-When running
-.Xr racoon 8
-manually, e.g. in the foreground for debugging, the daemon will
-automatically create the runtime directory holding the admin socket
-if possible, so it does not need to already exist beforehand.
-This is normally taken care of by the service manager, e.g. via
-systemd's
+The directory holding the admin socket does not need to already exist,
+or already have the right ownership: racoon creates it if necessary and
+sets its group to
+.Ar group
+above (mode 0750) on every start, whether it is started as a service
+(e.g. via systemd's
 .Ic RuntimeDirectory=
-directive, when racoon is started as a service.
+directive, which creates the directory itself but does not know which
+group this directive grants) or run manually, e.g. in the foreground for
+debugging.
+This is deliberately re-applied on every start rather than assumed:
+a service manager's own directory-management feature may otherwise
+reset this directory's ownership before racoon runs, since it has no
+way to know what this directive configures.
 .It Ic adminsock disabled ;
 This directive tells racoon to not listen on the admin socket.
 .El
@@ -1593,7 +1618,7 @@ foo.kame.net    hoge
 .Sh SEE ALSO
 .Xr racoon 8 ,
 .Xr racoon-dns-detect 8 ,
-.Xr racoonctl 8 ,
+.Xr racoonctl 1 ,
 .Xr setkey 8
 .\"
 .Sh HISTORY

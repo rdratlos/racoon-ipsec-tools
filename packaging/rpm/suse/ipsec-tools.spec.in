@@ -102,7 +102,7 @@ fi
 /usr/%{_lib}/libipsec.a
 /usr/%{_lib}/libipsec.la
 /usr/sbin/racoon
-/usr/sbin/racoonctl
+/usr/bin/racoonctl
 /usr/sbin/setkey
 /usr/sbin/plainrsa-gen
 %{_mandir}/man*/*

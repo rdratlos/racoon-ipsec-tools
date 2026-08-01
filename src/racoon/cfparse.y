@@ -2772,9 +2772,10 @@ cfparse()
 	yycf_init_buffer();
 
 	if (yycf_switch_buffer(lcconf->racoon_conf) != 0) {
-		plog(LLV_ERROR, LOCATION, NULL, 
-		    "could not read configuration file \"%s\"\n", 
+		plog(LLV_ERROR, LOCATION, NULL,
+		    "could not read configuration file \"%s\"\n",
 		    lcconf->racoon_conf);
+		yycf_clean_buffer();
 		return -1;
 	}
 
@@ -2788,6 +2789,7 @@ cfparse()
 			plog(LLV_ERROR, LOCATION, NULL,
 				"fatal parse failure.\n");
 		}
+		yycf_clean_buffer();
 		return -1;
 	}
 
@@ -2805,6 +2807,7 @@ cfparse()
 		 * callers (session(), main.c's -C config test) still treat
 		 * this as fatal, which at startup it is.
 		 */
+		yycf_clean_buffer();
 		return -1;
 	}
 
