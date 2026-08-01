@@ -113,8 +113,37 @@ man1_MANS = racoonctl.1
 man5_MANS = racoon.conf.5
 man8_MANS = racoon.8 plainrsa-gen.8
 
+# Man pages are built from .in sources, .Dd stamped with this build's own
+# $(PACKAGE_VERSION) rather than a hand-maintained date -- see the
+# generate rules below. RACOON_PACKAGE_VERSION (not "@PACKAGE_VERSION@"
+# directly) for the same reason racoon.conf.default.in/racoon.service.in
+# use their own RACOON_-prefixed tokens instead of the real autoconf
+# variable name: PACKAGE_VERSION is AC_SUBST'd, so config.status's blind
+# whole-file substitution pass over this Makefile itself (an
+# AC_CONFIG_FILES target, via Makefile.in) would replace a literal
+# "@PACKAGE_VERSION@" appearing in the sed command below before make
+# ever ran it, leaving sed searching for a version string instead of a
+# placeholder that no longer exists in the .in file.
+racoon.8: $(srcdir)/racoon.8.in Makefile
+	$(AM_V_GEN)sed -e 's,@RACOON_PACKAGE_VERSION@,$(PACKAGE_VERSION),g' \
+	    $(srcdir)/racoon.8.in > $@
+
+racoon.conf.5: $(srcdir)/racoon.conf.5.in Makefile
+	$(AM_V_GEN)sed -e 's,@RACOON_PACKAGE_VERSION@,$(PACKAGE_VERSION),g' \
+	    $(srcdir)/racoon.conf.5.in > $@
+
+plainrsa-gen.8: $(srcdir)/plainrsa-gen.8.in Makefile
+	$(AM_V_GEN)sed -e 's,@RACOON_PACKAGE_VERSION@,$(PACKAGE_VERSION),g' \
+	    $(srcdir)/plainrsa-gen.8.in > $@
+
+racoonctl.1: $(srcdir)/racoonctl.1.in Makefile
+	$(AM_V_GEN)sed -e 's,@RACOON_PACKAGE_VERSION@,$(PACKAGE_VERSION),g' \
+	    $(srcdir)/racoonctl.1.in > $@
+
+CLEANFILES = racoon.8 racoon.conf.5 plainrsa-gen.8 racoonctl.1
+
 EXTRA_DIST = \
-   ${man1_MANS} ${man5_MANS} ${man8_MANS} \
+   racoon.8.in racoon.conf.5.in plainrsa-gen.8.in racoonctl.1.in \
    missing/crypto/rijndael/boxes-fst.dat \
    doc/FAQ doc/README.certificate doc/README.gssapi doc/README.plainrsa \
    doc/README.privsep \
@@ -181,7 +210,7 @@ crypto_openssl_test.o: crypto_openssl.c
 crypto_openssl_unittest.o: crypto_openssl.c
 	$(COMPILE) -o crypto_openssl_unittest.o -c $(srcdir)/crypto_openssl.c
 
-all-local: crypto_openssl_unittest.o
+all-local: crypto_openssl_unittest.o racoon.8 racoon.conf.5 plainrsa-gen.8 racoonctl.1
 
 misc_noplog.o: misc.c
 	$(COMPILE) -DNOUSE_PLOG -o misc_noplog.o -c $(srcdir)/misc.c

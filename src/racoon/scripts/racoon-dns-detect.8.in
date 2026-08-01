@@ -2,7 +2,7 @@
 .\" Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
 .\" Part of rdratlos/racoon-ipsec-tools -- https://github.com/rdratlos/racoon-ipsec-tools
 .\"
-.Dd July 24, 2026
+.Dd "ipsec-tools / racoon @RACOON_PACKAGE_VERSION@"
 .Dt RACOON-DNS-DETECT 8
 .Os
 .\"

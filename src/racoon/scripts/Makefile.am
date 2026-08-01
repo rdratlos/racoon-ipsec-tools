@@ -59,10 +59,23 @@ hookscripts_DATA = \
 # regardless of where the script itself is installed.
 man8_MANS = racoon-dns-detect.8
 
+# Built from racoon-dns-detect.8.in, .Dd stamped with this build's own
+# $(PACKAGE_VERSION) -- see ../Makefile.am's racoon.8 rule for why the
+# sed pattern uses RACOON_PACKAGE_VERSION rather than the real,
+# AC_SUBST'd PACKAGE_VERSION name.
+racoon-dns-detect.8: $(srcdir)/racoon-dns-detect.8.in Makefile
+	$(AM_V_GEN)sed -e 's,@RACOON_PACKAGE_VERSION@,$(PACKAGE_VERSION),g' \
+	    $(srcdir)/racoon-dns-detect.8.in > $@
+
+all-local: racoon-dns-detect.8
+
+CLEANFILES = racoon-dns-detect.8
+
 # automake does not distribute *_SCRIPTS/*_DATA/*_MANS files
 # automatically the way it does *_SOURCES -- these are plain,
-# hand-written files (nothing here is generated), so EXTRA_DIST is what
-# makes `make dist`/`make distcheck` actually ship them. Verified
-# directly (not assumed): a plain `make distdir` in this directory
-# omits racoon-dns-detect.8 without this line.
-EXTRA_DIST = $(hookscripts_SCRIPTS) $(hookscripts_DATA) $(man8_MANS)
+# hand-written files (racoon-dns-detect.8 itself excepted -- generated
+# from racoon-dns-detect.8.in above), so EXTRA_DIST is what makes
+# `make dist`/`make distcheck` actually ship them. Verified directly
+# (not assumed): a plain `make distdir` in this directory omits
+# racoon-dns-detect.8.in without this line.
+EXTRA_DIST = $(hookscripts_SCRIPTS) $(hookscripts_DATA) racoon-dns-detect.8.in

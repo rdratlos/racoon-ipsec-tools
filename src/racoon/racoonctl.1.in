@@ -33,7 +33,7 @@
 .\" Modifications Copyright (C) 2024-2026 Thomas Reim
 .\" Part of rdratlos/racoon-ipsec-tools -- https://github.com/rdratlos/racoon-ipsec-tools
 .\"
-.Dd July 31, 2026
+.Dd "ipsec-tools / racoon @RACOON_PACKAGE_VERSION@"
 .Dt RACOONCTL 1
 .Os
 .\"
