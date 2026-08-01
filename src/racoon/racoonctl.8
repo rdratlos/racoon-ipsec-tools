@@ -29,194 +29,306 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.Dd March 12, 2009
+.Dd July 31, 2026
 .Dt RACOONCTL 8
 .Os
 .\"
 .Sh NAME
 .Nm racoonctl
-.Nd racoon administrative control tool
+.Nd control and query a running racoon IKE daemon
 .\"
 .Sh SYNOPSIS
 .Nm
-.Op opts
-reload-config
-.Nm
-.Op opts
-show-schedule
-.Nm
-.Op opts
-show-sa
-.Op isakmp|esp|ah|ipsec
-.Nm
-.Op opts
-get-sa-cert
-.Op inet|inet6
-.Ar src dst
-.Nm
-.Op opts
-flush-sa
-.Op isakmp|esp|ah|ipsec
-.Nm
-.Op opts
-delete-sa
-.Ar saopts
-.Nm
-.Op opts
-establish-sa
-.Op Fl w
-.Op Fl n Ar remoteconf
-.Op Fl u Ar identity
-.Ar saopts
-.Nm
-.Op opts
-vpn-connect
-.Op Fl u Ar identity
-.Ar vpn_gateway
-.Nm
-.Op opts
-vpn-disconnect
-.Ar vpn_gateway
-.Nm
-.Op opts
-show-event
-.Nm
-.Op opts
-logout-user
-.Ar login
+.Op Fl dl
+.Op Fl s Ar socket
+.Ar command
+.Op Ar args ...
 .\"
 .Sh DESCRIPTION
 .Nm
-is used to control
+is the tool for operating a running
+.Xr racoon 8 :
+establishing and tearing down VPN connections, inspecting the current
+Security Associations and scheduled events, and reloading the daemon's
+configuration.
+It is the only supported way to do any of this at runtime;
 .Xr racoon 8
-operation, if ipsec-tools was configured with adminport support.
-Communication between
+itself only reads
+.Xr racoon.conf 5
+at startup or on
+.Dv SIGHUP .
+.Pp
+With privilege separation
+.Pq Ic privsep
+active in
+.Xr racoon.conf 5 ,
+which is this project's recommended default (see the Admin Guide's
+Privilege Separation section), racoon itself no longer runs as a single
+root process an operator might otherwise reach for directly:
 .Nm
-and
+talking to the admin socket is the intended, and only, interface for a
+non-root operator to drive it.
+.Pp
+.Nm
+talks to
 .Xr racoon 8
-is done through a UNIX socket.
-By changing the default mode and ownership
-of the socket, you can allow non-root users to alter
+over a
+.Xr unix 4
+domain socket (the
+.Dq admin socket ,
+sometimes called the adminport), configured by the
+.Ic adminsock
+directive in the
+.Ic listen
+block of
+.Xr racoon.conf 5 .
+By default that socket is owned
+.Li root:root
+mode
+.Li 0600 ,
+which only root can use.
+For any non-root user to run
+.Nm ,
+three things must all be true:
+.Bl -bullet
+.It
+.Xr racoon.conf 5 Ap s
+.Ic listen
+block has an active
+.Ic adminsock
+directive naming a group that user belongs to, e.g.
+.Bd -literal -offset indent
+adminsock "/var/run/racoon/racoon.sock" "root" "racoon" 0660;
+.Ed
+.Pp
+(both packaged roadwarrior client/server examples ship this active by
+default; see
+.Pa examples/roadwarrior/ Ns Ar role Ns Pa /racoon.conf
+under this project's documentation examples directory).
+.It
+the directory holding that socket (by default the
 .Xr racoon 8
-behavior, so do that with caution.
+runtime state directory, e.g.
+.Pa /run/racoon )
+grants that same group traversal access.
+Under systemd this is
+.Ic RuntimeDirectoryMode=
+in the shipped
+.Pa racoon.service
+unit; starting
+.Xr racoon 8
+manually instead requires creating that directory by hand at the same
+group and mode first.
+.It
+the user is actually a member of that group.
+.El
+.Pp
+See the Admin Guide's Privilege Separation section for the full
+filesystem ownership policy this implies, and
+.Xr racoon.conf 5 Ap s
+.Sx Privilege separation
+section for the
+.Ic adminsock
+directive's full syntax.
 .Pp
 The following general options are available:
 .Bl -tag -width Ds
 .It Fl d
 Debug mode.
-Hexdump sent admin port commands.
+Hexdump admin port messages before sending them.
 .It Fl l
 Increase verbosity.
-Mainly for show-sa command.
+Mainly affects
+.Ic show-sa .
 .It Fl s Ar socket
-Specify unix socket name used to connecting racoon.
+Connect to
+.Ar socket
+instead of the compile-time default (see
+.Sx FILES
+below).
+Use this when the admin socket has been moved via
+.Ic adminsock
+in
+.Xr racoon.conf 5 ,
+or when driving more than one
+.Xr racoon 8
+instance from the same host.
 .El
 .\"
 .Pp
 The following commands are available:
 .Bl -tag -width Ds
-.It reload-config
-This should cause
+.It Ic reload-config
+Tell
 .Xr racoon 8
-to reload its configuration file.
-.It show-schedule
-Unknown command.
-.It show-sa Op isakmp|esp|ah|ipsec
-Dump the SA: All the SAs if no SA class is provided, or either ISAKMP SAs,
-IPsec ESP SAs, IPsec AH SAs, or all IPsec SAs.
+to reload
+.Xr racoon.conf 5 ,
+equivalent to sending it
+.Dv SIGHUP .
+Note that under privsep, changes to the
+.Ic listen
+and
+.Ic paths
+sections are not picked up by a reload; those require a full restart
+(see
+.Xr racoon.conf 5 Ap s
+.Sx Privilege separation
+section).
+.It Ic show-schedule
+Dump
+.Xr racoon 8 Ap s
+internal event scheduler queue: pending timer-driven work such as
+rekeys, retransmissions, and DPD probes.
+Primarily a debugging aid, not something a routine VPN operator needs.
+.It Ic show-sa Op Ar protocol
+Dump the current Security Associations: all of them if
+.Ar protocol
+is omitted, or only
+.Ic isakmp
+(Phase 1),
+.Ic esp ,
+.Ic ah ,
+or
+.Ic ipsec
+(both ESP and AH) if given.
 Use
 .Fl l
-to increase verbosity.
-.It get-sa-cert Oo inet|inet6 Oc Ar src dst
-Output the raw certificate that was used to authenticate the phase 1
-matching
+for more detail per SA.
+.It Ic get-cert Oo Ic inet | inet6 Oc Ar src dst
+Output the raw certificate that authenticated the Phase 1 SA between
 .Ar src
 and
 .Ar dst .
-.It flush-sa Op isakmp|esp|ah|ipsec
-is used to flush all SAs if no SA class is provided, or a class of SAs,
-either ISAKMP SAs, IPsec ESP SAs, IPsec AH SAs, or all IPsec SAs.
-.It establish-sa Oo Fl w Oc Oo Fl n Ar remoteconf Oc Oo Fl u Ar username \
-Oc Ar saopts
-Establish an SA, either an ISAKMP SA, IPsec ESP SA, or IPsec AH SA.
-The optional
-.Fl u Ar username
-can be used when establishing an ISAKMP SA while hybrid auth is in use.
-The exact remote block to use can be specified with
-.Fl n Ar remoteconf .
+.It Ic flush-sa Op Ar protocol
+Tear down all Security Associations, filtered the same way as
+.Ic show-sa .
+.It Ic delete-sa Ar saopts
+Delete one specific Security Association; see
+.Sx Parameter specifications
+below for
+.Ar saopts .
+.It Ic establish-sa Oo Fl w Oc Oo Fl n Ar remoteconf Oc \
+Oo Fl u Ar identity Oc Ar saopts
+Establish one specific Security Association.
+.Fl u Ar identity
+supplies the XAuth/Hybrid-auth identity when the matching
+.Ic remote
+block requires one \(em
 .Nm
-will prompt you for the password associated with
-.Ar username
-and these credentials will be used in the Xauth exchange.
-.Pp
-Specifying
+prompts for the associated password interactively.
+.Fl n Ar remoteconf
+picks a specific
+.Ic remote
+block by name when more than one could match.
 .Fl w
-will make racoonctl wait until the SA is actually established or
-an error occurs.
-.Pp
-.Ar saopts
-has the following format:
-.Bl -tag -width Bl
-.It isakmp {inet|inet6} Ar src Ar dst
-.It {esp|ah} {inet|inet6} Ar src/prefixlen/port Ar dst/prefixlen/port
-{icmp|tcp|udp|gre|any}
-.El
-.It vpn-connect Oo Fl u Ar username Oc Ar vpn_gateway
-This is a particular case of the previous command.
-It will establish an ISAKMP SA with
+blocks until the SA is actually established (or fails), instead of
+returning as soon as the request is sent.
+.It Ic vpn-connect Oo Fl u Ar identity Oc Ar vpn_gateway
+Shorthand for
+.Ic establish-sa
+that establishes an ISAKMP (Phase 1) SA with
 .Ar vpn_gateway .
-.It delete-sa Ar saopts
-Delete an SA, either an ISAKMP SA, IPsec ESP SA, or IPsec AH SA.
-.It vpn-disconnect Ar vpn_gateway
-This is a particular case of the previous command.
-It will kill all SAs associated with
+This is the command a roadwarrior client operator runs to connect.
+.It Ic vpn-disconnect Ar vpn_gateway
+Shorthand for
+.Ic delete-sa
+that tears down every SA associated with
 .Ar vpn_gateway .
-.It show-event
-Listen for all events reported by
-.Xr racoon 8 .
-.It logout-user Ar login
-Delete all SA established on behalf of the Xauth user
+This is the command a roadwarrior client operator runs to disconnect.
+.It Ic show-event
+Stream every event
+.Xr racoon 8
+reports (SA up/down, Phase 1/2 completion, errors) until interrupted.
+Useful for watching a connection attempt live.
+.It Ic logout-user Ar login
+Delete every SA established on behalf of the XAuth/Hybrid-auth user
 .Ar login .
+Only available when
+.Xr racoon 8
+was built with Hybrid auth support
+.Pq Fl -enable-hybrid .
 .El
 .Pp
 Command shortcuts are available:
 .Bl -tag -width XXX -compact -offset indent
-.It rc
-reload-config
-.It ss
-show-sa
-.It sc
-show-schedule
-.It fs
-flush-sa
-.It ds
-delete-sa
-.It es
-establish-sa
-.It vc
-vpn-connect
-.It vd
-vpn-disconnect
-.It se
-show-event
-.It lu
-logout-user
+.It Ic rc
+.Ic reload-config
+.It Ic sc
+.Ic show-schedule
+.It Ic ss
+.Ic show-sa
+.It Ic gc
+.Ic get-cert
+.It Ic fs
+.Ic flush-sa
+.It Ic ds
+.Ic delete-sa
+.It Ic es
+.Ic establish-sa
+.It Ic vc
+.Ic vpn-connect
+.It Ic vd
+.Ic vpn-disconnect
+.It Ic se
+.Ic show-event
+.It Ic lu
+.Ic logout-user
+.El
+.\"
+.Ss Parameter specifications
+.Bl -tag -width Ds -compact
+.It Ar protocol
+one of
+.Ic isakmp , esp , ah ,
+or (for
+.Ic show-sa
+and
+.Ic flush-sa
+only)
+.Ic ipsec .
+.It Ar saopts
+.Bl -tag -width Ds -compact
+.It Ic isakmp Ar family src dst
+.It Brq Ic esp | ah Ar family src/prefixlen/port dst/prefixlen/port ul_proto
+.El
+.It Ar family
+.Ic inet
+or
+.Ic inet6 .
+.It Ar ul_proto
+one of
+.Ic icmp , tcp , udp , gre ,
+or
+.Ic any .
 .El
 .\"
 .Sh RETURN VALUES
-The command should exit with 0 on success, and non-zero on errors.
+The command exits with 0 on success, and non-zero on errors.
 .\"
 .Sh FILES
-.Bl -tag -width 30n -compact
-.It Pa /var/racoon/racoon.sock No or
-.It Pa /var/run/racoon.sock
-.Xr racoon 8
-control socket.
+.Bl -tag -width Ds -compact
+.It Pa /var/run/racoon/racoon.sock
+default admin socket path on this project's own Debian and Arch
+packaging builds (compile-time
+.Va ADMINPORTDIR
+derived from
+.Fl -localstatedir ) .
+.It Pa /var/lib/racoon/racoon.sock
+default admin socket path on a vanilla upstream build with no
+.Fl -localstatedir
+override.
 .El
+.Pp
+Run
+.Nm
+.Fl s Ar /path/to/racoon.sock
+if your build uses neither.
 .\"
 .Sh SEE ALSO
 .Xr ipsec 4 ,
+.Xr racoon.conf 5 ,
 .Xr racoon 8
+.\"
 .Sh HISTORY
 Once was
 .Ic kmpstat
@@ -225,4 +337,4 @@ It turned into
 .Nm
 but remained undocumented for a while.
 .An Emmanuel Dreyfus Aq manu@NetBSD.org
-wrote this man page.
+wrote the original version of this man page.

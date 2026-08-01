@@ -12,7 +12,14 @@
 # recursion is additive.
 SUBDIRS = . scripts
 
-sbin_PROGRAMS = racoon racoonctl plainrsa-gen
+# racoonctl is a user-facing control tool, not a daemon -- it lives in
+# bindir (/usr/bin, next to systemctl), not sbindir, so that a non-root
+# operator in group "racoon" can invoke it without needing sbindir on
+# their PATH. racoon itself and plainrsa-gen (a one-shot keypair
+# generator, not something end users run day to day either, but
+# conventionally shipped alongside the daemon) stay in sbindir.
+sbin_PROGRAMS = racoon plainrsa-gen
+bin_PROGRAMS = racoonctl
 noinst_PROGRAMS = eaytest
 include_racoon_HEADERS = racoonctl.h var.h vmbuf.h misc.h gcmalloc.h admin.h \
 	schedule.h sockmisc.h isakmp_var.h isakmp.h isakmp_xauth.h \

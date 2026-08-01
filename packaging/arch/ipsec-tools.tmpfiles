@@ -1,4 +1,9 @@
-d /run/racoon 0750 root root -
+# Group "racoon", not "root": hook state/trace files and the split-DNS
+# dummy-interface lock are written here only by root-privileged script
+# hooks and need no group access, but the racoonctl(8) admin socket also
+# lives in this directory, and a non-root operator's racoonctl needs
+# group traversal to reach it (racoon-admin-guide.html Sec 8.5).
+d /run/racoon 0750 root racoon -
 
 # 'z' (not 'd'): adjust ownership/mode on these already-installed, persistent
 # config paths without the create-and-clean semantics 'd'/'D' apply to

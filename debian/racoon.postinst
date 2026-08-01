@@ -76,8 +76,11 @@ if grep -q '^CONFIG_MODE=' "$INITCONFFILE" 2>/dev/null; then
         sed -i '/^CONFIG_MODE=/d' "$INITCONFFILE"
 fi
 
-# Fix psk.txt permissions
-[ -f /etc/racoon/psk.txt ] && chmod 0600 /etc/racoon/psk.txt
+# Fix psk.txt ownership/permissions: racoon's safefile() (safefile.c)
+# actively refuses to load this file at all unless it is owned by the
+# loading (root) process's own UID with zero group/world permission
+# bits -- unlike certs/keys below, this is enforced, not just policy.
+[ -f /etc/racoon/psk.txt ] && chown root:root /etc/racoon/psk.txt && chmod 0600 /etc/racoon/psk.txt
 
 # Enforce privsep-safe ownership on /etc/racoon and its security-critical
 # subdirectories, now that the racoon system group exists (created above).

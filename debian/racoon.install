@@ -22,7 +22,7 @@ usr/lib/ipsec-tools/libracoon.so.0
 usr/lib/ipsec-tools/libracoon.so.0.0.0
 usr/sbin/plainrsa-gen
 usr/sbin/racoon
-usr/sbin/racoonctl
+usr/bin/racoonctl
 usr/share/man/man3/ipsec_set_policy.3
 usr/share/man/man3/ipsec_strerror.3
 usr/share/man/man5/racoon.conf.5

@@ -58,9 +58,16 @@ the unprivileged, peer-facing one), so they stay root:root 600:
 # chmod 600 *key.pem
 # chown root:root *key.pem
 
-This matters if you want to use privilege separation (the default) --
-loosening these modes does not break anything, but it does defeat the
-reason privilege separation exists in the first place.
+Get this wrong and the failure mode differs by file. For
+/etc/racoon/psk.txt specifically, racoon enforces it at load time
+(safefile(), src/racoon/safefile.c): the file must be owned by the
+loading process's own UID with no group or world permission bits set
+at all, or racoon logs "has weak file permission"/"has invalid owner
+uid" and refuses to load it -- there is no silent degraded mode for
+psk.txt. Certificate and private-key file permissions above are not
+independently checked by racoon the same way; loosening those does not
+make racoon refuse to start, it just quietly defeats the reason
+privilege separation exists in the first place.
 
 Once installed, configure the key and certificate with the
 certificate_type x509 statement in racoon.conf, or certificate_type
