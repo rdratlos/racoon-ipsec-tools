@@ -23,12 +23,12 @@ usr/lib/ipsec-tools/libracoon.so.0.0.0
 usr/sbin/plainrsa-gen
 usr/sbin/racoon
 usr/bin/racoonctl
+usr/share/man/man1/racoonctl.1
 usr/share/man/man3/ipsec_set_policy.3
 usr/share/man/man3/ipsec_strerror.3
 usr/share/man/man5/racoon.conf.5
 usr/share/man/man8/plainrsa-gen.8
 usr/share/man/man8/racoon.8
 usr/share/man/man8/racoon-dns-detect.8
-usr/share/man/man8/racoonctl.8
 misc/kate/racoon.xml usr/share/org.kde.syntax-highlighting/syntax/
 usr/lib/systemd/system/racoon.service

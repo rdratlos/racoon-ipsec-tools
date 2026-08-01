@@ -86,7 +86,7 @@
 # ---------------------------------------------------------------------------
 # Reference
 # ---------------------------------------------------------------------------
-#   racoon.conf(5), racoon(8), racoon-dns-detect(8), racoonctl(8), setkey(8)
+#   racoon.conf(5), racoon(8), racoon-dns-detect(8), racoonctl(1), setkey(8)
 #   racoon-admin-guide.html - full administrator's guide (building,
 #     authentication methods, LDAP, Apple client interop, security
 #     recommendations, troubleshooting) -- see docs/admin-guide/ in the

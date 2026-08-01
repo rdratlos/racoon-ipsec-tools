@@ -109,11 +109,12 @@ noinst_HEADERS = \
 	missing/crypto/rijndael/rijndael.h \
 	missing/strlcpy.h missing/strlcat.h
 
+man1_MANS = racoonctl.1
 man5_MANS = racoon.conf.5
-man8_MANS = racoon.8 racoonctl.8 plainrsa-gen.8
+man8_MANS = racoon.8 plainrsa-gen.8
 
 EXTRA_DIST = \
-   ${man5_MANS} ${man8_MANS} \
+   ${man1_MANS} ${man5_MANS} ${man8_MANS} \
    missing/crypto/rijndael/boxes-fst.dat \
    doc/FAQ doc/README.certificate doc/README.gssapi doc/README.plainrsa \
    doc/README.privsep \
