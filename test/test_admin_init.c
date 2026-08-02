@@ -27,12 +27,25 @@
  * monitor_fd() stub) plus plog.o/logger.o/vmbuf.o/misc_noplog.o, same
  * linkage as test_monitor_fd_range.c and friends.
  *
- * The mkdir_p()+chown()+chmod() directory-creation branch (fix #1's
- * sibling, covered standalone in test_admin_mkdir_p.c) additionally
- * needs real privilege to reach its own success path here, since
- * admin_init() hardcodes chown(dir, 0, adminsock_group) -- change to
- * uid 0 requires CAP_CHOWN. test_directory_creation_and_ownership()
- * below runs that scenario only under geteuid() == 0 and reports (not
+ * The mkdir_p()+chown()+chmod() directory-creation block (fix #1's
+ * sibling, covered standalone in test_admin_mkdir_p.c) runs whenever
+ * adminsock_path has *any* directory component -- unconditionally, not
+ * only when the directory needs creating (admin.c's own comment: "has to
+ * be reasserted here even when the directory pre-exists with the wrong
+ * group"). It hardcodes chown(dir, 0, adminsock_group), which needs
+ * CAP_CHOWN. So every scenario below that is not specifically testing
+ * that block itself uses a bare "racoon.sock" (no '/') with the process
+ * chdir()'d into a throwaway temp directory first: strrchr(dir, '/')
+ * then finds nothing, and admin_init() skips the whole block, isolating
+ * the lstat()/S_ISSOCK gate and monitor_fd() handling this file actually
+ * wants to test from the directory-ownership fix (bug reported on Arch
+ * Linux running unprivileged: test_rebinds_over_preexisting_socket's
+ * strict rc==0 check surfaced the chown() EPERM as a spurious refusal to
+ * rebind; the other two scenarios happened to still pass, but only
+ * because their assertions didn't distinguish "refused for the right
+ * reason" from "never got past chown()").
+ * test_directory_creation_and_ownership() itself, which specifically
+ * wants that block, runs it only under geteuid() == 0 and reports (not
  * fails) when skipped, matching this suite's existing root-dependent
  * tests (test/README.md, CONTRIBUTING.md's "Running the Test Suite").
  */
@@ -81,6 +94,78 @@ close_admin_sock(void)
 	}
 }
 
+/*
+ * chdir()s into a fresh temp directory and returns the previous cwd (for
+ * chdir_back()) plus the temp dir's name in *dir_out, so callers can use
+ * a bare "racoon.sock" as adminsock_path -- see this file's header
+ * comment for why that matters. Returns NULL on failure.
+ */
+static char *
+chdir_into_fresh_tmpdir(char *dir_out, size_t dir_out_len)
+{
+	static char base[] = "/tmp/admin_init_test.XXXXXX";
+	static char orig_cwd[4096];
+	char tmpl[sizeof(base)];
+
+	memcpy(tmpl, base, sizeof(base));
+	if (mkdtemp(tmpl) == NULL)
+		return NULL;
+	if (getcwd(orig_cwd, sizeof(orig_cwd)) == NULL) {
+		rmdir(tmpl);
+		return NULL;
+	}
+	if (chdir(tmpl) != 0) {
+		rmdir(tmpl);
+		return NULL;
+	}
+	snprintf(dir_out, dir_out_len, "%s", tmpl);
+	return orig_cwd;
+}
+
+static void
+chdir_back_and_remove(const char *orig_cwd, const char *dir)
+{
+	if (chdir(orig_cwd) != 0) {
+		/* Nothing meaningful to do about this in a cleanup helper;
+		 * leave a trace so a stuck cwd doesn't fail silently. */
+		fprintf(stderr, "warning: chdir(\"%s\") failed: %s\n",
+		    orig_cwd, strerror(errno));
+	}
+	rmdir(dir);
+}
+
+/*
+ * admin_init()'s post-bind() chown(sunaddr.sun_path, adminsock_owner,
+ * adminsock_group) is a *second*, separate privilege-gated call from the
+ * directory-creation block's chown(dir, 0, adminsock_group) above --
+ * unlike that one, it is parameterized by adminsock_owner/adminsock_group
+ * rather than a hardcoded 0, so pointing both at this process's own
+ * uid/gid makes it a same-owner no-op chown(), which Linux (and the BSDs)
+ * permit without CAP_CHOWN. Any scenario that expects admin_init() to
+ * reach a successful bind() needs this, or the chown() call fails with
+ * EPERM under an unprivileged run regardless of the S_ISSOCK/monitor_fd()
+ * logic actually under test -- reported on Arch Linux running
+ * unprivileged.
+ */
+static uid_t saved_adminsock_owner;
+static gid_t saved_adminsock_group;
+
+static void
+use_own_uid_gid_for_admin_sock(void)
+{
+	saved_adminsock_owner = adminsock_owner;
+	saved_adminsock_group = adminsock_group;
+	adminsock_owner = geteuid();
+	adminsock_group = getegid();
+}
+
+static void
+restore_admin_sock_owner(void)
+{
+	adminsock_owner = saved_adminsock_owner;
+	adminsock_group = saved_adminsock_group;
+}
+
 static int
 test_rejects_bad_sockpath_before_touching_filesystem(void)
 {
@@ -121,50 +206,51 @@ test_rejects_bad_sockpath_before_touching_filesystem(void)
 static int
 test_refuses_preexisting_non_socket(void)
 {
-	char base[] = "/tmp/admin_init_test.XXXXXX";
-	char path[512];
+	char dir[512];
+	char *orig_cwd;
+	const char *path = "racoon.sock";
 	FILE *f;
 	struct stat before, after;
 	int rc;
 
 	TEST_START("admin_init() refuses to replace a pre-existing non-socket file");
 
-	if (mkdtemp(base) == NULL)
-		TEST_FAIL("mkdtemp() failed");
+	orig_cwd = chdir_into_fresh_tmpdir(dir, sizeof(dir));
+	if (orig_cwd == NULL)
+		TEST_FAIL("failed to set up a throwaway cwd");
 	reset_stub_state();
 
-	snprintf(path, sizeof(path), "%s/racoon.sock", base);
 	f = fopen(path, "w");
 	if (f == NULL) {
-		rmdir(base);
+		chdir_back_and_remove(orig_cwd, dir);
 		TEST_FAIL("failed to pre-create a plain file");
 	}
 	fputs("not a socket", f);
 	fclose(f);
 	stat(path, &before);
 
-	adminsock_path = path;
+	adminsock_path = (char *)path;
 	lcconf->sock_admin = -1;
 	rc = admin_init();
 
 	if (rc == 0) {
 		close_admin_sock();
 		unlink(path);
-		rmdir(base);
+		chdir_back_and_remove(orig_cwd, dir);
 		TEST_FAIL("admin_init() bound over a pre-existing regular file");
 	}
 	if (stat(path, &after) != 0) {
-		rmdir(base);
+		chdir_back_and_remove(orig_cwd, dir);
 		TEST_FAIL("pre-existing file was removed despite admin_init() refusing it");
 	}
 	if (!S_ISREG(after.st_mode) || after.st_ino != before.st_ino) {
 		unlink(path);
-		rmdir(base);
+		chdir_back_and_remove(orig_cwd, dir);
 		TEST_FAIL("pre-existing file was replaced instead of left alone");
 	}
 
 	unlink(path);
-	rmdir(base);
+	chdir_back_and_remove(orig_cwd, dir);
 	TEST_PASS();
 	return 0;
 }
@@ -172,59 +258,56 @@ test_refuses_preexisting_non_socket(void)
 static int
 test_rebinds_over_preexisting_socket(void)
 {
-	char base[] = "/tmp/admin_init_test.XXXXXX";
-	char path[512];
+	char dir[512];
+	char *orig_cwd;
+	const char *path = "racoon.sock";
 	int dummy;
 	struct sockaddr_un sun;
 	int rc;
 
 	TEST_START("admin_init() unlinks and rebinds a pre-existing socket");
 
-	if (mkdtemp(base) == NULL)
-		TEST_FAIL("mkdtemp() failed");
+	orig_cwd = chdir_into_fresh_tmpdir(dir, sizeof(dir));
+	if (orig_cwd == NULL)
+		TEST_FAIL("failed to set up a throwaway cwd");
 	reset_stub_state();
-
-	snprintf(path, sizeof(path), "%s/racoon.sock", base);
 
 	dummy = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (dummy < 0) {
-		rmdir(base);
+		chdir_back_and_remove(orig_cwd, dir);
 		TEST_FAIL("socket() failed while priming a stale socket file");
 	}
 	memset(&sun, 0, sizeof(sun));
 	sun.sun_family = AF_UNIX;
-	if (strlen(path) >= sizeof(sun.sun_path)) {
-		close(dummy);
-		rmdir(base);
-		TEST_FAIL("test path too long for sun_path");
-	}
 	memcpy(sun.sun_path, path, strlen(path));
 	if (bind(dummy, (struct sockaddr *)&sun, sizeof(sun)) != 0) {
 		close(dummy);
-		rmdir(base);
+		chdir_back_and_remove(orig_cwd, dir);
 		TEST_FAIL("bind() failed while priming a stale socket file");
 	}
 	close(dummy);
 
-	adminsock_path = path;
+	adminsock_path = (char *)path;
 	lcconf->sock_admin = -1;
+	use_own_uid_gid_for_admin_sock();
 	rc = admin_init();
+	restore_admin_sock_owner();
 
 	if (rc != 0) {
 		unlink(path);
-		rmdir(base);
+		chdir_back_and_remove(orig_cwd, dir);
 		TEST_FAIL("admin_init() refused to rebind over a genuine stale socket");
 	}
 	if (admin_test_monitor_fd_calls != 1) {
 		close_admin_sock();
 		unlink(path);
-		rmdir(base);
+		chdir_back_and_remove(orig_cwd, dir);
 		TEST_FAIL("admin_init() did not reach monitor_fd() on the success path");
 	}
 
 	close_admin_sock();
 	unlink(path);
-	rmdir(base);
+	chdir_back_and_remove(orig_cwd, dir);
 	TEST_PASS();
 	return 0;
 }
@@ -232,38 +315,46 @@ test_rebinds_over_preexisting_socket(void)
 static int
 test_monitor_fd_failure_cleans_up(void)
 {
-	char base[] = "/tmp/admin_init_test.XXXXXX";
-	char path[512];
+	char dir[512];
+	char *orig_cwd;
+	const char *path = "racoon.sock";
 	int rc;
 
 	TEST_START("admin_init() closes the socket and resets state when monitor_fd() fails");
 
-	if (mkdtemp(base) == NULL)
-		TEST_FAIL("mkdtemp() failed");
+	orig_cwd = chdir_into_fresh_tmpdir(dir, sizeof(dir));
+	if (orig_cwd == NULL)
+		TEST_FAIL("failed to set up a throwaway cwd");
 	reset_stub_state();
 	admin_test_monitor_fd_ret = -1;
 
-	snprintf(path, sizeof(path), "%s/racoon.sock", base);
-	adminsock_path = path;
+	adminsock_path = (char *)path;
 	lcconf->sock_admin = -1;
 
+	use_own_uid_gid_for_admin_sock();
 	rc = admin_init();
+	restore_admin_sock_owner();
 
 	if (rc == 0) {
 		close_admin_sock();
 		unlink(path);
-		rmdir(base);
+		chdir_back_and_remove(orig_cwd, dir);
 		TEST_FAIL("admin_init() reported success despite monitor_fd() failing");
 	}
 	if (lcconf->sock_admin != -1) {
 		close_admin_sock();
 		unlink(path);
-		rmdir(base);
+		chdir_back_and_remove(orig_cwd, dir);
 		TEST_FAIL("lcconf->sock_admin was not reset to -1 after monitor_fd() failure");
+	}
+	if (admin_test_monitor_fd_calls != 1) {
+		unlink(path);
+		chdir_back_and_remove(orig_cwd, dir);
+		TEST_FAIL("admin_init() did not actually reach monitor_fd()");
 	}
 
 	unlink(path);
-	rmdir(base);
+	chdir_back_and_remove(orig_cwd, dir);
 	reset_stub_state();
 	TEST_PASS();
 	return 0;
