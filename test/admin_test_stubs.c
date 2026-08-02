@@ -211,13 +211,33 @@ pfkey_flush_sadb(u_int proto)
 	admin_test_pfkey_flush_sadb_calls++;
 }
 
+/*
+ * enumph1() -- real enumph1() walks ph1tree and invokes enum_func() for
+ * every matching struct ph1handle. A naive no-op stub here would leave
+ * ADMIN_DELETE_SA's own callback, admin_ph1_delete_sa() (static, admin.c),
+ * referenced (its address is taken and passed in) but never actually
+ * *entered* -- gcov marks the call site's own line as executed regardless
+ * (evaluating the function-pointer expression is enough for that), but
+ * admin_ph1_delete_sa()'s body only runs if something calls through that
+ * pointer, which nothing did. admin_test_enumph1_queue[] lets a test load
+ * the struct ph1handle * values it wants the callback invoked with, one
+ * per call, mirroring getph1_queue above; enum_arg is threaded through
+ * unmodified, matching the real function's contract.
+ */
+#define ADMIN_TEST_ENUMPH1_QUEUE_MAX 8
+struct ph1handle *admin_test_enumph1_queue[ADMIN_TEST_ENUMPH1_QUEUE_MAX];
+int admin_test_enumph1_queue_len = 0;
 int admin_test_enumph1_calls = 0;
 
 int
 enumph1(struct ph1selector *ph1sel,
     int (*enum_func)(struct ph1handle *iph1, void *arg), void *enum_arg)
 {
+	int i;
+
 	admin_test_enumph1_calls++;
+	for (i = 0; i < admin_test_enumph1_queue_len; i++)
+		enum_func(admin_test_enumph1_queue[i], enum_arg);
 	return 0;
 }
 

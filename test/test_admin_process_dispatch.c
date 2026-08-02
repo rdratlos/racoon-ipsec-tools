@@ -70,8 +70,12 @@ extern int admin_test_dumpph1_calls;
 extern int admin_test_pfkey_dump_sadb_calls;
 extern int admin_test_flushph1_calls;
 extern int admin_test_pfkey_flush_sadb_calls;
+extern struct ph1handle *admin_test_enumph1_queue[];
+extern int admin_test_enumph1_queue_len;
 extern int admin_test_enumph1_calls;
 extern int admin_test_remcontacted_calls;
+extern int admin_test_isakmp_info_send_d1_calls;
+extern int admin_test_purge_remote_calls;
 #ifdef ENABLE_HYBRID
 extern int admin_test_purgeph1bylogin_calls;
 #endif
@@ -107,6 +111,9 @@ reset_all_stub_state(void)
 #endif
 	admin_test_getrmconf_calls = 0;
 	admin_test_getsp_r_calls = 0;
+	admin_test_enumph1_queue_len = 0;
+	admin_test_isakmp_info_send_d1_calls = 0;
+	admin_test_purge_remote_calls = 0;
 }
 
 /* Sends combuf's ac_len bytes over a fresh socketpair(), drives
@@ -392,14 +399,38 @@ test_flush_sa_internal_unsupported(void)
 	return 0;
 }
 
+/*
+ * admin_ph1_delete_sa() (static, admin.c) is ADMIN_DELETE_SA's own
+ * enumph1() callback: enumph1(&sel, admin_ph1_delete_sa, NULL) only
+ * takes its address and hands it to enumph1() -- gcov marks that line
+ * executed regardless (evaluating the function-pointer expression is
+ * enough), but the callback's own body only runs if enumph1() actually
+ * calls through the pointer. admin_test_enumph1_queue[] (loaded below)
+ * makes the enumph1() stub do exactly that, so this test also verifies
+ * admin_ph1_delete_sa()'s own logic: isakmp_info_send_d1() only for an
+ * ESTABLISHED handle, purge_remote() for every one regardless of status
+ * -- the same status-gating ADMIN_DELETE_ALL_SA_DST's inline version of
+ * this logic already has its own coverage for
+ * (test_admin_delete_all_sa_dst.c).
+ */
 static int
 test_delete_sa(void)
 {
 	struct req_with_ndx req;
+	struct ph1handle established, not_established;
 
-	TEST_START("ADMIN_DELETE_SA calls enumph1() and remcontacted()");
+	TEST_START("ADMIN_DELETE_SA calls enumph1() and remcontacted(), "
+	    "and its callback gates isakmp_info_send_d1() on status");
 
 	reset_all_stub_state();
+	memset(&established, 0, sizeof(established));
+	established.status = PHASE1ST_ESTABLISHED;
+	memset(&not_established, 0, sizeof(not_established));
+	not_established.status = 0;
+	admin_test_enumph1_queue[0] = &established;
+	admin_test_enumph1_queue[1] = &not_established;
+	admin_test_enumph1_queue_len = 2;
+
 	memset(&req, 0, sizeof(req));
 	req.com.ac_len = sizeof(req);
 	req.com.ac_cmd = ADMIN_DELETE_SA;
@@ -410,6 +441,11 @@ test_delete_sa(void)
 		TEST_FAIL("enumph1() was not called exactly once");
 	if (admin_test_remcontacted_calls != 1)
 		TEST_FAIL("remcontacted() was not called exactly once");
+	if (admin_test_isakmp_info_send_d1_calls != 1)
+		TEST_FAIL("admin_ph1_delete_sa() should only call isakmp_info_send_d1() "
+		    "for the ESTABLISHED handle");
+	if (admin_test_purge_remote_calls != 2)
+		TEST_FAIL("admin_ph1_delete_sa() should call purge_remote() for every handle");
 
 	TEST_PASS();
 	return 0;
