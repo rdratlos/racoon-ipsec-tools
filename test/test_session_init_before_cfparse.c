@@ -55,6 +55,12 @@ extern int session_init_test_isakmp_init_calls;
 extern int session_init_test_isakmp_cfg_init_calls;
 extern int session_init_test_myaddr_init_lists_calls;
 extern int session_init_test_save_params_calls;
+#ifdef HAVE_LIBLDAP
+extern int session_init_test_xauth_ldap_init_conf_calls;
+#endif
+#ifdef HAVE_LIBRADIUS
+extern int session_init_test_xauth_radius_init_conf_calls;
+#endif
 
 #define TEST_PASS() do { printf("\xe2\x9c\x93 PASS\n"); } while (0)
 #define TEST_FAIL(msg) do { printf("\xe2\x9c\x97 FAIL: %s\n", msg); return -1; } while (0)
@@ -85,6 +91,14 @@ test_calls_every_subsystem_init_once(void)
 		TEST_FAIL("myaddr_init_lists() was not called exactly once");
 	if (session_init_test_save_params_calls != 1)
 		TEST_FAIL("save_params() was not called exactly once");
+#ifdef HAVE_LIBLDAP
+	if (session_init_test_xauth_ldap_init_conf_calls != 1)
+		TEST_FAIL("xauth_ldap_init_conf() was not called exactly once");
+#endif
+#ifdef HAVE_LIBRADIUS
+	if (session_init_test_xauth_radius_init_conf_calls != 1)
+		TEST_FAIL("xauth_radius_init_conf() was not called exactly once");
+#endif
 
 	TEST_PASS();
 	return 0;
