@@ -133,6 +133,22 @@ mkdir_p(path, mode)
 	return 0;
 }
 
+#ifdef ENABLE_UNITTEST
+/*
+ * mkdir_p() is static, and admin_init() (its only production caller)
+ * needs a real, unwritable-by-the-test filesystem layout to reach the
+ * directory-creation branch at all. This thin wrapper lets a unit test
+ * drive mkdir_p() itself directly against a throwaway temp directory.
+ */
+int
+mkdir_p_unittest(path, mode)
+	const char *path;
+	mode_t mode;
+{
+	return mkdir_p(path, mode);
+}
+#endif /* ENABLE_UNITTEST */
+
 /*
  * racoon.conf lets an admin point the admin socket at an arbitrary
  * path via "listen { adminsock <path> ... ; }". Since admin_init()
@@ -248,6 +264,26 @@ end:
 
 	return error;
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * admin_handler() is static, and every one of its branches (accept()
+ * failure, the recv(MSG_PEEK) header sanity check, the real read, and
+ * the close()-unless-(-2) tail) depends on lcconf->sock_admin already
+ * being a real, connected admin socket -- there is no other production
+ * caller to piggyback on. This thin wrapper lets a test point
+ * lcconf->sock_admin at a real listening AF_UNIX socket with a pending
+ * connection and drive the whole function directly; ctx/fd are accepted
+ * (matching the monitor_fd() callback signature admin_init() registers
+ * this as) but unused by admin_handler() itself, so the wrapper takes
+ * neither.
+ */
+int
+admin_handler_unittest(void)
+{
+	return admin_handler(NULL, -1);
+}
+#endif /* ENABLE_UNITTEST */
 
 static int admin_ph1_delete_sa(struct ph1handle *iph1, void *arg)
 {
@@ -616,6 +652,8 @@ admin_process(so2, combuf)
 
 				rmconf->xauth->login = id;
 				rmconf->xauth->pass = key;
+				id = NULL;
+				key = NULL;
 			}
 #endif
 
@@ -772,9 +810,44 @@ admin_process(so2, combuf)
 out:
 	if (buf != NULL)
 		vfree(buf);
+	/*
+	 * ADMIN_ESTABLISH_SA_PSK's id/key (XAUTH login/password supplied
+	 * for this connection attempt, despite the command's name -- see
+	 * the ADMIN_PROTO_ISAKMP case above) are freed here rather than at
+	 * each of their several early-exit points (an existing ph1, no
+	 * matching rmconf, xauth_rmconf_used() failing, a non-ISAKMP proto
+	 * after PSK's FALLTHROUGH, an unrecognized command/proto, or simply
+	 * ENABLE_HYBRID not being compiled in) -- every one of those used to
+	 * leak both allocations. The one path that *doesn't* want them freed
+	 * here already transfers ownership to rmconf->xauth->login/pass and
+	 * NULLs both locals immediately after, so vfree()'s existing
+	 * NULL-tolerance is what makes a single unconditional cleanup point
+	 * safe for every other path.
+	 */
+	vfree(id);
+	vfree(key);
 
 	return error;
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * admin_process() is static, and its ADMIN_DELETE_ALL_SA_DST case (the
+ * reply-before-subscribe/no-dangling-fd fix documented above) is otherwise
+ * reachable only through admin_handler()'s full accept()/recv() path, which
+ * a unit test has no need to reconstruct. This thin wrapper lets a test
+ * hand it a pre-built command buffer directly and drive the real dispatch
+ * logic (including the real admin_reply() call it makes internally) over
+ * a plain socketpair standing in for the admin socket connection.
+ */
+int
+admin_process_unittest(so2, combuf)
+	int so2;
+	char *combuf;
+{
+	return admin_process(so2, combuf);
+}
+#endif /* ENABLE_UNITTEST */
 
 static int
 admin_reply(so, req, l_ac_errno, buf)
