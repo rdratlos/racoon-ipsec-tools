@@ -1548,6 +1548,158 @@ test_privsep_init_fork_failure_LDFLAGS += -Wl,--wrap=_exit
 endif
 endif
 
+# Tests: admin.c hardening (v0.9.1) -- admin.c is daemon-only
+# (racoon_SOURCES, src/racoon/Makefile.am) and previously had zero unit
+# test coverage: nothing ever linked admin.o into a test binary, so no
+# .gcda for it was ever produced. admin_unittest_src.c pulls it in the
+# same way as isakmp_unittest_src.c/session_unittest_src.c above.
+#
+# test_admin_check_sockpath and test_admin_mkdir_p exercise the two
+# brand-new, fully self-contained functions in this hunk (pure string
+# validation / mkdir -p): -ffunction-sections/--gc-sections keeps their
+# link surface to libc alone, the same technique as test_ipsec_doi_sa.
+# mkdir_p() is static, exposed via mkdir_p_unittest() (admin.c,
+# ENABLE_UNITTEST).
+if !SANITIZER_BUILD
+check_PROGRAMS += test_admin_check_sockpath
+
+test_admin_check_sockpath_SOURCES  = test_admin_check_sockpath.c \
+	admin_unittest_src.c
+test_admin_check_sockpath_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_admin_check_sockpath_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_admin_check_sockpath_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_admin_check_sockpath_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+
+check_PROGRAMS += test_admin_mkdir_p
+
+test_admin_mkdir_p_SOURCES  = test_admin_mkdir_p.c \
+	admin_unittest_src.c
+test_admin_mkdir_p_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_admin_mkdir_p_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_admin_mkdir_p_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_admin_mkdir_p_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
+# test_admin_init drives admin_init() itself (already exported) end to
+# end: path rejection, the lstat()/S_ISSOCK pre-existing-path gate, and
+# monitor_fd() failure cleanup. admin_test_stubs.c supplies a real
+# `lcconf` (admin.c dereferences lcconf->sock_admin unconditionally,
+# unlike rsalist_test_stubs.c's NULL stand-in) and a controllable
+# monitor_fd()/unmonitor_fd() pair so the failure path can be forced
+# without session.c's fd_monitor_tree[] machinery.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above (relies on --gc-sections dead-code
+# elimination that ASan defeats).
+if !SANITIZER_BUILD
+check_PROGRAMS += test_admin_init
+
+test_admin_init_SOURCES  = test_admin_init.c \
+	admin_unittest_src.c \
+	admin_test_stubs.c
+test_admin_init_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_admin_init_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_admin_init_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_admin_init_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
+# test_admin_delete_all_sa_dst is the priority regression test for this
+# hunk: the ADMIN_DELETE_ALL_SA_DST reply-before-subscribe/no-dangling-fd
+# fix (admin_process()'s own header comment on that case has the full
+# incident writeup). admin_process() is static, exposed via
+# admin_process_unittest() (admin.c, ENABLE_UNITTEST).
+#
+# admin_process() is one function containing every ADMIN_* case, so
+# -ffunction-sections/--gc-sections cannot discard the cases this test
+# never drives -- admin_test_stubs.c supplies link-time stand-ins for all
+# of them (getph1(), evt_subscribe(), isakmp_info_send_d1(),
+# purge_remote(), and everything else admin_process() references), so the
+# whole function can link without pulling in the rest of racoon's
+# ISAKMP/PF_KEY/policy state machinery. admin_reply() itself is NOT
+# stubbed -- it runs for real over a real socketpair(), so the test
+# observes the actual reply bytes and the actual send()-failure path.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_admin_delete_all_sa_dst
+
+test_admin_delete_all_sa_dst_SOURCES  = test_admin_delete_all_sa_dst.c \
+	admin_unittest_src.c \
+	admin_test_stubs.c
+test_admin_delete_all_sa_dst_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_admin_delete_all_sa_dst_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_admin_delete_all_sa_dst_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_admin_delete_all_sa_dst_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
+# Test: session_init_before_cfparse() (session.c, v0.9.1) -- session()'s
+# pre-cfparse() setup (fd-monitoring reset, scheduler, signal handling,
+# pfkey/isakmp/mode-cfg init, address-list init, save_params()) was pulled
+# out of session() itself so "racoon -t" can run the exact same sequence.
+# Pure code motion, so the regression risk is a future edit dropping or
+# reordering one of these calls without either "racoon -t" or the real
+# daemon startup visibly breaking right away.
+#
+# session.c is pulled in via session_unittest_src.c, the same wrapper
+# source test_monitor_fd_range.c/test_prune_stale_monitored_fds.c use;
+# session_init_test_stubs.c stubs the heavyweight subsystem entry points
+# this test has no interest in exercising for real (pfkey_init()/
+# isakmp_init() in particular open real PF_KEY/UDP sockets and call
+# errx(1, ...) on failure). sched_init() (schedule.c) is linked for real
+# -- trivially self-contained (a single TAILQ_INIT()) -- alongside the
+# usual plog.o/logger.o/vmbuf.o/misc_noplog.o linkage.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_session_init_before_cfparse
+
+test_session_init_before_cfparse_SOURCES  = test_session_init_before_cfparse.c \
+	session_unittest_src.c \
+	session_init_test_stubs.c
+test_session_init_before_cfparse_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_session_init_before_cfparse_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_session_init_before_cfparse_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o \
+	$(top_builddir)/src/racoon/schedule.o
+test_session_init_before_cfparse_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
 # They follow automake's default "simple" test protocol (exit 0 = pass,

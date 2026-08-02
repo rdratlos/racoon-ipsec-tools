@@ -133,6 +133,22 @@ mkdir_p(path, mode)
 	return 0;
 }
 
+#ifdef ENABLE_UNITTEST
+/*
+ * mkdir_p() is static, and admin_init() (its only production caller)
+ * needs a real, unwritable-by-the-test filesystem layout to reach the
+ * directory-creation branch at all. This thin wrapper lets a unit test
+ * drive mkdir_p() itself directly against a throwaway temp directory.
+ */
+int
+mkdir_p_unittest(path, mode)
+	const char *path;
+	mode_t mode;
+{
+	return mkdir_p(path, mode);
+}
+#endif /* ENABLE_UNITTEST */
+
 /*
  * racoon.conf lets an admin point the admin socket at an arbitrary
  * path via "listen { adminsock <path> ... ; }". Since admin_init()
@@ -775,6 +791,25 @@ out:
 
 	return error;
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * admin_process() is static, and its ADMIN_DELETE_ALL_SA_DST case (the
+ * reply-before-subscribe/no-dangling-fd fix documented above) is otherwise
+ * reachable only through admin_handler()'s full accept()/recv() path, which
+ * a unit test has no need to reconstruct. This thin wrapper lets a test
+ * hand it a pre-built command buffer directly and drive the real dispatch
+ * logic (including the real admin_reply() call it makes internally) over
+ * a plain socketpair standing in for the admin socket connection.
+ */
+int
+admin_process_unittest(so2, combuf)
+	int so2;
+	char *combuf;
+{
+	return admin_process(so2, combuf);
+}
+#endif /* ENABLE_UNITTEST */
 
 static int
 admin_reply(so, req, l_ac_errno, buf)
