@@ -69,9 +69,12 @@ monitor_fd(int fd, int (*callback)(void *, int), void *ctx, int priority)
 	return admin_test_monitor_fd_ret;
 }
 
+int admin_test_unmonitor_fd_calls = 0;
+
 void
 unmonitor_fd(int fd)
 {
+	admin_test_unmonitor_fd_calls++;
 }
 
 /*
@@ -148,61 +151,91 @@ saddrwop2str(const struct sockaddr *saddr)
 	return "0.0.0.0";
 }
 
+int admin_test_signal_handler_calls = 0;
+
 void
 signal_handler(int sig)
 {
+	admin_test_signal_handler_calls++;
 }
+
+int admin_test_sched_dump_calls = 0;
 
 int
 sched_dump(caddr_t *p, int *len)
 {
+	admin_test_sched_dump_calls++;
 	return -1;
 }
+
+int admin_test_evt_dump_calls = 0;
 
 vchar_t *
 evt_dump(void)
 {
+	admin_test_evt_dump_calls++;
 	return NULL;
 }
+
+int admin_test_dumpph1_calls = 0;
 
 vchar_t *
 dumpph1(void)
 {
+	admin_test_dumpph1_calls++;
 	return NULL;
 }
+
+int admin_test_pfkey_dump_sadb_calls = 0;
 
 vchar_t *
 pfkey_dump_sadb(int satype)
 {
+	admin_test_pfkey_dump_sadb_calls++;
 	return NULL;
 }
+
+int admin_test_flushph1_calls = 0;
 
 void
 flushph1(void)
 {
+	admin_test_flushph1_calls++;
 }
+
+int admin_test_pfkey_flush_sadb_calls = 0;
 
 void
 pfkey_flush_sadb(u_int proto)
 {
+	admin_test_pfkey_flush_sadb_calls++;
 }
+
+int admin_test_enumph1_calls = 0;
 
 int
 enumph1(struct ph1selector *ph1sel,
     int (*enum_func)(struct ph1handle *iph1, void *arg), void *enum_arg)
 {
+	admin_test_enumph1_calls++;
 	return 0;
 }
+
+int admin_test_remcontacted_calls = 0;
 
 void
 remcontacted(struct sockaddr *remote)
 {
+	admin_test_remcontacted_calls++;
 }
 
 #ifdef ENABLE_HYBRID
+int admin_test_purgeph1bylogin_calls = 0;
+
 int
 purgeph1bylogin(char *login)
 {
+	admin_test_purgeph1bylogin_calls++;
 	return 0;
 }
 
@@ -213,9 +246,12 @@ xauth_rmconf_used(struct xauth_rmconf **xauth)
 }
 #endif
 
+int admin_test_getrmconf_calls = 0;
+
 struct remoteconf *
 getrmconf(struct sockaddr *remote, int flags)
 {
+	admin_test_getrmconf_calls++;
 	return NULL;
 }
 
@@ -232,9 +268,12 @@ isakmp_ph1begin_i(struct remoteconf *rmconf, struct sockaddr *remote,
 	return NULL;
 }
 
+int admin_test_getsp_r_calls = 0;
+
 struct secpolicy *
 getsp_r(struct policyindex *spidx)
 {
+	admin_test_getsp_r_calls++;
 	return NULL;
 }
 

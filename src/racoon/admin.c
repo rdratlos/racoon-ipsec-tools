@@ -265,6 +265,26 @@ end:
 	return error;
 }
 
+#ifdef ENABLE_UNITTEST
+/*
+ * admin_handler() is static, and every one of its branches (accept()
+ * failure, the recv(MSG_PEEK) header sanity check, the real read, and
+ * the close()-unless-(-2) tail) depends on lcconf->sock_admin already
+ * being a real, connected admin socket -- there is no other production
+ * caller to piggyback on. This thin wrapper lets a test point
+ * lcconf->sock_admin at a real listening AF_UNIX socket with a pending
+ * connection and drive the whole function directly; ctx/fd are accepted
+ * (matching the monitor_fd() callback signature admin_init() registers
+ * this as) but unused by admin_handler() itself, so the wrapper takes
+ * neither.
+ */
+int
+admin_handler_unittest(void)
+{
+	return admin_handler(NULL, -1);
+}
+#endif /* ENABLE_UNITTEST */
+
 static int admin_ph1_delete_sa(struct ph1handle *iph1, void *arg)
 {
 	if (iph1->status >= PHASE1ST_ESTABLISHED)
