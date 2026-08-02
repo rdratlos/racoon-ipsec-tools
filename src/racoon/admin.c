@@ -652,6 +652,8 @@ admin_process(so2, combuf)
 
 				rmconf->xauth->login = id;
 				rmconf->xauth->pass = key;
+				id = NULL;
+				key = NULL;
 			}
 #endif
 
@@ -808,6 +810,22 @@ admin_process(so2, combuf)
 out:
 	if (buf != NULL)
 		vfree(buf);
+	/*
+	 * ADMIN_ESTABLISH_SA_PSK's id/key (XAUTH login/password supplied
+	 * for this connection attempt, despite the command's name -- see
+	 * the ADMIN_PROTO_ISAKMP case above) are freed here rather than at
+	 * each of their several early-exit points (an existing ph1, no
+	 * matching rmconf, xauth_rmconf_used() failing, a non-ISAKMP proto
+	 * after PSK's FALLTHROUGH, an unrecognized command/proto, or simply
+	 * ENABLE_HYBRID not being compiled in) -- every one of those used to
+	 * leak both allocations. The one path that *doesn't* want them freed
+	 * here already transfers ownership to rmconf->xauth->login/pass and
+	 * NULLs both locals immediately after, so vfree()'s existing
+	 * NULL-tolerance is what makes a single unconditional cleanup point
+	 * safe for every other path.
+	 */
+	vfree(id);
+	vfree(key);
 
 	return error;
 }

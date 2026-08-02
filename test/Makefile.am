@@ -1686,6 +1686,36 @@ test_admin_process_dispatch_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_admin_process_dispatch_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# test_admin_establish_sa_psk covers ADMIN_ESTABLISH_SA_PSK specifically
+# (XAUTH id/password injection via the admin socket, despite the
+# command's name -- see the test's own header comment): wire-parsing
+# correctness (id/key bytes land in rmconf->xauth->login/pass unchanged)
+# and the memory-leak fix (admin.c, this same commit) for every path that
+# allocates id/key but previously never freed them. -Wl,--wrap=vfree lets
+# __wrap_vfree() in the test observe every vfree() call this binary
+# makes, the same linker-level interposition technique test_script_hook_
+# leak.c already uses for free(). Same admin_process_unittest()/
+# admin_test_stubs.c as the other admin_process() tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_admin_establish_sa_psk
+
+test_admin_establish_sa_psk_SOURCES  = test_admin_establish_sa_psk.c \
+	admin_unittest_src.c \
+	admin_test_stubs.c
+test_admin_establish_sa_psk_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_admin_establish_sa_psk_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_admin_establish_sa_psk_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_admin_establish_sa_psk_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
+	-Wl,--wrap=vfree
+endif
+
 # test_admin_handler drives admin_handler() (admin.c) directly against a
 # real AF_UNIX listening socket + connected client -- accept()'s failure
 # path, the recv(MSG_PEEK) header sanity check, and the full round trip

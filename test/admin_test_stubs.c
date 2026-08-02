@@ -259,20 +259,31 @@ purgeph1bylogin(char *login)
 	return 0;
 }
 
+/* Default -1 (failure) preserves every existing test's behavior; a test
+ * that needs the ADMIN_ESTABLISH_SA_PSK id/key -> rmconf->xauth transfer
+ * to actually happen sets this to 0 first. */
+int admin_test_xauth_rmconf_used_calls = 0;
+int admin_test_xauth_rmconf_used_ret = -1;
+
 int
 xauth_rmconf_used(struct xauth_rmconf **xauth)
 {
-	return -1;
+	admin_test_xauth_rmconf_used_calls++;
+	return admin_test_xauth_rmconf_used_ret;
 }
 #endif
 
+/* Default NULL (no matching config) preserves every existing test's
+ * behavior; a test that needs to reach past the "no configuration found"
+ * check points this at a real, test-owned struct remoteconf first. */
 int admin_test_getrmconf_calls = 0;
+struct remoteconf *admin_test_getrmconf_ret = NULL;
 
 struct remoteconf *
 getrmconf(struct sockaddr *remote, int flags)
 {
 	admin_test_getrmconf_calls++;
-	return NULL;
+	return admin_test_getrmconf_ret;
 }
 
 struct remoteconf *
