@@ -1,9 +1,126 @@
-# `session.c` unit test coverage: before/current state and remaining gap analysis
+# `admin.c`/`session.c` unit test coverage: wrapper confirmation, gap analysis, and replication verdict
 
 Prepared as part of the v0.9.1 unit-test-coverage hardening effort (Tier 2
-follow-up), to scope what remains and feed the Tier 2/3 task backlog. No
-`src/racoon` file outside `session.c` itself (one new `ENABLE_UNITTEST`
-accessor) was touched to produce the coverage numbers below.
+follow-up), to scope what remains and feed the Tier 2/3 task backlog. Two
+items from the original task request are addressed here: confirmation
+that the `admin.c` wrapper-translation-unit pattern (Tier 1) does not
+regress `isakmp.c`/`session.c` coverage collection, and an explicit
+recommendation on whether that same pattern is ready to replicate as-is
+for further Tier 2/3 work (concretely: was it ready for `getcertsbyname.c`,
+and what should the next file use). The bulk of the report — `session.c`'s
+own before/current coverage and remaining gap analysis — follows after
+that. No `src/racoon` file outside `session.c` itself (one new
+`ENABLE_UNITTEST` accessor) was touched to produce the coverage numbers
+in this report.
+
+## Confirmation: the `admin.c` wrapper does not regress `isakmp.c`/`session.c` coverage collection
+
+The wrapper-translation-unit pattern (`admin_unittest_src.c` doing
+`#include "../src/racoon/admin.c"`, compiled per test binary with
+`-ffunction-sections -fdata-sections` and linked with `-Wl,--gc-sections`)
+raises an obvious question for any `lcov`-based coverage setup: could
+compiling `admin.c`'s source repeatedly, once per test binary, under this
+scheme corrupt or crowd out the *separate* `.gcda`/`.gcno` pairs
+`isakmp.c` and `session.c` accumulate from their own, unrelated test
+binaries? Two independent checks say no.
+
+**Architecturally:** no test binary's `SOURCES`/`LDADD` links `admin.c`'s
+wrapper alongside real `isakmp.o`/`session.o`, or vice versa —
+confirmed directly against `test/Makefile.am`:
+
+```
+$ grep -n '#include' test/admin_unittest_src.c
+#include "../src/racoon/admin.c"
+$ grep -n '#include "isakmp.c"\|#include "session.c"' src/racoon/admin.c
+(no output)
+$ grep -n '^test_admin.*_LDADD' -A6 test/Makefile.am | grep -i 'isakmp.o\|session.o'
+(no output)
+```
+
+Every `admin_*` test binary's dependency closure on `isakmp.c`/`session.c`
+functions (`isakmp_info_send_d1()`, `purge_remote()`, etc.) is satisfied
+by `admin_test_stubs.c`, never by linking the real objects — so there is
+no shared compilation unit and no shared link input for a collision to
+happen through.
+
+**Empirically:** a single, full `make clean && make -j4 && make check &&
+make coverage` run (68/68 tests passing, 0 skips) reports all three files
+distinctly, with sane, independently-driven numbers and no `lcov`/`geninfo`
+"no valid records" or merge-conflict warnings anywhere in the log:
+
+```
+Processing file racoon/admin.c
+  lines=437 hit=317 functions=12 hit=12
+Processing file racoon/session.c
+  lines=212 hit=139 functions=16 hit=15
+Processing file racoon/isakmp.c
+  lines=1415 hit=92 functions=61 hit=5
+Processing file racoon/getcertsbyname.c
+  lines=117 hit=79 functions=6 hit=5
+```
+
+`admin.c` and `session.c` match exactly the figures already reported
+elsewhere in this document and the project's PR history — no drop, no
+inflation. `isakmp.c`'s 92/1415 (6.5%) is driven entirely by its own,
+pre-existing, unrelated test binaries (`test_isakmp_frag`,
+`test_proposal_authtype_log`); nothing in this effort has added to or
+subtracted from it, which is exactly what "no regression" should look
+like — an unrelated file's number staying exactly where its own tests
+put it, neither more nor less, while `admin.c` and `session.c` both show
+the real, intended gains from this effort's own work. **Confirmed: the
+wrapper pattern is coverage-collection-safe.**
+
+## Recommendation: is the pattern ready to replicate as-is?
+
+**Partially — the core pattern yes, `-Wl,--wrap=` no, not blindly.**
+
+The core recipe (wrapper-TU + `#include`-ing the real `.c` file,
+`ENABLE_UNITTEST` accessors for static functions, `-ffunction-sections`/
+`-fdata-sections` + `-Wl,--gc-sections` to isolate the dependency
+closure, "smart" counted/queued stubs) has now been validated across
+three files (`admin.c`, `getcertsbyname.c`, `session.c`) and three
+platforms (Arch Linux, Ubuntu Bionic 32-bit, Ubuntu 26.04 "Resolute")
+with zero coverage-collection regressions, confirmed above. **This part
+is ready to reuse as the default starting point for any future
+static-function unit test in this codebase, as-is.**
+
+`-Wl,--wrap=` of a *specific symbol* is a different story, and the record
+so far does not support treating it as safe by default. It was **not**
+actually applied unmodified when `getcertsbyname.c` was done: Tier 2's
+own work already needed to abandon `-Wl,--wrap=res_query`/`--wrap=res_init`
+mid-flight, because they silently failed to interpose on Ubuntu Bionic
+32-bit's older glibc/binutils — fixed by extracting `parse_cert_answer()`
+out of `getcertsbyname()` so the resolver call never needed wrapping at
+all. And `getcertsbyname.c`'s *other* wrap usage, `-Wl,--wrap=free` in
+`test_getcertsbyname_helpers.c`, has since turned up a second, independent
+failure on Ubuntu 26.04 "Resolute": whole-program LTO lets GCC eliminate
+the allocate/free pair outright before the linker's wrap redirection ever
+applies (`doc/dev/wrap-based-tests-vs-lto.md` has the full mechanism,
+alongside `test_admin_establish_sa_psk.c`'s `-Wl,--wrap=vfree` failing the
+same way, for a related but distinct reason). That is two for two: every
+non-trivial `-Wl,--wrap=` target tried outside of `fork()`/`exit()`/
+`_exit()` has failed on some real, non-exotic platform. The only wrap
+targets that have survived every platform tried so far are process-control
+primitives with no compiler-visible allocation or inlining semantics
+(`--wrap=fork`, `--wrap=exit`, `--wrap=_exit`) — those remain safe to reuse
+as-is.
+
+**Concrete guidance for the next file (and for `getcertsbyname.c`'s own
+future changes):**
+
+1. Default to the core wrapper-TU pattern unmodified.
+2. If a static function's dependency closure includes a *resolver,
+   allocator, or any other symbol GCC may special-case or a whole-program-
+   visible toolchain may inline* — prefer an extraction refactor first
+   (proven twice now: `parse_cert_answer()`, `session_init_before_cfparse()`),
+   sidestepping the need to intercept the call at all.
+3. If extraction isn't feasible or isn't worth the churn, add a
+   same-symbol startup canary (proven just now for `vfree()`/`free()` in
+   `getcertsbyname.c`'s and `admin.c`'s own test binaries) so the test
+   degrades to an honest `SKIP` (exit 77) rather than a silent false pass
+   or a platform-dependent `FAIL` on whatever toolchain tries it next.
+4. Reserve unconditional `-Wl,--wrap=` for the narrow, twice-confirmed-safe
+   category: `fork()`/`exit()`/`_exit()`-style process-control primitives.
 
 ## Coverage: before and current
 
@@ -146,6 +263,16 @@ this report.
   Tier 3.
 
 ## Summary for Tier 2/3 planning
+
+The `admin.c` wrapper pattern is confirmed coverage-collection-safe
+against `isakmp.c`/`session.c` — no shared compilation, no shared link
+input, and a single clean coverage run shows all three files with sane,
+independently-driven numbers. The pattern itself is recommended for reuse
+as-is; `-Wl,--wrap=` of any specific symbol beyond `fork()`/`exit()`/
+`_exit()` is not, given two independent, real-platform failures now on
+record (Bionic 32-bit resolver symbols, Resolute LTO eliminating
+allocator calls) — extract first, or add a startup canary, per the
+concrete guidance above.
 
 Tier 2's `session.c` follow-up is complete for everything reachable without
 either a running daemon or a further extraction refactor: coverage moved
