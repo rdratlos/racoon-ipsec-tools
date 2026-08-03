@@ -115,6 +115,19 @@ both binaries detect this with a startup canary and report `SKIP` (exit
 build-time exclusion (this project's `SANITIZER_BUILD` precedent) wasn't
 used instead.
 
+**This is toolchain-dependent, not guaranteed by `-flto=auto
+-ffat-lto-objects` being in the configure flags alone.** Confirmed on
+GCC 15.2/ld 2.46 (Resolute); confirmed to reproduce locally on GCC 13.3
+too, but *not* observed on GitHub's hosted `ubuntu-latest` runner
+(Ubuntu 24.04 "Noble" as of this writing) with the exact same flags --
+both binaries `PASS` there instead of `SKIP`. `develop`'s CI
+(`test/check-expected-skips.sh`) checks for this correctly: for these
+two binaries specifically, `PASS` or a `SKIP` whose message matches the
+documented canary are both treated as fine; only a genuine `FAIL`, or a
+`SKIP` with an unexplained message, fails the check. Don't read a green
+run as proof the LTO defeat is being exercised -- check the job summary
+for which of the two outcomes actually happened.
+
 ## Reporting Issues
 
 Please include:
