@@ -869,6 +869,47 @@ test_monitor_fd_cold_start_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_monitor_fd_cold_start_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Test: session_wait_and_dispatch() -- session()'s live main loop body
+# (select() + error recovery + fd dispatch), extracted out of session()
+# unchanged (v0.9.1 unit-test-coverage hardening, Tier 3) so it can be
+# driven directly instead of needing the full daemon startup (cfparse()/
+# admin_init()/myaddr_init()/privsep_init()) session()'s own while(1)
+# otherwise requires to ever reach this code at all. Covers a real
+# dispatch (socketpair() fd made readable), the EBADF-recovery path
+# reaching prune_stale_monitored_fds() from this call site specifically
+# (daemon-issues.md Issue 4 follow-up; prune_stale_monitored_fds() itself
+# is already covered in isolation by test_prune_stale_monitored_fds.c),
+# a real signal interrupting select() (EINTR must retry, not fail), and
+# an unrecovered select() failure (invalid timeval -> EINVAL) that must
+# propagate as fatal.
+#
+# Every assertion here goes through session_wait_and_dispatch()'s own
+# observable effects (its return value, dispatch-callback call count,
+# is_fd_monitored_unittest()) -- no -Wl,--wrap= involved, so none of the
+# whole-program-LTO wrap-defeat risk documented in doc/dev/
+# wrap-based-tests-vs-lto.md applies here.
+#
+# Same session.c wrapper source and -DENABLE_UNITTEST accessors as the
+# other monitor_fd()/session.c tests above; also excluded from sanitizer
+# builds, same reason as those.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_session_wait_and_dispatch
+
+test_session_wait_and_dispatch_SOURCES  = test_session_wait_and_dispatch.c \
+	session_unittest_src.c
+test_session_wait_and_dispatch_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_session_wait_and_dispatch_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_session_wait_and_dispatch_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_session_wait_and_dispatch_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Test: privsep descriptor passing (issue #105) -- privsep.c's privileged
 # dispatch loop used to _exit(0) on any local fault, killing the daemon
 # (the unprivileged child exits as soon as privsep_sock reads EOF). Those
