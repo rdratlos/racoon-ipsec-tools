@@ -101,6 +101,20 @@ root, but is not something this project's build sets up or requires; real
 root (or root-in-a-container, which is what CI already provides) remains
 the straightforward option.
 
+### Two tests skip under whole-program LTO
+
+`test_admin_establish_sa_psk` and `test_getcertsbyname_helpers` each rely
+on `-Wl,--wrap=` (of `vfree()`/`free()` respectively) to count allocator
+calls the code under test makes. On a toolchain built with whole-program
+LTO (`-flto=auto -ffat-lto-objects`, a `dpkg-buildflags` hardening default
+as of Ubuntu 26.04 "Resolute") the compiler can inline or eliminate those
+calls entirely before the linker ever gets a chance to redirect them --
+both binaries detect this with a startup canary and report `SKIP` (exit
+77) rather than a false `FAIL`. See
+`doc/dev/wrap-based-tests-vs-lto.md` for the full mechanism and why a
+build-time exclusion (this project's `SANITIZER_BUILD` precedent) wasn't
+used instead.
+
 ## Reporting Issues
 
 Please include:

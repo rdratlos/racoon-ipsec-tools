@@ -24,6 +24,20 @@
  * test_script_hook_leak.c already uses) confirms freecertinfo() frees
  * exactly two allocations per node (ci_cert and the node itself) --
  * neither more (a double-free) nor fewer (a leak).
+ *
+ * skip_if_wrap_free_ineffective() below guards against a real, observed
+ * failure mode: under whole-program LTO (-flto=auto -ffat-lto-objects,
+ * confirmed on Ubuntu 26.04 "Resolute", GCC 15.2/binutils 2.46), GCC's
+ * own malloc()/free() pairing elision -- proving a freed allocation never
+ * escapes and removing the whole allocate/free sequence, oblivious to the
+ * linker's --wrap=free redirection, since that redirection happens
+ * entirely at link time, after GCC's LTO optimization has already run --
+ * can and does remove test_freecertinfo_frees_every_node_in_the_chain()'s
+ * entire allocate-link-free sequence outright, leaving free_calls at 0
+ * for a reason that has nothing to do with freecertinfo() itself. A
+ * canary free() at startup distinguishes that (SKIP) from a genuine
+ * partial-free regression (FAIL, a nonzero but wrong count) -- see
+ * doc/dev/wrap-based-tests-vs-lto.md for the full writeup.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -53,6 +67,48 @@ __wrap_free(void *ptr)
 	if (ptr != NULL)
 		free_calls++;
 	__real_free(ptr);
+}
+
+/*
+ * Confirms -Wl,--wrap=free is actually intercepting free() calls on this
+ * toolchain before trusting any test below that counts them. See this
+ * file's header comment for why a plain free_calls == 0 can otherwise be
+ * mistaken for a genuine leak.
+ *
+ * The canary deliberately goes through getnewci_unittest()/freecertinfo()
+ * (the same opaque, cross-translation-unit allocator/deallocator pair the
+ * real tests below use) rather than a bare malloc(1)/free(): a
+ * self-contained malloc()+free() with nothing in between is trivial
+ * enough that GCC's own elision optimization removes it at plain -O2,
+ * with no LTO involved at all, since malloc()/free() are library
+ * functions GCC has built-in semantic knowledge of regardless of
+ * function visibility -- that would make this canary misfire on every
+ * ordinary (non-LTO) toolchain, not just the LTO one it exists to catch.
+ * getnewci_unittest()/freecertinfo() are opaque, externally-defined
+ * functions in a different .o without LTO, so this mirrors exactly what
+ * protects the real tests below on a normal toolchain, while still
+ * tripping under whole-program LTO the same way they would.
+ */
+static int
+skip_if_wrap_free_ineffective(void)
+{
+	unsigned char cert[] = { 0x01 };
+	struct certinfo *canary = getnewci_unittest(37, 1, 1, 0, sizeof(cert), cert);
+
+	free_calls = 0;
+	freecertinfo(canary);
+	if (free_calls == 2)
+		return 0;
+
+	printf("\n=== getcertsbyname.c helper functions test ===\n"
+	    "SKIP: -Wl,--wrap=free did not intercept free() calls made via a "
+	    "canary getnewci_unittest()/freecertinfo() round trip on this "
+	    "toolchain. This is a known interaction with whole-program LTO "
+	    "(-flto=auto -ffat-lto-objects): GCC's malloc()/free() pairing "
+	    "elision can remove a provably-non-escaping allocate/free sequence "
+	    "outright, since it has no knowledge of the linker's --wrap=free "
+	    "redirection. See doc/dev/wrap-based-tests-vs-lto.md.\n\n");
+	return 1;
 }
 
 static int
@@ -129,6 +185,9 @@ int
 main(void)
 {
 	int failed = 0;
+
+	if (skip_if_wrap_free_ineffective())
+		return 77;
 
 	printf("\n=== getcertsbyname.c helper functions test ===\n");
 

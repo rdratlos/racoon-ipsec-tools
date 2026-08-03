@@ -683,6 +683,24 @@ check_sigreq()
 	}
 }
 
+#ifdef ENABLE_UNITTEST
+/*
+ * check_sigreq() is static, and every one of its dispatch targets
+ * (reload_conf()'s config-reload orchestration, close_session()'s
+ * shutdown sequence and its own exit(0)) is otherwise reachable only
+ * from inside session()'s live main loop, which needs a fully running
+ * daemon (real cfparse()/admin_init()/myaddr_init()/privsep_init()) to
+ * ever reach at all. This thin wrapper lets a unit test set sigreq[]
+ * via the real signal_handler() (exactly as a real signal delivery
+ * would) and then drive the dispatch directly.
+ */
+void
+check_sigreq_unittest(void)
+{
+	check_sigreq();
+}
+#endif /* ENABLE_UNITTEST */
+
 static void
 init_signal()
 {
