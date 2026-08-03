@@ -13,6 +13,8 @@
 
 [![CI Build & Test](https://github.com/rdratlos/racoon-ipsec-tools/actions/workflows/build-test.yml/badge.svg)](https://github.com/rdratlos/racoon-ipsec-tools/actions/workflows/build-test.yml)
 [![CI Build & Test (develop)](https://github.com/rdratlos/racoon-ipsec-tools/actions/workflows/develop-build-test.yml/badge.svg?branch=develop)](https://github.com/rdratlos/racoon-ipsec-tools/actions/workflows/develop-build-test.yml)
+[![NetBSD CI Build & Test](https://github.com/rdratlos/racoon-ipsec-tools/actions/workflows/netbsd-build-test.yml/badge.svg)](https://github.com/rdratlos/racoon-ipsec-tools/actions/workflows/netbsd-build-test.yml)
+[![NetBSD CI Build & Test (develop)](https://github.com/rdratlos/racoon-ipsec-tools/actions/workflows/develop-netbsd-build-test.yml/badge.svg?branch=develop)](https://github.com/rdratlos/racoon-ipsec-tools/actions/workflows/develop-netbsd-build-test.yml)
 
 A maintained Linux-focused continuation of the historical ipsec-tools project.
 
@@ -235,7 +237,14 @@ several GitHub checks on the commit/PR:
   each half means; a target/blocking/outcome table is in that run's job
   summary.
 
-`develop` runs its own equivalent build-and-test workflow (see that
+Separately, **NetBSD CI Build & Test** builds and unit-tests the project
+inside a real NetBSD 10 VM — portability to a non-Linux, non-glibc
+upstream, and (by default, since it's this project's NetBSD-side
+equivalent of the Valgrind checks above) an ASan/UBSan-instrumented
+build. No custom Checks-API reporting here; the workflow's own pass/fail
+is the signal, which is what its badge reflects.
+
+`develop` runs its own equivalent of every workflow above (see that
 branch's own docs) — GitHub Actions requires a workflow file to exist on
 the branch an event targets, so `main`'s workflows cannot themselves cover
 `develop`-targeting PRs; see `CONTRIBUTING.md`'s tree-separation section.

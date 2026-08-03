@@ -90,8 +90,9 @@ intentionally branch-specific and never cross between them:
   directory as a whole, which legitimately exists on both. `main`'s CI
   files (`build-test.yml`, `guard-tree-purity.yml`,
   `netbsd-build-test.yml`, `openssl-deprecation-canary.yml`) and
-  `develop`'s (`develop-build-test.yml`, `guard-branch-purity.yml`,
-  `legacy-cflags-canary.yml`, `racoon-hooks.yml`) are named so their sets
+  `develop`'s (`develop-build-test.yml`, `develop-netbsd-build-test.yml`,
+  `guard-branch-purity.yml`, `legacy-cflags-canary.yml`,
+  `racoon-hooks.yml`) are named so their sets
   never collide on a shared path, and neither branch's set is meant to
   reach the other. (This is why `develop` runs its own build-and-test
   workflow rather than `main`'s `build-test.yml` reaching across branches
