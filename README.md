@@ -11,6 +11,9 @@
 
 # ipsec-tools / racoon
 
+[![CI Build & Test](https://github.com/rdratlos/racoon-ipsec-tools/actions/workflows/build-test.yml/badge.svg)](https://github.com/rdratlos/racoon-ipsec-tools/actions/workflows/build-test.yml)
+[![CI Build & Test (develop)](https://github.com/rdratlos/racoon-ipsec-tools/actions/workflows/develop-build-test.yml/badge.svg?branch=develop)](https://github.com/rdratlos/racoon-ipsec-tools/actions/workflows/develop-build-test.yml)
+
 A maintained Linux-focused continuation of the historical ipsec-tools project.
 
 ## Overview
