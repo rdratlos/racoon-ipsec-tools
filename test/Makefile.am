@@ -1828,6 +1828,50 @@ test_session_init_before_cfparse_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_session_init_before_cfparse_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Test: session.c's signal-dispatch cluster -- signal_handler(),
+# check_sigreq(), reload_conf(), close_session() -- previously entirely
+# uncovered (Tier 2 follow-up gap analysis on session.c). All four are
+# otherwise reachable only from inside session()'s live main loop after
+# a real signal delivery. check_sigreq_unittest() (session.c,
+# ENABLE_UNITTEST) lets this test drive the dispatch directly via the
+# real signal_handler().
+#
+# check_sigreq() references reload_conf()/close_session() directly, so
+# --gc-sections cannot discard either one's dependency closure regardless
+# of which signal a given test drives; session_signal_test_stubs.c
+# supplies stand-ins for all of it (same "one dispatch function pulls in
+# everything" situation as admin_process(), including why admin_close()
+# is stubbed here rather than linked from the real, non
+# -ffunction-sections admin.o -- see that stub file's own header
+# comment).
+#
+# close_session() ends in an unconditional exit(0); -Wl,--wrap=exit lets
+# the test intercept it via siglongjmp() instead of actually terminating
+# the process -- the same interposition technique already used elsewhere
+# in this suite for _exit()/fork(), applied to plain exit() instead.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_session_check_sigreq
+
+test_session_check_sigreq_SOURCES  = test_session_check_sigreq.c \
+	session_unittest_src.c \
+	session_signal_test_stubs.c
+test_session_check_sigreq_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_session_check_sigreq_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_session_check_sigreq_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_session_check_sigreq_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
+	-Wl,--wrap=exit
+endif
+
 # Tests: getcertsbyname.c (v0.9.1 DNSSEC hardening pass, Tier 2) --
 # daemon-only (racoon_SOURCES) and previously entirely uncovered: no test
 # binary ever linked getcertsbyname.o. getcertsbyname_unittest_src.c
