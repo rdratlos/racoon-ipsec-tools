@@ -1828,6 +1828,70 @@ test_session_init_before_cfparse_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_session_init_before_cfparse_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Tests: getcertsbyname.c (v0.9.1 DNSSEC hardening pass, Tier 2) --
+# daemon-only (racoon_SOURCES) and previously entirely uncovered: no test
+# binary ever linked getcertsbyname.o. getcertsbyname_unittest_src.c
+# pulls it in the same way as admin_unittest_src.c above.
+#
+# Unlike admin.c/session.c, getcertsbyname.c uses plain libc malloc()/
+# free() throughout (never racoon_malloc()/vmalloc()/plog()), so these
+# two binaries need none of the usual plog.o/logger.o/vmbuf.o/
+# misc_noplog.o linkage.
+#
+# test_getcertsbyname_helpers only ever calls getnewci_unittest()
+# (static, exposed via a new ENABLE_UNITTEST accessor) and
+# freecertinfo() (already exported), never getcertsbyname() itself, so
+# -ffunction-sections/--gc-sections drops that function -- and its
+# res_query()/res_init()/libresolv dependency -- entirely; no -lresolv
+# needed here.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_getcertsbyname_helpers
+
+test_getcertsbyname_helpers_SOURCES  = test_getcertsbyname_helpers.c \
+	getcertsbyname_unittest_src.c
+test_getcertsbyname_helpers_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_getcertsbyname_helpers_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_getcertsbyname_helpers_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
+	-Wl,--wrap=free
+endif
+
+# test_getcertsbyname_dnssec is the priority regression test for this
+# file's actual churn: the DNSSEC validation fix removing "|| hp->aa"
+# from the response-acceptance check (CWE-290/CWE-347 -- the Authoritative
+# Answer bit is not a DNSSEC validation signal and must never be accepted
+# as an alternate proof of one; see the test's own header comment for the
+# full incident description).
+#
+# Drives parse_cert_answer_unittest() directly (getcertsbyname.c,
+# ENABLE_UNITTEST) rather than getcertsbyname() itself: an earlier
+# version of this test called getcertsbyname() and intercepted its
+# res_query()/res_init() calls via -Wl,--wrap, but that silently failed
+# to redirect them on Ubuntu Bionic 32-bit (older glibc/binutils; see
+# parse_cert_answer()'s own header comment in getcertsbyname.c for the
+# full explanation), letting the real, network-dependent resolver calls
+# run instead. parse_cert_answer() was split out of getcertsbyname()
+# specifically so this security-relevant validation/parsing logic could
+# be tested without depending on intercepting resolver calls at all.
+# Still needs -lresolv for the real dn_expand() it calls; no longer
+# needs any -Wl,--wrap flags.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_getcertsbyname_dnssec
+
+test_getcertsbyname_dnssec_SOURCES  = test_getcertsbyname_dnssec.c \
+	getcertsbyname_unittest_src.c
+test_getcertsbyname_dnssec_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_getcertsbyname_dnssec_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_getcertsbyname_dnssec_LDFLAGS  = $(AM_LDFLAGS) -lresolv -Wl,--gc-sections
+endif
+
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
 # scripts, not compiled binaries, exercising test/cert-framework/lib/ca.sh.
 # They follow automake's default "simple" test protocol (exit 0 = pass,
