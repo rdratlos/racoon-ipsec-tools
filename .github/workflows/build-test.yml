@@ -67,10 +67,24 @@ jobs:
         libssl-dev libfl-dev libkrb5-dev libldap2-dev
         libpam0g-dev linux-headers-generic libcrypt-dev
       # Full configure invocation with Ubuntu hardening flags.
+      #
+      # DIAG_CFLAGS: probes the actual toolchain for
+      # -fdiagnostics-format=sarif-file (GCC >= 13) rather than assuming
+      # it -- this project also targets Ubuntu Bionic (GCC 7), where the
+      # flag doesn't exist. On an unsupported compiler the probe just
+      # fails and DIAG_CFLAGS stays empty: the build proceeds exactly as
+      # before, only without the sidecar .sarif files the annotation job
+      # below looks for (which itself no-ops if none exist). Never a
+      # build-breaking dependency, only an optional enhancement.
       configure-command: |-
+        DIAG_CFLAGS=""
+        if echo 'int main(void){return 0;}' | gcc -fdiagnostics-format=sarif-file -S -o /dev/null -xc - 2>/dev/null; then
+          DIAG_CFLAGS="-fdiagnostics-format=sarif-file"
+          rm -f ./-.sarif
+        fi
         CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=3" \
         LDFLAGS="-Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -Wl,-z,relro" \
-        CFLAGS="-g -O2 -Werror=implicit-function-declaration -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wformat -Werror=format-security -fcf-protection -Wno-old-style-definition" \
+        CFLAGS="-g -O2 -Werror=implicit-function-declaration -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wformat -Werror=format-security -fcf-protection -Wno-old-style-definition $DIAG_CFLAGS" \
         ./configure --verbose --host=x86_64-linux-gnu --build=x86_64-linux-gnu \
           --prefix=/usr --sysconfdir=/etc/racoon --libdir=/usr/lib/ipsec-tools \
           --mandir=\${prefix}/share/man --infodir=\${prefix}/share/info \
@@ -114,6 +128,75 @@ jobs:
       # it silently skipped.
       install-valgrind: true
       enable-valgrind: true
+      # Same "if, not bare pipeline" pattern as test-command, for the same
+      # reason. tools/parse_valgrind_log.py's own fallback (`|| echo '[]'`)
+      # means a parser hiccup never breaks this step's exit status.
+      valgrind-command: |
+        if make check-valgrind 2>&1 | tee "$RUNNER_TEMP/check-valgrind.log"; then
+          status=0
+        else
+          status=$?
+        fi
+        python3 ../tools/parse_valgrind_log.py < "$RUNNER_TEMP/check-valgrind.log" > "$RICH_VALGRIND_SUMMARY_FILE" 2>/dev/null \
+          || echo '[]' > "$RICH_VALGRIND_SUMMARY_FILE"
+        exit "$status"
+
+  # Turn GCC's per-file SARIF sidecar diagnostics (if the toolchain wrote
+  # any -- see configure-command's DIAG_CFLAGS probe above) into a Checks
+  # API check with real `annotations`, scaling past the 10 errors/10
+  # warnings/10 notices-per-step, 50-per-run ceiling ::error::/::warning::
+  # workflow commands are capped at. No SARIF written (older GCC) is not
+  # an error -- the check just reports zero diagnostics.
+  annotate-compiler-diagnostics:
+    name: 'Annotate compiler diagnostics'
+    needs: [resolve-ref, ci]
+    runs-on: ubuntu-latest
+    if: always()
+    permissions:
+      checks: write
+    steps:
+      - name: Checkout (for the shared annotation script)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-ref.outputs.ref }}
+
+      - name: Download build tree
+        uses: actions/download-artifact@v4
+        with:
+          name: build-tree
+          path: build-tree-download
+        continue-on-error: true   # build job may not have produced one (e.g. Configure itself failed)
+
+      - name: Extract build tree
+        shell: bash
+        run: |
+          mkdir -p build-extracted
+          if [ -f build-tree-download/build-tree.tar ]; then
+            tar -xf build-tree-download/build-tree.tar -C build-extracted
+          fi
+          rm -rf build-tree-download
+
+      - name: Publish annotations
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { collectFindings, publishAnnotations } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/emit-sarif-annotations.js`);
+            const sha = '${{ needs.resolve-ref.outputs.sha }}' || context.sha;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const repoRoot = `${process.env.GITHUB_WORKSPACE}/build-extracted`;
+
+            const findings = collectFindings(repoRoot, repoRoot);
+
+            await publishAnnotations({
+              github, context, core, findings,
+              checkName: 'CI: compiler diagnostics',
+              sha,
+              title: findings.length ? `${findings.length} diagnostic(s) found` : 'No diagnostics',
+              summary: (findings.length
+                ? `${findings.length} compiler diagnostic(s) from this build's SARIF output.`
+                : 'No SARIF diagnostics captured for this build (either a clean build, or this toolchain does not support `-fdiagnostics-format=sarif-file`, i.e. GCC < 13).')
+                + `\n\n[Full workflow run](${runUrl})`,
+            });
 
   # Publish the tri-state check run (RED / ORANGE / GREEN).
   # Runs after the reusable workflow completes, regardless of outcome.
@@ -126,10 +209,19 @@ jobs:
       checks: write
 
     steps:
+      # Needed to resolve Valgrind's bare-filename debug info (e.g.
+      # "vmbuf.c", no directory) back to a real repo path -- see
+      # buildBasenameIndex() in the shared annotation script below.
+      - name: Checkout (for Valgrind annotation path resolution)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-ref.outputs.ref }}
+
       - name: Publish check
         uses: actions/github-script@v7
         with:
           script: |
+            const { buildBasenameIndex, publishAnnotations } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/emit-sarif-annotations.js`);
             const branch = '${{ needs.resolve-ref.outputs.ref }}';
             // Use the sha that resolve-ref actually checked out and tested,
             // not context.sha (which on workflow_dispatch is the dispatching
@@ -200,24 +292,56 @@ jobs:
               vgSummary = 'Valgrind checks were skipped for this run (status: ' + (valgrindResult || 'unknown') + ').';
             }
 
+            // Parse tools/parse_valgrind_log.py's JSON (via shared-ci's
+            // valgrind-summary pass-through) into Checks API annotations.
+            // File paths from Valgrind's debug info are bare filenames
+            // (no directory), so resolve each against a basename index
+            // built from the checkout above; a finding whose file
+            // couldn't be parsed at all (e.g. an error buried entirely in
+            // system-library frames with no source line) is still
+            // counted but can't be placed as an annotation.
+            let vgFindings = [];
+            let vgUnplaced = 0;
+            try {
+              const parsed = JSON.parse(`${{ needs.ci.outputs.valgrind-summary || '[]' }}`);
+              const basenameIndex = buildBasenameIndex(process.env.GITHUB_WORKSPACE, ['.c', '.h']);
+              for (const f of parsed) {
+                if (!f.file) { vgUnplaced++; continue; }
+                const resolvedPath = basenameIndex.get(f.file) || f.file;
+                const line = f.line || 1;
+                vgFindings.push({
+                  path: resolvedPath,
+                  start_line: line,
+                  end_line: line,
+                  annotation_level: 'failure',
+                  message: `${f.message} (in ${f.binary})`,
+                  title: 'Valgrind',
+                });
+              }
+            } catch (e) {
+              core.warning(`Failed to parse valgrind-summary JSON: ${e}`);
+            }
+
             const vgText = [
               `**Branch tested:** \`${branch}\``,
               `**Commit:** \`${sha}\``,
               '**Command:** `make check-valgrind` (run in `test/`)',
               '',
               `Valgrind outcome: \`${valgrindResult || 'unknown'}\``,
+              vgUnplaced ? `${vgUnplaced} finding(s) could not be placed at a source line (no debug info in that stack frame).` : '',
               '',
               `[Full workflow run](${runUrl})`
-            ].join('\n');
+            ].filter(Boolean).join('\n');
 
-            await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              name: 'CI: valgrind',
-              head_sha: sha,
-              status: 'completed',
+            await publishAnnotations({
+              github, context, core,
+              findings: vgFindings,
+              checkName: 'CI: valgrind',
+              sha,
+              title: vgTitle,
+              summary: vgSummary,
+              text: vgText,
               conclusion: vgConclusion,
-              output: { title: vgTitle, summary: vgSummary, text: vgText }
             });
 
             // --- Rich overall check: one Checks-API entry covering every

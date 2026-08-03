@@ -113,6 +113,13 @@ jobs:
   # Turn a genuine regression-guard failure into inline annotations on the
   # offending line(s), instead of making reviewers open the raw compile log.
   #
+  # Deliberately still plain ::error:: workflow commands, not the SARIF ->
+  # Checks-API-annotations mechanism build-test.yml uses for the main
+  # build (.github/scripts/emit-sarif-annotations.js): this canary only
+  # ever compiles 2 targets, so it can never produce more than a couple of
+  # findings -- nowhere near the 10-per-step/50-per-run ceiling that
+  # mechanism exists to get past. Migrating it would just be novelty.
+  #
   # Deliberately scoped to the *error* output of a failed compile under
   # -DOPENSSL_NO_DEPRECATED (a plain "file:line:col: error: ..." grep) --
   # not the -Wdeprecated-declarations *warning* path tools/gen_deprecation_
