@@ -82,9 +82,30 @@ jobs:
       build-command: |
         make
         make check TESTS=
-      # Run the actual unit tests in the test/ subdirectory.
+      # Run the actual unit tests in the test/ subdirectory, and leave a
+      # small pass/skip count in $RICH_TEST_SUMMARY_FILE (a convention
+      # ccpp-autotools.yml provides -- see shared-ci's README) so the rich
+      # summary/check below has real numbers instead of just pass/fail.
+      # check-verbose exits non-zero (via `if`, not a bare pipeline) so
+      # this still runs under the runner's default `set -e` and reports
+      # partial counts even when it stops early at the first failure.
       test-command: |
-        make check-verbose
+        if make check-verbose 2>&1 | tee "$RUNNER_TEMP/check-verbose.log"; then
+          status=0
+        else
+          status=$?
+        fi
+        total=$(grep -c '^Running ' "$RUNNER_TEMP/check-verbose.log" || true)
+        skipped=$(grep -oE '\([0-9]+ skipped\)' "$RUNNER_TEMP/check-verbose.log" | tail -1 | grep -oE '[0-9]+' || true)
+        skipped=${skipped:-0}
+        {
+          echo "| Metric | Value |"
+          echo "|---|---|"
+          echo "| Test binaries run | ${total:-0} |"
+          echo "| Skipped | ${skipped} |"
+          echo "| Passed | $([ "$status" -eq 0 ] && echo $(( ${total:-0} - skipped )) || echo '? (stopped at first failure)') |"
+        } >> "$RICH_TEST_SUMMARY_FILE"
+        exit "$status"
       test-working-directory: test
       # Valgrind is opt-in upstream (both for installing the tool in the
       # build job and for running `make check-valgrind` in the test job).
@@ -198,3 +219,90 @@ jobs:
               conclusion: vgConclusion,
               output: { title: vgTitle, summary: vgSummary, text: vgText }
             });
+
+            // --- Rich overall check: one Checks-API entry covering every
+            // stage, in addition to (not replacing) the two check runs
+            // above -- those names may already be wired into branch
+            // protection, so this is purely additive.
+            const configureResult = '${{ needs.ci.outputs.configure-result || 'success' }}';
+            const compileResult   = '${{ needs.ci.outputs.compile-result || 'success' }}';
+            const buildSeconds    = '${{ needs.ci.outputs.build-duration-seconds }}';
+            const testSeconds     = '${{ needs.ci.outputs.test-duration-seconds }}';
+            const testSummaryRaw  = `${{ needs.ci.outputs.test-summary }}`.trim();
+            const artifactsUrl    = `${runUrl}/artifacts`;
+
+            const icon = (r) => ({
+              success: '✅', failure: '❌', skipped: '⏭️'
+            }[r] || '⚪ n/a');
+
+            const stageRows = [
+              ['Configure', icon(configureResult), configureResult || 'n/a'],
+              ['Build', icon(compileResult), compileResult || 'n/a'],
+              ['Unit tests', icon(testResult), testResult || 'n/a'],
+              ['Valgrind', icon(valgrindResult || 'skipped'), valgrindResult || 'not run'],
+              ['Packaging', '⚪', 'not run by this workflow'],
+              ['Compile Canary', '↗️', '[separate check — OpenSSL 4.0 canary](' +
+                `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commits/${sha}/checks)`],
+            ];
+
+            // Overall: FAILURE if Configure/Build/a real test failure broke
+            // the build; WARNING if the build is sound but something softer
+            // (tests, Valgrind) is red; SUCCESS otherwise. Checks API has no
+            // literal "warning" conclusion, so WARNING maps to `neutral`
+            // (same mapping the existing build/valgrind checks above use),
+            // distinguished by the title text instead.
+            let overallConclusion, overallLabel;
+            if (configureResult === 'failure' || compileResult === 'failure') {
+              overallConclusion = 'failure';
+              overallLabel = 'FAILURE';
+            } else if (testResult === 'failure' || valgrindResult === 'failure') {
+              overallConclusion = 'neutral';
+              overallLabel = 'WARNING';
+            } else {
+              overallConclusion = 'success';
+              overallLabel = 'SUCCESS';
+            }
+
+            const stageTable = [
+              '| Stage | Status | Result |',
+              '|---|---|---|',
+              ...stageRows.map(([name, ic, res]) => `| ${name} | ${ic} | ${res} |`)
+            ].join('\n');
+
+            const overallText = [
+              `**Branch tested:** \`${branch}\``,
+              `**Commit:** \`${sha}\``,
+              '',
+              stageTable,
+              '',
+              '### Timing',
+              `- Build (Configure + Compile): ${buildSeconds || '?'}s`,
+              `- Unit tests: ${testSeconds || '?'}s`,
+              '',
+              '### Test counts',
+              testSummaryRaw || '_test-command did not report counts._',
+              '',
+              `[Full workflow run](${runUrl}) · [Artifacts](${artifactsUrl})`
+            ].join('\n');
+
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'CI: overall',
+              head_sha: sha,
+              status: 'completed',
+              conclusion: overallConclusion,
+              output: {
+                title: `${overallLabel}: ${stageRows.filter(r => r[1] === '❌').map(r => r[0]).join(', ') || 'all stages green'}`,
+                summary: `Overall: **${overallLabel}**. See the stage table for per-stage results.`,
+                text: overallText
+              }
+            });
+
+            // Same content in the workflow's own step summary, for anyone
+            // looking at the Actions run directly rather than the PR
+            // checks tab.
+            await core.summary
+              .addHeading('CI: overall — ' + overallLabel)
+              .addRaw(overallText, true)
+              .write();

@@ -207,6 +207,29 @@ Verify a signed tag:
 git verify-tag v<VERSION>
 ```
 
+## Continuous Integration
+
+Every push and pull request runs build + unit tests + Valgrind (via
+[`shared-ci`](https://github.com/rdratlos/shared-ci)'s reusable Autotools
+workflow) and the OpenSSL 4.0 deprecation canary. Results show up as
+several GitHub checks on the commit/PR:
+
+* **CI: build & test**, **CI: valgrind** — per-area pass/fail, unchanged
+  from before.
+* **CI: overall** — one consolidated check with a stage table
+  (Configure/Build/Unit tests/Valgrind), execution times, and test
+  counts; overall status is SUCCESS, WARNING (build is sound but tests or
+  Valgrind are red), or FAILURE (build itself is broken).
+* **CI: OpenSSL 4.0 canary (regression guard / readiness tracker)** — see
+  `.github/workflows/openssl-deprecation-canary.yml`'s header for what
+  each half means; a target/blocking/outcome table is in that run's job
+  summary.
+
+`develop` runs its own equivalent build-and-test workflow (see that
+branch's own docs) — GitHub Actions requires a workflow file to exist on
+the branch an event targets, so `main`'s workflows cannot themselves cover
+`develop`-targeting PRs; see `CONTRIBUTING.md`'s tree-separation section.
+
 ## Contributing
 
 Bug reports, portability fixes, interoperability improvements, and documentation contributions are welcome. Report via GitHub Issues.

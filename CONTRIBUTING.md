@@ -75,6 +75,40 @@ In short:
 Not sure whether your change needs an RFC? Open an Issue and ask, or just
 open a Draft RFC — it is cheap, and the discussion will tell you.
 
+## Branch Maintenance
+
+### Tree-separation policy (`main` vs `develop`)
+
+`main` and `develop` are two independent integration lines (`main`: the
+GitHub CI/workflow location; `develop`: where day-to-day feature and test
+work happens), not a small delta of each other — so some paths are
+intentionally branch-specific and never cross between them:
+
+- `.claude/` (Claude Code developer tooling) is `develop`-owned and must
+  never appear on `main`.
+- Each branch owns its own `.github/workflows/` *files* — not the
+  directory as a whole, which legitimately exists on both. `main`'s CI
+  files (`build-test.yml`, `guard-tree-purity.yml`,
+  `netbsd-build-test.yml`, `openssl-deprecation-canary.yml`) and
+  `develop`'s (`develop-build-test.yml`, `guard-branch-purity.yml`,
+  `legacy-cflags-canary.yml`, `racoon-hooks.yml`) are named so their sets
+  never collide on a shared path, and neither branch's set is meant to
+  reach the other. (This is why `develop` runs its own build-and-test
+  workflow rather than `main`'s `build-test.yml` reaching across branches
+  to cover it — see `develop`'s `CONTRIBUTING.md` for why that split is
+  structural, not just convention: GitHub Actions only evaluates a
+  workflow file that already exists on the branch an event targets.)
+- `develop`-only test infrastructure (`test/expected-skips.yml`,
+  `test/check-expected-skips.sh`) stays off `main`.
+
+**Automated, both directions:** `.github/workflows/guard-tree-purity.yml`
+(this branch) rejects any PR or push into `main` that touches a
+`develop`-owned path; `.github/workflows/guard-branch-purity.yml` on
+`develop` rejects the mirror direction. Both inspect the diff being
+introduced, not just the final tree, and both fail the check (not just a
+warning) on a violation. This replaced a manual `git diff --stat`
+inspection step that relied on remembering to run it before merging.
+
 ## Security
 
 Please do not attach executable files or binary patches (such as ZIP, APK,

@@ -110,6 +110,47 @@ jobs:
             echo "::notice title=4.0 Readiness::See the compile results in the canary job summary. Regression of reintroduced deprecated *calls* is guarded separately by the normal -Werror build."
           fi
 
+  # Turn a genuine regression-guard failure into inline annotations on the
+  # offending line(s), instead of making reviewers open the raw compile log.
+  #
+  # Deliberately scoped to the *error* output of a failed compile under
+  # -DOPENSSL_NO_DEPRECATED (a plain "file:line:col: error: ..." grep) --
+  # not the -Wdeprecated-declarations *warning* path tools/gen_deprecation_
+  # report.py and tools/emit_gha_annotations.py cover. That warning path
+  # only fires from a `make dev` build (RACOON_WARN_DEPRECATED, full
+  # project rebuild with deprecated symbols still visible so they can warn
+  # instead of vanishing) which is a materially more expensive build than
+  # this canary's two single-.o compiles; running it on every push/PR just
+  # for inline annotations was judged not worth doubling this workflow's
+  # build cost for a single-maintainer project where `make dev &&
+  # make deprecation-report` already produces the same report on demand
+  # (documented in test/README.md). Revisit if CI minutes stop being the
+  # binding constraint.
+  annotate-regressions:
+    name: 'Annotate regression-guard failures'
+    needs: [resolve-ref, canary]
+    if: needs.canary.outputs.result == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download compile logs
+        uses: actions/download-artifact@v4
+        with:
+          name: openssl-canary-logs
+          path: compile-logs
+
+      - name: Emit annotations for compile errors
+        shell: bash
+        run: |
+          # GCC's plain diagnostic line shape: file:line:col: error: message
+          found=0
+          if [ -f compile-logs/guard.log ]; then
+            while IFS=: read -r file line col _level message; do
+              found=$((found + 1))
+              echo "::error file=${file},line=${line},col=${col},title=Deprecated OpenSSL call reintroduced::${message# }"
+            done < <(grep -E '^[^:]+:[0-9]+:[0-9]+: error:' compile-logs/guard.log || true)
+          fi
+          echo "Emitted $found annotation(s) from the regression guard's compile log."
+
   # Publish per-target check runs on the PR's Checks tab, mirroring
   # build-test.yml's publish-tristate job. The reusable workflow only
   # exposes a single JSON `results` output (one entry per target), not
