@@ -88,6 +88,22 @@ getnewci(qtype, keytag, algorithm, flags, certlen, cert)
 	return res;
 }
 
+#ifdef ENABLE_UNITTEST
+/*
+ * getnewci() is static, and its only production caller (getcertsbyname()
+ * below) needs a real DNS wire-format CERT RR to reach it at all. This
+ * thin wrapper lets a unit test drive the certinfo-node allocation
+ * itself directly, independent of DNS packet construction.
+ */
+struct certinfo *
+getnewci_unittest(qtype, keytag, algorithm, flags, certlen, cert)
+	int qtype, keytag, algorithm, flags, certlen;
+	unsigned char *cert;
+{
+	return getnewci(qtype, keytag, algorithm, flags, certlen, cert);
+}
+#endif /* ENABLE_UNITTEST */
+
 void
 freecertinfo(ci)
 	struct certinfo *ci;
