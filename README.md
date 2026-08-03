@@ -215,11 +215,18 @@ workflow) and the OpenSSL 4.0 deprecation canary. Results show up as
 several GitHub checks on the commit/PR:
 
 * **CI: build & test**, **CI: valgrind** — per-area pass/fail, unchanged
-  from before.
+  from before. **CI: valgrind** now also carries inline annotations for
+  any leak/error Valgrind reports, pointing at the source line.
 * **CI: overall** — one consolidated check with a stage table
   (Configure/Build/Unit tests/Valgrind), execution times, and test
   counts; overall status is SUCCESS, WARNING (build is sound but tests or
   Valgrind are red), or FAILURE (build itself is broken).
+* **CI: compiler diagnostics** — inline annotations for every compiler
+  warning/error found in the build, on a toolchain that supports
+  `-fdiagnostics-format=sarif-file` (GCC >= 13; gracefully absent
+  otherwise, e.g. older toolchains this project also targets). Not
+  `::error::`/`::warning::` workflow commands, which cap at 10 of each
+  per step and 50 per run — real Checks API annotations, which don't.
 * **CI: OpenSSL 4.0 canary (regression guard / readiness tracker)** — see
   `.github/workflows/openssl-deprecation-canary.yml`'s header for what
   each half means; a target/blocking/outcome table is in that run's job
