@@ -1,5 +1,9 @@
 # NetBSD CI Build & Test for racoon-ipsec-tools.
-# Runs inside a NetBSD 10.x VM via cross-platform-actions/action.
+# Runs inside a NetBSD 10.x VM via cross-platform-actions/action. Serves two
+# purposes the Linux workflows (build-test.yml, shared-ci's ccpp-autotools.yml)
+# don't cover: portability to a non-Linux, non-glibc upstream, and ASan/UBSan
+# validation, this project's equivalent of the Linux side's Valgrind checks
+# (NetBSD's own toolchain, not Linux's, is where those sanitizers run here).
 #
 # Dependencies (installed via pkgin):
 #   autoconf automake libtool pkgconf gmake m4 bison
@@ -22,9 +26,9 @@ on:
         default: 'main'
         type: string
       enable_sanitizer:
-        description: 'Enable ASan/UBSan'
+        description: 'Enable ASan/UBSan (on by default -- this is an opt-OUT for a plain sanity build; uncheck to disable)'
         required: false
-        default: false
+        default: true
         type: boolean
 
 permissions:
@@ -64,16 +68,23 @@ jobs:
             sudo pkgin -y install autoconf automake libtool pkgconf gmake m4 bison
 
             # ------------------------------------------------------------------
-            # Sanitizer flags (opt-in via workflow_dispatch checkbox).
+            # Sanitizer flags: ON by default (this is the ASan/UBSan
+            # equivalent of the Linux workflows' Valgrind checks, so it
+            # needs to actually run on every push/PR, not just when someone
+            # remembers to tick a workflow_dispatch checkbox). Only
+            # `github.event.inputs.enable_sanitizer` set explicitly to the
+            # string "false" (workflow_dispatch's opt-out) disables it --
+            # on push/pull_request/schedule that input doesn't exist at all
+            # (empty string), which takes the enabled branch below.
             # ------------------------------------------------------------------
-            if [ "${{ github.event.inputs.enable_sanitizer }}" = "true" ]; then
-              export SAN_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
-              export SAN_LDFLAGS="-fsanitize=address,undefined"
-              echo "=== Sanitizer: ENABLED ==="
-            else
+            if [ "${{ github.event.inputs.enable_sanitizer }}" = "false" ]; then
               export SAN_CFLAGS=""
               export SAN_LDFLAGS=""
-              echo "=== Sanitizer: disabled ==="
+              echo "=== Sanitizer: disabled (explicit workflow_dispatch opt-out) ==="
+            else
+              export SAN_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+              export SAN_LDFLAGS="-fsanitize=address,undefined"
+              echo "=== Sanitizer: ENABLED (default) ==="
             fi
 
             # ------------------------------------------------------------------

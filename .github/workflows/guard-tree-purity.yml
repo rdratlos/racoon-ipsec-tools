@@ -77,7 +77,7 @@ jobs:
           # CONTRIBUTING.md's tree-separation section for the full list
           # and rationale). Keep this in sync with guard-branch-purity.yml
           # on develop, which enforces the mirror list.
-          FORBIDDEN_RE='^(\.claude/|\.github/workflows/develop-build-test\.yml$|\.github/workflows/legacy-cflags-canary\.yml$|\.github/workflows/racoon-hooks\.yml$|\.github/workflows/guard-branch-purity\.yml$|test/expected-skips\.yml$|test/check-expected-skips\.sh$)'
+          FORBIDDEN_RE='^(\.claude/|\.github/workflows/develop-build-test\.yml$|\.github/workflows/develop-netbsd-build-test\.yml$|\.github/workflows/legacy-cflags-canary\.yml$|\.github/workflows/racoon-hooks\.yml$|\.github/workflows/guard-branch-purity\.yml$|test/expected-skips\.yml$|test/check-expected-skips\.sh$)'
 
           OFFENDING=$(printf '%s\n' "$CHANGED" | grep -E "$FORBIDDEN_RE" || true)
 
