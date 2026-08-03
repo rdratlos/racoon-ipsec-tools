@@ -1864,12 +1864,20 @@ endif
 # from the response-acceptance check (CWE-290/CWE-347 -- the Authoritative
 # Answer bit is not a DNSSEC validation signal and must never be accepted
 # as an alternate proof of one; see the test's own header comment for the
-# full incident description). Unlike test_getcertsbyname_helpers, this
-# binary's one entry point is getcertsbyname() itself, which calls the
-# real dn_expand() (hence -lresolv) -- -Wl,--wrap=res_query,--wrap=res_init
-# (same linker-interposition technique test_script_hook_leak.c already
-# uses for free()) substitute a hand-built DNS response so no real query
-# ever reaches the network or touches /etc/resolv.conf.
+# full incident description).
+#
+# Drives parse_cert_answer_unittest() directly (getcertsbyname.c,
+# ENABLE_UNITTEST) rather than getcertsbyname() itself: an earlier
+# version of this test called getcertsbyname() and intercepted its
+# res_query()/res_init() calls via -Wl,--wrap, but that silently failed
+# to redirect them on Ubuntu Bionic 32-bit (older glibc/binutils; see
+# parse_cert_answer()'s own header comment in getcertsbyname.c for the
+# full explanation), letting the real, network-dependent resolver calls
+# run instead. parse_cert_answer() was split out of getcertsbyname()
+# specifically so this security-relevant validation/parsing logic could
+# be tested without depending on intercepting resolver calls at all.
+# Still needs -lresolv for the real dn_expand() it calls; no longer
+# needs any -Wl,--wrap flags.
 if !SANITIZER_BUILD
 check_PROGRAMS += test_getcertsbyname_dnssec
 
@@ -1881,8 +1889,7 @@ test_getcertsbyname_dnssec_CPPFLAGS = $(AM_CPPFLAGS) \
 	-I$(top_builddir)/src/include-glibc \
 	-DENABLE_UNITTEST
 test_getcertsbyname_dnssec_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
-test_getcertsbyname_dnssec_LDFLAGS  = $(AM_LDFLAGS) -lresolv -Wl,--gc-sections \
-	-Wl,--wrap=res_query -Wl,--wrap=res_init
+test_getcertsbyname_dnssec_LDFLAGS  = $(AM_LDFLAGS) -lresolv -Wl,--gc-sections
 endif
 
 # Cert-framework unit tests (test/unit/cert-framework/) — plain Bash
