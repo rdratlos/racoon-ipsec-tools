@@ -367,6 +367,87 @@ make dev
 ========================================================================
 ```
 
+### SKIP
+
+`SKIP` is a third, distinct outcome from `PASS`/`FAIL` — automake's own
+convention, signaled by a test binary calling `exit(77)` (or returning 77
+from `main()`). `make check`, `make check-verbose`, and `make
+check-valgrind` all honor it the same way: tallied separately, and never
+treated as a failure.
+
+```
+[TEST] freecertinfo() frees ci_cert and the node for every entry in the chain ...
+SKIP: -Wl,--wrap=free did not intercept free() calls made via a canary
+      getnewci_unittest()/freecertinfo() round trip on this toolchain.
+      See doc/dev/wrap-based-tests-vs-lto.md.
+...
+All tests passed! (2 skipped)
+```
+
+Two independent reasons a binary in this suite reports `SKIP`, both
+covered in more depth in `CONTRIBUTING.md`:
+
+- **Needs real root** (`test_privsep_client_wrappers`,
+  `test_privsep_hybrid_client_wrappers`, part of `test_privsep_init`) —
+  expected on every unprivileged run, i.e. every normal CI run. See
+  "Why some tests need root".
+- **Whole-program LTO defeats a `-Wl,--wrap=` test double**
+  (`test_admin_establish_sa_psk`, `test_getcertsbyname_helpers`) —
+  expected whenever the toolchain enables `-flto=auto
+  -ffat-lto-objects` (Ubuntu's `dpkg-buildflags` hardening default as
+  of "Resolute"). See "Two tests skip under whole-program LTO" and
+  `doc/dev/wrap-based-tests-vs-lto.md`.
+
+`develop`'s CI (`develop-build-test.yml`) asserts these two LTO-canary
+SKIPs are actually observed on every run, rather than trusting that the
+`-flto` configure flags imply it — see `test/check-expected-skips.sh` and
+`test/expected-skips.yml`. A `SKIP` that unexpectedly becomes a `PASS`
+means the canary itself stopped being exercised (the assumption behind
+the SKIP is now stale); a `SKIP` that becomes a real `FAIL` means an
+actual regression. Both fail that check with a message pointing back
+here and to `CONTRIBUTING.md`.
+
+### Choosing a wrapper pattern for a new test
+
+Deciding how to intercept a call for a new test, roughly in order of
+preference:
+
+1. **Can you assert through the real function's own observable effect**
+   (a return value, a struct field, an errno) **instead of counting calls
+   to an internal one?** Prefer this — it has no wrapper to defeat in the
+   first place. Most of this suite's tests (DH, RSA, cipher, X.509) work
+   this way.
+2. **Does the call cross a `fork()`/`execve()` boundary**, or go through
+   several stub indirections before reaching the wrapped symbol (like
+   `test_script_hook_leak.c`'s `ipsecdoi_id2str()` path)? `-Wl,--wrap=`
+   is safe here — the indirection defeats the same whole-program-LTO
+   interprocedural analysis that makes simple cases risky (see
+   `doc/dev/wrap-based-tests-vs-lto.md`'s "Why test_script_hook_leak.c is
+   unaffected").
+3. **Is it a simple, local allocate/free (or similarly trivial) pair**,
+   wrapped via `-Wl,--wrap=` **with no cross-TU opacity in between?**
+   This is the risky case — GCC's own semantic knowledge of
+   `malloc()`/`free()`, or a same-TU inlining of the real definition
+   (`vfree()`'s case), can make the wrap symbol dead code under LTO
+   *even without any indication in the test output other than a
+   suspiciously-zero call count*. If you must use this pattern:
+   - Add a startup canary that exercises the exact same wrapped symbol
+     through the same call path the real assertion uses (not a bare
+     `malloc()`/`free()`, which can be optimized away even without LTO —
+     see `test_getcertsbyname_helpers.c`'s reasoning for routing its
+     canary through `getnewci_unittest()`/`freecertinfo()` specifically).
+   - `return 77` (`SKIP`) if the canary isn't observed, rather than
+     asserting on a count that reads identically whether it's correct
+     or the wrap is simply gone.
+   - Add the binary to `test/expected-skips.yml`'s `unprivileged` list
+     so CI asserts the SKIP keeps happening, not just that the tests
+     keep passing.
+4. **Configure-time exclusion** (this project's `SANITIZER_BUILD`
+   precedent) is the fallback when even a canary can't distinguish
+   "correctly skipped" from "silently defeated" — but it drops every
+   assertion in the binary, not just the ones that depend on the wrap,
+   so prefer option 3 when only part of a binary is at risk.
+
 ## Test Coverage
 
 | Component | eaytest (legacy) | Modern Tests | Coverage |
