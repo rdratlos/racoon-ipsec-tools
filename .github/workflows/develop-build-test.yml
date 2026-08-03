@@ -14,9 +14,15 @@
 # configure flags as main's build-test.yml (kept in sync manually --
 # there is no mechanism to share this YAML across branches whose broader
 # trees are otherwise unrelated). The one behavioral addition specific to
-# develop: after check-verbose, assert that the LTO-canary tests'
-# expected SKIPs are actually observed (test/check-expected-skips.sh),
-# rather than just trusting the configure flags imply it.
+# develop: after check-verbose, test/check-expected-skips.sh checks that
+# the root-only tests SKIP (deterministic) and that the two LTO-canary
+# tests report one of their two legitimate, toolchain-dependent outcomes
+# (PASS, or SKIP with the documented canary message) rather than an
+# unexplained SKIP or a real FAIL -- see CONTRIBUTING.md's "Two tests
+# skip under whole-program LTO" for why this isn't a simple "must SKIP"
+# assertion: confirmed empirically that GitHub's hosted ubuntu-latest
+# runner does not reproduce the LTO defeat with these flags, unlike
+# Ubuntu 26.04 "Resolute"'s toolchain.
 
 name: CI Build & Test (develop)
 
@@ -76,8 +82,10 @@ jobs:
         libssl-dev libfl-dev libkrb5-dev libldap2-dev
         libpam0g-dev linux-headers-generic libcrypt-dev
       # Full configure invocation with Ubuntu hardening flags -- kept in
-      # sync with main's build-test.yml. -flto=auto -ffat-lto-objects here
-      # is also what makes the two LTO-canary tests below actually SKIP.
+      # sync with main's build-test.yml. -flto=auto -ffat-lto-objects
+      # here is what the two LTO-canary tests below check for, though
+      # whether it actually defeats their -Wl,--wrap= double is
+      # toolchain-dependent -- see check-expected-skips.sh.
       configure-command: |-
         CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=3" \
         LDFLAGS="-Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -Wl,-z,relro" \
@@ -155,12 +163,12 @@ jobs:
               summary = 'The project build (`make`) failed. See the Build step logs.';
             } else if (testResult === 'failure') {
               conclusion = 'neutral';
-              title = 'Build OK — unit tests failed (or an expected SKIP was not observed)';
+              title = 'Build OK — unit tests failed (or an expected-skip check failed)';
               summary = 'The project built successfully, but `make check`/check-expected-skips.sh reported a problem.';
             } else {
               conclusion = 'success';
               title = 'Build and tests passed';
-              summary = 'The project built, all unit tests passed, and the LTO-canary SKIPs were confirmed.';
+              summary = 'The project built, all unit tests passed, and the expected-skip checks (root-only tests, LTO canary) confirmed as expected.';
             }
 
             const text = [

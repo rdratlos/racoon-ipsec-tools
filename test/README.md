@@ -389,23 +389,32 @@ covered in more depth in `CONTRIBUTING.md`:
 
 - **Needs real root** (`test_privsep_client_wrappers`,
   `test_privsep_hybrid_client_wrappers`, part of `test_privsep_init`) —
-  expected on every unprivileged run, i.e. every normal CI run. See
-  "Why some tests need root".
+  deterministic: expected on every unprivileged run, i.e. every normal
+  CI run, on any toolchain. See "Why some tests need root".
 - **Whole-program LTO defeats a `-Wl,--wrap=` test double**
   (`test_admin_establish_sa_psk`, `test_getcertsbyname_helpers`) —
-  expected whenever the toolchain enables `-flto=auto
-  -ffat-lto-objects` (Ubuntu's `dpkg-buildflags` hardening default as
-  of "Resolute"). See "Two tests skip under whole-program LTO" and
+  toolchain-dependent, *not* guaranteed merely by `-flto=auto
+  -ffat-lto-objects` being in the configure flags: confirmed to trigger
+  on GCC 15.2/ld 2.46 ("Resolute"'s toolchain), but *not* observed on
+  GitHub's hosted `ubuntu-latest` runner (Ubuntu 24.04 "Noble" as of
+  this writing) with the same flags — both binaries `PASS` there
+  instead. See "Two tests skip under whole-program LTO" and
   `doc/dev/wrap-based-tests-vs-lto.md`.
 
-`develop`'s CI (`develop-build-test.yml`) asserts these two LTO-canary
-SKIPs are actually observed on every run, rather than trusting that the
-`-flto` configure flags imply it — see `test/check-expected-skips.sh` and
-`test/expected-skips.yml`. A `SKIP` that unexpectedly becomes a `PASS`
-means the canary itself stopped being exercised (the assumption behind
-the SKIP is now stale); a `SKIP` that becomes a real `FAIL` means an
-actual regression. Both fail that check with a message pointing back
-here and to `CONTRIBUTING.md`.
+`develop`'s CI (`develop-build-test.yml`) checks both populations, but
+not the same way — see `test/expected-skips.yml`'s two lists and
+`test/check-expected-skips.sh`:
+
+- The root-only binaries must be exactly `SKIP`; any other outcome fails
+  the check.
+- The two LTO-canary binaries accept either `PASS` (this toolchain's LTO
+  doesn't defeat the wrap) or `SKIP` with the documented canary message
+  (it does) — both are legitimate, toolchain-dependent outcomes. Only a
+  genuine `FAIL`, or a `SKIP` whose message doesn't match, fails the
+  check: either means the binary's assumptions about its own toolchain
+  no longer hold. Check the job summary to see which of the two
+  legitimate outcomes actually happened on a given run — a green check
+  does not by itself tell you whether the LTO defeat was exercised.
 
 ### Choosing a wrapper pattern for a new test
 
