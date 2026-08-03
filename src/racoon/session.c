@@ -362,6 +362,115 @@ session_init_before_cfparse(void)
 	save_params();
 }
 
+/*
+ * One iteration of session()'s live main loop: reset the working select()
+ * mask from preset_mask, block in select() for up to *timeout, recover
+ * from (or propagate) a failure, and dispatch every monitored fd that
+ * came back readable. Split out of session() so it can be driven directly
+ * by a unit test with a real socketpair()/pipe() fd and a real, small
+ * timeout, instead of needing the full daemon startup (cfparse()/
+ * admin_init()/myaddr_init()/privsep_init()) session()'s own while(1)
+ * otherwise requires to ever reach this code at all.
+ *
+ * Returns 0 if the caller should keep looping (a normal dispatch pass, an
+ * EINTR retry, or an EBADF recovered by prune_stale_monitored_fds()) and
+ * -1 on the one path that intentionally propagates failure: an
+ * unrecovered select() error, already plog()'d here.
+ */
+static int
+session_wait_and_dispatch(struct timeval *timeout)
+{
+	int error;
+	int i, count;
+	struct fd_monitor *fdm;
+
+	/* schedular can change select() mask, so we reset
+	 * the working copy here */
+	active_mask = preset_mask;
+
+	error = select(nfds + 1, &active_mask, NULL, NULL, timeout);
+	if (error < 0) {
+		switch (errno) {
+		case EINTR:
+			return 0;
+		case EBADF:
+			/*
+			 * At least one fd in our own monitored set is
+			 * no longer valid -- somewhere, a bug closed
+			 * it without calling unmonitor_fd() first
+			 * (confirmed live: an admin.c ordering bug,
+			 * since fixed, left a "racoonctl vd"
+			 * connection's socket registered here even
+			 * after admin_handler() had already close()'d
+			 * it, taking the entire daemon down on the
+			 * very next select() -- daemon-issues.md's
+			 * Issue 4 follow-up has the full trace).
+			 * Losing every other still-live Phase 1/2 SA
+			 * (and its dummy interface/SPD/routes) over
+			 * one dangling fd is a disproportionate
+			 * failure mode for a bug that, by
+			 * construction, can only ever be in our own
+			 * bookkeeping, never in the peer's control --
+			 * try to find and drop just the bad fd(s) and
+			 * keep running, rather than exiting
+			 * unconditionally on every select() failure.
+			 */
+			if (prune_stale_monitored_fds())
+				return 0;
+			/*
+			 * No bad fd actually found in our own set --
+			 * this EBADF was not explained by our own
+			 * bookkeeping. Fall through to the same fatal
+			 * handling as any other unrecovered select()
+			 * failure below.
+			 */
+			/* FALLTHROUGH */
+		default:
+			plog(LLV_ERROR, LOCATION, NULL,
+				"failed to select (%s)\n",
+				strerror(errno));
+			return -1;
+		}
+		/*NOTREACHED*/
+	}
+
+	count = 0;
+	for (i = 0; i < NUM_PRIORITIES; i++) {
+		TAILQ_FOREACH(fdm, &fd_monitor_tree[i], chain) {
+			if (!FD_ISSET(fdm->fd, &active_mask))
+				continue;
+
+			FD_CLR(fdm->fd, &active_mask);
+			if (fdm->callback != NULL) {
+				fdm->callback(fdm->ctx, fdm->fd);
+				count++;
+			} else
+				plog(LLV_ERROR, LOCATION, NULL,
+				"fd %d set, but no active callback\n", i);
+		}
+		if (count != 0)
+			break;
+	}
+
+	return 0;
+}
+
+#ifdef ENABLE_UNITTEST
+/*
+ * session_wait_and_dispatch() is static, and every one of its dependencies
+ * (preset_mask/active_mask/nfds/fd_monitor_tree[], prune_stale_monitored_
+ * fds()) is otherwise reachable only from inside session()'s live main
+ * loop, which needs a fully running daemon to ever reach at all. This
+ * thin wrapper lets a unit test drive it directly with a real fd and a
+ * real, short timeout.
+ */
+int
+session_wait_and_dispatch_unittest(struct timeval *timeout)
+{
+	return session_wait_and_dispatch(timeout);
+}
+#endif /* ENABLE_UNITTEST */
+
 int
 session(void)
 {
@@ -370,8 +479,7 @@ session(void)
 	char pid_file[MAXPATHLEN];
 	FILE *fp;
 	pid_t racoon_pid = 0;
-	int i, count;
-	struct fd_monitor *fdm;
+	int i;
 
 	session_init_before_cfparse();
 	if (cfparse() != 0)
@@ -452,74 +560,9 @@ session(void)
 		/* scheduling */
 		timeout = schedular();
 
-		/* schedular can change select() mask, so we reset
-		 * the working copy here */
-		active_mask = preset_mask;
-
-		error = select(nfds + 1, &active_mask, NULL, NULL, timeout);
-		if (error < 0) {
-			switch (errno) {
-			case EINTR:
-				continue;
-			case EBADF:
-				/*
-				 * At least one fd in our own monitored set is
-				 * no longer valid -- somewhere, a bug closed
-				 * it without calling unmonitor_fd() first
-				 * (confirmed live: an admin.c ordering bug,
-				 * since fixed, left a "racoonctl vd"
-				 * connection's socket registered here even
-				 * after admin_handler() had already close()'d
-				 * it, taking the entire daemon down on the
-				 * very next select() -- daemon-issues.md's
-				 * Issue 4 follow-up has the full trace).
-				 * Losing every other still-live Phase 1/2 SA
-				 * (and its dummy interface/SPD/routes) over
-				 * one dangling fd is a disproportionate
-				 * failure mode for a bug that, by
-				 * construction, can only ever be in our own
-				 * bookkeeping, never in the peer's control --
-				 * try to find and drop just the bad fd(s) and
-				 * keep running, rather than exiting
-				 * unconditionally on every select() failure.
-				 */
-				if (prune_stale_monitored_fds())
-					continue;
-				/*
-				 * No bad fd actually found in our own set --
-				 * this EBADF was not explained by our own
-				 * bookkeeping. Fall through to the same fatal
-				 * handling as any other unrecovered select()
-				 * failure below.
-				 */
-				/* FALLTHROUGH */
-			default:
-				plog(LLV_ERROR, LOCATION, NULL,
-					"failed to select (%s)\n",
-					strerror(errno));
-				return -1;
-			}
-			/*NOTREACHED*/
-		}
-
-		count = 0;
-		for (i = 0; i < NUM_PRIORITIES; i++) {
-			TAILQ_FOREACH(fdm, &fd_monitor_tree[i], chain) {
-				if (!FD_ISSET(fdm->fd, &active_mask))
-					continue;
-
-				FD_CLR(fdm->fd, &active_mask);
-				if (fdm->callback != NULL) {
-					fdm->callback(fdm->ctx, fdm->fd);
-					count++;
-				} else
-					plog(LLV_ERROR, LOCATION, NULL,
-					"fd %d set, but no active callback\n", i);
-			}
-			if (count != 0)
-				break;
-		}
-
+		error = session_wait_and_dispatch(timeout);
+		if (error < 0)
+			return error;
 	}
 }
 

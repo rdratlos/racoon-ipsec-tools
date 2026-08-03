@@ -23,6 +23,13 @@ Makefile.in
 .libs/
 *.o
 *.lo
+
+# Coverage artifacts (--enable-coverage + `cd test && make coverage`)
+*.gcno
+*.gcda
+/coverage_raw.info
+/coverage_filtered.info
+/coverage/
 *.la
 .dirstamp
 
