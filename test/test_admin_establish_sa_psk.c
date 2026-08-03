@@ -51,6 +51,22 @@
  * this file point them at a real, test-owned struct remoteconf/
  * xauth_rmconf pair, default NULL/-1 (preserving every other admin.c
  * test's existing behavior, which never sets them).
+ *
+ * skip_if_wrap_vfree_ineffective() below guards against a real, observed
+ * failure mode: under whole-program LTO (-flto=auto -ffat-lto-objects,
+ * confirmed on Ubuntu 26.04 "Resolute", GCC 15.2/binutils 2.46), vfree()'s
+ * real definition (vmbuf.o, linked into this binary) is visible to LTO's
+ * whole-program analysis and gets inlined directly at every call site,
+ * leaving no relocation against the symbol vfree for --wrap=vfree to ever
+ * redirect -- __wrap_vfree ends up entirely unreferenced (confirmed via
+ * nm: it does not even appear in the linked binary). That leaves
+ * vfree_calls permanently 0, which test_wire_parsing_transfers_id_and_key
+ * would otherwise silently read as its own (correct) assertion that the
+ * success path performs zero frees -- a false pass indistinguishable,
+ * from inside that one test, from vfree() genuinely never being
+ * intercepted at all. A canary vfree() at startup tells them apart: SKIP
+ * if the canary itself isn't observed, FAIL only for a genuine wrong
+ * count. See doc/dev/wrap-based-tests-vs-lto.md for the full writeup.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -102,6 +118,32 @@ __wrap_vfree(vchar_t *v)
 	if (v != NULL)
 		vfree_calls++;
 	__real_vfree(v);
+}
+
+/*
+ * Confirms -Wl,--wrap=vfree is actually intercepting vfree() calls on
+ * this toolchain before trusting any test below that counts them. See
+ * this file's header comment for why a plain vfree_calls == 0 can
+ * otherwise be mistaken for "ownership transferred, nothing to free".
+ */
+static int
+skip_if_wrap_vfree_ineffective(void)
+{
+	vchar_t *canary = vmalloc(1);
+
+	vfree_calls = 0;
+	vfree(canary);
+	if (vfree_calls == 1)
+		return 0;
+
+	printf("\n=== ADMIN_ESTABLISH_SA_PSK (XAUTH id/key injection) test ===\n"
+	    "SKIP: -Wl,--wrap=vfree did not intercept a canary vfree() call on "
+	    "this toolchain. This is a known interaction with whole-program "
+	    "LTO (-flto=auto -ffat-lto-objects): vfree()'s real definition is "
+	    "visible to LTO's whole-program analysis and gets inlined directly "
+	    "at the call site, leaving no symbol reference for --wrap=vfree to "
+	    "redirect. See doc/dev/wrap-based-tests-vs-lto.md.\n\n");
+	return 1;
 }
 
 static void
@@ -312,6 +354,9 @@ main(void)
 	int failed = 0;
 
 	signal(SIGPIPE, SIG_IGN);
+
+	if (skip_if_wrap_vfree_ineffective())
+		return 77;
 
 	printf("\n=== ADMIN_ESTABLISH_SA_PSK (XAUTH id/key injection) test ===\n");
 
