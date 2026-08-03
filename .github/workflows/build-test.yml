@@ -229,7 +229,6 @@ jobs:
             const buildSeconds    = '${{ needs.ci.outputs.build-duration-seconds }}';
             const testSeconds     = '${{ needs.ci.outputs.test-duration-seconds }}';
             const testSummaryRaw  = `${{ needs.ci.outputs.test-summary }}`.trim();
-            const artifactsUrl    = `${runUrl}/artifacts`;
 
             const icon = (r) => ({
               success: '✅', failure: '❌', skipped: '⏭️'
@@ -282,7 +281,7 @@ jobs:
               '### Test counts',
               testSummaryRaw || '_test-command did not report counts._',
               '',
-              `[Full workflow run](${runUrl}) · [Artifacts](${artifactsUrl})`
+              `[Full workflow run](${runUrl}) (artifacts are listed near the bottom of that page)`
             ].join('\n');
 
             await github.rest.checks.create({
