@@ -157,8 +157,9 @@ intentionally branch-specific and never cross between them:
   never appear on `main`.
 - Each branch owns its own `.github/workflows/` *files* — not the
   directory as a whole, which legitimately exists on both. `develop`'s CI
-  files (`develop-build-test.yml`, `guard-branch-purity.yml`,
-  `legacy-cflags-canary.yml`, `racoon-hooks.yml`) and `main`'s
+  files (`develop-build-test.yml`, `develop-netbsd-build-test.yml`,
+  `guard-branch-purity.yml`, `legacy-cflags-canary.yml`,
+  `racoon-hooks.yml`) and `main`'s
   (`build-test.yml`, `guard-tree-purity.yml`, `netbsd-build-test.yml`,
   `openssl-deprecation-canary.yml`) are named so their sets never collide
   on a shared path, and neither branch's set is meant to reach the other.
