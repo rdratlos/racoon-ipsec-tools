@@ -135,24 +135,40 @@ Small, focused commits with clear commit messages are preferred.
 
 ### Tree-separation policy (`main` vs `develop`)
 
-Some paths are intentionally branch-specific:
+`main` and `develop` are two independent integration lines (`main`: the
+GitHub CI/workflow location; `develop`: where day-to-day feature and test
+work happens), not a small delta of each other — so some paths are
+intentionally branch-specific and never cross between them:
 
-- `.github/` (CI workflows) lives on `main` only.
-- `.claude/` (Claude Code developer tooling) lives on `develop` only.
+- `.claude/` (Claude Code developer tooling) is `develop`-owned and must
+  never appear on `main`.
+- Each branch owns its own `.github/workflows/` *files* — not the
+  directory as a whole, which legitimately exists on both. `develop`'s CI
+  files (`develop-build-test.yml`, `guard-branch-purity.yml`,
+  `legacy-cflags-canary.yml`, `racoon-hooks.yml`) and `main`'s
+  (`build-test.yml`, `guard-tree-purity.yml`, `netbsd-build-test.yml`,
+  `openssl-deprecation-canary.yml`) are named so their sets never collide
+  on a shared path, and neither branch's set is meant to reach the other.
+  `develop-build-test.yml` exists here — rather than `develop` just
+  relying on `main`'s `build-test.yml` — because GitHub Actions only
+  evaluates a workflow file that already exists on the branch an event
+  targets: a `pull_request` event whose base is `develop` never even
+  looks at `main`'s tree, no matter how `build-test.yml`'s triggers are
+  scoped. That's a structural GitHub Actions constraint, not a
+  convention, so it isn't something a future cleanup should try to
+  collapse back into one file.
+- `develop`-only test infrastructure (`test/expected-skips.yml`,
+  `test/check-expected-skips.sh` — see "Two tests skip under
+  whole-program LTO" above) stays off `main`.
 
-**Manual step (not automated):** before merging `main` into `develop`,
-run `git diff --stat` and confirm that **no `.github/` paths appear** in
-the merge. If any do, back them out so `.github/` stays off `develop`.
-
-```bash
-git checkout develop
-git merge --no-commit --no-ff main
-git diff --stat --cached        # inspect: no .github/ paths should appear
-```
-
-There is no automated guard for this direction — the `.claude/`-on-`main`
-guard is enforced in CI, but keeping `.github/` off `develop` is a manual
-review responsibility at merge time.
+**Automated, both directions:** `.github/workflows/guard-branch-purity.yml`
+(this branch) rejects any PR or push into `develop` that touches a
+`main`-owned path; `.github/workflows/guard-tree-purity.yml` on `main`
+rejects the mirror direction. Both inspect the diff being introduced, not
+just the final tree, and both fail the check (not just a warning) on a
+violation. This replaced the previous manual instruction to run
+`git diff --stat` by hand before merging `main` into `develop` — a step
+that depended on remembering to run it and was never actually enforced.
 
 ## Security
 

@@ -1,0 +1,78 @@
+# Tree-separation policy guard for `develop` -- the `develop` half of the
+# two-way branch-sync protection described in CONTRIBUTING.md. Mirrors
+# main's guard-tree-purity.yml, enforcing the opposite direction: any PR
+# into `develop`, or any push to `develop`, that touches a main-owned
+# path fails the check so it cannot be merged/landed.
+#
+# This replaced the previous manual instruction in CONTRIBUTING.md to run
+# `git diff --stat` by hand before merging main into develop -- a step
+# that depended on remembering to run it and was never actually enforced.
+#
+# The guard inspects the *diff* (what the change introduces), not just
+# the final tree, so a PR that adds and then removes a forbidden path in
+# the same range is still flagged.
+
+name: Guard branch purity
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  no-main-owned-paths:
+    name: Reject main-owned paths on develop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for diffing)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if any main-owned path appears in the diff
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          ZERO="0000000000000000000000000000000000000000"
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            RANGE="${PR_BASE_SHA}...${PR_HEAD_SHA}"
+            echo "Pull request diff range: $RANGE"
+            CHANGED=$(git diff --name-only "$RANGE")
+          elif [ "$PUSH_BEFORE" = "$ZERO" ]; then
+            echo "No usable 'before' SHA; scanning full tree at $PUSH_AFTER"
+            CHANGED=$(git ls-tree -r --name-only "$PUSH_AFTER")
+          else
+            RANGE="${PUSH_BEFORE}..${PUSH_AFTER}"
+            echo "Push diff range: $RANGE"
+            CHANGED=$(git diff --name-only "$RANGE")
+          fi
+
+          # Main-owned paths: main's own workflow files. Keep this in
+          # sync with guard-tree-purity.yml on main, which enforces the
+          # mirror list. .claude/ is intentionally NOT in this list --
+          # develop owns it, so it belongs here, not on the forbidden side.
+          FORBIDDEN_RE='^(\.github/workflows/build-test\.yml$|\.github/workflows/guard-tree-purity\.yml$|\.github/workflows/netbsd-build-test\.yml$|\.github/workflows/openssl-deprecation-canary\.yml$)'
+
+          OFFENDING=$(printf '%s\n' "$CHANGED" | grep -E "$FORBIDDEN_RE" || true)
+
+          if [ -n "$OFFENDING" ]; then
+            echo "::error::Tree-separation policy violation: these paths are main-owned and must not land on develop."
+            echo "Offending paths:"
+            printf '%s\n' "$OFFENDING" | sed 's/^/  - /'
+            echo ""
+            echo "See CONTRIBUTING.md's tree-separation policy section."
+            exit 1
+          fi
+
+          echo "OK: no main-owned paths in the change. Tree-separation policy satisfied."
