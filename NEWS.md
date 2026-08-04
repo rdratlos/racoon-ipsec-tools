@@ -43,9 +43,10 @@ per-request wherever safely possible — a malformed or refused request
 fails only itself, with every wait now bounded so a stuck request can no
 longer hang the daemon. This pass also fixed a PF_KEY policy gate that
 had been silently blocking `racoonctl vd`/`show-sa`/DPD under privilege
-separation, and an `EPERM`-handling bug that could mask a real failure as
-success. Privilege separation is now the packaging-documented default
-configuration.
+separation, an `EPERM`-handling bug that could mask a real failure as
+success, and a credential-handling memory leak on the admin socket that
+a malformed or unmatched request could trigger repeatedly. Privilege
+separation is now the packaging-documented default configuration.
 
 ### Split-DNS / roadwarrior hooks hardening
 
