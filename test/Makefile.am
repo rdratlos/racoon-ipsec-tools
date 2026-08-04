@@ -465,6 +465,44 @@ test_racoonctl_encode_requests_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
 	-Wl,--wrap=exit
 endif
 
+# Test: f_exchangesa() (racoonctl.c) -- the establish-sa encoder, the
+# most structurally involved of racoonctl's request builders: "-u
+# identity"/PSK injection, "-n remoteconf" name append, "-w"
+# wait-for-completion flag. See test_racoonctl_exchangesa.c's own header
+# comment for the PSK id_len/key_len-includes-NUL convention this test
+# pins down by decoding the real f_exchangesa() output through the exact
+# struct layout admin.c's own ADMIN_ESTABLISH_SA_PSK test
+# (test_admin_establish_sa_psk.c) assumes -- a genuine, previously
+# unpinned assumption gap between the two sides of this wire protocol.
+#
+# Same racoonctl_get_sockaddr_stub.c as the other racoonctl.c tests
+# above (get_proto_and_index() -> get_sockaddr()); also links
+# racoonctl_getpass_stub.c for the "-u identity" branch's getpass() call
+# (real terminal I/O) -- see that file's own header comment for the
+# spike that confirmed this plain-symbol-shadowing substitution (no
+# -Wl,--wrap=) is safe on this toolchain.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_racoonctl_exchangesa
+
+test_racoonctl_exchangesa_SOURCES  = test_racoonctl_exchangesa.c \
+	racoonctl_unittest_src.c \
+	racoonctl_unittest_stubs.c \
+	racoonctl_get_sockaddr_stub.c \
+	racoonctl_getpass_stub.c
+test_racoonctl_exchangesa_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_racoonctl_exchangesa_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_racoonctl_exchangesa_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_racoonctl_exchangesa_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Test: kmpstat com_recv() short-read/EOF diagnostics (daemon-issues.md
 # Issue 4) — com_recv()'s "sanity check" goto bad1 on a truncated header
 # used to print nothing at all, so racoonctl (vpn-disconnect and any other
