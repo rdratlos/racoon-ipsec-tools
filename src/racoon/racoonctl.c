@@ -943,6 +943,16 @@ get_comindexes(family, ac, av)
 
 	if (p_name)
 		racoon_free(p_name);
+	/*
+	 * p_prefs/p_prefd are only ever read here (atoi(), just above)
+	 * and never needed again -- freeing them only on the "bad:" path
+	 * below leaked one or two allocations on every successful call
+	 * that specified an explicit prefix (issue #120).
+	 */
+	if (p_prefs)
+		racoon_free(p_prefs);
+	if (p_prefd)
+		racoon_free(p_prefd);
 
 	return buf;
 

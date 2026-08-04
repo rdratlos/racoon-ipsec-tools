@@ -361,6 +361,47 @@ test_racoonctl_get_comindex_LDADD    = $(top_builddir)/src/racoon/misc_noplog.o
 test_racoonctl_get_comindex_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Test: get_comindexes()/get_index()/get_family()/get_proto()/
+# get_ulproto() (racoonctl.c) -- the struct admin_com_indexes wire-layout
+# builder above get_comindex() (test_racoonctl_get_comindex.c, issue
+# #119). Also the regression test for issue #120 (p_prefs/p_prefd leaked
+# on every successful parse with an explicit prefix). See
+# test_racoonctl_get_comindexes.c's own header comment for both.
+#
+# get_comindexes() calls get_sockaddr() (kmpstat.c, a real getaddrinfo()
+# call) twice per invocation; racoonctl_get_sockaddr_stub.c substitutes a
+# numeric-only, DNS-free stand-in (ordinary external linkage, no
+# -Wl,--wrap= needed -- see that file's own header comment). vmbuf.o is
+# linked (unlike test_racoonctl_get_comindex/test_racoonctl_logoutusr's
+# reasoning) because get_comindexes() itself calls vmalloc().
+#
+# -Wl,--wrap=free backs the issue #120 leak-count assertion specifically
+# (racoon_free() is a plain free() in this non-debug build); a canary
+# free() at startup SKIPs only that one assertion, not this binary's
+# other (wrap-independent) tests, if the wrap does not intercept on this
+# toolchain -- see doc/dev/wrap-based-tests-vs-lto.md.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_racoonctl_get_comindexes
+
+test_racoonctl_get_comindexes_SOURCES  = test_racoonctl_get_comindexes.c \
+	racoonctl_unittest_src.c \
+	racoonctl_unittest_stubs.c \
+	racoonctl_get_sockaddr_stub.c
+test_racoonctl_get_comindexes_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_racoonctl_get_comindexes_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_racoonctl_get_comindexes_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_racoonctl_get_comindexes_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
+	-Wl,--wrap=free
+endif
+
 # Test: kmpstat com_recv() short-read/EOF diagnostics (daemon-issues.md
 # Issue 4) — com_recv()'s "sanity check" goto bad1 on a truncated header
 # used to print nothing at all, so racoonctl (vpn-disconnect and any other
