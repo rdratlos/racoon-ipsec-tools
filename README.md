@@ -213,6 +213,43 @@ Verify a signed tag:
 git verify-tag v<VERSION>
 ```
 
+## Continuous Integration
+
+Every push and pull request runs build + unit tests + Valgrind (via
+[`shared-ci`](https://github.com/rdratlos/shared-ci)'s reusable Autotools
+workflow) and the OpenSSL 4.0 deprecation canary. Results show up as
+several GitHub checks on the commit/PR:
+
+* **CI: build & test**, **CI: valgrind** — per-area pass/fail, unchanged
+  from before. **CI: valgrind** now also carries inline annotations for
+  any leak/error Valgrind reports, pointing at the source line.
+* **CI: overall** — one consolidated check with a stage table
+  (Configure/Build/Unit tests/Valgrind), execution times, and test
+  counts; overall status is SUCCESS, WARNING (build is sound but tests or
+  Valgrind are red), or FAILURE (build itself is broken).
+* **CI: compiler diagnostics** — inline annotations for every compiler
+  warning/error found in the build, on a toolchain that supports
+  `-fdiagnostics-format=sarif-file` (GCC >= 13; gracefully absent
+  otherwise, e.g. older toolchains this project also targets). Not
+  `::error::`/`::warning::` workflow commands, which cap at 10 of each
+  per step and 50 per run — real Checks API annotations, which don't.
+* **CI: OpenSSL 4.0 canary (regression guard / readiness tracker)** — see
+  `.github/workflows/openssl-deprecation-canary.yml`'s header for what
+  each half means; a target/blocking/outcome table is in that run's job
+  summary.
+
+Separately, **NetBSD CI Build & Test** builds and unit-tests the project
+inside a real NetBSD 10 VM — portability to a non-Linux, non-glibc
+upstream, and (by default, since it's this project's NetBSD-side
+equivalent of the Valgrind checks above) an ASan/UBSan-instrumented
+build. No custom Checks-API reporting here; the workflow's own pass/fail
+is the signal, which is what its badge reflects.
+
+`develop` runs its own equivalent of every workflow above (see that
+branch's own docs) — GitHub Actions requires a workflow file to exist on
+the branch an event targets, so `main`'s workflows cannot themselves cover
+`develop`-targeting PRs; see `CONTRIBUTING.md`'s tree-separation section.
+
 ## Contributing
 
 Bug reports, portability fixes, interoperability improvements, and documentation contributions are welcome. Report via GitHub Issues.
