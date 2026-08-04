@@ -983,7 +983,17 @@ get_comindex(str, name, port, pref)
 				*p = '\0';
 				*port = racoon_strdup(p + 1);
 				STRDUP_FATAL(*port);
-				p = strchr(*pref, ']');
+				/*
+				 * The trailing ']' terminates *port (just
+				 * copied above as e.g. "4500]"), not *pref
+				 * (already truncated to just the prefix
+				 * digits two lines up, so it can never
+				 * contain ']' at all) -- searching *pref
+				 * here always failed and rejected every
+				 * "addr/prefix[port]" input, unconditionally
+				 * (issue #119).
+				 */
+				p = strchr(*port, ']');
 				if (p == NULL)
 					goto bad;
 				*p = '\0';

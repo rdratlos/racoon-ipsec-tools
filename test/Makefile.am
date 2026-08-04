@@ -324,6 +324,43 @@ test_racoonctl_logoutusr_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 endif
 
+# Test: get_comindex() address-form grammar (racoonctl.c, issue #119) --
+# the "addr/prefix[port]" branch stripped ']' by searching *pref (already
+# truncated to just the prefix digits, so it can never contain ']')
+# instead of *port (which actually holds it), unconditionally rejecting
+# every "addr/prefix[port]" input -- the documented esp/ah <saopts> form
+# from usage(). See test_racoonctl_get_comindex.c's own header comment
+# for the full grammar matrix this covers and the upstream-provenance
+# finding (present in this repo's own upstream/0.8.2+20140711 tag and
+# still unfixed in vendor/netbsd's current tree as of this writing).
+#
+# Same racoonctl.c wrapper source and link approach as
+# test_racoonctl_logoutusr above; get_comindex() itself needs no vmbuf.o
+# at all (it uses only racoon_strdup()/racoon_free(), gcmalloc.h macros
+# for plain strdup()/free() in a non-debug build, not vmalloc()/vfree()),
+# so it is omitted here.
+#
+# Unlike test_racoonctl_logoutusr, not gated on ENABLE_HYBRID:
+# get_comindex() is unconditional.
+#
+# Also excluded from sanitizer builds, same reason as
+# test_racoonctl_logoutusr above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_racoonctl_get_comindex
+
+test_racoonctl_get_comindex_SOURCES  = test_racoonctl_get_comindex.c \
+	racoonctl_unittest_src.c \
+	racoonctl_unittest_stubs.c
+test_racoonctl_get_comindex_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_racoonctl_get_comindex_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_racoonctl_get_comindex_LDADD    = $(top_builddir)/src/racoon/misc_noplog.o
+test_racoonctl_get_comindex_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Test: kmpstat com_recv() short-read/EOF diagnostics (daemon-issues.md
 # Issue 4) — com_recv()'s "sanity check" goto bad1 on a truncated header
 # used to print nothing at all, so racoonctl (vpn-disconnect and any other
