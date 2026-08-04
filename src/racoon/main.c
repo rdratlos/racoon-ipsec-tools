@@ -80,6 +80,7 @@
 
 int dump_config = 0;	/* dump parsed config file. */
 int f_local = 0;	/* local test mode.  behave like a wall. */
+int f_configtest = 0;	/* check configuration file syntax, then exit. */
 int vflag = 1;		/* for print-isakmp.c */
 static int loading_sa = 0;	/* install sa when racoon boots up. */
 
@@ -135,7 +136,7 @@ print_version()
 static void
 usage()
 {
-	printf("usage: racoon [-BdFv"
+	printf("usage: racoon [-BdFtv"
 #ifdef INET6
 		"46"
 #endif
@@ -146,6 +147,7 @@ usage()
 		"   -C: dump parsed config file.\n"
 		"   -L: include location in debug messages\n"
 		"   -F: run in foreground, do not become daemon.\n"
+		"   -t: check the configuration file for syntax errors, then exit.\n"
 		"   -v: be more verbose\n"
 		"   -V: print version and exit\n"
 #ifdef INET6
@@ -179,7 +181,7 @@ parse(ac, av)
 	else
 		pname = *av;
 
-	while ((c = getopt(ac, av, "dLFp:P:f:l:vVZBC"
+	while ((c = getopt(ac, av, "dLFp:P:f:l:tvVZBC"
 #ifdef YYDEBUG
 			"y"
 #endif
@@ -209,6 +211,9 @@ parse(ac, av)
 			break;
 		case 'l':
 			plogset(optarg);
+			break;
+		case 't':
+			f_configtest = 1;
 			break;
 		case 'v':
 			vflag++;
@@ -270,8 +275,44 @@ main(ac, av)
 {
 	int error;
 
+	/*
+	 * doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 2 (F5): plogv() (plog.c) writes every
+	 * foreground (-F) log line to stdout via vprintf(), and glibc/NetBSD
+	 * libc both default to full block buffering (not line buffering)
+	 * whenever stdout isn't a TTY -- which is exactly what a systemd
+	 * unit's stdout is (piped into the journal). That delays and can
+	 * reorder log lines relative to the events they describe, exactly
+	 * the "logs lie" confusion the -F | cat vs. real-TTY reproducer in
+	 * doc/dev/v0.9.1-hardening-spec.md §5.6 demonstrates. Force line buffering unconditionally
+	 * so a full line reaches its destination (journal, pipe, redirected
+	 * file) as soon as it is written, matching a TTY's own default
+	 * behavior and the *intended* immediacy of "-F to a terminal for
+	 * interactive debugging" either way.
+	 *
+	 * Must run before any stdout I/O happens at all, including the
+	 * `-F` handling's own "Foreground mode.\n" printf() inside parse()
+	 * below: per C11 7.21.5.6 / POSIX setvbuf(3), setvbuf() is only
+	 * guaranteed well-defined when called before any other operation on
+	 * the stream. buf=NULL, size=0 asks the implementation for its own
+	 * default-sized buffer -- confirmed against both the glibc and
+	 * NetBSD libc setvbuf(3) manuals, both of which document that combi-
+	 * nation as the portable way to select a mode without dictating a
+	 * specific buffer/size. setvbuf() itself, unlike the BSD-only
+	 * setlinebuf() convenience wrapper it is equivalent to, is standard
+	 * ISO C -- no portability gap between glibc and NetBSD libc here.
+	 */
+	setvbuf(stdout, NULL, _IOLBF, 0);
+
 	initlcconf();
 	parse(ac, av);
+
+	if (f_configtest) {
+		/*
+		 * Force plog() to also print to stdout, the same as -F,
+		 * so parse errors are visible without a working syslogd.
+		 */
+		f_foreground = 1;
+	}
 
 	if (geteuid() != 0) {
 		errx(1, "must be root to invoke this program.");
@@ -308,8 +349,29 @@ main(ac, av)
 	plog(LLV_INFO, LOCATION, NULL, "@(#)"
 	    "This product linked %s (http://www.openssl.org/)"
 	    "\n", eay_version());
-	plog(LLV_INFO, LOCATION, NULL, "Reading configuration from \"%s\"\n", 
+	plog(LLV_INFO, LOCATION, NULL, "Reading configuration from \"%s\"\n",
 	    lcconf->racoon_conf);
+
+	if (f_configtest) {
+		/*
+		 * Run the exact same initialization and parser the daemon
+		 * uses at real startup (see session()), including the
+		 * pfkey-derived kernel algorithm support checks, but without
+		 * opening the admin port, forking, or writing a pid file.
+		 */
+		session_init_before_cfparse();
+		if (cfparse() != 0) {
+			fprintf(stderr,
+			    "%s: configuration file \"%s\" test failed\n",
+			    pname, lcconf->racoon_conf);
+			exit(1);
+		}
+		printf("%s: configuration file \"%s\" syntax is ok\n",
+		    pname, lcconf->racoon_conf);
+		printf("%s: configuration file \"%s\" test is successful\n",
+		    pname, lcconf->racoon_conf);
+		exit(0);
+	}
 
 	/*
 	 * install SAs from the specified file.  If the file is not specified

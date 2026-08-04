@@ -183,6 +183,7 @@ racoon remains useful when interoperability with existing IKEv1 deployments is r
 * Migration Guide  
 * Release Notes  
 * Historical ipsec-tools documentation
+* [Split-DNS/Routing Hooks Architecture](doc/dev/ARCHITECTURE.md) — start here to troubleshoot or extend the VPN DNS/routing hooks
 
 ## Verifying Releases
 

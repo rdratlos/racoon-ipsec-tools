@@ -114,6 +114,17 @@ static void str_lifetime_byte __P((struct sadb_lifetime *, char *));
 static void pfkey_sadump1(struct sadb_msg *, int);
 static void pfkey_spdump1(struct sadb_msg *, int);
 
+/*
+ * When set via pfkey_spdump_filter_socket_policy(), pfkey_spdump1()
+ * suppresses output for per-socket policy entries (setkey -DPN).
+ * pfkey_spdump_nosock_filtered counts how many entries were hidden this
+ * way in the current SPD dump; it is reset whenever a new dump begins
+ * (the entry carrying sadb_msg_seq == 1, the kernel's first reply) and
+ * can be read back via pfkey_spdump_filtered_count().
+ */
+static int pfkey_spdump_nosock = 0;
+static unsigned long pfkey_spdump_nosock_filtered = 0;
+
 struct val2str {
 	int val;
 	const char *str;
@@ -216,23 +227,19 @@ static struct val2str str_alg_comp[] = {
  */
 
 void
-pfkey_sadump(m)
-	struct sadb_msg *m;
+pfkey_sadump(struct sadb_msg *m)
 {
 	pfkey_sadump1(m, 0);
 }
 
 void
-pfkey_sadump_withports(m)
-	struct sadb_msg *m;
+pfkey_sadump_withports(struct sadb_msg *m)
 {
 	pfkey_sadump1(m, 1);
 }
 
 void
-pfkey_sadump1(m, withports)
-	struct sadb_msg *m;
-	int withports;
+pfkey_sadump1(struct sadb_msg *m, int withports)
 {
 	caddr_t mhp[SADB_EXT_MAX + 1];
 	struct sadb_sa *m_sa;
@@ -467,23 +474,42 @@ pfkey_sadump1(m, withports)
 }
 
 void
-pfkey_spdump(m)
-	struct sadb_msg *m;
+pfkey_spdump(struct sadb_msg *m)
 {
 	pfkey_spdump1(m, 0);
 }
 
 void
-pfkey_spdump_withports(m)
-	struct sadb_msg *m;
+pfkey_spdump_withports(struct sadb_msg *m)
 {
 	pfkey_spdump1(m, 1);
 }
 
+/*
+ * Control whether pfkey_spdump()/pfkey_spdump_withports() skip
+ * per-socket policy entries (the ones shown as "(per-socket policy)").
+ * Pass a non-zero value to suppress them.
+ */
+void
+pfkey_spdump_filter_socket_policy(nosock)
+	int nosock;
+{
+	pfkey_spdump_nosock = nosock;
+}
+
+/*
+ * Number of per-socket policy entries hidden by the filter enabled
+ * through pfkey_spdump_filter_socket_policy() during the SPD dump
+ * currently in progress (or just completed).
+ */
+unsigned long
+pfkey_spdump_filtered_count(void)
+{
+	return pfkey_spdump_nosock_filtered;
+}
+
 static void
-pfkey_spdump1(m, withports)
-	struct sadb_msg *m;
-	int withports;
+pfkey_spdump1(struct sadb_msg *m, int withports)
 {
 	char pbuf[NI_MAXSERV];
 	caddr_t mhp[SADB_EXT_MAX + 1];
@@ -521,12 +547,36 @@ pfkey_spdump1(m, withports)
 #ifdef SADB_X_EXT_SEC_CTX
 	m_sec_ctx = (struct sadb_x_sec_ctx *)mhp[SADB_X_EXT_SEC_CTX];
 #endif
+    {
+	int is_socket_policy = 0;
+
+	/* sadb_msg_seq == 1 marks the kernel's first reply of a fresh
+	 * SPD dump, so this is where a new per-dump filtered count starts. */
+	if (m->sadb_msg_seq == 1)
+		pfkey_spdump_nosock_filtered = 0;
+
 #ifdef __linux__
-	/* *bsd indicates per-socket policies by omiting src and dst 
+	/* *bsd indicates per-socket policies by omiting src and dst
 	 * extensions. Linux always includes them, but we can catch it
 	 * by checkin for policy id.
 	 */
-	if (m_xpl->sadb_x_policy_id % 8 >= 3) {
+	if (m_xpl != NULL && m_xpl->sadb_x_policy_id % 8 >= 3)
+		is_socket_policy = 1;
+#endif
+	if (!is_socket_policy && !(m_saddr && m_daddr)
+#ifdef SADB_X_EXT_TAG
+	    && m_tag == NULL
+#endif
+	    )
+		is_socket_policy = 1;
+
+	if (pfkey_spdump_nosock && is_socket_policy) {
+		pfkey_spdump_nosock_filtered++;
+		return;
+	}
+
+#ifdef __linux__
+	if (is_socket_policy) {
 		printf("(per-socket policy) ");
 	} else
 #endif
@@ -588,6 +638,7 @@ pfkey_spdump1(m, withports)
 #endif
 	else
 		printf("(no selector, probably per-socket policy) ");
+    }
 
 	/* policy */
     {
@@ -653,8 +704,7 @@ pfkey_spdump1(m, withports)
  * set "ipaddress" to buffer.
  */
 static char *
-str_ipaddr(sa)
-	struct sockaddr *sa;
+str_ipaddr(struct sockaddr *sa)
 {
 	static char buf[NI_MAXHOST];
 	const int niflag = NI_NUMERICHOST;
@@ -672,8 +722,7 @@ str_ipaddr(sa)
  * set "port" to buffer.
  */
 static char *
-str_ipport(sa)
-	struct sockaddr *sa;
+str_ipport(struct sockaddr *sa)
 {
 	static char buf[NI_MAXHOST];
 	const int niflag = NI_NUMERICSERV;
@@ -692,8 +741,7 @@ str_ipport(sa)
  * set "/prefix[port number]" to buffer.
  */
 static char *
-str_prefport(family, pref, port, ulp)
-	u_int family, pref, port, ulp;
+str_prefport(u_int family, u_int pref, u_int port, u_int ulp)
 {
 	static char buf[256];
 	char prefbuf[128];
@@ -737,8 +785,7 @@ str_prefport(family, pref, port, ulp)
 }
 
 static void
-str_upperspec(ulp, p1, p2)
-	u_int ulp, p1, p2;
+str_upperspec(u_int ulp, u_int p1, u_int p2)
 {
 	struct protoent *ent;
 
@@ -767,8 +814,7 @@ str_upperspec(ulp, p1, p2)
  * set "Mon Day Time Year" to buffer
  */
 static char *
-str_time(t)
-	time_t t;
+str_time(time_t t)
 {
 	static char buf[128];
 
@@ -789,9 +835,7 @@ str_time(t)
 }
 
 static void
-str_lifetime_byte(x, str)
-	struct sadb_lifetime *x;
-	char *str;
+str_lifetime_byte(struct sadb_lifetime *x, char *str)
 {
 	double y;
 	char *unit;

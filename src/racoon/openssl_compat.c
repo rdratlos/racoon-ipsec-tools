@@ -5,10 +5,14 @@
  * Part of rdratlos/racoon-ipsec-tools — https://github.com/rdratlos/racoon-ipsec-tools
  */
 
+#include "config.h"
 #include "openssl_compat.h"
 
 #include <string.h>
 #include <stdio.h>
+
+#include "missing/strlcpy.h"
+
 #include <openssl/bio.h>
 #include <openssl/pem.h>
 #include <openssl/err.h>
@@ -283,8 +287,7 @@ EVP_PKEY_fromdata(EVP_PKEY_CTX *ctx, EVP_PKEY **pkey,
 	if (ctx) {
 		char *algo_name = EVP_PKEY_CTX_get_app_data(ctx);
 		if (algo_name) {
-			strncpy(params->algo, algo_name, sizeof(params->algo) - 1);
-			params->algo[sizeof(params->algo) - 1] = '\0';
+			strlcpy(params->algo, algo_name, sizeof(params->algo));
 			EVP_PKEY_CTX_set_app_data(ctx, NULL);
 			OPENSSL_free(algo_name);
 		}

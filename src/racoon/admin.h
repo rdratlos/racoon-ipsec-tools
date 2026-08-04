@@ -125,5 +125,6 @@ struct admin_com_psk {
 }; 
 
 extern int admin2pfkey_proto __P((u_int));
+extern int admin_check_sockpath __P((const char *));
 
 #endif /* _ADMIN_H */

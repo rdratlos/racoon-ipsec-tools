@@ -99,6 +99,100 @@ mode_t adminsock_mode = 0600;
 static struct sockaddr_un sunaddr;
 static int admin_process __P((int, char *));
 static int admin_reply __P((int, struct admin_com *, int, vchar_t *));
+static int mkdir_p __P((const char *, mode_t));
+
+/*
+ * Create a directory and all missing parents, like "mkdir -p".
+ * Pre-existing components (EEXIST) are not an error.
+ */
+static int
+mkdir_p(path, mode)
+	const char *path;
+	mode_t mode;
+{
+	char buf[MAXPATHLEN];
+	char *p;
+
+	if (strlcpy(buf, path, sizeof(buf)) >= sizeof(buf)) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+
+	for (p = buf + 1; *p != '\0'; p++) {
+		if (*p != '/')
+			continue;
+		*p = '\0';
+		if (mkdir(buf, mode) != 0 && errno != EEXIST)
+			return -1;
+		*p = '/';
+	}
+
+	if (mkdir(buf, mode) != 0 && errno != EEXIST)
+		return -1;
+
+	return 0;
+}
+
+#ifdef ENABLE_UNITTEST
+/*
+ * mkdir_p() is static, and admin_init() (its only production caller)
+ * needs a real, unwritable-by-the-test filesystem layout to reach the
+ * directory-creation branch at all. This thin wrapper lets a unit test
+ * drive mkdir_p() itself directly against a throwaway temp directory.
+ */
+int
+mkdir_p_unittest(path, mode)
+	const char *path;
+	mode_t mode;
+{
+	return mkdir_p(path, mode);
+}
+#endif /* ENABLE_UNITTEST */
+
+/*
+ * racoon.conf lets an admin point the admin socket at an arbitrary
+ * path via "listen { adminsock <path> ... ; }". Since admin_init()
+ * runs as root (before privilege separation drops), a careless or
+ * templated config pointing that path at an existing system file
+ * would cause it to be unlink()'d and replaced by a socket, and its
+ * parent directories to be created outright. Restrict the accepted
+ * file name to the conventional "racoon.sock" or a "*.sock"/"*.socket"
+ * suffix, and reject any ".." path traversal component, so racoon
+ * only ever touches paths that look like dedicated socket locations.
+ */
+int
+admin_check_sockpath(path)
+	const char *path;
+{
+	const char *base;
+	size_t plen, blen;
+
+	if (path == NULL || *path == '\0')
+		return -1;
+
+	plen = strlen(path);
+	if (strstr(path, "/../") != NULL ||
+	    strncmp(path, "../", 3) == 0 ||
+	    strcmp(path, "..") == 0 ||
+	    (plen >= 3 && strcmp(path + plen - 3, "/..") == 0))
+		return -1;
+
+	base = strrchr(path, '/');
+	base = (base != NULL) ? base + 1 : path;
+	if (*base == '\0')
+		return -1;
+
+	if (strcmp(base, "racoon.sock") == 0)
+		return 0;
+
+	blen = strlen(base);
+	if (blen > 5 && strcmp(base + blen - 5, ".sock") == 0)
+		return 0;
+	if (blen > 7 && strcmp(base + blen - 7, ".socket") == 0)
+		return 0;
+
+	return -1;
+}
 
 static int
 admin_handler(ctx, fd)
@@ -170,6 +264,26 @@ end:
 
 	return error;
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * admin_handler() is static, and every one of its branches (accept()
+ * failure, the recv(MSG_PEEK) header sanity check, the real read, and
+ * the close()-unless-(-2) tail) depends on lcconf->sock_admin already
+ * being a real, connected admin socket -- there is no other production
+ * caller to piggyback on. This thin wrapper lets a test point
+ * lcconf->sock_admin at a real listening AF_UNIX socket with a pending
+ * connection and drive the whole function directly; ctx/fd are accepted
+ * (matching the monitor_fd() callback signature admin_init() registers
+ * this as) but unused by admin_handler() itself, so the wrapper takes
+ * neither.
+ */
+int
+admin_handler_unittest(void)
+{
+	return admin_handler(NULL, -1);
+}
+#endif /* ENABLE_UNITTEST */
 
 static int admin_ph1_delete_sa(struct ph1handle *iph1, void *arg)
 {
@@ -356,6 +470,9 @@ admin_process(so2, combuf)
 		struct ph1handle *iph1;
 		struct sockaddr *dst;
 		char *loc, *rem;
+		int subscribed_once = 0;
+		int admin_delete_all_subscribed = 0;
+		int reply_error;
 
 		dst = (struct sockaddr *)
 			&((struct admin_com_indexes *)
@@ -366,10 +483,58 @@ admin_process(so2, combuf)
 
 		plog(LLV_INFO, LOCATION, NULL,
 		    "Flushing all SAs for peer %s\n", rem);
+		racoon_free(rem);
+
+		/*
+		 * Reply to *this* request now, before triggering the
+		 * teardown below -- not in this function's usual shared
+		 * tail (admin_reply()/event_list, near the end of this
+		 * function). purge_remote() -> isakmp_ph1delete() fires
+		 * EVT_PHASE1_DOWN synchronously once subscribed (below), and
+		 * racoonctl's vpn-disconnect/vd (f_vpnd(), racoonctl.c)
+		 * exits its wait loop on *whichever* message satisfies
+		 * evt_quit_event first -- it does not require this reply to
+		 * arrive first. An earlier version of this fix subscribed
+		 * before replying and left the reply for the shared tail:
+		 * that let the event reach the client before this reply did,
+		 * so the client (already satisfied) exited and closed its
+		 * end of the socket having never read this reply at all: the
+		 * shared tail's later admin_reply() then hit EPIPE on a
+		 * socket the peer had already closed -- and, worse, since
+		 * evt_subscribe() below also registers so2 in this process's
+		 * own fd-monitor/select() set, admin_handler() closing so2
+		 * in response to that EPIPE (this function returning
+		 * anything other than -2) left that registration dangling:
+		 * confirmed live to eventually make select() fail with
+		 * EBADF and take the whole daemon down, not just this
+		 * connection. Sending the reply here first, before anything
+		 * that could race it, guarantees this reply is the first
+		 * thing the client reads, matching what it already assumes.
+		 */
+		reply_error = admin_reply(so2, com, 0, NULL);
 
 		while ((iph1 = getph1bydstaddr(dst)) != NULL) {
 			loc = racoon_strdup(saddrwop2str(iph1->local));
 			STRDUP_FATAL(loc);
+
+			/*
+			 * Subscribe on the first iteration, before the first
+			 * purge_remote() below, and only if the reply above
+			 * actually reached the client -- if it did not, this
+			 * connection is already gone, and subscribing to it
+			 * would only recreate the dangling-registration problem
+			 * explained above for no benefit (nothing will ever
+			 * read the event anyway). Subscribing to the global
+			 * list (NULL) rather than any one iph1's own list
+			 * matters too: evt_phase1() broadcasts to both, and
+			 * dst can match more than one ph1 in this loop.
+			 */
+			if (!subscribed_once) {
+				if (reply_error == 0 &&
+				    evt_subscribe(NULL, so2) == -2)
+					admin_delete_all_subscribed = 1;
+				subscribed_once = 1;
+			}
 
 			if (iph1->status >= PHASE1ST_ESTABLISHED)
 				isakmp_info_send_d1(iph1);
@@ -378,8 +543,19 @@ admin_process(so2, combuf)
 			racoon_free(loc);
 		}
 
-		racoon_free(rem);
-		break;
+		/*
+		 * Return directly rather than falling through to this
+		 * function's shared tail: that tail's own admin_reply() call
+		 * would otherwise send a second reply to this same request
+		 * (the reply above already satisfied it), and its
+		 * event_list-driven evt_subscribe() call is not applicable
+		 * to this command (event_list is never set for it). buf/id/
+		 * key are all still their initial NULL from this function's
+		 * top, so nothing the shared tail would have freed is
+		 * skipped by returning here instead.
+		 */
+		return admin_delete_all_subscribed ? -2 :
+		    (reply_error != 0 ? reply_error : 0);
 	}
 
 	case ADMIN_ESTABLISH_SA_PSK: {
@@ -476,6 +652,8 @@ admin_process(so2, combuf)
 
 				rmconf->xauth->login = id;
 				rmconf->xauth->pass = key;
+				id = NULL;
+				key = NULL;
 			}
 #endif
 
@@ -632,9 +810,44 @@ admin_process(so2, combuf)
 out:
 	if (buf != NULL)
 		vfree(buf);
+	/*
+	 * ADMIN_ESTABLISH_SA_PSK's id/key (XAUTH login/password supplied
+	 * for this connection attempt, despite the command's name -- see
+	 * the ADMIN_PROTO_ISAKMP case above) are freed here rather than at
+	 * each of their several early-exit points (an existing ph1, no
+	 * matching rmconf, xauth_rmconf_used() failing, a non-ISAKMP proto
+	 * after PSK's FALLTHROUGH, an unrecognized command/proto, or simply
+	 * ENABLE_HYBRID not being compiled in) -- every one of those used to
+	 * leak both allocations. The one path that *doesn't* want them freed
+	 * here already transfers ownership to rmconf->xauth->login/pass and
+	 * NULLs both locals immediately after, so vfree()'s existing
+	 * NULL-tolerance is what makes a single unconditional cleanup point
+	 * safe for every other path.
+	 */
+	vfree(id);
+	vfree(key);
 
 	return error;
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * admin_process() is static, and its ADMIN_DELETE_ALL_SA_DST case (the
+ * reply-before-subscribe/no-dangling-fd fix documented above) is otherwise
+ * reachable only through admin_handler()'s full accept()/recv() path, which
+ * a unit test has no need to reconstruct. This thin wrapper lets a test
+ * hand it a pre-built command buffer directly and drive the real dispatch
+ * logic (including the real admin_reply() call it makes internally) over
+ * a plain socketpair standing in for the admin socket connection.
+ */
+int
+admin_process_unittest(so2, combuf)
+	int so2;
+	char *combuf;
+{
+	return admin_process(so2, combuf);
+}
+#endif /* ENABLE_UNITTEST */
 
 static int
 admin_reply(so, req, l_ac_errno, buf)
@@ -718,6 +931,69 @@ admin_init()
 	snprintf(sunaddr.sun_path, sizeof(sunaddr.sun_path),
 		"%s", adminsock_path);
 
+	if (admin_check_sockpath(sunaddr.sun_path) != 0) {
+		plog(LLV_ERROR, LOCATION, NULL,
+			"refusing admin socket path \"%s\": the file name "
+			"must be \"racoon.sock\" or end with \".sock\"/"
+			"\".socket\", and must not contain \"..\" "
+			"components\n", sunaddr.sun_path);
+		return -1;
+	}
+
+	/*
+	 * The runtime directory (e.g. /var/run/racoon) may not exist yet:
+	 * systemd's RuntimeDirectory= only creates it while the unit is
+	 * running, and nothing recreates it when racoon is started
+	 * manually (e.g. in foreground, for debugging). Create it here so
+	 * admin_init() does not depend on external tooling.
+	 *
+	 * Ownership is set explicitly afterwards, unconditionally -- not
+	 * only when mkdir_p() just created it. Whatever created this
+	 * directory (systemd's RuntimeDirectory=, a distribution's
+	 * tmpfiles.d entry, or mkdir_p() just above) has no idea which
+	 * group, if any, this specific "listen { adminsock ... group ...
+	 * }" directive grants access to; only this code does. This also
+	 * has to be reasserted here even when the directory pre-exists
+	 * with the wrong group: systemd's own RuntimeDirectory= handling
+	 * reconciles ownership against the unit's User=/Group= (unset, so
+	 * root:root) before *every* process it spawns for the unit, so a
+	 * one-time fixup from outside racoon (e.g. an ExecStartPre chgrp)
+	 * is silently undone again before ExecStart itself runs -- this
+	 * runs from inside the already-spawned, still-root racoon process
+	 * instead, which nothing spawned afterward can revert.
+	 */
+	{
+		char dir[MAXPATHLEN];
+		char *slash;
+
+		strlcpy(dir, sunaddr.sun_path, sizeof(dir));
+		slash = strrchr(dir, '/');
+		if (slash != NULL && slash != dir) {
+			*slash = '\0';
+			if (mkdir_p(dir, 0750) != 0) {
+				plog(LLV_ERROR, LOCATION, NULL,
+					"failed to create admin socket "
+					"directory %s: %s\n",
+					dir, strerror(errno));
+				return -1;
+			}
+
+			if (chown(dir, 0, adminsock_group) != 0) {
+				plog(LLV_ERROR, LOCATION, NULL,
+					"chown(%s, 0, %d): %s\n",
+					dir, adminsock_group, strerror(errno));
+				return -1;
+			}
+
+			if (chmod(dir, 0750) != 0) {
+				plog(LLV_ERROR, LOCATION, NULL,
+					"chmod(%s, 0750): %s\n",
+					dir, strerror(errno));
+				return -1;
+			}
+		}
+	}
+
 	lcconf->sock_admin = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (lcconf->sock_admin == -1) {
 		plog(LLV_ERROR, LOCATION, NULL,
@@ -726,7 +1002,34 @@ admin_init()
 	}
 	close_on_exec(lcconf->sock_admin);
 
-	unlink(sunaddr.sun_path);
+	/*
+	 * Only remove a pre-existing path if it is already a socket.
+	 * This keeps a misconfigured/traversal-crafted path (or a
+	 * symlink swapped in between checks) from causing racoon to
+	 * unlink and overwrite an unrelated file.
+	 */
+	{
+		struct stat st;
+
+		if (lstat(sunaddr.sun_path, &st) == 0) {
+			if (!S_ISSOCK(st.st_mode)) {
+				plog(LLV_ERROR, LOCATION, NULL,
+					"refusing to bind admin socket: "
+					"%s already exists and is not a "
+					"socket\n", sunaddr.sun_path);
+				(void)close(lcconf->sock_admin);
+				return -1;
+			}
+			unlink(sunaddr.sun_path);
+		} else if (errno != ENOENT) {
+			plog(LLV_ERROR, LOCATION, NULL,
+				"lstat(%s): %s\n",
+				sunaddr.sun_path, strerror(errno));
+			(void)close(lcconf->sock_admin);
+			return -1;
+		}
+	}
+
 	if (bind(lcconf->sock_admin, (struct sockaddr *)&sunaddr,
 			sizeof(sunaddr)) != 0) {
 		plog(LLV_ERROR, LOCATION, NULL,
@@ -761,7 +1064,11 @@ admin_init()
 		return -1;
 	}
 
-	monitor_fd(lcconf->sock_admin, admin_handler, NULL, 0);
+	if (monitor_fd(lcconf->sock_admin, admin_handler, NULL, 0) != 0) {
+		(void)close(lcconf->sock_admin);
+		lcconf->sock_admin = -1;
+		return -1;
+	}
 	plog(LLV_DEBUG, LOCATION, NULL,
 	     "open %s as racoon management.\n", sunaddr.sun_path);
 

@@ -47,19 +47,10 @@ override_dh_auto_configure:
 					--mandir=\$${prefix}/share/man \
 					--infodir=\$${prefix}/share/info \
 					--localstatedir=/var/run \
-					--enable-shared \
 					--disable-static \
-					--enable-frag \
-					--enable-gssapi \
-					--enable-hybrid \
-					--with-libldap \
-					--enable-dpd \
-					--enable-adminport \
-					--with-kernel-headers=/usr/include \
-					--with-libpam \
-					--without-readline \
 					--disable-security-context \
-					--enable-natt \
+					--without-readline \
+					--with-systemdsystemunitdir=/usr/lib/systemd/system \
 					$(COV_FLAGS)
 
 override_dh_clean:
@@ -75,11 +66,13 @@ override_dh_install:
 	mkdir -p debian/racoon/var/lib/racoon
 	install -m 755 debian/racoon-tool.pl \
 	    debian/racoon/usr/sbin/racoon-tool
-	install -D -m 600 src/racoon/samples/psk.txt.sample \
-	    debian/racoon/etc/racoon/psk.txt
 	install -m 644 debian/racoon-tool.conf \
 	    debian/racoon/etc/racoon
-	install -m 644 debian/racoon.conf \
+	# Conservative default (root-only): racoon.conf can carry secrets
+	# (e.g. an inline ldap_cfg bind_pw) once an admin edits it, and the
+	# unprivileged process re-reads this file directly on SIGHUP under
+	# privsep -- see racoon-admin-guide.html §8.5 for the exact tradeoff.
+	install -m 600 debian/racoon.conf \
 	    debian/racoon/etc/racoon/racoon.conf
 	mkdir -p debian/ipsec-tools/etc
 	install -m 755 debian/ipsec-tools.conf \
@@ -99,7 +92,34 @@ override_dh_installchangelogs:
 	dh_installchangelogs --no-trim NEWS.md
 
 override_dh_installexamples:
-	dh_installexamples -pracoon -X.in src/racoon/samples
+	# Glob the contents rather than passing the directory itself, so
+	# examples land at /usr/share/doc/racoon/examples/... (as referenced
+	# by debian/racoon.README.Debian) instead of being nested one level
+	# deeper under an extra .../examples/examples/... path segment.
+	#
+	# Unlike the old src/racoon/samples/ (plain static files, no build
+	# role of its own), docs/examples/ is a real automake directory with
+	# its own Makefile.am -- by the time this runs (after dh_autoreconf +
+	# dh_auto_build), the glob below would also match Makefile.am,
+	# Makefile.in, and the generated Makefile sitting right alongside the
+	# actual example files. -XMakefile excludes all three (substring
+	# match); -X.in still separately excludes racoon.conf.default.in
+	# (its rendered racoon.conf.default is the intended, generated
+	# example, and is not itself excluded).
+	#
+	# -Xroadwarrior excludes the roadwarrior client/server templates:
+	# those install to templatesdir (usr/share/racoon/templates, via
+	# debian/racoon.install, straight out of debian/tmp) rather than
+	# docdir precisely so they survive a minimal/container install that
+	# strips /usr/share/doc/* -- letting this glob also copy them here
+	# under docdir would silently defeat that (a stale second copy that
+	# gets removed on exactly the installs where it matters). Note for
+	# anyone touching this recipe: writing "$$(templatesdir)" (or any
+	# $$(...)) directly into a shell comment here needs that doubled $$ --
+	# Make expands $(...) in a recipe line even inside a "#" comment, not
+	# knowing it is "just a comment" until after variable expansion runs,
+	# and templatesdir is not one of this Makefile's own variables.
+	dh_installexamples -pracoon -X.in -XMakefile -Xroadwarrior docs/examples/*
 	dh_installexamples
 
 override_dh_installman:

@@ -239,9 +239,28 @@ plogdump(int pri, void *data, size_t len)
 	racoon_free(buf);
 }
 
+/*
+ * Callable more than once in the same process: privsep_init() (privsep.c)
+ * calls this a second time in the privileged parent, after closing every
+ * fd but the socketpair out from under the logp main() already opened, to
+ * reopen the log file on a fresh descriptor. Without freeing the old logp
+ * first, that second call orphans it -- struct log itself, its buf[]/
+ * tbuf[] ring-buffer arrays, and its fname copy, found by Valgrind against
+ * the privileged process (issue #105 verification). The ring buffer is
+ * always empty at this point in real daemon operation (log_add() is only
+ * ever called from this file's own standalone test main()), so discarding
+ * it here loses nothing; log_free() over log_close() specifically to skip
+ * log_close()'s pointless reopen-and-scan-for-content of that same empty
+ * buffer.
+ */
 void
 ploginit(void)
 {
+	if (logp != NULL) {
+		log_free(logp);
+		logp = NULL;
+	}
+
 	if (logfile) {
 		logp = log_open(250, logfile);
 		if (logp == NULL)

@@ -673,14 +673,13 @@ newsaddr(len)
 		goto out;
 	}
 
-#ifdef __linux__
-	if (len == sizeof (struct sockaddr_in6))
+if (len == sizeof (struct sockaddr_in6))
 		new->sa_family = AF_INET6;
 	else
 		new->sa_family = AF_INET;
-#else
-	/* initial */
-	new->sa_len = len;
+
+#if !defined(__linux__)
+	new->sa_len = (u_char)len;
 #endif
 out:
 	return new;
@@ -841,7 +840,21 @@ str2saddr(host, port)
 	return saddr;
 }
 
-void
+/*
+ * Copies b into a with its low (address length - l) bits cleared.
+ * Returns 0 on success, -1 if b cannot be masked at all -- an address
+ * family with no address bits to mask here, or a prefix length longer
+ * than that family's addresses.
+ *
+ * Both used to exit(1). Neither is a daemon-wide condition: the callers
+ * are policy and remote-config *matching* (cmpspidxwild(), policy.c, and
+ * naddr_score(), below), run per policy lookup and per negotiation over
+ * addresses that come from PF_KEY messages and from the config file. A
+ * comparison that cannot be made is one failed match, and the callers
+ * already have a way to say that -- ending the process instead took every
+ * unrelated live SA with it (issue #105).
+ */
+int
 mask_sockaddr(a, b, l)
 	struct sockaddr *a;
 	const struct sockaddr *b;
@@ -864,19 +877,21 @@ mask_sockaddr(a, b, l)
 	default:
 		plog(LLV_ERROR, LOCATION, NULL,
 			"invalid family: %d\n", b->sa_family);
-		exit(1);
+		return -1;
 	}
 
 	if ((alen << 3) < l) {
 		plog(LLV_ERROR, LOCATION, NULL,
 			"unexpected inconsistency: %d %zu\n", b->sa_family, l);
-		exit(1);
+		return -1;
 	}
 
 	memcpy(a, b, sysdep_sa_len(b));
 	p[l / 8] &= (0xff00 >> (l % 8)) & 0xff;
 	for (i = l / 8 + 1; i < alen; i++)
 		p[i] = 0x00;
+
+	return 0;
 }
 
 /* Compute a score describing how "accurate" a netaddr is for a given sockaddr.
@@ -924,7 +939,8 @@ naddr_score(const struct netaddr *naddr, const struct sockaddr *saddr)
 		return -1;
 
 	/* Here it comes - compare network addresses. */
-	mask_sockaddr(&sa.sa, saddr, naddr->prefix);
+	if (mask_sockaddr(&sa.sa, saddr, naddr->prefix) != 0)
+		return -1;	/* cannot be compared, so it does not match */
 	if (loglevel >= LLV_DEBUG) {	/* debug only */
 		char *a1, *a2, *a3;
 		a1 = racoon_strdup(naddrwop2str(naddr));

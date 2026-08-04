@@ -1,0 +1,5 @@
+DESC="Ubuntu 24.04, systemd-resolved stub symlink, resolvectl present"
+EXPECT_GLIBC_READER_SUFFIX="/run/systemd/resolve/stub-resolv.conf"
+EXPECT_NSS_RESOLVE="yes"
+EXPECT_DIVERGENT="no"
+EXPECT_PARALLEL_UNLINKED="no"

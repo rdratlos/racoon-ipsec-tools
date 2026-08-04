@@ -426,6 +426,21 @@ t2isakmpsa(trns, sa, vendorid_mask)
 		type = ntohs(d->type) & ~ISAKMP_GEN_MASK;
 		flag = ntohs(d->type) & ISAKMP_GEN_MASK;
 
+		/*
+		 * Bounds-check the attribute before touching it: the fixed
+		 * isakmp_data header must fit in the remaining bytes, and for
+		 * TLV (long-form) attributes the attacker-supplied value length
+		 * must not exceed what is left in the transform.  Without this,
+		 * a crafted length field drives an out-of-bounds read in the
+		 * memcpy() calls below (and in the loop advance).  (CWE-125)
+		 */
+		if (tlen < (int)sizeof(*d) ||
+		    (!flag && ntohs(d->lorv) > tlen - (int)sizeof(*d))) {
+			plog(LLV_ERROR, LOCATION, NULL,
+				"malformed ISAKMP SA attribute (bad length)\n");
+			goto err;
+		}
+
 		plog(LLV_DEBUG, LOCATION, NULL,
 			"type=%s, flag=0x%04x, lorv=%s\n",
 			s_oakley_attr(type), flag,
@@ -548,6 +563,7 @@ t2isakmpsa(trns, sa, vendorid_mask)
 					OAKLEY_ATTR_SA_LD_TYPE) {
 				plog(LLV_ERROR, LOCATION, NULL,
 				    "life duration must follow ltype\n");
+				vfree(val);
 				break;
 			}
 
@@ -729,6 +745,22 @@ out:
 err:
 	return error;
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * Test-only accessor.  t2isakmpsa() is static; this thin wrapper is compiled
+ * in only when this source is built with -DENABLE_UNITTEST (see the
+ * test_ipsec_doi_sa target in test/Makefile.am), so the SA transform
+ * attribute bounds checking can be regression-tested without changing the
+ * production API.
+ */
+int
+t2isakmpsa_unittest(struct isakmp_pl_t *trns, struct isakmpsa *sa,
+    u_int32_t vendorid_mask)
+{
+	return t2isakmpsa(trns, sa, vendorid_mask);
+}
+#endif /* ENABLE_UNITTEST */
 
 /*%%%*/
 /*

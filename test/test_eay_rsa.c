@@ -513,6 +513,33 @@ test_t11_get_params_partial_failure(void)
 	return 0;
 }
 
+/* Regression: eayRSA_has_private on a public-only key must not leave
+ * garbage in the OpenSSL error queue (Fix 3 audit finding). */
+static int
+test_t12_has_private_cleans_error_queue(void)
+{
+	TEST_START("T12 has_private must not leak error on public-only key");
+
+	ERR_clear_error();
+
+	BIGNUM *n = h2bn(K2048_N), *e = h2bn(K2048_E);
+	eayRSA *pub = eayRSA_new_pub(n, e);
+	BN_free(n); BN_free(e);
+	if (!pub) TEST_FAIL("eayRSA_new_pub failed");
+
+	(void)eayRSA_has_private(pub);
+
+	unsigned long err = ERR_get_error();
+	eayRSA_free(pub);
+
+	if (err != 0)
+		TEST_FAIL("eayRSA_has_private left an error on the queue "
+		          "for a public-only key (ERR_clear_error not called)");
+
+	TEST_PASS();
+	return 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -541,6 +568,7 @@ main(int argc, char **argv)
 
 	printf("\n=== REGRESSION TESTS ===\n");
 	ran++; if (test_t11_get_params_partial_failure() != 0) failed++;
+	ran++; if (test_t12_has_private_cleans_error_queue() != 0) failed++;
 
 	printf("\n");
 	printf("========================================================================\n");

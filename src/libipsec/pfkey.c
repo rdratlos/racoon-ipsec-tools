@@ -126,8 +126,7 @@ static int supported_map[] = {
 };
 
 static int
-findsupportedmap(satype)
-	int satype;
+findsupportedmap(int satype)
 {
 	int i;
 
@@ -138,8 +137,7 @@ findsupportedmap(satype)
 }
 
 static struct sadb_alg *
-findsupportedalg(satype, alg_id)
-	u_int satype, alg_id;
+findsupportedalg(u_int satype, u_int alg_id)
 {
 	int algno;
 	int tlen;
@@ -176,8 +174,7 @@ findsupportedalg(satype, alg_id)
 }
 
 static int
-setsupportedmap(sup)
-	struct sadb_supported *sup;
+setsupportedmap(struct sadb_supported *sup)
 {
 	struct sadb_supported **ipsup;
 
@@ -216,10 +213,7 @@ setsupportedmap(sup)
  *	 0: valid.
  */
 int
-ipsec_check_keylen(supported, alg_id, keylen)
-	u_int supported;
-	u_int alg_id;
-	u_int keylen;
+ipsec_check_keylen(u_int supported, u_int alg_id, u_int keylen)
 {
 	u_int satype;
 
@@ -248,10 +242,7 @@ ipsec_check_keylen(supported, alg_id, keylen)
  *	 0: valid.
  */
 int
-ipsec_check_keylen2(satype, alg_id, keylen)
-	u_int satype;
-	u_int alg_id;
-	u_int keylen;
+ipsec_check_keylen2(u_int satype, u_int alg_id, u_int keylen)
 {
 	struct sadb_alg *alg;
 
@@ -279,9 +270,7 @@ ipsec_check_keylen2(satype, alg_id, keylen)
  *	 0: valid.
  */
 int
-ipsec_get_keylen(supported, alg_id, alg0)
-	u_int supported, alg_id;
-	struct sadb_alg *alg0;
+ipsec_get_keylen(u_int supported, u_int alg_id, struct sadb_alg *alg0)
 {
 	struct sadb_alg *alg;
 	u_int satype;
@@ -324,8 +313,7 @@ static u_int soft_lifetime_addtime_rate = PFKEY_SOFT_LIFETIME_RATE;
 static u_int soft_lifetime_usetime_rate = PFKEY_SOFT_LIFETIME_RATE;
 
 u_int
-pfkey_set_softrate(type, rate)
-	u_int type, rate;
+pfkey_set_softrate(u_int type, u_int rate)
 {
 	__ipsec_errcode = EIPSEC_NO_ERROR;
 
@@ -356,8 +344,7 @@ pfkey_set_softrate(type, rate)
  * ATTENTION: ~0 is returned if invalid type was passed.
  */
 u_int
-pfkey_get_softrate(type)
-	u_int type;
+pfkey_get_softrate(u_int type)
 {
 	switch (type) {
 	case SADB_X_LIFETIME_ALLOCATIONS:

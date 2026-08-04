@@ -190,8 +190,6 @@ struct ulproto_tag {
 	{ 0, NULL },
 };
 
-int so;
-
 static char _addr1_[NI_MAXHOST], _addr2_[NI_MAXHOST];
 
 char *pname;
@@ -212,8 +210,8 @@ usage()
 "Usage:\n"
 "  %s [opts] reload-config\n"
 "  %s [opts] show-schedule\n"
-"  %s [opts] show-sa [protocol]\n"
-"  %s [opts] flush-sa [protocol]\n"
+"  %s [opts] show-sa <protocol>\n"
+"  %s [opts] flush-sa <protocol>\n"
 "  %s [opts] delete-sa <saopts>\n"
 "  %s [opts] establish-sa [-u identity] [-n remoteconf] [-w] <saopts>\n"
 "  %s [opts] vpn-connect [-u identity] vpn_gateway\n"
@@ -301,7 +299,8 @@ main(ac, av)
 	if (loglevel)
 		racoon_hexdump(combuf, ((struct admin_com *)combuf)->ac_len);
 
-	com_init();
+	if (com_init() != 0)
+		goto bad;
 
 	if (com_send(combuf) != 0)
 		goto bad;
@@ -316,11 +315,11 @@ main(ac, av)
 		vfree(combuf);
 	} while (evt_quit_event != 0);
 
-	close(so);
+	com_close();
 	exit(0);
 
 bad:
-	close(so);
+	com_close();
 	if (errno == EEXIST)
 		exit(0);
 	exit(1);
@@ -750,14 +749,35 @@ f_logoutusr(ac, av)
 	if ((user == NULL) || (userlen > LOGINLEN))
 		errx(1, "bad login (too long?)");
 
-	buf = make_request(ADMIN_LOGOUT_USER, 0, userlen);
+	/*
+	 * +1 for the NUL terminator strlcpy() below needs: buf->l is
+	 * sizeof(admin_com) + this length, and strlcpy()'s size argument
+	 * counts the NUL, so requesting exactly userlen here would leave
+	 * only userlen-1 bytes for the username itself (#71).
+	 */
+	buf = make_request(ADMIN_LOGOUT_USER, 0, userlen + 1);
 	if (buf == NULL)
 		return NULL;
 
-	strncpy(buf->v + sizeof(struct admin_com), user, userlen+1);
+	strlcpy(buf->v + sizeof(struct admin_com), user, buf->l - sizeof(struct admin_com));
 
 	return buf;
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * Test-only accessor. f_logoutusr() is static; this thin wrapper is
+ * compiled in only when this source is built with -DENABLE_UNITTEST
+ * (see the test_racoonctl_logoutusr target in test/Makefile.am), so
+ * the ADMIN_LOGOUT_USER request-buffer sizing (issue #68) can be
+ * regression-tested without changing the production API.
+ */
+vchar_t *
+f_logoutusr_unittest(int ac, char **av)
+{
+	return f_logoutusr(ac, av);
+}
+#endif /* ENABLE_UNITTEST */
 #endif /* ENABLE_HYBRID */
 
 static vchar_t *
@@ -854,7 +874,7 @@ get_comindexes(family, ac, av)
 	int ac;
 	char **av;
 {
-	vchar_t *buf;
+	vchar_t *buf = NULL;
 	struct admin_com_indexes *ci;
 	char *p_name = NULL, *p_port = NULL;
 	char *p_prefs = NULL, *p_prefd = NULL;
@@ -923,6 +943,16 @@ get_comindexes(family, ac, av)
 
 	if (p_name)
 		racoon_free(p_name);
+	/*
+	 * p_prefs/p_prefd are only ever read here (atoi(), just above)
+	 * and never needed again -- freeing them only on the "bad:" path
+	 * below leaked one or two allocations on every successful call
+	 * that specified an explicit prefix (issue #120).
+	 */
+	if (p_prefs)
+		racoon_free(p_prefs);
+	if (p_prefd)
+		racoon_free(p_prefd);
 
 	return buf;
 
@@ -935,6 +965,15 @@ get_comindexes(family, ac, av)
 		racoon_free(p_prefs);
 	if (p_prefd)
 		racoon_free(p_prefd);
+	/*
+	 * buf is allocated (vmalloc(), above) before the ul_proto check
+	 * that is the only remaining way to reach this label afterward --
+	 * every earlier "goto bad" above happens before buf exists. Never
+	 * freeing it here leaked the whole admin_com_indexes allocation
+	 * whenever get_ulproto() rejected the trailing argument (#121).
+	 */
+	if (buf)
+		vfree(buf);
 	return NULL;
 }
 
@@ -963,7 +1002,17 @@ get_comindex(str, name, port, pref)
 				*p = '\0';
 				*port = racoon_strdup(p + 1);
 				STRDUP_FATAL(*port);
-				p = strchr(*pref, ']');
+				/*
+				 * The trailing ']' terminates *port (just
+				 * copied above as e.g. "4500]"), not *pref
+				 * (already truncated to just the prefix
+				 * digits two lines up, so it can never
+				 * contain ']' at all) -- searching *pref
+				 * here always failed and rejected every
+				 * "addr/prefix[port]" input, unconditionally
+				 * (issue #119).
+				 */
+				p = strchr(*port, ']');
 				if (p == NULL)
 					goto bad;
 				*p = '\0';
@@ -1175,15 +1224,22 @@ char *long_h1 =
 		printf("%s ", long_format ?
 			  fixed_addr(_addr1_, _addr2_, 45)
 			: fixed_addr(_addr1_, _addr2_, 22));
-		addr++;
+		/*
+		 * Measure the address just read, before advancing past
+		 * it -- advancing first and measuring the *next* address
+		 * instead reads one struct sockaddr past the end of the
+		 * buffer for the second (dst) block below, since nothing
+		 * follows dst in a normal src+dst record (issue #122).
+		 */
 		tlen -= sysdep_sa_len(addr);
+		addr++;
 
 		GETNAMEINFO(addr, _addr1_, _addr2_);
 		printf("%s ", long_format ?
 			  fixed_addr(_addr1_, _addr2_, 45)
 			: fixed_addr(_addr1_, _addr2_, 22));
-		addr++;
 		tlen -= sysdep_sa_len(addr);
+		addr++;
 
 		printf("\n");
 	}
@@ -1278,7 +1334,17 @@ print_evt(evtdump)
 		if (evtmsg[i].type == evtdump->ec_type)
 			break;
 
-	if (evtmsg[i].msg == NULL)
+	/*
+	 * i == ARRAYLEN(evtmsg) here means no entry matched (the loop ran
+	 * to completion without ever hitting the break) -- evtmsg[i] at
+	 * that point is one element past the end of the array, undefined
+	 * memory read as a struct evtmsg. Whether that memory happens to
+	 * read back as msg == NULL (the intended fallback firing "by
+	 * coincidence") or as a stray non-NULL pointer dereferenced as if
+	 * it were a real message string is toolchain/layout-dependent --
+	 * confirmed to differ in practice between toolchains (issue #123).
+	 */
+	if (i >= sizeof(evtmsg) / sizeof(evtmsg[0]) || evtmsg[i].msg == NULL)
 		printf("Event %d: ", evtdump->ec_type);
 	else
 		printf("%s : ", evtmsg[i].msg);
@@ -1374,9 +1440,20 @@ print_cfg(buf, len)
 		int col = 0;
 		int i;
 
-		if (ioctl(1, TIOCGWINSZ, &win) != 1) 
+		/*
+		 * ioctl(2) returns 0 on success, -1 on error -- never 1.
+		 * stdout is not a tty on any scripted/piped/redirected
+		 * invocation (including every unit test, which necessarily
+		 * captures stdout), so this is not a rare corner case: a
+		 * "!= 1" check here is unconditionally true and used to
+		 * leave win, and so col, reading uninitialized stack memory
+		 * whenever the ioctl() failed (issue #118).
+		 */
+		if (ioctl(1, TIOCGWINSZ, &win) == -1)
+			col = 0;
+		else
 			col = win.ws_col;
-			
+
 		for (i = 0; i < col; i++)
 			printf("%c", '=');
 		printf("\n%s\n", banner);
@@ -1527,3 +1604,133 @@ handle_recv(combuf)
 bad:
 	return -1;
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * Thin -DENABLE_UNITTEST accessors for racoonctl.c's static functions
+ * (v0.9.1 unit-test-coverage hardening, Tier 4) -- same pattern as
+ * f_logoutusr_unittest() above (issues #68/#71) and session.c/admin.c's
+ * own ENABLE_UNITTEST accessors: no other production behavior change,
+ * just visibility for a test binary that #includes this file directly
+ * (racoonctl_unittest_src.c).
+ */
+vchar_t *
+get_combuf_unittest(int ac, char **av)
+{
+	return get_combuf(ac, av);
+}
+
+vchar_t *
+make_request_unittest(u_int16_t cmd, u_int16_t proto, size_t len)
+{
+	return make_request(cmd, proto, len);
+}
+
+vchar_t *
+f_reload_unittest(int ac, char **av)
+{
+	return f_reload(ac, av);
+}
+
+vchar_t *
+f_getevt_unittest(int ac, char **av)
+{
+	return f_getevt(ac, av);
+}
+
+vchar_t *
+f_getsched_unittest(int ac, char **av)
+{
+	return f_getsched(ac, av);
+}
+
+vchar_t *
+f_getsa_unittest(int ac, char **av)
+{
+	return f_getsa(ac, av);
+}
+
+vchar_t *
+f_getsacert_unittest(int ac, char **av)
+{
+	return f_getsacert(ac, av);
+}
+
+vchar_t *
+f_flushsa_unittest(int ac, char **av)
+{
+	return f_flushsa(ac, av);
+}
+
+vchar_t *
+f_deletesa_unittest(int ac, char **av)
+{
+	return f_deletesa(ac, av);
+}
+
+vchar_t *
+f_deleteallsadst_unittest(int ac, char **av)
+{
+	return f_deleteallsadst(ac, av);
+}
+
+vchar_t *
+f_exchangesa_unittest(int ac, char **av)
+{
+	return f_exchangesa(ac, av);
+}
+
+vchar_t *
+f_vpnd_unittest(int ac, char **av)
+{
+	return f_vpnd(ac, av);
+}
+
+vchar_t *
+get_proto_and_index_unittest(int ac, char **av, u_int16_t *proto)
+{
+	return get_proto_and_index(ac, av, proto);
+}
+
+int
+get_proto_unittest(char *str)
+{
+	return get_proto(str);
+}
+
+vchar_t *
+get_index_unittest(int ac, char **av)
+{
+	return get_index(ac, av);
+}
+
+int
+get_family_unittest(char *str)
+{
+	return get_family(str);
+}
+
+vchar_t *
+get_comindexes_unittest(int family, int ac, char **av)
+{
+	return get_comindexes(family, ac, av);
+}
+
+int
+get_comindex_unittest(char *str, char **name, char **port, char **pref)
+{
+	return get_comindex(str, name, port, pref);
+}
+
+int
+get_ulproto_unittest(char *str)
+{
+	return get_ulproto(str);
+}
+
+int
+handle_recv_unittest(vchar_t *combuf)
+{
+	return handle_recv(combuf);
+}
+#endif /* ENABLE_UNITTEST */

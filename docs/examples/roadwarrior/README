@@ -1,0 +1,94 @@
+This directory contains sample configuration files used for roadwarrior
+remote access using hybrid authentication. In this setup, the VPN
+gateway authenticates to the client using a certificate, and the client
+authenticates to the VPN gateway using a login and a password.
+
+Moreover, this setup makes use of ISAKMP mode config to autoconfigure
+the client. After a successful login, the client will receive an
+internal address, netmask and DNS from the VPN gateway.
+
+Once installed (via `make install`, or by your distribution's package),
+this directory's contents live under the roadwarrior/ subdirectory of
+this project's configuration templates directory -- a location of its
+own, not a subdirectory of /usr/share/doc, specifically so it survives
+on distributions that strip /usr/share/doc/* on minimal/container
+installs. See racoon.conf.default's own header comment for how to
+locate that path on your system.
+
+
+Server setup
+============
+The server setup needs racoon built with the following options:
+configure --enable-natt --enable-frag --enable-hybrid --enable-dpd \
+	  --sysconfdir=/etc/racoon
+
+server/racoon.conf is a VPN gateway using authentication against the
+system password database (auth_source system) by default, with a
+locally configured pool of addresses; see the auth_source comment in
+that file for PAM- and LDAP-backed alternatives (PAM is recommended for
+production use -- it allows SSSD/LDAP/Kerberos/2FA integration without
+further racoon.conf changes). RADIUS-backed authentication is not
+covered by a dedicated example here; racoon.conf(5) documents the
+"radius" auth_source and the "radiuscfg" block it requires (built with
+--with-libradius).
+
+This configuration can be used with the Cisco VPN client if it is set
+up to use hybrid authentication (aka mutual group authentication,
+available in Cisco VPN client version 4.0.5 and above). The group
+password configured in the Cisco VPN client is not used by racoon.
+
+After you have installed /etc/racoon/racoon.conf, you also need to
+install a server certificate and key at /etc/racoon/certs/server.crt
+and /etc/racoon/certs/server.key (paths matching this example's own
+"path certificate" directive).
+
+
+Client setup
+============
+The client setup needs racoon built with the following options:
+configure --enable-natt --enable-frag --enable-hybrid --enable-dpd \
+	  --enable-adminport --sysconfdir=/etc/racoon --localstatedir=/var
+
+Copy client/racoon.conf to /etc/racoon/racoon.conf, and copy your
+client certificate and key to /etc/racoon/certs/client.crt and
+/etc/racoon/certs/client.key, plus the certificate authority that
+signed the VPN gateway's certificate to /etc/racoon/certs/ca.crt
+(paths matching this example's own "path certificate" directive and
+its commented-out "remote" block).
+
+NOTE: client/phase1-up.sh and client/phase1-down.sh here are minimal,
+historical example hooks (they only log the Mode Config environment
+and stop). They are installed by `make install` as reference material
+alongside this README, but are not wired into any active racoon.conf
+and are not the functional hooks used by the example above. For a
+real, maintained split-DNS and routing hook set (DNS backend detection
+across systemd-resolved/NetworkManager/resolvconf/dnsmasq, route/SPD
+management, whitelist input validation, and a full test suite), use
+src/racoon/scripts/ instead, installed unconditionally to
+/etc/racoon/scripts/ as a real package component -- this is what
+client/racoon.conf's own "script" directives actually point at. See
+doc/admin/split-dns.html for complete documentation.
+
+Once this is done, you can run racoon, and then you can start
+the VPN using racoonctl:
+racoonctl vc -u username vpn-gateway.example.net
+
+Where username is your login, and vpn-gateway.example.net is
+the DNS or IP address of the VPN gateway. racoonctl will prompt
+you for the password.
+
+The password can be stored in the psk.txt file instead of being
+prompted for interactively. In that situation, add this directive to
+the remote section of racoon.conf:
+	 xauth_login "username";
+where username is your login, and add a matching "username <password>"
+entry to psk.txt -- see examples/psk.txt.example for the exact format.
+
+Note that for now there is no feedback in racoonctl if the authentication
+fails. Peek at the racoon logs to discover what goes wrong.
+
+In order to disconnect from the VPN, do this:
+racoonctl vd vpn-gateway.example.net
+
+This configuration should be compatible with the Cisco VPN 3000 using
+hybrid authentication, though this has not been tested.

@@ -1,0 +1,5 @@
+DESC="standalone dnsmasq, resolv.conf points at it but has no generator header"
+EXPECT_GLIBC_READER_SUFFIX="/etc/resolv.conf"
+EXPECT_NSS_RESOLVE="no"
+EXPECT_DIVERGENT="no"
+EXPECT_PARALLEL_UNLINKED="no"

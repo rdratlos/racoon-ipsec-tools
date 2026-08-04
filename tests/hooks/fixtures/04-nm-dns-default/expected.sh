@@ -1,0 +1,7 @@
+DESC="NetworkManager with dns=default"
+EXPECT_GLIBC_READER_SUFFIX="/etc/resolv.conf"
+EXPECT_NSS_RESOLVE="no"
+EXPECT_DIVERGENT="no"
+EXPECT_PARALLEL_UNLINKED="no"
+EXPECT_NM_RCMANAGER="symlink"
+EXPECT_NM_MODE="default"

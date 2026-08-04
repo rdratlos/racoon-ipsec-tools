@@ -168,6 +168,15 @@ vendorid_frag_cap(gen)
 {
 	int *hp;
 
+	/*
+	 * The capability dword follows the 16-byte MD5 VID hash.  A peer is
+	 * matched as FRAGMENTATION on the hash alone, so a truncated VID that
+	 * omits the capability field would otherwise cause a 4-byte
+	 * out-of-bounds read here.  Require the field to be present.  (CWE-125)
+	 */
+	if (ntohs(gen->len) < sizeof(*gen) + MD5_DIGEST_LENGTH + sizeof(int))
+		return 0;
+
 	hp = (int *)(gen + 1);
 
 	return ntohl(hp[MD5_DIGEST_LENGTH / sizeof(*hp)]);
@@ -226,8 +235,7 @@ isakmp_frag_extract(iph1, msg)
 	struct isakmp_frag *frag;
 	struct isakmp_frag_item *item;
 	vchar_t *buf;
-	size_t len;
-	int last_frag = 0;
+	const char *m;
 	char *data;
 	int i;
 
@@ -273,35 +281,63 @@ isakmp_frag_extract(iph1, msg)
 	item->frag_next = NULL;
 	item->frag_packet = buf;
 
-	/* Check for the last frag before inserting the new item in the chain */
-	if (item->frag_last) {
-		/* if we have the last fragment, indices must match */
-		if (iph1->frag_last_index != 0 &&
-		    item->frag_last != iph1->frag_last_index) {
-			plog(LLV_ERROR, LOCATION, NULL,
-			     "Repeated last fragment index mismatch\n");
-			racoon_free(item);
-			vfree(buf);
-			return -1;
+	/*
+	 * Perform the required last-fragment consistency checks *before*
+	 * inserting the new item into the chain (CVE-2016-10396).
+	 *
+	 * iph1->frag_last_index holds the fragment *number* (index) of the
+	 * tail fragment once it has been seen; it is 0 while no tail has been
+	 * recorded and is reset to 0 by isakmp_frag_reassembly() once a chain
+	 * has been consumed.  The previous fork logic compared the boolean
+	 * ISAKMP_FRAG_LAST *flag* (item->frag_last, always 1 for a tail) with
+	 * this stored *index*, so every legitimate retransmission of the tail
+	 * fragment (index > 1) was misclassified as a replay attack and
+	 * dropped ("Repeated last fragment index mismatch"), stalling
+	 * reassembly until phase 1 timed out.  See NetBSD PR bin/53646.
+	 */
+	if (iph1->frag_last_index != 0) {
+		/*
+		 * A second, differing tail fragment is only ever produced by a
+		 * forged fragment set: reject it (CVE-2016-10396).  A duplicate
+		 * of the already-seen tail is caught below by the duplicate
+		 * fragment-number check in isakmp_frag_insert().
+		 */
+		if (item->frag_last) {
+			m = "Message has multiple tail fragments\n";
+			goto out;
 		}
 
-		last_frag = iph1->frag_last_index = item->frag_num;
+		/*
+		 * No fragment can carry an index beyond the tail fragment's
+		 * index; such a fragment can only come from a forged set.
+		 */
+		if (item->frag_num > iph1->frag_last_index) {
+			m = "Fragment number greater than tail fragment number\n";
+			goto out;
+		}
 	}
 
 	/* insert fragment into chain */
 	if (isakmp_frag_insert(iph1, item) == -1) {
-		plog(LLV_ERROR, LOCATION, NULL,
-		    "Repeated fragment index mismatch\n");
-		racoon_free(item);
-		vfree(buf);
-		return -1;
+		m = "Duplicate fragment number\n";
+		goto out;
 	}
+
+	plog(LLV_DEBUG, LOCATION, NULL,
+	     "fragment payload #%d queued\n", item->frag_num);
+
+	/*
+	 * Record the tail fragment index only after a successful insertion,
+	 * so a rejected duplicate can never corrupt the reassembly state.
+	 */
+	if (item->frag_last)
+		iph1->frag_last_index = item->frag_num;
 
 	/* If we saw the last frag, check if the chain is complete
 	 * we have a sorted list now, so just walk through */
-	if (last_frag != 0) {
+	if (iph1->frag_last_index != 0) {
 		item = iph1->frag_chain;
-		for (i = 1; i <= last_frag; i++) {
+		for (i = 1; i <= iph1->frag_last_index; i++) {
 			if (item == NULL ||
 			    item->frag_num != i) {
 				plog(LLV_DEBUG, LOCATION, NULL,
@@ -312,15 +348,20 @@ isakmp_frag_extract(iph1, msg)
 			item = item->frag_next;
 		}
 
-		if (i > last_frag) {/* It is complete */
+		if (i > iph1->frag_last_index) {/* It is complete */
 			plog(LLV_DEBUG, LOCATION, NULL,
 			     "Fragment #%d completed payload.\n",
 			     frag->index);
 			return 1;
 		}
 	}
-		
+
 	return 0;
+out:
+	plog(LLV_ERROR, LOCATION, NULL, "%s", m);
+	racoon_free(item);
+	vfree(buf);
+	return -1;
 }
 
 vchar_t *
@@ -366,8 +407,13 @@ isakmp_frag_reassembly(iph1)
 	}
 
 out:
-	item = iph1->frag_chain;		
-	do {
+	/*
+	 * Walk the chain with a while() rather than do/while(): on the
+	 * "No fragment to reassemble" path frag_chain is NULL, and an
+	 * unconditional first iteration would dereference it.  (CWE-476)
+	 */
+	item = iph1->frag_chain;
+	while (item != NULL) {
 		struct isakmp_frag_item *next_item;
 
 		next_item = item->frag_next;
@@ -376,9 +422,16 @@ out:
 		racoon_free(item);
 
 		item = next_item;
-	} while (item != NULL);
+	}
 
 	iph1->frag_chain = NULL;
+	/*
+	 * Reset the recorded tail fragment index together with the chain, so
+	 * a subsequent fragmented message on the same ph1handle (e.g. a peer
+	 * retransmission of the whole phase 1 packet) starts from a clean
+	 * state instead of inheriting the previous tail index.
+	 */
+	iph1->frag_last_index = 0;
 
 	return buf;
 }

@@ -259,13 +259,15 @@ static int process_rmconf()
 	/* privsep */
 %token PRIVSEP USER GROUP CHROOT
 	/* path */
-%token PATH <num> PATHTYPE
+%token PATH
+%token <num> PATHTYPE
 	/* include */
 %token INCLUDE
 	/* PFKEY_BUFFER */
 %token PFKEY_BUFFER
 	/* logging */
-%token LOGGING <num> LOGLEV
+%token LOGGING
+%token <num> LOGLEV
 	/* padding */
 %token PADDING PAD_RANDOMIZE PAD_RANDOMIZELEN PAD_MAXLEN PAD_STRICT PAD_EXCLTAIL
 	/* listen */
@@ -286,37 +288,44 @@ static int process_rmconf()
 %token RETRY RETRY_COUNTER RETRY_INTERVAL RETRY_PERSEND
 %token RETRY_PHASE1 RETRY_PHASE2 NATT_KA
 	/* algorithm */
-%token <num> ALGORITHM_CLASS <num> ALGORITHMTYPE <num> STRENGTHTYPE
+%token <num> ALGORITHM_CLASS ALGORITHMTYPE STRENGTHTYPE
 	/* sainfo */
 %token SAINFO FROM
 	/* remote */
 %token REMOTE ANONYMOUS CLIENTADDR INHERIT REMOTE_ADDRESS
-%token EXCHANGE_MODE <num> EXCHANGETYPE DOI <num> DOITYPE SITUATION <num> SITUATIONTYPE
-%token CERTIFICATE_TYPE <num> CERTTYPE PEERS_CERTFILE CA_TYPE
+%token EXCHANGE_MODE
+%token <num> EXCHANGETYPE DOI DOITYPE SITUATION SITUATIONTYPE
+%token CERTIFICATE_TYPE
+%token <num> CERTTYPE PEERS_CERTFILE CA_TYPE
 %token VERIFY_CERT SEND_CERT SEND_CR MATCH_EMPTY_CR
-%token <num> IDENTIFIERTYPE <num> IDENTIFIERQUAL MY_IDENTIFIER
+%token <num> IDENTIFIERTYPE IDENTIFIERQUAL MY_IDENTIFIER
 %token PEERS_IDENTIFIER VERIFY_IDENTIFIER
-%token DNSSEC <num> CERT_X509 <num> CERT_PLAINRSA
+%token DNSSEC
+%token <num> CERT_X509 CERT_PLAINRSA
 %token NONCE_SIZE DH_GROUP KEEPALIVE PASSIVE INITIAL_CONTACT
-%token NAT_TRAVERSAL <num> REMOTE_FORCE_LEVEL
-%token PROPOSAL_CHECK <num> PROPOSAL_CHECK_LEVEL
-%token GENERATE_POLICY <num> GENERATE_LEVEL SUPPORT_PROXY
+%token NAT_TRAVERSAL
+%token <num> REMOTE_FORCE_LEVEL
+%token PROPOSAL_CHECK
+%token <num> PROPOSAL_CHECK_LEVEL
+%token GENERATE_POLICY
+%token <num> GENERATE_LEVEL SUPPORT_PROXY
 %token PROPOSAL
 %token EXEC_PATH EXEC_COMMAND EXEC_SUCCESS EXEC_FAILURE
-%token GSS_ID GSS_ID_ENC <num> GSS_ID_ENCTYPE
+%token GSS_ID GSS_ID_ENC
+%token <num> GSS_ID_ENCTYPE
 %token COMPLEX_BUNDLE
 %token DPD DPD_DELAY DPD_RETRY DPD_MAXFAIL
 %token PH1ID
 %token XAUTH_LOGIN WEAK_PHASE1_CHECK
 %token REKEY
 
-%token <num> PREFIX <num> PORT PORTANY <num> UL_PROTO ANY IKE_FRAG ESP_FRAG MODE_CFG
+%token <num> PREFIX PORT PORTANY UL_PROTO ANY IKE_FRAG ESP_FRAG MODE_CFG
 %token PFS_GROUP LIFETIME LIFETYPE_TIME LIFETYPE_BYTE STRENGTH REMOTEID
 
 %token SCRIPT PHASE1_UP PHASE1_DOWN PHASE1_DEAD
 
-%token <num> NUMBER <num> SWITCH <num> BOOLEAN
-%token <val> HEXSTRING <val> QUOTEDSTRING <val> ADDRSTRING <val> ADDRRANGE
+%token <num> NUMBER SWITCH BOOLEAN
+%token <val> HEXSTRING QUOTEDSTRING ADDRSTRING ADDRRANGE
 %token UNITTYPE_BYTE UNITTYPE_KBYTES UNITTYPE_MBYTES UNITTYPE_TBYTES
 %token UNITTYPE_SEC UNITTYPE_MIN UNITTYPE_HOUR
 %token EOS BOC EOC COMMA
@@ -911,9 +920,8 @@ modecfg_stmt
 	|	CFG_DEFAULT_DOMAIN QUOTEDSTRING
 		{
 #ifdef ENABLE_HYBRID
-			strncpy(&isakmp_cfg_config.default_domain[0], 
-			    $2->v, MAXPATHLEN);
-			isakmp_cfg_config.default_domain[MAXPATHLEN] = '\0';
+			strlcpy(&isakmp_cfg_config.default_domain[0], 
+			    $2->v, sizeof(isakmp_cfg_config.default_domain));
 			vfree($2);
 #else
 			yyerror("racoon not configured with --enable-hybrid");
@@ -1116,8 +1124,7 @@ modecfg_stmt
 	|	CFG_MOTD QUOTEDSTRING
 		{
 #ifdef ENABLE_HYBRID
-			strncpy(&isakmp_cfg_config.motd[0], $2->v, MAXPATHLEN);
-			isakmp_cfg_config.motd[MAXPATHLEN] = '\0';
+			strlcpy(&isakmp_cfg_config.motd[0], $2->v, sizeof(isakmp_cfg_config.motd));
 			vfree($2);
 #else
 			yyerror("racoon not configured with --enable-hybrid");
@@ -1135,12 +1142,22 @@ addrdns
 		{
 #ifdef ENABLE_HYBRID
 			struct isakmp_cfg_config *icc = &isakmp_cfg_config;
+			in_addr_t addr;
 
-			if (icc->dns4_index > MAXNS)
-				yyerror("No more than %d DNS", MAXNS);
-			if (inet_pton(AF_INET, $1->v,
-			    &icc->dns4[icc->dns4_index++]) != 1)
+			/*
+			 * Parse into a local first, and let
+			 * isakmp_cfg_config_add_addr4() own both the bound
+			 * check and the index increment: writing straight
+			 * into dns4[dns4_index++] overran the array (and
+			 * clobbered dns4_index itself) for the MAXNS+1'th
+			 * server, and left a counted-but-unset entry behind
+			 * when the address failed to parse.
+			 */
+			if (inet_pton(AF_INET, $1->v, &addr) != 1)
 				yyerror("bad IPv4 DNS address.");
+			else if (isakmp_cfg_config_add_addr4(icc->dns4,
+			    &icc->dns4_index, MAXNS, addr) != 0)
+				yyerror("No more than %d DNS", MAXNS);
 #else
 			yyerror("racoon not configured with --enable-hybrid");
 #endif
@@ -1156,12 +1173,14 @@ addrwins
 		{
 #ifdef ENABLE_HYBRID
 			struct isakmp_cfg_config *icc = &isakmp_cfg_config;
+			in_addr_t addr;
 
-			if (icc->nbns4_index > MAXWINS)
-				yyerror("No more than %d WINS", MAXWINS);
-			if (inet_pton(AF_INET, $1->v,
-			    &icc->nbns4[icc->nbns4_index++]) != 1)
+			/* Same off-by-one as addrdns above, on nbns4. */
+			if (inet_pton(AF_INET, $1->v, &addr) != 1)
 				yyerror("bad IPv4 WINS address.");
+			else if (isakmp_cfg_config_add_addr4(icc->nbns4,
+			    &icc->nbns4_index, MAXWINS, addr) != 0)
+				yyerror("No more than %d WINS", MAXWINS);
 #else
 			yyerror("racoon not configured with --enable-hybrid");
 #endif
@@ -2753,9 +2772,10 @@ cfparse()
 	yycf_init_buffer();
 
 	if (yycf_switch_buffer(lcconf->racoon_conf) != 0) {
-		plog(LLV_ERROR, LOCATION, NULL, 
-		    "could not read configuration file \"%s\"\n", 
+		plog(LLV_ERROR, LOCATION, NULL,
+		    "could not read configuration file \"%s\"\n",
 		    lcconf->racoon_conf);
+		yycf_clean_buffer();
 		return -1;
 	}
 
@@ -2769,6 +2789,7 @@ cfparse()
 			plog(LLV_ERROR, LOCATION, NULL,
 				"fatal parse failure.\n");
 		}
+		yycf_clean_buffer();
 		return -1;
 	}
 
@@ -2776,7 +2797,18 @@ cfparse()
 		plog(LLV_ERROR, LOCATION, NULL,
 			"parse error is nothing, but yyerrorcount is %d.\n",
 				yyerrorcount);
-		exit(1);
+		/*
+		 * Report the failure like every other parse failure above
+		 * rather than exiting: cfparse() also runs on SIGHUP
+		 * (reload_conf(), session.c), where -1 means "config reload
+		 * failed, keep running on the old one" -- exiting instead
+		 * dropped every live Phase 1/2 SA over a reload that could
+		 * simply have been refused (issue #105). At startup the
+		 * callers (session(), main.c's -C config test) still treat
+		 * this as fatal, which at startup it is.
+		 */
+		yycf_clean_buffer();
+		return -1;
 	}
 
 	yycf_clean_buffer();
@@ -2813,6 +2845,13 @@ adminsock_conf(path, owner, group, mode_dec)
 	int isnum;
 
 	adminsock_path = path->v;
+
+	if (admin_check_sockpath(adminsock_path) != 0) {
+		yyerror("admin socket path \"%s\" is not allowed: the file "
+			"name must be \"racoon.sock\" or end with \".sock\""
+			"/\".socket\", and must not contain \"..\" "
+			"components", adminsock_path);
+	}
 
 	if (owner == NULL)
 		return;

@@ -1,1 +1,27 @@
+# This entry does not actually control /run/racoon's final ownership:
+# racoon.service's own RuntimeDirectory=racoon (systemd/racoon.service.in)
+# resets this directory to match the unit's Group= (unset, i.e.
+# root:root) before every process it spawns, and racoon itself
+# (admin_init(), admin.c) then sets the real, effective group to match
+# whatever "listen { adminsock ... group ... }" configures, on every
+# start -- see racoon-admin-guide.html Sec 8.5. This line is harmless,
+# pre-creating the directory so it exists even before racoon's first
+# run, but the group given here (root, matching what actually survives
+# either way) is not load-bearing.
 d /run/racoon 0750 root root -
+
+# 'z' (not 'd'): adjust ownership/mode on these already-installed, persistent
+# config paths without the create-and-clean semantics 'd'/'D' apply to
+# runtime directories -- /etc/racoon and /etc/racoon/certs must exist
+# already (from `make install`). Runs on every transaction that touches
+# this package's usr/lib/tmpfiles.d entry, via pacman's own
+# systemd-tmpfiles.hook, which fires after systemd-sysusers.hook -- by the
+# time this line is applied, the "racoon" group from ipsec-tools.sysusers
+# already exists, unlike in a post_install()/post_upgrade() scriptlet
+# (those run mid-transaction, before either hook). See
+# racoon-admin-guide.html §8.5 for why /etc/racoon/certs needs
+# group-racoon traversal (the unprivileged, peer-facing process opens
+# certificate files directly) while /etc/racoon/scripts and racoon.conf
+# do not and are left root-only by `make install` itself.
+z /etc/racoon 0750 root racoon -
+z /etc/racoon/certs 0750 root racoon -

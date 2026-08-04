@@ -36,7 +36,6 @@
  */
 
 #include "config.h"
-#include "missing/crypto/rijndael/rijndael-api-fst.h"
 
 #include <sys/types.h>
 #include <sys/param.h>
@@ -44,6 +43,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+
+#include "missing/crypto/rijndael/rijndael-api-fst.h"
 
 /* get openssl/ssleay version number */
 #include <openssl/opensslv.h>
@@ -1016,7 +1017,7 @@ eay_get_pkcs1pubkey(path)
 	/* Get public key - eay */
 	evp = X509_get_pubkey(x509);
 	if (evp == NULL)
-		return NULL;
+		goto end;
 
 	pkeylen = i2d_PublicKey(evp, NULL);
 	if (pkeylen == 0)
@@ -1033,6 +1034,7 @@ eay_get_pkcs1pubkey(path)
 end:
 	if (evp != NULL)
 		EVP_PKEY_free(evp);
+	X509_free(x509);
 	if (error != 0 && pkey != NULL) {
 		vfree(pkey);
 		pkey = NULL;
@@ -1309,7 +1311,7 @@ eay_pkey_verify(src, sig, pkey)
 		     "Signature verification failed: length mismatch (expected %zu, got %zu)\n",
 		     src->l, recovered->l);
 		ret = -1;
-	} else if (memcmp(recovered->v, src->v, src->l) != 0) {
+	} else if (CRYPTO_memcmp(recovered->v, src->v, src->l) != 0) {
 		plog(LLV_WARNING, LOCATION, NULL,
 		     "Signature verification failed: data mismatch\n");
 		ret = -1;
@@ -3000,6 +3002,10 @@ eay_dh_compute(prime, g, pub, priv, pub2, key)
 		memset((*key)->v, 0, (*key)->l);
 		memcpy((*key)->v + (prime->l - secret_len), secret, secret_len);
 		error = 0;
+	} else {
+		plog(LLV_ERROR, LOCATION, NULL,
+		     "DH shared secret size mismatch: secret_len=%zu, prime->l=%zu, key->l=%zu\n",
+		     secret_len, (size_t)prime->l, (size_t)(*key)->l);
 	}
 
 end:
@@ -3099,12 +3105,12 @@ eay_init()
 		openssl_default_provider = OSSL_PROVIDER_load(NULL, "default");
 		if (!openssl_default_provider) {
 			plog(LLV_ERROR, LOCATION, NULL,
-			     "Failed to load default provider: %s\n",
+			     "FATAL: Failed to load default provider: %s\n",
 			     eay_strerror());
-		} else {
-			plog(LLV_INFO, LOCATION, NULL,
-			     "Loaded OpenSSL default provider\n");
+			exit(1);
 		}
+		plog(LLV_INFO, LOCATION, NULL,
+		     "Loaded OpenSSL default provider\n");
 	}
 	/* Validate legacy cipher availability at startup for clear diagnostics */
 	validate_legacy_ciphers();

@@ -1,0 +1,130 @@
+# test/cert-framework/openssl.cnf
+#
+# Central OpenSSL policy for the Racoon IPSec Tools test CA framework.
+# Root CA -> Intermediate CA -> End-Entity certificate chain used by
+# unit and integration tests. Provider-neutral, OpenSSL 1.1.0 - 3.x
+# compatible: no RANDFILE, no legacy engine section, explicit default_md.
+#
+# This file is a template: every @@CA_DIR@@ token is replaced with an
+# absolute path by lib/ca.sh:ca_init() when it renders the runtime copy.
+# All paths below are fully expanded (no "dir = " / "$dir" indirection)
+# so the rendered config is self-contained and unambiguous across
+# OpenSSL versions.
+
+[ ca ]
+default_ca = CA_root
+
+####################################################################
+[ CA_root ]
+private_key       = @@CA_DIR@@/root/private/ca.key.pem
+certificate       = @@CA_DIR@@/root/certs/ca.cert.pem
+new_certs_dir     = @@CA_DIR@@/root/newcerts
+database          = @@CA_DIR@@/root/index.txt
+serial            = @@CA_DIR@@/root/serial
+crlnumber         = @@CA_DIR@@/root/crlnumber
+crl               = @@CA_DIR@@/root/crl/ca.crl.pem
+default_md        = sha256
+default_days      = 3650
+default_crl_days  = 3650
+policy            = policy_strict
+email_in_dn       = no
+x509_extensions   = v3_ca_root
+copy_extensions   = none
+
+####################################################################
+[ CA_intermediate ]
+private_key       = @@CA_DIR@@/intermediate/private/intermediate.key.pem
+certificate       = @@CA_DIR@@/intermediate/certs/intermediate.cert.pem
+new_certs_dir     = @@CA_DIR@@/intermediate/newcerts
+database          = @@CA_DIR@@/intermediate/index.txt
+serial            = @@CA_DIR@@/intermediate/serial
+crlnumber         = @@CA_DIR@@/intermediate/crlnumber
+crl               = @@CA_DIR@@/intermediate/crl/intermediate.crl.pem
+default_md        = sha256
+default_days      = 365
+default_crl_days  = 30
+policy            = policy_loose
+email_in_dn       = no
+x509_extensions   = v3_gw_net2net
+copy_extensions   = copy
+
+####################################################################
+[ policy_strict ]
+countryName            = match
+stateOrProvinceName    = match
+organizationName       = match
+organizationalUnitName = optional
+commonName             = supplied
+emailAddress           = optional
+
+[ policy_loose ]
+countryName            = optional
+stateOrProvinceName    = optional
+localityName           = optional
+organizationName       = optional
+organizationalUnitName = optional
+commonName             = supplied
+emailAddress           = optional
+
+####################################################################
+[ req ]
+default_bits       = 2048
+default_md         = sha256
+string_mask        = utf8only
+distinguished_name = req_distinguished_name
+x509_extensions    = v3_ca_root
+
+[ req_distinguished_name ]
+countryName                    = Country Name (2 letter code)
+countryName_default            = DE
+stateOrProvinceName            = State or Province Name
+stateOrProvinceName_default    = Baden-Wuerttemberg
+localityName                   = Locality Name
+localityName_default           = Ulm
+0.organizationName             = Organization Name
+0.organizationName_default     = Nepomuc SecureNet
+organizationalUnitName         = Organizational Unit Name
+organizationalUnitName_default = Racoon IpSec Tools Testing
+commonName                     = Common Name
+commonName_max                 = 64
+
+####################################################################
+# Certificate profiles - the "knobs" lib/ca.sh selects via -extensions.
+
+[ v3_ca_root ]
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid:always,issuer:always
+basicConstraints       = critical, CA:true
+keyUsage                = critical, keyCertSign, cRLSign
+
+[ v3_ca_intermediate ]
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid:always,issuer:always
+basicConstraints       = critical, CA:true, pathlen:0
+keyUsage                = critical, keyCertSign, cRLSign
+
+[ v3_gw_net2net ]
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid:always,issuer:always
+basicConstraints       = CA:false
+keyUsage                = critical, digitalSignature, keyEncipherment, keyAgreement
+extendedKeyUsage        = serverAuth, clientAuth
+
+[ v3_client_roadwarrior ]
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid:always,issuer:always
+basicConstraints       = CA:false
+keyUsage                = critical, digitalSignature, keyEncipherment, keyAgreement
+extendedKeyUsage        = clientAuth
+
+[ v3_server_generic ]
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid:always,issuer:always
+basicConstraints       = CA:false
+keyUsage                = critical, digitalSignature, keyEncipherment
+extendedKeyUsage        = serverAuth
+
+# CSR extension template: carries SANs from the CSR into the issued cert
+# via the issuing CA section's "copy_extensions = copy".
+[ v3_req_san ]
+subjectAltName = $ENV::SAN

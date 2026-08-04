@@ -52,6 +52,8 @@
 #include <errno.h>
 #include <ctype.h>
 
+#include <openssl/crypto.h>
+
 #include "var.h"
 #include "misc.h"
 #include "vmbuf.h"
@@ -214,7 +216,7 @@ natt_compare_addr_hash (struct ph1handle *iph1, vchar_t *natd_received,
   }
 
   if (natd_received->l == natd_computed->l &&
-      memcmp (natd_received->v, natd_computed->v, natd_received->l) == 0) {
+      CRYPTO_memcmp (natd_received->v, natd_computed->v, natd_received->l) == 0) {
     iph1->natt_flags &= ~flag;
     verified = 1;
   }

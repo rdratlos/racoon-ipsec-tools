@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+# Part of rdratlos/racoon-ipsec-tools — https://github.com/rdratlos/racoon-ipsec-tools
+#
+# racoon.conf - "remote ... inherit ..." Feature Example
+#
+# Focused, single-feature example: factoring settings shared by several
+# similar peers out of one base "remote" block, so each additional peer's
+# block only has to state what differs from it.  Useful once you have more
+# than a couple of statically configured peers with mostly-identical
+# proposals -- for a single peer, write the settings directly instead
+# (see the roadwarrior client/server templates, whose install path is
+# listed in racoon.conf.default itself).
+#
+# Key design decisions:
+#   - "remote <name> inherit <parent> { ... }": <name>'s block starts as a
+#     copy of every setting already defined in <parent>'s block, then
+#     applies only the directives written here on top.  Undeclared
+#     directives (including whole "proposal" blocks) are inherited
+#     unchanged; declaring "proposal { ... }" again replaces the parent's
+#     proposal list entirely rather than merging with it.
+#   - Inheritance chains: a "remote" block may itself be the parent of a
+#     further "remote ... inherit ..." block, as shown below with the
+#     third block inheriting from the second (which itself inherits from
+#     the first). There is no depth limit other than readability.
+#   - This mechanism only reduces repetition in racoon.conf itself; it has
+#     no effect on the wire and no security implications of its own --
+#     each resulting "remote" block negotiates completely independently.
+#
+# For a complete deployment, including privilege separation (privsep {},
+# the recommended default for production -- see racoon-admin-guide.html
+# §8.5), start from the roadwarrior client/server templates instead and
+# apply the inherit pattern below to it.
+
+path pre_shared_key "/etc/racoon/psk.txt";
+path certificate "/etc/racoon/certs";
+
+# Base block: the common proposal and identity settings shared by every
+# peer below. "anonymous" as a base is fine -- only the peers that
+# explicitly inherit from it matter, "anonymous" itself does not also
+# have to match incoming connections.
+remote anonymous
+{
+    exchange_mode main;
+    my_identifier asn1dn;
+    certificate_type x509 "host.crt" "host.key";
+
+    proposal_check strict;
+
+    proposal {
+        encryption_algorithm aes 256;
+        hash_algorithm sha256;
+        authentication_method rsasig;
+        dh_group 14;
+    }
+}
+
+# Inherits every setting from "anonymous" above, then overrides just the
+# two shown: this peer needs NAT-Traversal forced (it is behind a
+# middlebox that mangles native port-500 traffic), everything else
+# (exchange_mode, identifiers, certificate, proposal) is unchanged from
+# the parent.
+remote 203.0.113.10 inherit anonymous
+{
+    nat_traversal force;
+}
+
+# Inherits from 203.0.113.10 above (which already inherited from
+# "anonymous"), so this peer gets nat_traversal force too, plus its own
+# shorter lifetime and a completely different proposal -- since this
+# block declares its own "proposal", it replaces the inherited one rather
+# than adding to it.
+remote 203.0.113.10 [8000] inherit 203.0.113.10
+{
+    lifetime time 1 hour;
+
+    proposal {
+        encryption_algorithm aes 256;
+        hash_algorithm sha256;
+        authentication_method pre_shared_key;
+        dh_group 14;
+    }
+}
+
+sainfo anonymous
+{
+    pfs_group 14;
+    lifetime time 12 hour;
+    encryption_algorithm aes 256;
+    authentication_algorithm hmac_sha256, hmac_sha1;
+    compression_algorithm deflate;
+}

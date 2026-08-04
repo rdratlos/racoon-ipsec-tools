@@ -1,0 +1,7 @@
+DESC="broken state: nothing is listening on port 53 at all, but the effective resolv.conf points straight at a loopback stub address -- every lookup will fail. §C requires this be reported loudly and specifically."
+EXPECT_GLIBC_READER_SUFFIX="/etc/resolv.conf"
+EXPECT_NSS_RESOLVE="no"
+EXPECT_DIVERGENT="no"
+EXPECT_PARALLEL_UNLINKED="no"
+EXPECT_PORT53_COUNT="0"
+EXPECT_PORT53_BROKEN="yes"

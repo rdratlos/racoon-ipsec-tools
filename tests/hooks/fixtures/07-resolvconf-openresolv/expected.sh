@@ -1,0 +1,5 @@
+DESC="resolvconf/openresolv"
+EXPECT_GLIBC_READER_SUFFIX="/run/resolvconf/resolv.conf"
+EXPECT_NSS_RESOLVE="no"
+EXPECT_DIVERGENT="no"
+EXPECT_PARALLEL_UNLINKED="no"

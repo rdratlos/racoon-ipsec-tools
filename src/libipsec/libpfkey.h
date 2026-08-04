@@ -49,6 +49,8 @@ extern void pfkey_sadump __P((struct sadb_msg *));
 extern void pfkey_sadump_withports __P((struct sadb_msg *));
 extern void pfkey_spdump __P((struct sadb_msg *));
 extern void pfkey_spdump_withports __P((struct sadb_msg *));
+extern void pfkey_spdump_filter_socket_policy __P((int));
+extern unsigned long pfkey_spdump_filtered_count __P((void));
 
 struct sockaddr;
 struct sadb_alg;
@@ -62,9 +64,12 @@ struct sadb_alg;
 
 #ifndef HAVE_IPSEC_POLICY_T
 typedef caddr_t ipsec_policy_t;
-#define __ipsec_const
-#else
+#endif
+
+#if defined(HAVE_IPSEC_POLICY_T) || defined(HAVE_IPSEC_CONST_STRARG)
 #define __ipsec_const const
+#else
+#define __ipsec_const
 #endif
 
 struct pfkey_send_sa_args {

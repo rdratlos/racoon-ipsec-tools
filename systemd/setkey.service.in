@@ -1,0 +1,16 @@
+[Unit]
+Description=Static IPsec SA/SPD from /etc/ipsec-tools.conf
+DefaultDependencies=no
+Before=sysinit.target
+ConditionPathExists=/etc/ipsec-tools.conf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-@RACOON_ENVIRONMENTDIR@/setkey
+ExecStart=/bin/bash -c 'shopt -s nullglob; test "${RUN_SETKEY:-yes}" = "yes" || exit 0; for f in /etc/ipsec-tools.conf /etc/ipsec-tools.d/*.conf; do @RACOON_SBINDIR@/setkey -f "$f"; done'
+ExecStop=-@RACOON_SBINDIR@/setkey -F
+ExecStopPost=-@RACOON_SBINDIR@/setkey -FP
+
+[Install]
+WantedBy=sysinit.target

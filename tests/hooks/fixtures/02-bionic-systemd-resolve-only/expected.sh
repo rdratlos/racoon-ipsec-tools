@@ -1,0 +1,5 @@
+DESC="Xubuntu Bionic 32-bit: systemd-resolve only, no resolvectl, no busctl"
+EXPECT_GLIBC_READER_SUFFIX="/run/systemd/resolve/stub-resolv.conf"
+EXPECT_NSS_RESOLVE="no"
+EXPECT_DIVERGENT="no"
+EXPECT_PARALLEL_UNLINKED="no"

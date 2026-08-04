@@ -1,0 +1,8 @@
+DESC="dnsmasq on 127.0.0.1:53 behind a plain, unsigned static /etc/resolv.conf -- the case only the port-53 survey can detect: the file-based survey alone would classify this as backend=static (no distinguishing header, nsswitch says plain dns, NM inactive), but a live forwarder is actually answering queries. This is the disagreement §C exists to surface."
+EXPECT_GLIBC_READER_SUFFIX="/etc/resolv.conf"
+EXPECT_NSS_RESOLVE="no"
+EXPECT_DIVERGENT="no"
+EXPECT_PARALLEL_UNLINKED="no"
+EXPECT_PORT53_COUNT="1"
+EXPECT_PORT53_CONTAINS="LISTENER	udp	127.0.0.1	53	200	/usr/sbin/dnsmasq	forwarder	ss"
+EXPECT_PORT53_BROKEN="no"

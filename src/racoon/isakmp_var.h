@@ -110,10 +110,8 @@ extern struct payload_list *isakmp_plist_append_full __P((
 	struct payload_list *plist, vchar_t *payload,
 	u_int8_t payload_type, u_int8_t free));
 
-static inline struct payload_list *isakmp_plist_append(plist, payload, payload_type)
-	struct payload_list *plist;
-	vchar_t *payload;
-	u_int8_t payload_type;
+static inline struct payload_list *isakmp_plist_append(
+	struct payload_list *plist, vchar_t *payload, u_int8_t payload_type)
 {
 	return isakmp_plist_append_full(plist, payload, payload_type, 0);
 }
@@ -133,7 +131,7 @@ extern void log_ph1established __P((const struct ph1handle *));
 
 extern void script_hook __P((struct ph1handle *, int));
 extern int script_env_append __P((char ***, int *, char *, char *));
-extern int script_exec __P((char *, int, char * const *));
+extern int script_exec __P((char *, int, char * const *, int));
 
 void purge_remote __P((struct ph1handle *));
 void delete_spd __P((struct ph2handle *, u_int64_t));

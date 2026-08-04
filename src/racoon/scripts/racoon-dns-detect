@@ -1,0 +1,389 @@
+#!/bin/sh
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
+# Part of rdratlos/racoon-ipsec-tools — https://github.com/rdratlos/racoon-ipsec-tools
+#
+# racoon-dns-detect - admin-facing CLI wrapping racoon-hook-lib.sh's survey
+# (§7), capability matrix (§6) and backend classification, plus a
+# --dry-run plan preview (§3.2), so an admin can see what phase1-up.sh
+# would conclude and would do *without* an active VPN session, without
+# root, and without changing anything on the system: this tool never
+# calls rhook_apply_plan / rhook_run_step, so nothing it does is a
+# persistent system change (R1).
+#
+# POSIX sh only (dash / bash / NetBSD /bin/sh); see racoon-hook-lib.sh's
+# header for the shared portability rules (`local` is used throughout,
+# documented once there).
+#
+# Usage: racoon-dns-detect [--detect|--dry-run] [--explain] [--format=kv]
+#                           [--dns=IP[,IP...]] [--domains=D[,D...]]
+#                           [--routes=CIDR[,CIDR...]] [--iface=IFACE]
+#                           [--internal-addr=IP] [--help]
+#
+# --detect (default): survey resolv.conf, probe the DNS tool capability
+#   matrix, and classify the backend racoon-hook-lib.sh would select.
+# --dry-run: also build the full step plan (§3.2) that phase1-up.sh would
+#   apply for the given/sample DNS parameters, and print it -- no step is
+#   ever executed.
+# --explain: include the underlying evidence for each conclusion (RcManager/
+#   Mode D-Bus values, nsswitch, glibc reader, capability probe detail),
+#   not just the final answer.
+# --format=kv: emit "key=value" lines instead of the human-readable report,
+#   for scripting.
+
+set -u
+
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+LIB="$SCRIPT_DIR/racoon-hook-lib.sh"
+
+# shellcheck source=racoon-hook-lib.sh
+. "$LIB"
+
+RD_MODE="detect"
+RD_EXPLAIN="no"
+RD_FORMAT="text"
+RD_DNS=""
+RD_DOMAINS=""
+RD_ROUTES=""
+RD_IFACE=""
+RD_INTERNAL_ADDR=""
+
+rd_usage() {
+	cat <<'EOF'
+Usage: racoon-dns-detect [--detect|--dry-run] [--explain] [--format=kv]
+                          [--dns=IP[,IP...]] [--domains=DOMAIN[,DOMAIN...]]
+                          [--routes=CIDR[,CIDR...]] [--iface=IFACE]
+                          [--internal-addr=IP] [--help]
+
+  --detect          Survey resolv.conf, probe the DNS capability matrix,
+                     and classify the backend (default action).
+  --dry-run         Also build and print the full step plan for the given
+                     (or sample) DNS parameters. Never executes anything.
+  --explain         Include the evidence behind each conclusion.
+  --format=kv       Machine-readable "key=value" output instead of text.
+  --dns=...         DNS servers to simulate with --dry-run (default: a
+                     documentation-reserved sample address, RFC 5737).
+  --domains=...     Split-DNS domains to simulate with --dry-run.
+  --routes=...      Split-include routes to simulate with --dry-run.
+  --iface=IFACE     Outbound physical interface to simulate (default: eth0,
+                     a placeholder -- not auto-detected from this system).
+  --internal-addr=IP  VPN-assigned address to simulate (default: a
+                     documentation-reserved sample address, RFC 6890).
+  --help            Show this help and exit.
+EOF
+}
+
+for rd_arg in "$@"; do
+	case "$rd_arg" in
+		--detect) RD_MODE="detect" ;;
+		--dry-run) RD_MODE="dry-run" ;;
+		--explain) RD_EXPLAIN="yes" ;;
+		--format=kv) RD_FORMAT="kv" ;;
+		--format=text) RD_FORMAT="text" ;;
+		--dns=*) RD_DNS="${rd_arg#--dns=}" ;;
+		--domains=*) RD_DOMAINS="${rd_arg#--domains=}" ;;
+		--routes=*) RD_ROUTES="${rd_arg#--routes=}" ;;
+		--iface=*) RD_IFACE="${rd_arg#--iface=}" ;;
+		--internal-addr=*) RD_INTERNAL_ADDR="${rd_arg#--internal-addr=}" ;;
+		--help|-h) rd_usage; exit 0 ;;
+		*)
+			printf 'racoon-dns-detect: unrecognized option: %s\n' "$rd_arg" >&2
+			rd_usage >&2
+			exit 1
+			;;
+	esac
+done
+
+# --------------------------------------------------------------------------
+# kv output helper: keys are stable, one per line, no quoting -- consumers
+# split on the first '='.
+# --------------------------------------------------------------------------
+rd_kv() {
+	[ "$RD_FORMAT" = "kv" ] || return 0
+	printf '%s=%s\n' "$1" "$2"
+}
+
+rd_line() {
+	[ "$RD_FORMAT" = "text" ] || return 0
+	printf '%s\n' "$1"
+}
+
+rhook_load_config
+
+rd_line "racoon-dns-detect: resolv.conf landscape and split-DNS backend report"
+rd_line "======================================================================="
+
+SURVEY_FILE=$(rhook_survey_build)
+
+if rhook_survey_nss_uses_resolve; then
+	RD_NSS_RESOLVE="yes"
+else
+	RD_NSS_RESOLVE="no"
+fi
+RD_GLIBC_READER=$(rhook_survey_glibc_reader)
+RD_DIVERGENT=$(rhook_survey_divergent "$SURVEY_FILE")
+RD_PARALLEL=$(rhook_survey_parallel_unlinked "$SURVEY_FILE")
+RD_NM_RCMANAGER=$(rhook_nm_dbus_prop RcManager)
+RD_NM_MODE=$(rhook_nm_dbus_prop Mode)
+RD_BACKEND=$(rhook_survey_classify_backend "$RHOOK_BACKEND")
+RD_DNS_TOOL=$(rhook_dns_tool_detect)
+RD_SYSTEMD_VERSION=$(rhook_systemd_version)
+
+rd_line ""
+rd_line "Configured backend (hooks.conf): ${RHOOK_BACKEND}"
+rd_line "Classified backend:              ${RD_BACKEND}"
+rd_line "Name resolution actually reads:  ${RD_GLIBC_READER:-<none readable>}"
+rd_kv backend_configured "$RHOOK_BACKEND"
+rd_kv backend_classified "$RD_BACKEND"
+rd_kv glibc_reader "$RD_GLIBC_READER"
+rd_kv nss_uses_resolve "$RD_NSS_RESOLVE"
+
+if [ "$RD_EXPLAIN" = "yes" ]; then
+	rd_line ""
+	rd_line "Evidence:"
+	rd_line "  nsswitch.conf hosts: line uses 'resolve'? ${RD_NSS_RESOLVE}"
+	rd_line "  NetworkManager D-Bus RcManager property:   ${RD_NM_RCMANAGER:-<unavailable: NetworkManager not active>}"
+	rd_line "  NetworkManager D-Bus Mode property:        ${RD_NM_MODE:-<unavailable: NetworkManager not active>}"
+	rd_line "  DNS tool detected on PATH:                 ${RD_DNS_TOOL:-<none>}"
+	rd_line "  systemd version (systemctl --version):     ${RD_SYSTEMD_VERSION:-<unknown>}"
+fi
+rd_kv nm_rcmanager "$RD_NM_RCMANAGER"
+rd_kv nm_mode "$RD_NM_MODE"
+
+case "$RD_DIVERGENT" in
+	DIVERGENT)
+		rd_line ""
+		rd_line "WARNING: resolv.conf landscape is DIVERGENT -- the file glibc actually"
+		rd_line "reads disagrees with at least one other backend-generated copy."
+		;;
+esac
+rd_kv survey_divergent "$([ "$RD_DIVERGENT" = "DIVERGENT" ] && echo yes || echo no)"
+
+case "$RD_PARALLEL" in
+	PARALLEL_UNLINKED)
+		rd_line ""
+		rd_line "WARNING: PARALLEL_UNLINKED -- multiple resolver backends appear to be"
+		rd_line "writing resolv.conf independently, with no symlink tying them together."
+		rd_line "$(rhook_survey_remediation_text "$SURVEY_FILE")"
+		;;
+esac
+rd_kv survey_parallel_unlinked "$([ "$RD_PARALLEL" = "PARALLEL_UNLINKED" ] && echo yes || echo no)"
+
+rd_line ""
+rd_line "DNS tool: ${RD_DNS_TOOL:-<none: neither resolvectl nor systemd-resolve on PATH>}"
+if [ -n "$RD_DNS_TOOL" ]; then
+	rd_line "Capability matrix:"
+	for rd_cap in per_link_dns routing_domains default_route revert flush_caches; do
+		if rhook_dns_cap "$RD_DNS_TOOL" "$rd_cap"; then
+			rd_has="yes"
+		else
+			rd_has="no"
+		fi
+		rd_line "  ${rd_cap}: ${rd_has}"
+		rd_kv "cap_${rd_cap}" "$rd_has"
+	done
+fi
+
+# --------------------------------------------------------------------------
+# §C (brief 3): port 53 ownership. Equal-weight survey input, not an
+# override of the file/D-Bus-based classification above -- printed
+# alongside it, and any disagreement between the two is reported
+# explicitly rather than silently resolved in favor of either one.
+# --------------------------------------------------------------------------
+RD_PORT53_SUMMARY=$(rhook_survey_port53_summary)
+RD_PORT53_IMPLIED=""
+RD_PORT53_EVIDENCE=""
+rd_line ""
+rd_line "Port 53 listeners:"
+if [ -z "$RD_PORT53_SUMMARY" ]; then
+	rd_line "  (none detected)"
+else
+	rd_p53_n=0
+	while IFS= read -r rd_p53_line || [ -n "$rd_p53_line" ]; do
+		[ -n "$rd_p53_line" ] || continue
+		rd_p53_kind=$(printf '%s' "$rd_p53_line" | cut -f1)
+		case "$rd_p53_kind" in
+			LISTENER)
+				rd_p53_n=$((rd_p53_n + 1))
+				rd_p53_proto=$(printf '%s' "$rd_p53_line" | cut -f2)
+				rd_p53_addr=$(printf '%s' "$rd_p53_line" | cut -f3)
+				rd_p53_port=$(printf '%s' "$rd_p53_line" | cut -f4)
+				rd_p53_pid=$(printf '%s' "$rd_p53_line" | cut -f5)
+				rd_p53_owner=$(printf '%s' "$rd_p53_line" | cut -f6)
+				rd_p53_class=$(printf '%s' "$rd_p53_line" | cut -f7)
+				rd_p53_tool=$(printf '%s' "$rd_p53_line" | cut -f8)
+				rd_line "  ${rd_p53_proto} ${rd_p53_addr}:${rd_p53_port} -- pid=${rd_p53_pid:-unknown} owner=${rd_p53_owner} class=${rd_p53_class} (via ${rd_p53_tool})"
+				rd_kv "port53_listener_${rd_p53_n}_proto" "$rd_p53_proto"
+				rd_kv "port53_listener_${rd_p53_n}_addr" "$rd_p53_addr"
+				rd_kv "port53_listener_${rd_p53_n}_pid" "$rd_p53_pid"
+				rd_kv "port53_listener_${rd_p53_n}_owner" "$rd_p53_owner"
+				rd_kv "port53_listener_${rd_p53_n}_class" "$rd_p53_class"
+				case "$rd_p53_class" in
+					stub)
+						RD_PORT53_IMPLIED="resolved"
+						RD_PORT53_EVIDENCE="a systemd-resolved stub is bound to ${rd_p53_addr}:${rd_p53_port} (owner ${rd_p53_owner})"
+						;;
+					forwarder|server)
+						if [ -z "$RD_PORT53_IMPLIED" ]; then
+							RD_PORT53_IMPLIED="forwarder-present"
+							RD_PORT53_EVIDENCE="a live resolver (owner ${rd_p53_owner}) is bound to ${rd_p53_addr}:${rd_p53_port}, class=${rd_p53_class}"
+						fi
+						;;
+				esac
+				;;
+			BROKEN)
+				rd_p53_broken_ns=$(printf '%s' "$rd_p53_line" | cut -f2)
+				rd_line "  BROKEN: nothing is listening on port 53 at all, but the effective"
+				rd_line "          resolv.conf points at a loopback nameserver (${rd_p53_broken_ns}) --"
+				rd_line "          every lookup will fail until this is corrected."
+				rd_kv port53_broken "yes"
+				rd_kv port53_broken_nameserver "$rd_p53_broken_ns"
+				;;
+		esac
+	done <<-RDPORT53
+$RD_PORT53_SUMMARY
+RDPORT53
+	rd_kv port53_listener_count "$rd_p53_n"
+fi
+
+# Disagreement reporting (§C "standing"): only flagged in the two cases
+# port 53 evidence can actually settle -- a stub definitely present but
+# not classified as the resolved backend, or a live forwarder/server
+# present while the file survey concluded nothing is actively managing
+# DNS at all (backend=static or none). Both conclusions and their
+# evidence are printed; neither is treated as authoritative.
+case "$RD_PORT53_IMPLIED" in
+	resolved)
+		if [ "$RD_BACKEND" != "resolved" ]; then
+			rd_line ""
+			rd_line "DISAGREEMENT: port 53 survey vs. file/D-Bus classification"
+			rd_line "  file/D-Bus survey concluded: backend=${RD_BACKEND} (evidence: nss_uses_resolve=${RD_NSS_RESOLVE}, glibc reads ${RD_GLIBC_READER:-<none readable>})"
+			rd_line "  port 53 survey concluded:    ${RD_PORT53_EVIDENCE}"
+			rd_line "  Neither is authoritative here -- reported as found, not resolved automatically."
+			rd_kv port53_disagreement "yes"
+		fi
+		;;
+	forwarder-present)
+		case "$RD_BACKEND" in
+			static|none)
+				rd_line ""
+				rd_line "DISAGREEMENT: port 53 survey vs. file/D-Bus classification"
+				rd_line "  file/D-Bus survey concluded: backend=${RD_BACKEND} (no resolver manager recognized from file layout or D-Bus)"
+				rd_line "  port 53 survey concluded:    ${RD_PORT53_EVIDENCE}"
+				rd_line "  Neither is authoritative here -- reported as found, not resolved automatically."
+				rd_kv port53_disagreement "yes"
+				;;
+		esac
+		;;
+esac
+
+# --------------------------------------------------------------------------
+# --dry-run: build the plan the hook would apply, using either the
+# caller-supplied simulation parameters or clearly-marked RFC 5737/6890
+# documentation-reserved sample values (§4: whitelist-validated exactly
+# like real Mode Config input -- a CLI flag is no less untrusted).
+# --------------------------------------------------------------------------
+if [ "$RD_MODE" = "dry-run" ]; then
+	rd_line ""
+	rd_line "-----------------------------------------------------------------------"
+	rd_line "Simulated plan (nothing below is executed):"
+	rd_line "-----------------------------------------------------------------------"
+
+	RD_DNS_INPUT="${RD_DNS:-198.51.100.53,198.51.100.54}"
+	RD_DOMAINS_INPUT="${RD_DOMAINS:-corp.example.com}"
+	RD_ROUTES_INPUT="${RD_ROUTES:-198.51.100.0/24}"
+	RD_IFACE_INPUT="${RD_IFACE:-eth0}"
+	RD_INTERNAL_ADDR_INPUT="${RD_INTERNAL_ADDR:-192.0.2.44}"
+
+	RD_DNS_SPACES=$(printf '%s' "$RD_DNS_INPUT" | tr ',' ' ')
+	RD_DOMAINS_SPACES=$(printf '%s' "$RD_DOMAINS_INPUT" | tr ',' ' ')
+	RD_ROUTES_SPACES=$(printf '%s' "$RD_ROUTES_INPUT" | tr ',' ' ')
+
+	# `var=$(validator ...)` would run the validator in a subshell, losing
+	# its RHOOK_VALIDATION_REASON assignment on failure (the same bug
+	# already found and fixed in tests/hooks/test-validation.sh) -- redirect
+	# stdout to a file instead so the validator runs in this shell.
+	RD_VALIDATE_TMP=$(mktemp "${TMPDIR:-/tmp}/racoon-dns-detect.XXXXXX")
+	trap 'rm -f "$RD_VALIDATE_TMP"' EXIT
+
+	if rhook_validate_dns_list "$RD_DNS_SPACES" > "$RD_VALIDATE_TMP"; then
+		RHOOK_DNS_SERVERS=$(cat "$RD_VALIDATE_TMP")
+	else
+		printf 'racoon-dns-detect: --dns rejected: %s\n' "$RHOOK_VALIDATION_REASON" >&2
+		exit 1
+	fi
+	if rhook_validate_domain_list "$RD_DOMAINS_SPACES" > "$RD_VALIDATE_TMP"; then
+		RHOOK_DOMAINS=$(cat "$RD_VALIDATE_TMP")
+	else
+		printf 'racoon-dns-detect: --domains rejected: %s\n' "$RHOOK_VALIDATION_REASON" >&2
+		exit 1
+	fi
+	if rhook_validate_cidr_list "$RD_ROUTES_SPACES" > "$RD_VALIDATE_TMP"; then
+		RHOOK_ROUTES=$(cat "$RD_VALIDATE_TMP")
+	else
+		printf 'racoon-dns-detect: --routes rejected: %s\n' "$RHOOK_VALIDATION_REASON" >&2
+		exit 1
+	fi
+	rm -f "$RD_VALIDATE_TMP"
+	trap - EXIT
+	if ! rhook_valid_ipv4 "$RD_INTERNAL_ADDR_INPUT"; then
+		printf 'racoon-dns-detect: --internal-addr rejected: not a valid IPv4 address\n' >&2
+		exit 1
+	fi
+	RHOOK_INTERNAL_ADDR4="$RD_INTERNAL_ADDR_INPUT"
+	# The interface name itself is not attacker-controlled Mode Config
+	# input (it is a local admin's own simulation flag or an
+	# already-configured system interface), so it only needs the same
+	# shell-safety character whitelist domains use, not full DNS/CIDR
+	# validation.
+	case "$RD_IFACE_INPUT" in
+		*[!A-Za-z0-9._-]*|'')
+			printf 'racoon-dns-detect: --iface rejected: must contain only letters, digits, dot, underscore or hyphen\n' >&2
+			exit 1
+			;;
+	esac
+	RHOOK_IFACE="$RD_IFACE_INPUT"
+
+	if [ -z "$RD_DNS" ] && [ -z "$RD_DOMAINS" ] && [ -z "$RD_ROUTES" ]; then
+		rd_line "(no --dns/--domains/--routes given -- using RFC 5737 documentation-reserved sample values)"
+	fi
+	rd_line "  iface=${RHOOK_IFACE} internal_addr=${RHOOK_INTERNAL_ADDR4}"
+	rd_line "  dns=${RHOOK_DNS_SERVERS} domains=${RHOOK_DOMAINS} routes=${RHOOK_ROUTES}"
+	rd_line ""
+
+	rhook_build_plan
+	PLAN_FILE=$(rhook_plan_file)
+
+	rd_kv plan_backend_resolved "$RHOOK_BACKEND_RESOLVED"
+	rd_kv plan_dns_tool "$RHOOK_DNS_TOOL"
+	rd_kv plan_default_route_capable "$RHOOK_CAP_DEFAULT_ROUTE"
+
+	# Whole-line read + cut -f, not `IFS=<tab> read -r a b c...`: POSIX
+	# always treats TAB as IFS whitespace regardless of what IFS is set
+	# to, which silently collapses/drops empty fields on split -- cut -f
+	# is purely positional and immune (same fix already applied to
+	# rhook_run_step/rhook_survey_divergent in racoon-hook-lib.sh).
+	rd_step_n=0
+	while IFS= read -r rd_plan_line || [ -n "$rd_plan_line" ]; do
+		[ -n "$rd_plan_line" ] || continue
+		rd_id=$(printf '%s' "$rd_plan_line" | cut -f1)
+		rd_type=$(printf '%s' "$rd_plan_line" | cut -f2)
+		rd_crit=$(printf '%s' "$rd_plan_line" | cut -f3)
+		rd_desc=$(printf '%s' "$rd_plan_line" | cut -f4)
+		rd_cmd=$(printf '%s' "$rd_plan_line" | cut -f5)
+		rd_undo=$(printf '%s' "$rd_plan_line" | cut -f6)
+		rd_step_n=$((rd_step_n + 1))
+		rd_line "[$rd_crit] $rd_id ($rd_type): $rd_desc"
+		if [ "$RD_EXPLAIN" = "yes" ]; then
+			rd_line "    apply: $rd_cmd"
+			[ -n "$rd_undo" ] && rd_line "    undo:  $rd_undo"
+		fi
+		rd_kv "plan_step_${rd_step_n}_id" "$rd_id"
+		rd_kv "plan_step_${rd_step_n}_type" "$rd_type"
+		rd_kv "plan_step_${rd_step_n}_criticality" "$rd_crit"
+	done < "$PLAN_FILE"
+	rd_kv plan_step_count "$rd_step_n"
+	rm -f "$PLAN_FILE" 2>/dev/null
+fi
+
+exit 0

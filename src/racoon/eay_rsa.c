@@ -12,6 +12,7 @@
 #include <openssl/rsa.h>     /* RSA_PKCS1_PADDING, RSA_F4 (constants only) */
 #include <openssl/pem.h>
 #include <openssl/err.h>
+#include <openssl/crypto.h>  /* CRYPTO_memcmp */
 
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 # include <openssl/core_names.h>
@@ -241,7 +242,7 @@ eayRSA_generate(int bits, unsigned long e)
 	}
 done:
 	BN_free(eb);      /* caller always owns eb under the normalized convention */
-	EVP_PKEY_CTX_free(ctx);
+	compat_EVP_PKEY_CTX_free(ctx);
 	return eayRSA_wrap(pkey);
 }
 
@@ -295,6 +296,8 @@ eayRSA_has_private(const eayRSA *r)
 	/* EVP_PKEY_get_bn_param: native on 3.0, compat-shimmed on < 3.0. */
 	if (EVP_PKEY_get_bn_param(r->pkey, OSSL_PKEY_PARAM_RSA_D, &d) && d != NULL) {
 		have = 1;
+	} else {
+		ERR_clear_error();
 	}
 	BN_clear_free(d);
 	return have;
@@ -316,32 +319,50 @@ eayRSA_get_params(const eayRSA *r,
                   BIGNUM **dmp1, BIGNUM **dmq1, BIGNUM **iqmp)
 {
 	/*
-	 * Each requested component is fetched as an owned copy. On any failure
-	 * the caller still frees whatever came back non-NULL. Private outputs
-	 * should be released with BN_clear_free by the caller.
+	 * Two-pass approach: fetch all requested components; on any failure
+	 * free everything that was successfully fetched and return -1.
+	 * On success all non-NULL output pointers are set. The caller must
+	 * free each non-NULL BIGNUM (BN_free for public, BN_clear_free for
+	 * private). On failure all outputs are NULL.
 	 */
-	int failed = 0;
-
 	if (r == NULL || r->pkey == NULL) {
 		return -1;
 	}
-#define GET(field, name) \
-	do { if ((field) != NULL) { \
-		*(field) = NULL; \
-		if (EVP_PKEY_get_bn_param(r->pkey, (name), (field)) <= 0) \
-			failed = 1; \
+
+	/* Zero all outputs */
+	if (n)    *n    = NULL;
+	if (e)    *e    = NULL;
+	if (d)    *d    = NULL;
+	if (p)    *p    = NULL;
+	if (q)    *q    = NULL;
+	if (dmp1) *dmp1 = NULL;
+	if (dmq1) *dmq1 = NULL;
+	if (iqmp) *iqmp = NULL;
+
+#define FETCH(field, name) \
+	do { if ((field) && !EVP_PKEY_get_bn_param(r->pkey, (name), (field))) { \
+		if (n)    BN_free(*n); \
+		if (e)    BN_free(*e); \
+		if (d)    BN_clear_free(*d); \
+		if (p)    BN_clear_free(*p); \
+		if (q)    BN_clear_free(*q); \
+		if (dmp1) BN_clear_free(*dmp1); \
+		if (dmq1) BN_clear_free(*dmq1); \
+		if (iqmp) BN_clear_free(*iqmp); \
+		ERR_clear_error(); \
+		return -1; \
 	} } while (0)
 
-	GET(n,    OSSL_PKEY_PARAM_RSA_N);
-	GET(e,    OSSL_PKEY_PARAM_RSA_E);
-	GET(d,    OSSL_PKEY_PARAM_RSA_D);
-	GET(p,    OSSL_PKEY_PARAM_RSA_FACTOR1);
-	GET(q,    OSSL_PKEY_PARAM_RSA_FACTOR2);
-	GET(dmp1, OSSL_PKEY_PARAM_RSA_EXPONENT1);
-	GET(dmq1, OSSL_PKEY_PARAM_RSA_EXPONENT2);
-	GET(iqmp, OSSL_PKEY_PARAM_RSA_COEFFICIENT1);
-#undef GET
-	return failed ? -1 : 0;
+	FETCH(n,    OSSL_PKEY_PARAM_RSA_N);
+	FETCH(e,    OSSL_PKEY_PARAM_RSA_E);
+	FETCH(d,    OSSL_PKEY_PARAM_RSA_D);
+	FETCH(p,    OSSL_PKEY_PARAM_RSA_FACTOR1);
+	FETCH(q,    OSSL_PKEY_PARAM_RSA_FACTOR2);
+	FETCH(dmp1, OSSL_PKEY_PARAM_RSA_EXPONENT1);
+	FETCH(dmq1, OSSL_PKEY_PARAM_RSA_EXPONENT2);
+	FETCH(iqmp, OSSL_PKEY_PARAM_RSA_COEFFICIENT1);
+#undef FETCH
+	return 0;
 }
 
 /* ===================================================================== */
@@ -386,7 +407,7 @@ eayRSA_sign(const eayRSA *r, vchar_t *src)
 	}
 	sig->l = siglen;
 done:
-	EVP_PKEY_CTX_free(ctx);
+	compat_EVP_PKEY_CTX_free(ctx);
 	return sig;
 }
 
@@ -492,7 +513,7 @@ eayRSA_verify(const eayRSA *r, vchar_t *src, vchar_t *sig)
 		     "Signature verification failed: length mismatch (expected %zu, got %zu)\n",
 		     src->l, recovered->l);
 		ret = -1;
-	} else if (memcmp(recovered->v, src->v, src->l) != 0) {
+	} else if (CRYPTO_memcmp(recovered->v, src->v, src->l) != 0) {
 		plog(LLV_WARNING, LOCATION, NULL,
 		     "Signature verification failed: data mismatch\n");
 		ret = -1;

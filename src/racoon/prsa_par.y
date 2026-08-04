@@ -106,7 +106,7 @@ struct my_rsa_st {
 static struct my_rsa_st *rsa_cur;
 
 static void
-rsa_cur_free(struct my_rsa_st *r)
+rsa_cur_reset(struct my_rsa_st *r)
 {
 	if (r == NULL)
 		return;
@@ -120,7 +120,16 @@ rsa_cur_free(struct my_rsa_st *r)
 	BN_clear_free(r->dmp1);
 	BN_clear_free(r->dmq1);
 	BN_clear_free(r->iqmp);
+	/* Zero the struct so the next key starts clean, but do NOT free(). */
 	memset(r, 0, sizeof(*r));
+}
+
+static void
+rsa_cur_free(struct my_rsa_st *r)
+{
+	if (r == NULL)
+		return;
+	rsa_cur_reset(r);
 	free(r);
 }
 
@@ -172,12 +181,15 @@ prsawrap()
 	struct netaddr *naddr;
 }
 
-%token COLON <bn> HEX
+%token COLON
+%token <bn> HEX
 %token OBRACE EBRACE
 %token TAG_RSA TAG_PUB TAG_PSK
-%token MODULUS PUBLIC_EXPONENT PRIVATE_EXPONENT 
+%token MODULUS PUBLIC_EXPONENT PRIVATE_EXPONENT
 %token PRIME1 PRIME2 EXPONENT1 EXPONENT2 COEFFICIENT
-%token <chr> ADDR4 <chr> ADDR6 ADDRANY SLASH <num> NUMBER <chr> BASE64
+%token <chr> ADDR4 ADDR6 ADDRANY SLASH
+%token <num> NUMBER
+%token <chr> BASE64
 
 %type <rsa>	rsa_statement
 %type <num>	prefix
@@ -252,7 +264,7 @@ rsa_statement:
 			rsa_cur = NULL;
 			YYABORT;
 		}
-		memset(rsa_cur, 0, sizeof(struct my_rsa_st));
+		rsa_cur_reset(rsa_cur);
 	}
 	| TAG_PUB BASE64
 	{

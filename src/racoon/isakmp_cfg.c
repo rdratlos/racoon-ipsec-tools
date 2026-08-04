@@ -362,8 +362,14 @@ isakmp_cfg_reply(iph1, attrpl)
 		type = ntohs(attr->type);
 		alen = ntohs(attr->lorv);
 
-		/* Check that the attribute fit in the packet */
-		if (tlen < alen) {
+		/*
+		 * Check that the attribute fits in the packet.  tlen still
+		 * includes this attribute's 4-byte header, so the value fits
+		 * only if sizeof(*attr) + alen <= tlen; checking alen alone
+		 * left a header-sized over-read in the consumers below.
+		 * (CWE-125)
+		 */
+		if (tlen < sizeof(*attr) + alen) {
 			plog(LLV_ERROR, LOCATION, NULL,
 			     "Short attribute %s\n",
 			     s_isakmp_cfg_type(type));
@@ -406,7 +412,7 @@ isakmp_cfg_reply(iph1, attrpl)
 		case INTERNAL_IP4_NBNS:
 			isakmp_cfg_appendaddr4(attr, 
 			    &iph1->mode_cfg->wins4[iph1->mode_cfg->wins4_index],
-			    &iph1->mode_cfg->wins4_index, MAXNS);
+			    &iph1->mode_cfg->wins4_index, MAXWINS);
 			iph1->mode_cfg->flags |= ISAKMP_CFG_GOT_WINS4;
 			break;
 		case UNITY_DEF_DOMAIN:
@@ -1374,6 +1380,8 @@ isakmp_cfg_rmstate(iph1)
 	if(iph1->mode_cfg->split_local != NULL)
 		splitnet_list_free(iph1->mode_cfg->split_local,
 			&iph1->mode_cfg->local_count);
+	if(iph1->mode_cfg->split_dns != NULL)
+		racoon_free(iph1->mode_cfg->split_dns);
 
 	xauth_rmstate(&state->xauth);
 
@@ -1710,10 +1718,10 @@ isakmp_cfg_accounting_system(port, raddr, usr, inout)
 	switch (inout) {
 	case ISAKMP_CFG_LOGIN:
 		ut.ut_type = USER_PROCESS;
-		strncpy(ut.ut_user, usr, sizeof ut.ut_user);
+		strlcpy(ut.ut_user, usr, sizeof ut.ut_user);
 
 		GETNAMEINFO_NULL(raddr, addr);
-		strncpy(ut.ut_host, addr, sizeof ut.ut_host);
+		strlcpy(ut.ut_host, addr, sizeof ut.ut_host);
 
 		plog(LLV_INFO, LOCATION, NULL,
 			"Accounting : '%s' logging on '%s' from %s.\n",
@@ -1919,7 +1927,12 @@ isakmp_cfg_setenv(iph1, envp, envc)
 	int *envc;
 {
 	char addrstr[IP_MAX];
-	char addrlist[IP_MAX * MAXNS + MAXNS];
+	/*
+	 * Reused for both the dns4[MAXNS] and the wins4[MAXWINS] list, so
+	 * size it for the longer of the two -- MAXWINS is 4 while MAXNS is
+	 * 3 on glibc.
+	 */
+	char addrlist[IP_MAX * MAXCFGADDR + MAXCFGADDR];
 	char *splitlist = addrlist;
 	char *splitlist_cidr;
 	char defdom[MAXPATHLEN + 1];
@@ -2049,9 +2062,9 @@ isakmp_cfg_setenv(iph1, envp, envc)
 
 	/* Deault domain */
 	if(iph1->mode_cfg->flags & ISAKMP_CFG_GOT_DEFAULT_DOMAIN) 
-		strncpy(defdom, 
+		strlcpy(defdom, 
 		    iph1->mode_cfg->default_domain, 
-		    MAXPATHLEN + 1);
+		    sizeof(defdom));
 	else
 		defdom[0] = '\0';
 	
@@ -2113,6 +2126,23 @@ isakmp_cfg_setenv(iph1, envp, envc)
 		racoon_free(splitlist);
 	if (splitlist_cidr != addrlist)
 		racoon_free(splitlist_cidr);
+
+	/* Split DNS domains */
+	if (iph1->mode_cfg->flags & ISAKMP_CFG_GOT_SPLIT_DNS) {
+		if (script_env_append(envp, envc, "INTERNAL_SPLITDNS_DOMAINS",
+		    iph1->mode_cfg->split_dns) != 0) {
+			plog(LLV_ERROR, LOCATION, NULL,
+			    "Cannot set INTERNAL_SPLITDNS_DOMAINS\n");
+			return -1;
+		}
+	} else {
+		if (script_env_append(envp, envc, "INTERNAL_SPLITDNS_DOMAINS",
+		    "") != 0) {
+			plog(LLV_ERROR, LOCATION, NULL,
+			    "Cannot set INTERNAL_SPLITDNS_DOMAINS\n");
+			return -1;
+		}
+	}
 	
 	return 0;
 }

@@ -16,6 +16,7 @@
 #include <string.h>
 #include <assert.h>
 #include <sys/types.h>
+#include <unistd.h>
 #include "vmbuf.h"
 #include "crypto_openssl.h"
 #include "gcmalloc.h"
@@ -2503,6 +2504,110 @@ int test_rsa_key_dup_null_rsa()
 }
 
 /* ============================================================================
+ * TEST GROUP 5: Multi-key parser regression (H1 fix regression test)
+ * ============================================================================ */
+
+int test_multikey_parser_no_crash()
+{
+	RSA *rsa1 = NULL, *rsa2 = NULL;
+	char *n1_hex = NULL, *e1_hex = NULL;
+	char *n2_hex = NULL, *e2_hex = NULL;
+	const BIGNUM *n1 = NULL, *e1 = NULL;
+	const BIGNUM *n2 = NULL, *e2 = NULL;
+	struct genlist *list = NULL;
+	char tmpfile_path[256];
+	FILE *fp = NULL;
+	unsigned long count;
+	int ret = -1;
+
+	TEST_START("Multi-key parser: two keys in one file, no SIGSEGV");
+
+	rsa1 = generate_rsa_key(2048);
+	rsa2 = generate_rsa_key(2048);
+	if (!rsa1 || !rsa2) {
+		RSA_free(rsa1); RSA_free(rsa2);
+		TEST_FAIL("Key generation failed");
+	}
+
+	RSA_get0_key(rsa1, &n1, &e1, NULL);
+	RSA_get0_key(rsa2, &n2, &e2, NULL);
+
+	n1_hex = BN_bn2hex(n1);
+	e1_hex = BN_bn2hex(e1);
+	n2_hex = BN_bn2hex(n2);
+	e2_hex = BN_bn2hex(e2);
+
+	if (!n1_hex || !e1_hex || !n2_hex || !e2_hex) {
+		OPENSSL_free(n1_hex); OPENSSL_free(e1_hex);
+		OPENSSL_free(n2_hex); OPENSSL_free(e2_hex);
+		RSA_free(rsa1); RSA_free(rsa2);
+		TEST_FAIL("BN_bn2hex failed");
+	}
+
+	snprintf(tmpfile_path, sizeof(tmpfile_path), "/tmp/racoon_test_multikey_XXXXXX");
+	int fd = mkstemp(tmpfile_path);
+	if (fd < 0) {
+		OPENSSL_free(n1_hex); OPENSSL_free(e1_hex);
+		OPENSSL_free(n2_hex); OPENSSL_free(e2_hex);
+		RSA_free(rsa1); RSA_free(rsa2);
+		TEST_FAIL("mkstemp failed");
+	}
+	close(fd);
+
+	fp = fopen(tmpfile_path, "w");
+	if (!fp) {
+		OPENSSL_free(n1_hex); OPENSSL_free(e1_hex);
+		OPENSSL_free(n2_hex); OPENSSL_free(e2_hex);
+		RSA_free(rsa1); RSA_free(rsa2);
+		unlink(tmpfile_path);
+		TEST_FAIL("fopen failed");
+	}
+
+	fprintf(fp, ": RSA {\n");
+	fprintf(fp, "  Modulus: 0x%s\n", n1_hex);
+	fprintf(fp, "  PublicExponent: 0x%s\n", e1_hex);
+	fprintf(fp, "}\n");
+	fprintf(fp, ": RSA {\n");
+	fprintf(fp, "  Modulus: 0x%s\n", n2_hex);
+	fprintf(fp, "  PublicExponent: 0x%s\n", e2_hex);
+	fprintf(fp, "}\n");
+	fclose(fp);
+
+	OPENSSL_free(n1_hex); OPENSSL_free(e1_hex);
+	OPENSSL_free(n2_hex); OPENSSL_free(e2_hex);
+	RSA_free(rsa1); RSA_free(rsa2);
+
+	list = genlist_init();
+	if (!list) {
+		unlink(tmpfile_path);
+		TEST_FAIL("genlist_init failed");
+	}
+
+	if (rsa_parse_file(list, tmpfile_path, RSA_TYPE_PUBLIC) != 0) {
+		genlist_free(list, rsa_key_free);
+		unlink(tmpfile_path);
+		TEST_FAIL("rsa_parse_file failed");
+	}
+
+	count = rsa_list_count(list);
+	if (count != 2) {
+		genlist_free(list, rsa_key_free);
+		unlink(tmpfile_path);
+		printf("got %lu keys, expected 2 ", count);
+		TEST_FAIL("Key count mismatch");
+	}
+
+	printf("2 keys parsed from one file, no crash ");
+	ret = 0;
+
+	genlist_free(list, rsa_key_free);
+	unlink(tmpfile_path);
+
+	if (ret == 0) TEST_PASS();
+	return ret;
+}
+
+/* ============================================================================
  * MAIN TEST RUNNER
  * ============================================================================ */
 
@@ -2572,6 +2677,9 @@ int main(int argc, char **argv)
 	printf("\n=== MEMORY MANAGEMENT: rsa_key_dup / rsa_key_free ===\n");
 	ran++; if (test_rsa_key_dup_and_free() != 0) failed++;
 	ran++; if (test_rsa_key_dup_null_rsa() != 0) failed++;
+
+	printf("\n=== REGRESSION: H1 multi-key parser ===\n");
+	ran++; if (test_multikey_parser_no_crash() != 0) failed++;
 
 	printf("\n");
 	printf("========================================================================\n");

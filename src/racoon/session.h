@@ -34,10 +34,23 @@
 #ifndef _SESSION_H
 #define _SESSION_H
 
+/*
+ * Set at the top of close_session(), before any SA teardown runs, and
+ * never cleared (the process is exiting). script_hook() (isakmp.c) reads
+ * this to decide whether a SCRIPT_PHASE1_DOWN hook belongs to an actual
+ * daemon shutdown -- the only case doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 1 documents --
+ * as opposed to routine per-connection teardown (peer-initiated delete,
+ * DPD timeout, rekey failure), which must stay fire-and-forget to avoid
+ * adding shutdown-only wait latency to the single-threaded main loop's
+ * everyday negotiation handling.
+ */
+extern int racoon_shutting_down;
+
 extern int session __P((void));
+extern void session_init_before_cfparse __P((void));
 extern RETSIGTYPE signal_handler __P((int));
 
-extern void monitor_fd __P((int fd, int (*callback)(void *, int), void *ctx, int priority));
+extern int monitor_fd __P((int fd, int (*callback)(void *, int), void *ctx, int priority));
 extern void unmonitor_fd __P((int fd));
 
 #endif /* _SESSION_H */

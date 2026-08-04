@@ -43,12 +43,7 @@
 # include <nameser8_compat.h>
 #endif
 #include <resolv.h>
-#ifdef HAVE_LWRES_GETRRSETBYNAME
-#include <lwres/netdb.h>
-#include <lwres/lwres.h>
-#else
 #include <netdb.h>
-#endif
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -93,6 +88,22 @@ getnewci(qtype, keytag, algorithm, flags, certlen, cert)
 	return res;
 }
 
+#ifdef ENABLE_UNITTEST
+/*
+ * getnewci() is static, and its only production caller (getcertsbyname()
+ * below) needs a real DNS wire-format CERT RR to reach it at all. This
+ * thin wrapper lets a unit test drive the certinfo-node allocation
+ * itself directly, independent of DNS packet construction.
+ */
+struct certinfo *
+getnewci_unittest(qtype, keytag, algorithm, flags, certlen, cert)
+	int qtype, keytag, algorithm, flags, certlen;
+	unsigned char *cert;
+{
+	return getnewci(qtype, keytag, algorithm, flags, certlen, cert);
+}
+#endif /* ENABLE_UNITTEST */
+
 void
 freecertinfo(ci)
 	struct certinfo *ci;
@@ -109,164 +120,64 @@ freecertinfo(ci)
 }
 
 /*
- * get CERT RR by FQDN and create certinfo structure chain.
+ * Validates and parses a raw DNS response buffer (as returned by
+ * res_query()) into a certinfo chain. Split out of getcertsbyname()
+ * (pure code motion, no behavior change) so this -- the security-
+ * relevant half of the file, including the DNSSEC Authenticated Data
+ * bit check -- can be driven directly by a unit test with a hand-built
+ * response buffer, without needing to intercept res_query()/res_init()
+ * themselves. Those two are notably not portable interposition targets:
+ * -Wl,--wrap=res_query/--wrap=res_init (this file's earlier test
+ * approach) silently failed to redirect calls to them on Ubuntu Bionic
+ * 32-bit, where the older glibc/binutils toolchain apparently does not
+ * treat these libresolv symbols the same way -Wl,--wrap already
+ * reliably handles elsewhere in this test suite for ordinary libc
+ * symbols (free(), fork(), _exit()) -- res_query()/res_init() have a
+ * messier, more version-dependent history (originally libresolv-only,
+ * partially merged into libc across different glibc eras) that this
+ * apparently exposed. Two of the four affected tests still reported
+ * PASS on that platform despite this: both expected getcertsbyname() to
+ * reject its input, which the real (network-dependent, therefore
+ * failing outright in a sandboxed test run) res_query()/res_init() did
+ * too, just not for the reason the test intended -- the same class of
+ * false-positive-pass this project's own test_admin_init.c review
+ * already caught once for an unrelated reason (a privilege-gated
+ * chown() short-circuiting before the logic under test could run).
  */
-#ifdef HAVE_LWRES_GETRRSETBYNAME
-#define getrrsetbyname lwres_getrrsetbyname
-#define freerrset lwres_freerrset
-#define hstrerror lwres_hstrerror
-#endif
-#if defined(HAVE_LWRES_GETRRSETBYNAME) || defined(AHVE_GETRRSETBYNAME)
-int
-getcertsbyname(name, res)
-	char *name;
+static int
+parse_cert_answer(answer, anslen, res)
+	unsigned char *answer;
+	int anslen;
 	struct certinfo **res;
 {
-	int rdlength;
-	char *cp;
-	int type, keytag, algorithm;
-	struct certinfo head, *cur;
-	struct rrsetinfo *rr = NULL;
-	int i;
-	int error = -1;
-
-	/* initialize res */
-	*res = NULL;
-
-	memset(&head, 0, sizeof(head));
-	cur = &head;
-
-	error = getrrsetbyname(name, C_IN, T_CERT, 0, &rr);
-	if (error) {
-#ifdef DNSSEC_DEBUG
-		printf("getrrsetbyname: %s\n", hstrerror(error));
-#endif
-		h_errno = NO_RECOVERY;
-		goto end;
-	}
-
-	if (rr->rri_rdclass != C_IN
-	 || rr->rri_rdtype != T_CERT
-	 || rr->rri_nrdatas == 0) {
-#ifdef DNSSEC_DEBUG
-		printf("getrrsetbyname: %s", hstrerror(error));
-#endif
-		h_errno = NO_RECOVERY;
-		goto end;
-	}
-#ifdef DNSSEC_DEBUG
-	if (!(rr->rri_flags & LWRDATA_VALIDATED))
-		printf("rr is not valid");
-#endif
-
-	for (i = 0; i < rr->rri_nrdatas; i++) {
-		rdlength = rr->rri_rdatas[i].rdi_length;
-		cp = rr->rri_rdatas[i].rdi_data;
-
-		GETSHORT(type, cp);	/* type */
-		rdlength -= INT16SZ;
-		GETSHORT(keytag, cp);	/* key tag */
-		rdlength -= INT16SZ;
-		algorithm = *cp++;	/* algorithm */
-		rdlength -= 1;
-
-#ifdef DNSSEC_DEBUG
-		printf("type=%d keytag=%d alg=%d len=%d\n",
-			type, keytag, algorithm, rdlength);
-#endif
-
-		/* create new certinfo */
-		cur->ci_next = getnewci(type, keytag, algorithm,
-					rr->rri_flags, rdlength, cp);
-		if (!cur->ci_next) {
-#ifdef DNSSEC_DEBUG
-			printf("getnewci: %s", strerror(errno));
-#endif
-			h_errno = NO_RECOVERY;
-			goto end;
-		}
-		cur = cur->ci_next;
-	}
-
-	*res = head.ci_next;
-	error = 0;
-
-end:
-	if (rr)
-		freerrset(rr);
-	if (error && head.ci_next)
-		freecertinfo(head.ci_next);
-
-	return error;
-}
-#else	/*!HAVE_LWRES_GETRRSETBYNAME*/
-int
-getcertsbyname(name, res)
-	char *name;
-	struct certinfo **res;
-{
-	unsigned char *answer = NULL, *p;
-	int buflen, anslen, len;
 	HEADER *hp;
-	int qdcount, ancount, rdlength;
+	int qdcount, ancount, rdlength, len;
 	unsigned char *cp, *eom;
 	char hostbuf[1024];	/* XXX */
 	int qtype, qclass, keytag, algorithm;
 	struct certinfo head, *cur;
-	struct __res_state *_resp = &_res;
-	u_long _res_options = 0;
 	int error = -1;
 
-	/* initialize res */
 	*res = NULL;
-
 	memset(&head, 0, sizeof(head));
 	cur = &head;
 
-	/* get CERT RR */
-	/* Bit bang _res libc resolver global, we are single threaded */
-	if ((_resp->options & RES_INIT) == 0 && res_init() == -1) {
-		goto end;
-	}
-	_res_options = _resp->options;
-	_resp->options |= (RES_USE_EDNS0|RES_USE_DNSSEC);
-	buflen = 512;
-	do {
-
-		buflen *= 2;
-		p = realloc(answer, buflen);
-		if (!p) {
-#ifdef DNSSEC_DEBUG
-			printf("realloc: %s", strerror(errno));
-#endif
-			h_errno = NO_RECOVERY;
-			goto end;
-		}
-		answer = p;
-
-		anslen = res_query(name,  C_IN, T_CERT, answer, buflen);
-		if (anslen == -1)
-			goto end;
-
-	} while (buflen < anslen);
-	/* Undo resolver options */
-	_resp->options = _res_options;
-
-#ifdef DNSSEC_DEBUG
-	printf("get a DNS packet len=%d\n", anslen);
-#endif
-
-	/* parse CERT RR */
 	eom = answer + anslen;
 
 	hp = (HEADER *)answer;
 	qdcount = ntohs(hp->qdcount);
 	ancount = ntohs(hp->ancount);
 
-	/* Check if DNS server has validated answer or not */
-	if (hp->ad == 0 && hp->aa==0) {
+	/*
+	 * Require the DNSSEC Authenticated Data (AD) bit. The
+	 * Authoritative Answer (AA) bit is not a DNSSEC validation
+	 * signal -- it only means the responder claims authority for
+	 * the zone -- and must never be accepted as a substitute proof
+	 * of DNSSEC validation.
+	 */
+	if (hp->ad == 0) {
 #ifdef DNSSEC_DEBUG
-		printf("answer is not authenticated.\n");
+		printf("answer is not DNSSEC validated.\n");
 #endif
 		h_errno = NO_RECOVERY;
 		goto end;
@@ -352,14 +263,87 @@ getcertsbyname(name, res)
 	error = 0;
 
 end:
-	if (answer)
-		free(answer);
 	if (error && head.ci_next)
 		freecertinfo(head.ci_next);
 
 	return error;
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * parse_cert_answer() is static; this thin wrapper lets a unit test
+ * drive it directly against a hand-built DNS response buffer. See
+ * parse_cert_answer()'s own header comment for why this exists instead
+ * of intercepting res_query()/res_init().
+ */
+int
+parse_cert_answer_unittest(answer, anslen, res)
+	unsigned char *answer;
+	int anslen;
+	struct certinfo **res;
+{
+	return parse_cert_answer(answer, anslen, res);
+}
+#endif /* ENABLE_UNITTEST */
+
+/*
+ * get CERT RR by FQDN and create certinfo structure chain.
+ */
+int
+getcertsbyname(name, res)
+	char *name;
+	struct certinfo **res;
+{
+	unsigned char *answer = NULL, *p;
+	int buflen, anslen;
+	struct __res_state *_resp = &_res;
+	u_long _res_options = 0;
+	int error = -1;
+
+	/* initialize res */
+	*res = NULL;
+
+	/* get CERT RR */
+	/* Bit bang _res libc resolver global, we are single threaded */
+	if ((_resp->options & RES_INIT) == 0 && res_init() == -1) {
+		goto end;
+	}
+	_res_options = _resp->options;
+	_resp->options |= (RES_USE_EDNS0|RES_USE_DNSSEC);
+	buflen = 512;
+	do {
+
+		buflen *= 2;
+		p = realloc(answer, buflen);
+		if (!p) {
+#ifdef DNSSEC_DEBUG
+			printf("realloc: %s", strerror(errno));
 #endif
+			h_errno = NO_RECOVERY;
+			goto end;
+		}
+		answer = p;
+
+		anslen = res_query(name,  C_IN, T_CERT, answer, buflen);
+		if (anslen == -1)
+			goto end;
+
+	} while (buflen < anslen);
+	/* Undo resolver options */
+	_resp->options = _res_options;
+
+#ifdef DNSSEC_DEBUG
+	printf("get a DNS packet len=%d\n", anslen);
+#endif
+
+	error = parse_cert_answer(answer, anslen, res);
+
+end:
+	if (answer)
+		free(answer);
+
+	return error;
+}
 
 #ifdef DNSSEC_DEBUG
 int

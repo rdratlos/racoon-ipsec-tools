@@ -23,6 +23,13 @@ Makefile.in
 .libs/
 *.o
 *.lo
+
+# Coverage artifacts (--enable-coverage + `cd test && make coverage`)
+*.gcno
+*.gcda
+/coverage_raw.info
+/coverage_filtered.info
+/coverage/
 *.la
 .dirstamp
 
@@ -33,8 +40,19 @@ Makefile
 # Generated configure output files
 /packaging/rpm/ipsec-tools.spec
 /packaging/rpm/suse/ipsec-tools.spec
-/src/racoon/samples/psk.txt
-/src/racoon/samples/racoon.conf
+/docs/examples/racoon.conf.default
+/systemd/racoon.service
+/systemd/setkey.service
+
+# Man pages generated from .in sources (.Dd stamped with PACKAGE_VERSION)
+/src/racoon/racoon.8
+/src/racoon/racoon.conf.5
+/src/racoon/plainrsa-gen.8
+/src/racoon/racoonctl.1
+/src/racoon/scripts/racoon-dns-detect.8
+/src/libipsec/ipsec_set_policy.3
+/src/libipsec/ipsec_strerror.3
+/src/setkey/setkey.8
 
 # Compiled binaries
 /src/racoon/racoon
@@ -49,6 +67,35 @@ Makefile
 /test/*.log
 /test/*.trs
 /test/test-suite.log
+/test/unit/cert-framework/*.log
+/test/unit/cert-framework/*.trs
+
+# src/racoon/Makefile.am's own TESTS = eaytest runs (and leaves its
+# automake test-runner output) here, not under /test/
+/src/racoon/eaytest.log
+/src/racoon/eaytest.trs
+/src/racoon/test-suite.log
+
+# autoconf/autoreconf backup file (seen after a re-run clobbers an
+# existing ./configure)
+/configure~
+
+# Debian packaging build artifacts (dpkg-buildpackage/debhelper).
+# debian/racoon/ and debian/ipsec-tools/ are the per-binary-package
+# staging directories debhelper creates from the two packages this
+# source tree builds (see debian/control) -- named for the packages,
+# not a generic pattern.
+/debian/.debhelper/
+/debian/tmp/
+/debian/racoon/
+/debian/ipsec-tools/
+/debian/files
+/debian/*.substvars
+/debian/*.debhelper.log
+/debian/*.debhelper
+/debian/debhelper-build-stamp
+/debian/autoreconf.after
+/debian/autoreconf.before
 
 # Generated include symlinks
 /src/include-glibc/linux

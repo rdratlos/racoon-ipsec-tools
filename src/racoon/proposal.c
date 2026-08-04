@@ -479,6 +479,20 @@ cmpsaprop_alloc(ph1, pp1, pp2, side)
 			}
 		}
 
+		/*
+		 * doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 3: the negotiation's actual outcome,
+		 * logged once here rather than inferred from however many
+		 * per-pair cmpsatrns() rejections preceded it (now at
+		 * LLV_DEBUG; see the comment there). Consistent with the
+		 * proto_id/spisize/encmode mismatches above in this same
+		 * loop, which already log at LLV_ERROR before their own
+		 * `goto err`.
+		 */
+		plog(LLV_ERROR, LOCATION, NULL,
+			"no compatible transform found for %s "
+			"(see -d output for per-candidate detail)\n",
+			s_ipsecdoi_proto(pr1->proto_id));
+
 		goto err;
 
 	    found:
@@ -592,7 +606,23 @@ cmpsatrns(proto_id, tr1, tr2, check_level)
 	}
 
 	if (tr1->authtype != tr2->authtype) {
-		plog(LLV_WARNING, LOCATION, NULL,
+		/*
+		 * doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 3: this fires once per (peer
+		 * transform, my transform) candidate pair the caller's
+		 * nested search loop (get_ph2approval(), below) tries, not
+		 * once per negotiation -- a peer legitimately offering
+		 * several authtype alternatives (RFC-legal preference-order
+		 * proposals) makes it fire on every non-matching pair tried
+		 * before the search lands on one that matches, even on a
+		 * completely successful negotiation. At LLV_WARNING (the
+		 * default visible level) that reads as a fault on every such
+		 * negotiation. get_ph2approval() now logs the search's
+		 * actual *outcome* once, at LLV_ERROR, only if every pair
+		 * was rejected; this per-pair detail moves to LLV_DEBUG so
+		 * `-d` still shows exactly which pairs were tried and why,
+		 * for anyone actually debugging a real mismatch.
+		 */
+		plog(LLV_DEBUG, LOCATION, NULL,
 			"authtype mismatched: "
 			"my:%s peer:%s\n",
 			s_ipsecdoi_attr_v(IPSECDOI_ATTR_AUTH, tr2->authtype),

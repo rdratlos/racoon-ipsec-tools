@@ -1,0 +1,8 @@
+DESC="resolved stub only, single listener on 127.0.0.53 (matches Bionic evidence, F7 comm-truncation)"
+EXPECT_GLIBC_READER_SUFFIX="/run/systemd/resolve/stub-resolv.conf"
+EXPECT_NSS_RESOLVE="yes"
+EXPECT_DIVERGENT="no"
+EXPECT_PARALLEL_UNLINKED="no"
+EXPECT_PORT53_COUNT="1"
+EXPECT_PORT53_CONTAINS="LISTENER	udp	127.0.0.53	53	100	/usr/lib/systemd/systemd-resolved	stub	ss"
+EXPECT_PORT53_BROKEN="no"

@@ -1,0 +1,122 @@
+# hooks.conf.sample - configuration for the racoon phase1-up/phase1-down
+# split-DNS and routing hooks (/etc/racoon/scripts/phase1-up.sh, phase1-down.sh,
+# racoon-hook-lib.sh, racoon-dns-detect).
+#
+# Copy to /etc/racoon/hooks.conf (or point RACOON_HOOK_CONF at another
+# path) and edit as needed. Every key below is optional; the hooks work
+# with no config file at all, using the defaults shown here.
+#
+# Syntax: one "key = value" per line (whitespace around "=" is trimmed),
+# blank lines and lines starting with "#" are ignored. An unrecognized
+# key is logged as a warning and otherwise ignored -- it never aborts the
+# hook, since a bad hooks.conf must not be able to block a real IPsec
+# connection from coming up.
+
+# --------------------------------------------------------------------------
+# backend: which DNS resolver management backend to use.
+#
+#   auto           - detect automatically (default). Consults, in order:
+#                     NetworkManager's own D-Bus RcManager property, then
+#                     nsswitch.conf's "resolve" entry, then the glibc
+#                     resolver's actual symlink target, then file content
+#                     signatures, then resolvconf/dnsmasq presence.
+#   resolved       - force systemd-resolved (resolvectl / systemd-resolve).
+#   networkmanager - force NetworkManager (a dedicated dummy connection
+#                    profile; never modifies the physical uplink profile).
+#   resolvconf     - force the classic Debian/OpenBSD-style resolvconf(8).
+#   dnsmasq        - force a direct /etc/dnsmasq.d/racoon-vpn drop-in.
+#   none           - force the /etc/resolv.conf fallback (full DNS
+#                    redirect while the tunnel is up, not real split-DNS;
+#                    only use this if nothing else applies).
+#
+# An explicit (non-"auto") value always overrides detection, even if it
+# turns out to be wrong for this system -- the hook will simply fail that
+# backend's steps and report why, rather than silently falling back to
+# something else you did not ask for.
+#
+#backend = auto
+
+# --------------------------------------------------------------------------
+# on_dns_failure: what phase1-up.sh/phase1-down.sh should do -- to their
+# own exit status, and (rollback only) to the changes they already made --
+# when a *required* step fails (a DNS step, a route, an SPD entry, or the
+# R7 "nothing to route through the tunnel" refusal).
+#
+# None of these three ever reject the tunnel or tear down the SA racoon
+# itself just established: racoon does not consult a hook's exit status
+# for that (verified against src/racoon -- no caller of script_hook()
+# inspects its return value that way), and a hook running after the fact
+# has no mechanism to make it do so. Read all three with that in mind.
+#
+#   warn     - always exit 0 (default). Whatever partially applied stays
+#              in effect; the failure is fully explained in the report
+#              (syslog summary line + stderr/trace detail per debug_level
+#              below), but the hook's own process exit status never
+#              reflects it.
+#   report   - exit 1 when a required step fails, so whatever supervises
+#              this process (init system, monitoring, log-based alerting
+#              on non-zero hook exits) can see it. Changes already
+#              applied are left in place, exactly like "warn" -- this
+#              only changes the exit code.
+#   rollback - same visible exit-1 failure as "report", and additionally
+#              undoes every change *this run* applied (the same teardown
+#              path phase1-down.sh itself uses) before exiting, so a
+#              failed connection attempt does not leave the link
+#              half-configured. This is local rollback only -- it cannot
+#              reach into racoon or affect the SA it already negotiated.
+#
+# "abort" (brief 1/2 naming) is accepted as a deprecated alias for
+# "report" -- it never meant "reject the tunnel" either, the name just
+# implied more than it did. Update existing configs to "report" (identical
+# behavior) or "rollback" (also undoes this run's own changes).
+#
+#on_dns_failure = warn
+
+# --------------------------------------------------------------------------
+# debug_level: how much detail to emit, 0-3. RACOON_HOOK_DEBUG in the
+# environment always overrides this if set (handy for one-off manual
+# runs: `RACOON_HOOK_DEBUG=3 sh phase1-up.sh` without editing this file).
+#
+#   0 - quiet   (default): syslog only -- errors, warnings, and the final
+#                one-line summary ("result: OK (3 ok, 0 skipped, ...)").
+#   1 - normal  : + the assembled per-step report on stderr.
+#   2 - verbose : + the exact command line and exit code for every step,
+#                and everything mirrored to /run/racoon/hook.trace.
+#   3 - trace   : + captured stdout/stderr for every step, plus the
+#                evidence behind each detection decision.
+#
+#debug_level = 0
+
+# --------------------------------------------------------------------------
+# dummy_iface: name of the dedicated dummy network interface the hooks
+# create for the VPN-assigned address and DNS profile (R5: never the
+# physical uplink -- avoids ARP-leaking the internal address, and a
+# profile bound to the physical connection would have to be taken down
+# and reactivated to push new DNS settings, dropping the link the IKE
+# session itself depends on).
+#
+# Kept as a config key (R6) rather than hardcoded so a future release
+# using a real dedicated IPsec interface (e.g. "ipsec0") can switch to it
+# without a code change; also recorded in the state file so phase1-down.sh
+# never has to guess which name phase1-up.sh actually used.
+#
+#dummy_iface = racoon0
+
+# --------------------------------------------------------------------------
+# allow_resolv_conf_overwrite: whether the hooks may fall all the way
+# through to overwriting /etc/resolv.conf directly when no supported DNS
+# backend (systemd-resolved, NetworkManager, resolvconf, or dnsmasq) is
+# detected on this system.
+#
+#   no  - refuse (default). Reported as a failed required step (subject to
+#         on_dns_failure above) explaining why, rather than silently
+#         redirecting every DNS lookup on the system to the VPN resolver.
+#   yes - back up the existing /etc/resolv.conf (best-effort) and write the
+#         VPN's DNS servers into it directly. This is a full DNS redirect
+#         for the duration of the tunnel -- every lookup on the system
+#         goes to the VPN resolver, not just names under the split-DNS
+#         domains -- and is reported as such, never represented as real
+#         split-DNS. Only set this if you understand and accept that
+#         exposure, e.g. a minimal system with no resolver manager at all.
+#
+#allow_resolv_conf_overwrite = no

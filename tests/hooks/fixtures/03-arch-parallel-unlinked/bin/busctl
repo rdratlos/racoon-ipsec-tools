@@ -1,0 +1,8 @@
+#!/bin/sh
+# get-property org.freedesktop.NetworkManager /org/.../DnsManager org.....DnsManager <Prop>
+prop="$5"
+case "$prop" in
+	RcManager) echo 's "file"' ;;
+	Mode) echo 's "default"' ;;
+esac
+exit 0

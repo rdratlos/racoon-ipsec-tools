@@ -146,7 +146,10 @@ struct ph1handle {
 #endif
 #ifdef ENABLE_FRAG
 	int frag;			/* IKE phase 1 fragmentation */
-	int frag_last_index;
+	int frag_last_index;		/* fragment *number* of the tail
+					 * fragment (0 = none seen yet); NOT
+					 * the ISAKMP_FRAG_LAST flag. Reset by
+					 * isakmp_frag_reassembly(). */
 	struct isakmp_frag_item *frag_chain;	/* Received fragments */
 #endif
 

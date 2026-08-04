@@ -379,7 +379,23 @@ evt_subscribe(list, fd)
 
 	LIST_INSERT_HEAD(list, l, ll_chain);
 	l->fd = fd;
-	monitor_fd(l->fd, evt_unsubscribe_cb, l, 0);
+	/*
+	 * A connection whose descriptor does not fit in the main loop's
+	 * fd_set cannot be watched for events -- but that is this one
+	 * connection's problem, not the daemon's. Undo the registration and
+	 * let admin_process()/admin_handler() close it like any other failed
+	 * command (anything but -2 closes the socket there); do not leave it
+	 * on the listener list, where the next broadcast would send() to a
+	 * descriptor nothing is watching and evt_unsubscribe() would then
+	 * close behind admin_handler()'s back.
+	 */
+	if (monitor_fd(l->fd, evt_unsubscribe_cb, l, 0) != 0) {
+		plog(LLV_ERROR, LOCATION, NULL,
+		     "[%d] cannot watch admin connection for events\n", fd);
+		LIST_REMOVE(l, ll_chain);
+		racoon_free(l);
+		return EMFILE;
+	}
 
 	plog(LLV_DEBUG, LOCATION, NULL,
 	     "[%d] admin connection is polling events\n", fd);

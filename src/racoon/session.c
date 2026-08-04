@@ -64,6 +64,7 @@
 #include <sys/stat.h>
 #include <paths.h>
 #include <err.h>
+#include <fcntl.h>
 
 #include <netinet/in.h>
 #include <resolv.h>
@@ -130,12 +131,64 @@ static int nfds = 0;
 static volatile sig_atomic_t sigreq[NSIG + 1];
 static struct sched scflushsa = SCHED_INITIALIZER();
 
-void
+/*
+ * Registers fd with the main loop's select() set. Returns 0 on success and
+ * -1 if fd cannot be monitored at all, which for select() means only one
+ * thing: it does not fit in an fd_set.
+ *
+ * That used to exit(1) on the spot. But fd here is not a fixed daemon-wide
+ * resource: besides the pfkey/routing/admin-listener sockets opened once at
+ * startup, it is also every accepted admin connection that asks for events
+ * (evt_subscribe(), evt.c) and every ISAKMP socket opened for an address
+ * that shows up while running (isakmp_open(), isakmp.c). A descriptor
+ * landing past FD_SETSIZE is a property of how many descriptors the process
+ * happens to hold when that one connection or address arrives -- so
+ * exiting turned "this racoonctl connection cannot be watched" into
+ * "every live Phase 1/2 SA dies", the same disproportionate failure shape
+ * that session()'s select() loop had before prune_stale_monitored_fds()
+ * (issues #102/#105). Report the failure instead and let the caller drop
+ * just that connection or socket; the callers at startup still treat it as
+ * fatal, which at startup it is.
+ */
+int
 monitor_fd(int fd, int (*callback)(void *, int), void *ctx, int priority)
 {
+	int i;
+
 	if (fd < 0 || fd >= FD_SETSIZE) {
-		plog(LLV_ERROR, LOCATION, NULL, "fd_set overrun");
-		exit(1);
+		plog(LLV_ERROR, LOCATION, NULL,
+		    "cannot monitor fd %d: outside fd_set range "
+		    "[0,%d)\n", fd, FD_SETSIZE);
+		return -1;
+	}
+
+	/*
+	 * Self-enforcing TAILQ_INIT(): fd_monitor_tree[]'s normal
+	 * initialization is session_init_before_cfparse() below, called once
+	 * at real startup well before this function's first real call --
+	 * but that is a call-order convention, not something this function
+	 * can see violated from its caller's side. A TAILQ_HEAD
+	 * TAILQ_INIT() has not yet touched has tqh_last == NULL (a queue
+	 * head's all-zero static default); TAILQ_INIT() itself always
+	 * leaves tqh_last pointing at the head's own tqh_first, which can
+	 * never be NULL for a real struct. That distinction doubles as a
+	 * one-time-init guard with no extra state: any head still at its
+	 * zero default gets TAILQ_INIT()ed here before the insert below
+	 * ever touches it, so a future caller that reaches this function
+	 * before session_init_before_cfparse() has run degrades to "still
+	 * works" instead of a NULL-pointer dereference inside
+	 * TAILQ_INSERT_TAIL(). Confirmed against both this project's own
+	 * compat sys/queue.h (src/include-glibc, Linux) and NetBSD's native
+	 * one -- both define TAILQ_HEAD with a tqh_last field and have
+	 * TAILQ_INIT() set it to &head->tqh_first, never NULL. See
+	 * doc/dev/v0.9.1-hardening-spec.md §2.4 for the
+	 * finding this closes: privsep_init()'s child branch used to
+	 * segfault calling this function directly, without
+	 * session_init_before_cfparse() having run first.
+	 */
+	for (i = 0; i < NUM_PRIORITIES; i++) {
+		if (fd_monitor_tree[i].tqh_last == NULL)
+			TAILQ_INIT(&fd_monitor_tree[i]);
 	}
 
 	FD_SET(fd, &preset_mask);
@@ -152,14 +205,24 @@ monitor_fd(int fd, int (*callback)(void *, int), void *ctx, int priority)
 	fd_monitors[fd].fd = fd;
 	TAILQ_INSERT_TAIL(&fd_monitor_tree[priority],
 			  &fd_monitors[fd], chain);
+
+	return 0;
 }
 
 void
 unmonitor_fd(int fd)
 {
 	if (fd < 0 || fd >= FD_SETSIZE) {
-		plog(LLV_ERROR, LOCATION, NULL, "fd_set overrun: fd=%d FD_SETSIZE=%d\n", fd, FD_SETSIZE);
-		exit(1);
+		/*
+		 * Nothing was ever registered for such an fd (monitor_fd()
+		 * above refuses it), so there is nothing to undo and no
+		 * shared state at risk -- unwinding a connection is not a
+		 * reason to end the process.
+		 */
+		plog(LLV_ERROR, LOCATION, NULL,
+		    "cannot unmonitor fd %d: outside fd_set range "
+		    "[0,%d)\n", fd, FD_SETSIZE);
+		return;
 	}
 
 	if (fd_monitors[fd].callback == NULL)
@@ -173,16 +236,91 @@ unmonitor_fd(int fd)
 		     &fd_monitors[fd], chain);
 }
 
-int
-session(void)
+/*
+ * Scans every currently-monitored fd for validity and unmonitor_fd()s any
+ * that are no longer open. Returns 1 if at least one stale fd was found
+ * and dropped, 0 if none were -- see the comment at this function's call
+ * site (session()'s main loop, on select() failing with EBADF) for why
+ * this exists: a bug elsewhere (e.g. doc/dev/v0.9.1-hardening-spec.md §5.6's Issue 4 follow-up)
+ * can close() a monitored fd directly instead of going through
+ * unmonitor_fd(), leaving a stale entry that fails every subsequent
+ * select() with EBADF.
+ *
+ * fcntl(fd, F_GETFD) is a side-effect-free, POSIX-standard way to test fd
+ * validity (POSIX.1-2017 fcntl(): fails with EBADF if fildes is not a
+ * valid open file descriptor) -- it neither reads nor blocks, so scanning
+ * every monitored fd here is safe to do unconditionally.
+ */
+static int
+prune_stale_monitored_fds(void)
 {
-	struct timeval *timeout;
-	int error;
-	char pid_file[MAXPATHLEN];
-	FILE *fp;
-	pid_t racoon_pid = 0;
-	int i, count;
-	struct fd_monitor *fdm;
+	int fd, found_bad = 0;
+
+	for (fd = 0; fd <= nfds; fd++) {
+		if (fd_monitors[fd].callback == NULL)
+			continue;
+		if (fcntl(fd, F_GETFD) == -1 && errno == EBADF) {
+			plog(LLV_ERROR, LOCATION, NULL,
+			    "dropping stale monitored fd %d (closed "
+			    "elsewhere without unmonitor_fd()) after a "
+			    "failed select()\n", fd);
+			unmonitor_fd(fd);
+			found_bad = 1;
+		}
+	}
+	return found_bad;
+}
+
+#ifdef ENABLE_UNITTEST
+int
+prune_stale_monitored_fds_unittest(void)
+{
+	return prune_stale_monitored_fds();
+}
+
+int
+is_fd_monitored_unittest(int fd)
+{
+	if (fd < 0 || fd >= FD_SETSIZE)
+		return 0;
+	return fd_monitors[fd].callback != NULL;
+}
+
+/*
+ * Initializes just the fd-monitoring state (preset_mask/active_mask/
+ * fd_monitor_tree/nfds) that monitor_fd()/unmonitor_fd() require --
+ * mirrors the relevant subset of session_init_before_cfparse() (this
+ * file) without also calling sched_init()/init_signal(), which pull in
+ * this project's scheduler and signal-handling machinery a unit test for
+ * this fd-monitoring logic alone has no need of.
+ */
+void
+init_fd_monitor_unittest(void)
+{
+	int i;
+
+	nfds = 0;
+	FD_ZERO(&preset_mask);
+	FD_ZERO(&active_mask);
+	for (i = 0; i < NUM_PRIORITIES; i++)
+		TAILQ_INIT(&fd_monitor_tree[i]);
+}
+#endif
+
+/*
+ * Everything cfparse() and the grammar's kernel-algorithm checks
+ * (pk_checkalg(), reached via sainfo's encryption/authentication_algorithm)
+ * depend on: fd monitoring, the scheduler, and the pfkey/isakmp/auth-backend
+ * state that lets the parser ask the kernel which algorithms it supports.
+ *
+ * Split out of session() so "racoon -t" (see main.c) can run the exact
+ * same pre-parse initialization the daemon does at real startup, without
+ * also opening the admin port, writing a pid file, or forking.
+ */
+void
+session_init_before_cfparse(void)
+{
+	int i;
 
 	nfds = 0;
 	FD_ZERO(&preset_mask);
@@ -222,6 +360,128 @@ session(void)
 	 * saving some parameters before parsing configuration file.
 	 */
 	save_params();
+}
+
+/*
+ * One iteration of session()'s live main loop: reset the working select()
+ * mask from preset_mask, block in select() for up to *timeout, recover
+ * from (or propagate) a failure, and dispatch every monitored fd that
+ * came back readable. Split out of session() so it can be driven directly
+ * by a unit test with a real socketpair()/pipe() fd and a real, small
+ * timeout, instead of needing the full daemon startup (cfparse()/
+ * admin_init()/myaddr_init()/privsep_init()) session()'s own while(1)
+ * otherwise requires to ever reach this code at all.
+ *
+ * Returns 0 if the caller should keep looping (a normal dispatch pass, an
+ * EINTR retry, or an EBADF recovered by prune_stale_monitored_fds()) and
+ * -1 on the one path that intentionally propagates failure: an
+ * unrecovered select() error, already plog()'d here.
+ */
+static int
+session_wait_and_dispatch(struct timeval *timeout)
+{
+	int error;
+	int i, count;
+	struct fd_monitor *fdm;
+
+	/* schedular can change select() mask, so we reset
+	 * the working copy here */
+	active_mask = preset_mask;
+
+	error = select(nfds + 1, &active_mask, NULL, NULL, timeout);
+	if (error < 0) {
+		switch (errno) {
+		case EINTR:
+			return 0;
+		case EBADF:
+			/*
+			 * At least one fd in our own monitored set is
+			 * no longer valid -- somewhere, a bug closed
+			 * it without calling unmonitor_fd() first
+			 * (confirmed live: an admin.c ordering bug,
+			 * since fixed, left a "racoonctl vd"
+			 * connection's socket registered here even
+			 * after admin_handler() had already close()'d
+			 * it, taking the entire daemon down on the
+			 * very next select() -- doc/dev/v0.9.1-hardening-spec.md §5.6's
+			 * Issue 4 follow-up has the full trace).
+			 * Losing every other still-live Phase 1/2 SA
+			 * (and its dummy interface/SPD/routes) over
+			 * one dangling fd is a disproportionate
+			 * failure mode for a bug that, by
+			 * construction, can only ever be in our own
+			 * bookkeeping, never in the peer's control --
+			 * try to find and drop just the bad fd(s) and
+			 * keep running, rather than exiting
+			 * unconditionally on every select() failure.
+			 */
+			if (prune_stale_monitored_fds())
+				return 0;
+			/*
+			 * No bad fd actually found in our own set --
+			 * this EBADF was not explained by our own
+			 * bookkeeping. Fall through to the same fatal
+			 * handling as any other unrecovered select()
+			 * failure below.
+			 */
+			/* FALLTHROUGH */
+		default:
+			plog(LLV_ERROR, LOCATION, NULL,
+				"failed to select (%s)\n",
+				strerror(errno));
+			return -1;
+		}
+		/*NOTREACHED*/
+	}
+
+	count = 0;
+	for (i = 0; i < NUM_PRIORITIES; i++) {
+		TAILQ_FOREACH(fdm, &fd_monitor_tree[i], chain) {
+			if (!FD_ISSET(fdm->fd, &active_mask))
+				continue;
+
+			FD_CLR(fdm->fd, &active_mask);
+			if (fdm->callback != NULL) {
+				fdm->callback(fdm->ctx, fdm->fd);
+				count++;
+			} else
+				plog(LLV_ERROR, LOCATION, NULL,
+				"fd %d set, but no active callback\n", i);
+		}
+		if (count != 0)
+			break;
+	}
+
+	return 0;
+}
+
+#ifdef ENABLE_UNITTEST
+/*
+ * session_wait_and_dispatch() is static, and every one of its dependencies
+ * (preset_mask/active_mask/nfds/fd_monitor_tree[], prune_stale_monitored_
+ * fds()) is otherwise reachable only from inside session()'s live main
+ * loop, which needs a fully running daemon to ever reach at all. This
+ * thin wrapper lets a unit test drive it directly with a real fd and a
+ * real, short timeout.
+ */
+int
+session_wait_and_dispatch_unittest(struct timeval *timeout)
+{
+	return session_wait_and_dispatch(timeout);
+}
+#endif /* ENABLE_UNITTEST */
+
+int
+session(void)
+{
+	struct timeval *timeout;
+	int error;
+	char pid_file[MAXPATHLEN];
+	FILE *fp;
+	pid_t racoon_pid = 0;
+	int i;
+
+	session_init_before_cfparse();
 	if (cfparse() != 0)
 		errx(1, "failed to parse configuration file.");
 	restore_params();
@@ -300,49 +560,24 @@ session(void)
 		/* scheduling */
 		timeout = schedular();
 
-		/* schedular can change select() mask, so we reset
-		 * the working copy here */
-		active_mask = preset_mask;
-
-		error = select(nfds + 1, &active_mask, NULL, NULL, timeout);
-		if (error < 0) {
-			switch (errno) {
-			case EINTR:
-				continue;
-			default:
-				plog(LLV_ERROR, LOCATION, NULL,
-					"failed to select (%s)\n",
-					strerror(errno));
-				return -1;
-			}
-			/*NOTREACHED*/
-		}
-
-		count = 0;
-		for (i = 0; i < NUM_PRIORITIES; i++) {
-			TAILQ_FOREACH(fdm, &fd_monitor_tree[i], chain) {
-				if (!FD_ISSET(fdm->fd, &active_mask))
-					continue;
-
-				FD_CLR(fdm->fd, &active_mask);
-				if (fdm->callback != NULL) {
-					fdm->callback(fdm->ctx, fdm->fd);
-					count++;
-				} else
-					plog(LLV_ERROR, LOCATION, NULL,
-					"fd %d set, but no active callback\n", i);
-			}
-			if (count != 0)
-				break;
-		}
-
+		error = session_wait_and_dispatch(timeout);
+		if (error < 0)
+			return error;
 	}
 }
+
+int racoon_shutting_down = 0;
 
 /* clear all status and exit program. */
 static void
 close_session()
 {
+	/*
+	 * Must be set before flushph1() below fires any SCRIPT_PHASE1_DOWN
+	 * hooks -- see the comment on this flag in session.h.
+	 */
+	racoon_shutting_down = 1;
+
 	evt_generic(EVT_RACOON_QUIT, NULL);
 	pfkey_send_flush(lcconf->sock_pfkey, SADB_SATYPE_UNSPEC);
 	flushph2();
@@ -490,6 +725,24 @@ check_sigreq()
 		}
 	}
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * check_sigreq() is static, and every one of its dispatch targets
+ * (reload_conf()'s config-reload orchestration, close_session()'s
+ * shutdown sequence and its own exit(0)) is otherwise reachable only
+ * from inside session()'s live main loop, which needs a fully running
+ * daemon (real cfparse()/admin_init()/myaddr_init()/privsep_init()) to
+ * ever reach at all. This thin wrapper lets a unit test set sigreq[]
+ * via the real signal_handler() (exactly as a real signal delivery
+ * would) and then drive the dispatch directly.
+ */
+void
+check_sigreq_unittest(void)
+{
+	check_sigreq();
+}
+#endif /* ENABLE_UNITTEST */
 
 static void
 init_signal()

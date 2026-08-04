@@ -39,6 +39,13 @@
 #define _THROTTLE_H
 
 #include <sys/socket.h>
+#if __STDC_VERSION__ < 201112L && !defined(_Alignas)
+#  if defined(__GNUC__) || defined(__clang__)
+#    define _Alignas(t) __attribute__((aligned(__alignof__(t))))
+#  else
+#    error "No _Alignas support: require C11 or a compiler with __attribute__((aligned))"
+#  endif
+#endif
 #include "schedule.h"
 
 struct throttle_entry {

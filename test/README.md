@@ -17,6 +17,10 @@ test/
 ├── test_vmbuf.c                - vmalloc()/vrealloc()/vfree()/vdup()
 ├── test_sockmisc.c             - Pure socket-address utility functions
 ├── test_genlist.c              - Generic linked-list operations
+├── test_x509_cert.c            - X.509 cert load/verify/sign/SAN (ISSUE #52),
+│                                  using cert-framework fixtures
+├── gen-x509-fixtures.sh        - Generates real PEM certs/keys/CRLs for
+│                                  test_x509_cert via cert-framework/lib/ca.sh
 ├── rsalist_test_stubs.c        - Stub symbols (lcconf, monitor_fd, privsep_*, ...)
 │                                  needed by tests that link rsalist.o/sockmisc.o
 ├── valgrind.supp               - Valgrind suppressions (OpenSSL provider noise)
@@ -128,14 +132,64 @@ object used throughout racoon's RSA signing/verification code paths.
 - ✅ Symmetric ciphers (DES, 3DES, AES, Blowfish, CAST, IDEA, RC5, Camellia)
 - ✅ Hash functions (MD5, SHA1, SHA2-256, SHA2-384, SHA2-512)
 - ✅ HMAC functions (HMAC-MD5, HMAC-SHA1, HMAC-SHA2-*)
-- ✅ X.509 certificate parsing
-- ✅ ASN.1 DN conversion
+- ✅ ASN.1 DN conversion (the X.509 helpers that need no real certificate;
+     certificate load/verify/sign are covered by `test_x509_cert.c`)
 - ✅ Base64 encoding/decoding
 - ✅ Random number generation
 - ✅ BIGNUM conversions
 - ✅ Utility functions
 
 **Run:** `./test_crypto_coverage`
+
+### test_x509_cert.c (ISSUE #52, 10 tests)
+
+**Purpose:** Exercise the `crypto_openssl.c` functions that load, parse,
+verify and sign *real* X.509 certificates — everything `test_crypto_coverage.c`
+does **not** touch (it only covers the raw-string ASN.1 DN helpers).
+
+**Covered functions:** `eay_get_x509cert`, `eay_check_x509cert`,
+`eay_check_x509sign`, `eay_get_x509asn1subjectname`,
+`eay_get_x509asn1issuername`, `eay_get_x509subjectaltname`,
+`eay_get_x509text`, `eay_get_pkcs1privkey`, `eay_get_pkcs1pubkey`,
+`eay_get_x509sign`.
+
+**Test coverage highlights:**
+- Load + leading `ISAKMP_CERT_X509SIGN` tag byte, missing-file → NULL
+- Chain + CRL verification (valid), and rejection of a wrong-CA and a
+  **revoked** cert (the CRL path — needs a root CRL too, see below)
+- Subject/issuer names compared structurally via `eay_cmp_asn1dn`
+- Subject Alternative Names: DNS, email, IPv4, IPv6, out-of-range `pos`,
+  and a no-SAN cert
+- RSA sign/verify round-trip with tamper detection, and rejection of a
+  non-RSA (EC) key
+
+**Fixtures:** generated at run time by `gen-x509-fixtures.sh`, which drives
+`cert-framework/lib/ca.sh` (ISSUE #50) to build a real Root → Intermediate →
+End-Entity CA into a throwaway scratch dir. The test binary shells out to it
+via `system()` once at start-up and locates the script through
+`X509_FIXTURE_SRCDIR` (exported by `AM_TESTS_ENVIRONMENT`; defaults to `.`
+for a hand-run binary). Two additive `ca.sh` helpers were introduced —
+`ca_generate_root_crl` / `ca_generate_intermediate_crl` — because
+`eay_check_x509cert` always sets `X509_V_FLAG_CRL_CHECK_ALL`, so a CRL must
+exist for every issuer in the chain, root included.
+
+**EAYDEBUG note:** the whole modern suite links `crypto_openssl_unittest.o`
+— the **non-EAYDEBUG** build of `crypto_openssl.c` (see
+`src/racoon/Makefile.am`) — rather than `eaytest`'s `crypto_openssl_test.o`
+(built with `-DEAYDEBUG`, under which `mem2x509()` reads PEM while
+`eay_get_x509cert()` writes DER, so `test_x509_cert`'s load/parse round-trip
+would break). No test in `test/` depends on the EAYDEBUG PEM behaviour, and
+sharing one non-EAYDEBUG object keeps `crypto_openssl.c` coverage consistent
+under `make coverage` (a single line structure `lcov` can merge, instead of
+mixing EAYDEBUG and non-EAYDEBUG `.gcda` for the same source file). The
+`coverage` target additionally drops `eaytest`'s `crypto_openssl_test.gcda`
+so the report reflects only the production build.
+
+**Out of scope (follow-up):** encrypted PKCS#1 private keys (the eay loaders
+pass no passphrase callback), the SAN NUL-termination rejection branch (not
+reachable with a well-formed cert), CRL parsing itself and OCSP.
+
+**Run:** `./test_x509_cert`
 
 ### test_cipher_shim.c
 
@@ -313,6 +367,96 @@ make dev
 ========================================================================
 ```
 
+### SKIP
+
+`SKIP` is a third, distinct outcome from `PASS`/`FAIL` — automake's own
+convention, signaled by a test binary calling `exit(77)` (or returning 77
+from `main()`). `make check`, `make check-verbose`, and `make
+check-valgrind` all honor it the same way: tallied separately, and never
+treated as a failure.
+
+```
+[TEST] freecertinfo() frees ci_cert and the node for every entry in the chain ...
+SKIP: -Wl,--wrap=free did not intercept free() calls made via a canary
+      getnewci_unittest()/freecertinfo() round trip on this toolchain.
+      See doc/dev/v0.9.1-hardening-spec.md §3.2.
+...
+All tests passed! (2 skipped)
+```
+
+Two independent reasons a binary in this suite reports `SKIP`, both
+covered in more depth in `CONTRIBUTING.md`:
+
+- **Needs real root** (`test_privsep_client_wrappers`,
+  `test_privsep_hybrid_client_wrappers`, part of `test_privsep_init`) —
+  deterministic: expected on every unprivileged run, i.e. every normal
+  CI run, on any toolchain. See "Why some tests need root".
+- **Whole-program LTO defeats a `-Wl,--wrap=` test double**
+  (`test_admin_establish_sa_psk`, `test_getcertsbyname_helpers`) —
+  toolchain-dependent, *not* guaranteed merely by `-flto=auto
+  -ffat-lto-objects` being in the configure flags: confirmed to trigger
+  on GCC 15.2/ld 2.46 ("Resolute"'s toolchain), but *not* observed on
+  GitHub's hosted `ubuntu-latest` runner (Ubuntu 24.04 "Noble" as of
+  this writing) with the same flags — both binaries `PASS` there
+  instead. See "Two tests skip under whole-program LTO" and
+  `doc/dev/v0.9.1-hardening-spec.md` §3.2.
+
+`develop`'s CI (`develop-build-test.yml`) checks both populations, but
+not the same way — see `test/expected-skips.yml`'s two lists and
+`test/check-expected-skips.sh`:
+
+- The root-only binaries must be exactly `SKIP`; any other outcome fails
+  the check.
+- The two LTO-canary binaries accept either `PASS` (this toolchain's LTO
+  doesn't defeat the wrap) or `SKIP` with the documented canary message
+  (it does) — both are legitimate, toolchain-dependent outcomes. Only a
+  genuine `FAIL`, or a `SKIP` whose message doesn't match, fails the
+  check: either means the binary's assumptions about its own toolchain
+  no longer hold. Check the job summary to see which of the two
+  legitimate outcomes actually happened on a given run — a green check
+  does not by itself tell you whether the LTO defeat was exercised.
+
+### Choosing a wrapper pattern for a new test
+
+Deciding how to intercept a call for a new test, roughly in order of
+preference:
+
+1. **Can you assert through the real function's own observable effect**
+   (a return value, a struct field, an errno) **instead of counting calls
+   to an internal one?** Prefer this — it has no wrapper to defeat in the
+   first place. Most of this suite's tests (DH, RSA, cipher, X.509) work
+   this way.
+2. **Does the call cross a `fork()`/`execve()` boundary**, or go through
+   several stub indirections before reaching the wrapped symbol (like
+   `test_script_hook_leak.c`'s `ipsecdoi_id2str()` path)? `-Wl,--wrap=`
+   is safe here — the indirection defeats the same whole-program-LTO
+   interprocedural analysis that makes simple cases risky (see
+   `doc/dev/v0.9.1-hardening-spec.md` §3.2's "Why test_script_hook_leak.c is
+   unaffected").
+3. **Is it a simple, local allocate/free (or similarly trivial) pair**,
+   wrapped via `-Wl,--wrap=` **with no cross-TU opacity in between?**
+   This is the risky case — GCC's own semantic knowledge of
+   `malloc()`/`free()`, or a same-TU inlining of the real definition
+   (`vfree()`'s case), can make the wrap symbol dead code under LTO
+   *even without any indication in the test output other than a
+   suspiciously-zero call count*. If you must use this pattern:
+   - Add a startup canary that exercises the exact same wrapped symbol
+     through the same call path the real assertion uses (not a bare
+     `malloc()`/`free()`, which can be optimized away even without LTO —
+     see `test_getcertsbyname_helpers.c`'s reasoning for routing its
+     canary through `getnewci_unittest()`/`freecertinfo()` specifically).
+   - `return 77` (`SKIP`) if the canary isn't observed, rather than
+     asserting on a count that reads identically whether it's correct
+     or the wrap is simply gone.
+   - Add the binary to `test/expected-skips.yml`'s `unprivileged` list
+     so CI asserts the SKIP keeps happening, not just that the tests
+     keep passing.
+4. **Configure-time exclusion** (this project's `SANITIZER_BUILD`
+   precedent) is the fallback when even a canary can't distinguish
+   "correctly skipped" from "silently defeated" — but it drops every
+   assertion in the binary, not just the ones that depend on the wrap,
+   so prefer option 3 when only part of a binary is at risk.
+
 ## Test Coverage
 
 | Component | eaytest (legacy) | Modern Tests | Coverage |
@@ -456,6 +600,214 @@ test_new_feature_LDFLAGS = $(AM_LDFLAGS)
 # 3. Rebuild
 make -C test
 ```
+
+### Testing a Static (or Otherwise Unreachable) Function Directly
+
+Several racoon source files export nothing a test could link against --
+the function under test is `static`, or it is reachable only from inside a
+real `fork()`/privilege-drop (`privsep_init()`) that not every build host
+can perform. The established pattern for both, used throughout this suite
+(`session_unittest_src.c`, `kmpstat_unittest_src.c`, `privsep_unittest_src.c`,
+and others):
+
+1. A tiny wrapper source file (`<module>_unittest_src.c`) `#include`s the
+   real `.c` file directly, so the test binary gets its own private
+   compilation of it -- `static` functions included.
+2. The module itself gets a handful of `#ifdef ENABLE_UNITTEST` accessors
+   at its own end for whatever internal state or `static` function a test
+   needs to reach, but does not otherwise change: no new production API,
+   no behaviour change.
+3. The test's own `check_PROGRAMS` entry in `test/Makefile.am` compiles
+   the wrapper with `-DENABLE_UNITTEST -ffunction-sections -fdata-sections`
+   and links with `-Wl,--gc-sections`, so only the functions the test
+   actually reaches (plus whatever `--gc-sections` cannot prove dead) end
+   up in the binary -- see any `test_privsep_*` block in `test/Makefile.am`
+   for the concrete flags.
+4. Guarded (`if !SANITIZER_BUILD`) by default: `--gc-sections` dead-code
+   elimination and ASan do not get along on this project's toolchain, so a
+   binary built this way is ordinarily skipped under a sanitizer build.
+   Where the module under test needs no dependencies outside itself (every
+   `privsep.c`-only `test_privsep_*` binary — see `doc/dev/
+   v0.9.1-hardening-spec.md` §2.4 for the investigation), a
+   `SANITIZER_BUILD`-conditional variant that drops `-ffunction-sections`/
+   `--gc-sections` and links whatever those flags were otherwise pruning
+   away can build a genuinely ASan/UBSan-instrumented binary instead of
+   skipping it outright; not every module's dependency closure is small
+   enough for that to be practical, though (`session.c`'s is not, for
+   example), so this is a per-target judgment call, not something to apply
+   uniformly.
+
+`privsep_priv()` (privsep.c's privileged dispatch loop, extracted from
+`privsep_init()` -- see `doc/dev/v0.9.1-hardening-spec.md` §2.2) is a
+variant worth calling out explicitly: it is *not* wrapped in an
+`ENABLE_UNITTEST`-only accessor the way `send_fd()`/`rec_fd()` etc. are.
+It has ordinary external linkage and is called directly, by design -- a
+test forks, the child calls `privsep_priv(sock)` for real (same
+`_exit(0)`/`_exit(1)` as production, untouched), and the parent drives
+`sock` as the unprivileged side over a plain `socketpair()`. See
+`test_privsep_priv_*.c` for the pattern and `privsep_priv_test_stubs.c`
+for the stub layer (a real, minimal `struct localconf`; canned
+`eay_get_pkcs1privkey()`/`getpsk()`; a `script_exec()` that only records
+its call, never `fork()+execve()`s) that lets the real dispatch loop run
+without a privilege drop or a real kernel.
+
+Because `privsep_priv()` always exits via `_exit()`, its own module's
+coverage under `--enable-coverage` needs one more piece: `_exit()`
+bypasses gcov's normal `atexit()`-registered flush, so the forked child's
+counters never reach disk on their own. Every `check_PROGRAMS` target that
+compiles `privsep.c` (via `privsep_unittest_src.c`) links
+`privsep_gcov_dump_shim.c` and `-Wl,--wrap=_exit` under `ENABLE_COVERAGE`
+(`test/Makefile.am`) to flush counters before the real `_exit()` runs --
+see `doc/dev/v0.9.1-hardening-spec.md` §2.2/§2.4 for the full writeup, including
+a second, separate gap this same fix closed (`make coverage` not scanning
+`test/` at all, so every `<module>_unittest_src.c`-only module, not just
+`privsep.c`, was previously missing from the report entirely).
+
+#### The Other Half: Client-Side Wrappers and `privsep_init()` Itself
+
+`test_privsep_priv_*.c` above only ever drives the *privileged* side of
+privsep.c's wire protocol, playing the unprivileged side itself by
+hand-crafting wire messages by hand. Three more `check_PROGRAMS` targets
+cover the other half -- the client-side wrapper functions
+(`privsep_eay_get_pkcs1privkey()`, `privsep_getpsk()`,
+`privsep_script_exec()`, `privsep_socket()`, `privsep_bind()`, and the
+`ENABLE_HYBRID`/`HAVE_LIBPAM` ones) and `privsep_init()` itself, the one
+privsep.c entry point every other test in this suite deliberately
+bypasses:
+
+- **`test_privsep_client_wrappers.c`** / **`test_privsep_hybrid_client_wrappers.c`**
+  (the latter split out because its content -- `port_check()`,
+  `privsep_xauth_login_system()`, `privsep_accounting_system()`, and,
+  nested under `HAVE_LIBPAM`, `privsep_accounting_pam()`/
+  `privsep_xauth_login_pam()`/`privsep_cleanup_pam()` -- is
+  `ENABLE_HYBRID`-only, guarded by `#ifdef ENABLE_HYBRID`/nested `#ifdef
+  HAVE_LIBPAM` at the C level rather than a second automake conditional,
+  so a build with either off still gets the binary in `make check`'s
+  output with fewer, or for `ENABLE_HYBRID` none, cases actually run).
+  Every function gets two cases: "passthrough" (called as this binary's
+  own root, taking each wrapper's own `if (geteuid() == 0) return <real
+  syscall/function>(...)` branch directly) and "wire protocol" (this
+  process's effective uid dropped to `nobody`, so the same call instead
+  builds and sends the real wire message, against a forked child running
+  the real `privsep_priv()` -- `privsep_unittest_src.c` +
+  `privsep_priv_test_stubs.c`, same as `test_privsep_priv_*.c` above).
+  Real production code on both ends of the real wire protocol; the two
+  test suites together just never run both ends in the same process
+  (`privsep_init()`'s own fork() is the only thing that does that for
+  real -- see below).
+
+  The shared driver for the "wire protocol" case, `privsep_wire_roundtrip.c`
+  (linked into both binaries), needs two new `privsep.c` `ENABLE_UNITTEST`
+  accessors: `privsep_set_sock_unittest()`/`privsep_get_sock_unittest()`
+  point the client wrappers' own static `privsep_sock[]` -- normally only
+  ever written by a real `privsep_init()` -- at a test socketpair, and
+  `privsep_reset_state_unittest()` clears it (and `privsep_child_pid`)
+  between scenarios in the same process. `port_check_unittest()` exposes
+  the other new static accessor, `port_check()` itself.
+
+- **`test_privsep_init.c`** drives `privsep_init()` directly for its two
+  side-effect-free early-return cases (`lcconf->uid == 0`; a missing
+  cert/script path); for a third, `lcconf->chroot` pointed at a path that
+  does not exist, so the real forked child's `chdir()` fails and
+  `privsep_init()` returns `-1` before ever reaching `setgid()`/`setuid()`/
+  `monitor_fd()`; and, for the real `socketpair()`+`fork()`+`chroot()`/
+  `setgid()`/`setuid()`+`monitor_fd()`+`privsep_priv()` happy path, forks a
+  disposable child first so every one of those side effects happens inside
+  a process this test binary itself never becomes -- `privsep_init()`'s
+  *own* internal `fork()` then produces a second, further-nested child
+  that actually drops privilege and makes one real `ENABLE_HYBRID`
+  client-wrapper call over the *real* `privsep_sock` (no test accessor
+  involved at that point -- it is the genuine, fully production
+  `privsep_init()` setup), reporting its verdict back up a pipe since it
+  is not the outer test process's own direct child and gets reparented
+  once its parent exits. See the file's own header comment for the full
+  three-process breakdown, shared by both of these last two scenarios via
+  one `run_forked_privsep_init()` helper parameterized by a
+  per-scenario callback for what the innermost child does with
+  `privsep_init()`'s return value. The `ENABLE_HYBRID` round trip is the
+  one scenario in this suite that reaches `privsep_priv()`'s
+  `ENABLE_HYBRID` dispatch cases through the real production entry point
+  rather than a synthetic direct `privsep_priv(sock)` call.
+
+  Needs `session_unittest_src.c` linked alongside the usual
+  `privsep_unittest_src.c` (for `monitor_fd()`, which `privsep_init()`'s
+  child branch calls) and, less obviously, `session.c`'s own
+  `init_fd_monitor_unittest()` accessor called *before* forking: in
+  production, `monitor_fd()`'s `TAILQ_INSERT_TAIL()` into `fd_monitor_tree[]`
+  is only safe because `session()`'s own startup always `TAILQ_INIT()`s it
+  long before `privsep_init()` ever forks, so the real child just inherits
+  already-initialized state. A test that calls `privsep_init()` directly,
+  with none of that surrounding startup, hits a `TAILQ_INSERT_TAIL()` into
+  a head that is still its all-zero static default -- confirmed to
+  segfault the real forked child immediately until this was added.
+
+  Left as a documented gap rather than a silent one: a real, *successful*
+  `chroot()` (as opposed to the deliberate `chdir()` failure above) is
+  never exercised -- setting up a real, populated jail directory is an
+  orthogonal concern from what this file tests, and getting it wrong risks
+  the test host rather than just a failing test.
+
+- **`test_privsep_init_fork_failure.c`** covers `privsep_init()`'s
+  remaining branch: `fork()` itself failing. A separate binary, because it
+  is linked with `-Wl,--wrap=fork` (same technique as `test_script_hook_leak.c`'s
+  own `-Wl,--wrap=free`), redirecting *every* `fork()` call in the binary
+  to a `__wrap_fork()` that always fails with `EAGAIN` -- which would break
+  `test_privsep_init.c`'s own real-fork scenarios if applied there instead.
+  Asserts `privsep_init()` returns `-1` and, via an open-file-descriptor
+  count from `/proc/self/fd` taken immediately before and after the call,
+  that it leaks nothing. Writing this test caught a real bug it now pins:
+  `privsep_init()`'s `socketpair()` call happens *before* its `fork()`
+  call, so a failing `fork()` used to return `-1` having leaked both
+  `privsep_sock[]` descriptors -- fixed in `privsep.c` alongside this test.
+  Needs no real root at all (`fork()` never actually runs, wrapped or
+  not), so this one runs unconditionally regardless of who invokes
+  `make check`.
+
+`test_privsep_client_wrappers`, `test_privsep_hybrid_client_wrappers`, and
+two of `test_privsep_init`'s four scenarios need real root to reach their
+wire-protocol/privilege-drop/real-`chroot()`-attempt cases (`seteuid()` to
+a different account, or a real forked child's own `setgid()`/`setuid()`,
+both need `CAP_SETUID`) and detect and skip (exit 77, or -- for
+`test_privsep_init`'s two root-independent scenarios -- just keep running
+normally) rather than fail when they don't have it.
+`test_privsep_init_fork_failure` is the one exception: since its wrapped
+`fork()` never actually runs, it needs no privilege at all and always
+runs in full. See `CONTRIBUTING.md`'s "Running the Test Suite" section for
+what all of this looks like in `make check`'s own output and why
+`fakeroot` is not a substitute for actually being root here.
+
+#### Overriding a Production Timing Constant for One Binary
+
+`privsep_priv()`'s mid-request bound (`PRIVSEP_IPC_WAIT_MAX_MS`,
+privsep.c -- 3s in production, doc/dev/v0.9.1-hardening-spec.md §2.1, rule 3)
+needs to actually *fire* to be tested, which nobody wants costing 3 real
+seconds per run. `privsep.c` exposes a compile-time-only seam for this:
+
+```c
+#ifdef PRIVSEP_IPC_WAIT_MAX_MS_UNITTEST_OVERRIDE
+#define PRIVSEP_IPC_WAIT_MAX_MS  PRIVSEP_IPC_WAIT_MAX_MS_UNITTEST_OVERRIDE
+#else
+#define PRIVSEP_IPC_WAIT_MAX_MS  3000
+#endif
+```
+
+Only `test_privsep_priv_bounded_wait`'s own `_CPPFLAGS` in
+`test/Makefile.am` defines
+`-DPRIVSEP_IPC_WAIT_MAX_MS_UNITTEST_OVERRIDE=200`; every other
+`check_PROGRAMS` target -- including the other three `test_privsep_priv_*`
+binaries, which recompile the same `privsep.c` via the same
+`privsep_unittest_src.c` wrapper -- gets the ordinary 3000ms constant,
+because each `check_PROGRAMS` target compiles its own private copy of
+every wrapper source with its own flags (the `<target>-<source>.o` naming
+`make check`'s build output shows is this in action). The production
+`racoon`/`racoonctl` build never defines the override macro at all, so
+`src/racoon/privsep.o` is completely unaffected -- this is "a compile-time
+... seam, not a runtime knob the production binary also exposes" (the
+constraint this pattern was written to satisfy), and the general
+technique -- an `#ifdef SOMETHING_UNITTEST_OVERRIDE` around one constant,
+defined only in one test target's own `_CPPFLAGS` -- generalises to any
+future case where a real production constant needs shrinking for exactly
+one test binary without becoming a runtime option anywhere else.
 
 ## Maintenance
 

@@ -2,7 +2,24 @@
 # Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
 # SPDX-License-Identifier: BSD-3-Clause
 
-sbin_PROGRAMS = racoon racoonctl plainrsa-gen
+# scripts/ (the phase1-up/phase1-down split-DNS and routing hook set) is a
+# real installed component, installed unconditionally to $(sysconfdir)/
+# scripts below -- unlike the documentation examples in docs/examples/
+# (a sibling of this project's src/ tree entirely, not a subdirectory of
+# this one; see docs/examples/Makefile.am and its own entry in the
+# top-level SUBDIRS). "." keeps this directory's own targets (racoon/
+# racoonctl/plainrsa-gen/eaytest) building the way they always have;
+# recursion is additive.
+SUBDIRS = . scripts
+
+# racoonctl is a user-facing control tool, not a daemon -- it lives in
+# bindir (/usr/bin, next to systemctl), not sbindir, so that a non-root
+# operator in group "racoon" can invoke it without needing sbindir on
+# their PATH. racoon itself and plainrsa-gen (a one-shot keypair
+# generator, not something end users run day to day either, but
+# conventionally shipped alongside the daemon) stay in sbindir.
+sbin_PROGRAMS = racoon plainrsa-gen
+bin_PROGRAMS = racoonctl
 noinst_PROGRAMS = eaytest
 include_racoon_HEADERS = racoonctl.h var.h vmbuf.h misc.h gcmalloc.h admin.h \
 	schedule.h sockmisc.h isakmp_var.h isakmp.h isakmp_xauth.h \
@@ -89,27 +106,56 @@ noinst_HEADERS = \
 	missing/crypto/sha2/sha2.h missing/crypto/rijndael/rijndael_local.h \
 	missing/crypto/rijndael/rijndael-api-fst.h \
 	missing/crypto/rijndael/rijndael-alg-fst.h \
-	missing/crypto/rijndael/rijndael.h
+	missing/crypto/rijndael/rijndael.h \
+	missing/strlcpy.h missing/strlcat.h
 
+man1_MANS = racoonctl.1
 man5_MANS = racoon.conf.5
-man8_MANS = racoon.8 racoonctl.8 plainrsa-gen.8
+man8_MANS = racoon.8 plainrsa-gen.8
+
+# Man pages are built from .in sources, .Dd stamped with this build's own
+# $(PACKAGE_VERSION) rather than a hand-maintained date -- see the
+# generate rules below. RACOON_PACKAGE_VERSION (not "@PACKAGE_VERSION@"
+# directly) for the same reason racoon.conf.default.in/racoon.service.in
+# use their own RACOON_-prefixed tokens instead of the real autoconf
+# variable name: PACKAGE_VERSION is AC_SUBST'd, so config.status's blind
+# whole-file substitution pass over this Makefile itself (an
+# AC_CONFIG_FILES target, via Makefile.in) would replace a literal
+# "@PACKAGE_VERSION@" appearing in the sed command below before make
+# ever ran it, leaving sed searching for a version string instead of a
+# placeholder that no longer exists in the .in file.
+racoon.8: $(srcdir)/racoon.8.in Makefile
+	$(AM_V_GEN)sed -e 's,@RACOON_PACKAGE_VERSION@,$(PACKAGE_VERSION),g' \
+	    $(srcdir)/racoon.8.in > $@
+
+racoon.conf.5: $(srcdir)/racoon.conf.5.in Makefile
+	$(AM_V_GEN)sed -e 's,@RACOON_PACKAGE_VERSION@,$(PACKAGE_VERSION),g' \
+	    $(srcdir)/racoon.conf.5.in > $@
+
+plainrsa-gen.8: $(srcdir)/plainrsa-gen.8.in Makefile
+	$(AM_V_GEN)sed -e 's,@RACOON_PACKAGE_VERSION@,$(PACKAGE_VERSION),g' \
+	    $(srcdir)/plainrsa-gen.8.in > $@
+
+racoonctl.1: $(srcdir)/racoonctl.1.in Makefile
+	$(AM_V_GEN)sed -e 's,@RACOON_PACKAGE_VERSION@,$(PACKAGE_VERSION),g' \
+	    $(srcdir)/racoonctl.1.in > $@
+
+CLEANFILES = racoon.8 racoon.conf.5 plainrsa-gen.8 racoonctl.1
 
 EXTRA_DIST = \
-   ${man5_MANS} ${man8_MANS} \
+   racoon.8.in racoon.conf.5.in plainrsa-gen.8.in racoonctl.1.in \
    missing/crypto/rijndael/boxes-fst.dat \
    doc/FAQ doc/README.certificate doc/README.gssapi doc/README.plainrsa \
    doc/README.privsep \
-   contrib/sp.pl stats.pl \
-   samples/psk.txt.sample  samples/racoon.conf.sample \
-   samples/psk.txt.in samples/racoon.conf.in \
-   samples/racoon.conf.sample-gssapi samples/racoon.conf.sample-natt \
-   samples/racoon.conf.sample-inherit samples/racoon.conf.sample-plainrsa \
-   samples/roadwarrior/README \
-   samples/roadwarrior/client/phase1-down.sh \
-   samples/roadwarrior/client/phase1-up.sh \
-   samples/roadwarrior/client/racoon.conf \
-   samples/roadwarrior/server/racoon.conf \
-   samples/roadwarrior/server/racoon.conf-radius
+   contrib/sp.pl stats.pl
+
+# hooks.conf.sample documents src/racoon/scripts' own configuration file
+# (see scripts/Makefile.am and doc/admin/split-dns.html); installed
+# directly under $(sysconfdir), alongside where an admin creates the
+# real hooks.conf, unconditionally -- unlike racoon.conf above, its
+# filename never collides with an active config, so there is nothing to
+# preserve on reinstall.
+sysconf_DATA = $(top_srcdir)/etc/racoon/hooks.conf.sample
 
 TESTS = eaytest
 
@@ -119,16 +165,30 @@ TESTS = eaytest
 # error count: glibc's dynamic linker keeps a few dlopen()-related
 # allocations (for the OpenSSL provider .so files) reachable for the
 # life of the process by design -- they are not leaks.
+#
+# Same SKIP handling as test/Makefile.am's check-valgrind (a binary
+# exiting 77, automake's own SKIP convention, must be reported as
+# skipped here too, not treated as this target's own failure) -- eaytest
+# itself never skips today, but the loop shape is shared with test/'s,
+# where it does matter, and there is no reason for this copy to regress
+# quietly if that ever changes here too.
 check-valgrind: $(TESTS)
 	@echo "Running eaytest with valgrind..."
-	@for test in $(TESTS); do \
+	@skipped=0; \
+	for test in $(TESTS); do \
 		echo "Testing $$test..."; \
 		valgrind --leak-check=full --show-leak-kinds=all \
 			--errors-for-leak-kinds=definite,indirect,possible \
 			--track-origins=yes --error-exitcode=1 \
-			./$$test || exit 1; \
-	done
-	@echo "All tests passed valgrind!"
+			./$$test; \
+		rc=$$?; \
+		if [ $$rc -eq 77 ]; then \
+			skipped=$$((skipped + 1)); \
+		elif [ $$rc -ne 0 ]; then \
+			exit 1; \
+		fi; \
+	done; \
+	echo "All tests passed valgrind! ($$skipped skipped)"
 
 
 install-exec-local:
@@ -137,6 +197,20 @@ install-exec-local:
 # special object rules
 crypto_openssl_test.o: crypto_openssl.c
 	$(COMPILE) -DEAYDEBUG -o crypto_openssl_test.o -c $(srcdir)/crypto_openssl.c
+
+# Non-EAYDEBUG build of crypto_openssl.c for the modern unit-test suite in
+# test/.  eaytest needs the EAYDEBUG variant (mem2x509() reads PEM), but the
+# test/ unit tests exercise the production DER path -- eay_get_x509cert()
+# writes DER, which only round-trips through the non-EAYDEBUG mem2x509().
+# Sharing one non-EAYDEBUG object across the whole test/ suite also keeps its
+# crypto_openssl.c coverage consistent: `make coverage` merges a single line
+# structure instead of mixing EAYDEBUG and non-EAYDEBUG gcda for the same
+# source file (which lcov reports as inconsistent).  Built via all-local so
+# it exists before the test/ programs link against it.
+crypto_openssl_unittest.o: crypto_openssl.c
+	$(COMPILE) -o crypto_openssl_unittest.o -c $(srcdir)/crypto_openssl.c
+
+all-local: crypto_openssl_unittest.o racoon.8 racoon.conf.5 plainrsa-gen.8 racoonctl.1
 
 misc_noplog.o: misc.c
 	$(COMPILE) -DNOUSE_PLOG -o misc_noplog.o -c $(srcdir)/misc.c
@@ -154,6 +228,18 @@ rijndael-alg-fst.o: $(srcdir)/missing/crypto/rijndael/rijndael-alg-fst.c
 	$(COMPILE) -c $(srcdir)/missing/crypto/rijndael/$*.c
 sha2.o: $(srcdir)/missing/crypto/sha2/sha2.c
 	$(COMPILE) -c $(srcdir)/missing/crypto/sha2/$*.c
+
+# vmbuf.o, sockmisc.o and misc.o are compiled twice: once via
+# libracoon_la_SOURCES (libtool objects, automatically tracked and
+# cleaned as libracoon_la-{vmbuf,sockmisc,misc}.Plo), and once as plain
+# objects because racoon/plainrsa-gen/eaytest link them directly via
+# LDADD instead of through libracoon.la. Automake only recognizes
+# dependency files for objects derived from a *_SOURCES variable, so
+# the plain objects' .Po files -- created as a side effect of the
+# generic .c.o: rule satisfying those LDADD references -- are outside
+# its automatic distclean bookkeeping and survive `make distclean`
+# unless listed here explicitly.
+DISTCLEANFILES = $(DEPDIR)/vmbuf.Po $(DEPDIR)/sockmisc.Po $(DEPDIR)/misc.Po
 
 MAINTAINERCLEANFILES = \
     cftoken.c \

@@ -1,0 +1,8 @@
+DESC="ss output with no process column at all (unprivileged run) -- §C degradation-without-root: the listener is still detected, its owner must report as unknown, and this must not be treated as an error."
+EXPECT_GLIBC_READER_SUFFIX="/run/systemd/resolve/stub-resolv.conf"
+EXPECT_NSS_RESOLVE="yes"
+EXPECT_DIVERGENT="no"
+EXPECT_PARALLEL_UNLINKED="no"
+EXPECT_PORT53_COUNT="1"
+EXPECT_PORT53_CONTAINS="LISTENER	udp	127.0.0.53	53		unknown	stub	ss"
+EXPECT_PORT53_BROKEN="no"

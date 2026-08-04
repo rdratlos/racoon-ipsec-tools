@@ -76,8 +76,46 @@ if grep -q '^CONFIG_MODE=' "$INITCONFFILE" 2>/dev/null; then
         sed -i '/^CONFIG_MODE=/d' "$INITCONFFILE"
 fi
 
-# Fix psk.txt permissions
-[ -f /etc/racoon/psk.txt ] && chmod 0600 /etc/racoon/psk.txt
+# Fix psk.txt ownership/permissions: racoon's safefile() (safefile.c)
+# actively refuses to load this file at all unless it is owned by the
+# loading (root) process's own UID with zero group/world permission
+# bits -- unlike certs/keys below, this is enforced, not just policy.
+[ -f /etc/racoon/psk.txt ] && chown root:root /etc/racoon/psk.txt && chmod 0600 /etc/racoon/psk.txt
+
+# Enforce privsep-safe ownership on /etc/racoon and its security-critical
+# subdirectories, now that the racoon system group exists (created above).
+# See racoon-admin-guide.html's Privilege Separation section for the full
+# ownership table and the threat model behind it. /etc/racoon/certs needs
+# group-racoon traversal because the unprivileged process opens
+# certificate files directly; psk.txt, private key files, racoon.conf,
+# and scripts/ do not, and are left at the tightest mode that still
+# works. Guarded with -d/-f so a partial or non-standard install never
+# fails this postinst.
+if [ -d /etc/racoon ]; then
+    chown root:racoon /etc/racoon
+    chmod 0750 /etc/racoon
+fi
+if [ -d /etc/racoon/certs ]; then
+    chown root:racoon /etc/racoon/certs
+    chmod 0750 /etc/racoon/certs
+fi
+if [ -d /etc/racoon/scripts ]; then
+    chown root:root /etc/racoon/scripts
+    chmod 0700 /etc/racoon/scripts
+    # Named explicitly rather than "chown -R"/"chmod -R" (lintian
+    # recursive-privilege-change): -R follows symlinks into whatever
+    # they point at, and this directory is entirely package-shipped
+    # content (see debian/racoon.install) rather than admin-added data
+    # like certs/, so enumerating the exact fileset is both safer and
+    # more precise than recursing.
+    for f in racoon-hook-lib.sh phase1-up.sh phase1-down.sh racoon-dns-detect; do
+        if [ -e "/etc/racoon/scripts/$f" ]; then
+            chown root:root "/etc/racoon/scripts/$f"
+            chmod 0700 "/etc/racoon/scripts/$f"
+        fi
+    done
+fi
+[ -f /etc/racoon/racoon.conf ] && chown root:root /etc/racoon/racoon.conf && chmod 0600 /etc/racoon/racoon.conf
 
 #DEBHELPER#
 

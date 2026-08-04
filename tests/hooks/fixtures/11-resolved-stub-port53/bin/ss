@@ -1,0 +1,10 @@
+#!/bin/sh
+# Real `ss -lntup 'sport = :53'` output shape, captured live against an
+# actual UDP listener during development (see racoon-hook-lib.sh's
+# rhook_survey_port53_raw() header comment). F7's comm-truncation
+# collision is deliberately reproduced here: ss's own "users:" field
+# says "systemd-resolve" (truncated from "systemd-resolved"), which is
+# exactly why rhook_survey_port53_owner() must resolve via
+# /proc/<pid>/exe instead of trusting this string.
+echo "Netid State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess"
+echo "udp   UNCONN 0      0         127.0.0.53:53        0.0.0.0:*    users:((\"systemd-resolve\",pid=100,fd=3))"

@@ -80,26 +80,19 @@ static char *set_address __P((char *, size_t, struct sockaddr *, int));
  * When delimiter == NULL, alternatively ' '(space) is applied.
  */
 char *
-ipsec_dump_policy(policy, delimiter)
-	ipsec_policy_t policy;
-	__ipsec_const char *delimiter;
+ipsec_dump_policy(ipsec_policy_t policy, __ipsec_const char *delimiter)
 {
 	return ipsec_dump_policy1(policy, delimiter, 0);
 }
 
 char *
-ipsec_dump_policy_withports(policy, delimiter)
-	void *policy;
-	const char *delimiter;
+ipsec_dump_policy_withports(void *policy, const char *delimiter)
 {
 	return ipsec_dump_policy1(policy, delimiter, 1);
 }
 
 static char *
-ipsec_dump_policy1(policy, delimiter, withports)
-	void *policy;
-	const char *delimiter;
-	int withports;
+ipsec_dump_policy1(void *policy, const char *delimiter, int withports)
 {
 	struct sadb_x_policy *xpl = policy;
 	struct sadb_x_ipsecrequest *xisr;
@@ -280,12 +273,7 @@ ipsec_dump_policy1(policy, delimiter, withports)
 }
 
 static char *
-ipsec_dump_ipsecrequest(buf, len, xisr, bound, withports)
-	char *buf;
-	size_t len;
-	struct sadb_x_ipsecrequest *xisr;
-	size_t bound;	/* boundary */
-	int withports;
+ipsec_dump_ipsecrequest(char *buf, size_t len, struct sadb_x_ipsecrequest *xisr, size_t bound, int withports)
 {
 	const char *proto, *mode, *level;
 	char abuf[(NI_MAXHOST + NI_MAXSERV + 2) * 2 + 2];
@@ -380,12 +368,7 @@ ipsec_dump_ipsecrequest(buf, len, xisr, bound, withports)
 }
 
 static int
-set_addresses(buf, len, sa1, sa2, withports)
-	char *buf;
-	size_t len;
-	struct sockaddr *sa1;
-	struct sockaddr *sa2;
-	int withports;
+set_addresses(char *buf, size_t len, struct sockaddr *sa1, struct sockaddr *sa2, int withports)
 {
 	char tmp1[NI_MAXHOST + NI_MAXSERV + 2], tmp2[NI_MAXHOST + NI_MAXSERV + 2];
 
@@ -399,11 +382,7 @@ set_addresses(buf, len, sa1, sa2, withports)
 }
 
 static char *
-set_address(buf, len, sa, withports)
-	char *buf;
-	size_t len;
-	struct sockaddr *sa;
-	int withports;
+set_address(char *buf, size_t len, struct sockaddr *sa, int withports)
 {
 	const int niflags = NI_NUMERICHOST | NI_NUMERICSERV;
 	char host[NI_MAXHOST];
