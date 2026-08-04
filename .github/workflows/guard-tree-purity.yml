@@ -75,9 +75,19 @@ jobs:
           # Develop-owned paths: .claude/ entirely, plus the specific
           # workflow/test files that are develop's own CI surface (see
           # CONTRIBUTING.md's tree-separation section for the full list
-          # and rationale). Keep this in sync with guard-branch-purity.yml
-          # on develop, which enforces the mirror list.
-          FORBIDDEN_RE='^(\.claude/|\.github/workflows/develop-build-test\.yml$|\.github/workflows/develop-netbsd-build-test\.yml$|\.github/workflows/legacy-cflags-canary\.yml$|\.github/workflows/racoon-hooks\.yml$|\.github/workflows/guard-branch-purity\.yml$|test/expected-skips\.yml$|test/check-expected-skips\.sh$)'
+          # and rationale). Keep the *.yml/test/* entries in sync with
+          # guard-branch-purity.yml on develop, which enforces the mirror
+          # list for those specific files.
+          #
+          # doc/dev/ and doc/archive/ are a one-directional addition, not
+          # part of that mirrored list: they're internal dev/audit
+          # material (methodology notes, superseded-doc archive) that
+          # stays develop-only, same rationale as .claude/. Unlike the
+          # main-owned paths guard-branch-purity.yml protects, there is no
+          # equivalent "doc/ subtree that must stay main-only" to mirror
+          # back -- doc/admin/ (packaged, shipped docs) is meant to reach
+          # main, so it is deliberately not listed here.
+          FORBIDDEN_RE='^(\.claude/|doc/dev/|doc/archive/|\.github/workflows/develop-build-test\.yml$|\.github/workflows/develop-netbsd-build-test\.yml$|\.github/workflows/legacy-cflags-canary\.yml$|\.github/workflows/racoon-hooks\.yml$|\.github/workflows/guard-branch-purity\.yml$|test/expected-skips\.yml$|test/check-expected-skips\.sh$)'
 
           OFFENDING=$(printf '%s\n' "$CHANGED" | grep -E "$FORBIDDEN_RE" || true)
 
