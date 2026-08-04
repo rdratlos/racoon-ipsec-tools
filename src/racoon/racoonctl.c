@@ -1394,9 +1394,9 @@ print_cfg(buf, len)
 		int col = 0;
 		int i;
 
-		if (ioctl(1, TIOCGWINSZ, &win) != 1) 
+		if (ioctl(1, TIOCGWINSZ, &win) != 1)
 			col = win.ws_col;
-			
+
 		for (i = 0; i < col; i++)
 			printf("%c", '=');
 		printf("\n%s\n", banner);
@@ -1547,3 +1547,133 @@ handle_recv(combuf)
 bad:
 	return -1;
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * Thin -DENABLE_UNITTEST accessors for racoonctl.c's static functions
+ * (v0.9.1 unit-test-coverage hardening, Tier 4) -- same pattern as
+ * f_logoutusr_unittest() above (issues #68/#71) and session.c/admin.c's
+ * own ENABLE_UNITTEST accessors: no other production behavior change,
+ * just visibility for a test binary that #includes this file directly
+ * (racoonctl_unittest_src.c).
+ */
+vchar_t *
+get_combuf_unittest(int ac, char **av)
+{
+	return get_combuf(ac, av);
+}
+
+vchar_t *
+make_request_unittest(u_int16_t cmd, u_int16_t proto, size_t len)
+{
+	return make_request(cmd, proto, len);
+}
+
+vchar_t *
+f_reload_unittest(int ac, char **av)
+{
+	return f_reload(ac, av);
+}
+
+vchar_t *
+f_getevt_unittest(int ac, char **av)
+{
+	return f_getevt(ac, av);
+}
+
+vchar_t *
+f_getsched_unittest(int ac, char **av)
+{
+	return f_getsched(ac, av);
+}
+
+vchar_t *
+f_getsa_unittest(int ac, char **av)
+{
+	return f_getsa(ac, av);
+}
+
+vchar_t *
+f_getsacert_unittest(int ac, char **av)
+{
+	return f_getsacert(ac, av);
+}
+
+vchar_t *
+f_flushsa_unittest(int ac, char **av)
+{
+	return f_flushsa(ac, av);
+}
+
+vchar_t *
+f_deletesa_unittest(int ac, char **av)
+{
+	return f_deletesa(ac, av);
+}
+
+vchar_t *
+f_deleteallsadst_unittest(int ac, char **av)
+{
+	return f_deleteallsadst(ac, av);
+}
+
+vchar_t *
+f_exchangesa_unittest(int ac, char **av)
+{
+	return f_exchangesa(ac, av);
+}
+
+vchar_t *
+f_vpnd_unittest(int ac, char **av)
+{
+	return f_vpnd(ac, av);
+}
+
+vchar_t *
+get_proto_and_index_unittest(int ac, char **av, u_int16_t *proto)
+{
+	return get_proto_and_index(ac, av, proto);
+}
+
+int
+get_proto_unittest(char *str)
+{
+	return get_proto(str);
+}
+
+vchar_t *
+get_index_unittest(int ac, char **av)
+{
+	return get_index(ac, av);
+}
+
+int
+get_family_unittest(char *str)
+{
+	return get_family(str);
+}
+
+vchar_t *
+get_comindexes_unittest(int family, int ac, char **av)
+{
+	return get_comindexes(family, ac, av);
+}
+
+int
+get_comindex_unittest(char *str, char **name, char **port, char **pref)
+{
+	return get_comindex(str, name, port, pref);
+}
+
+int
+get_ulproto_unittest(char *str)
+{
+	return get_ulproto(str);
+}
+
+int
+handle_recv_unittest(vchar_t *combuf)
+{
+	return handle_recv(combuf);
+}
+#endif /* ENABLE_UNITTEST */
