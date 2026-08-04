@@ -402,6 +402,69 @@ test_racoonctl_get_comindexes_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
 	-Wl,--wrap=free
 endif
 
+# Test: racoonctl.c request-encoding coverage -- make_request()
+# (struct admin_com header shared by every request), get_combuf()
+# (command-string dispatch), and every f_*() encoder except
+# f_exchangesa() (test_racoonctl_exchangesa.c, its own dedicated test)
+# and f_vpnc() (needs a real getaddrinfo()+UDP-socket source-address
+# lookup, left as integration territory -- see f_vpnd()'s own test here
+# instead, which covers its sibling's pure delegation-to-
+# f_deleteallsadst() logic without any of that). This is racoonctl's own
+# encode side of a wire protocol admin.c's tests already cover from the
+# daemon's decode side; nothing here duplicates that.
+#
+# f_getsacert()/f_deletesa()/f_deleteallsadst()/get_proto_and_index()
+# transitively reach get_sockaddr() (kmpstat.c, a real getaddrinfo()
+# call); racoonctl_get_sockaddr_stub.c substitutes the same numeric-only
+# stand-in as test_racoonctl_get_comindexes.c.
+#
+# get_combuf_unittest() needs cmdtab[] linked (it walks that table to
+# dispatch a command string), and cmdtab[] is one data object holding
+# function pointers to every f_*() handler including f_vpnc() --
+# --gc-sections can only keep or discard that whole array, not prune
+# individual pointers out of it, so linking cmdtab[] pulls in f_vpnc()
+# too even though nothing here calls it. racoonctl_cmdtab_stubs.c
+# supplies dead-but-linkable getlocaladdr()/saddr2str() (sockmisc.c)
+# stand-ins so that transitive pull-in resolves without needing
+# sockmisc.o's own much larger dependency closure -- see that file's own
+# header comment.
+#
+# -Wl,--wrap=exit backs get_combuf()'s ac==0 path specifically (a direct
+# exit(0) call in racoonctl.c itself, same technique as
+# test_session_check_sigreq.c) -- NOT the various f_*() encoders'
+# errx()-driven argument-count/protocol guards, which turned out not to
+# be testable the same way: errx() lives inside libc (a pre-built shared
+# object on a normal dynamically-linked build), so its own internal
+# exit() call was already resolved when libc itself was built, before
+# this binary's own -Wl,--wrap=exit (which only rewrites undefined
+# references inside the object files this link session compiles) can
+# apply. Confirmed empirically -- see test_racoonctl_encode_requests.c's
+# own comment for the failure mode this produced. Those guards are
+# exercised only on branches that return NULL/-1 instead of calling
+# errx() (e.g. f_deletesa()'s unsupported-protocol case).
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_racoonctl_encode_requests
+
+test_racoonctl_encode_requests_SOURCES  = test_racoonctl_encode_requests.c \
+	racoonctl_unittest_src.c \
+	racoonctl_unittest_stubs.c \
+	racoonctl_get_sockaddr_stub.c \
+	racoonctl_cmdtab_stubs.c
+test_racoonctl_encode_requests_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_racoonctl_encode_requests_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_racoonctl_encode_requests_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_racoonctl_encode_requests_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
+	-Wl,--wrap=exit
+endif
+
 # Test: kmpstat com_recv() short-read/EOF diagnostics (daemon-issues.md
 # Issue 4) — com_recv()'s "sanity check" goto bad1 on a truncated header
 # used to print nothing at all, so racoonctl (vpn-disconnect and any other
