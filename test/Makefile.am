@@ -379,7 +379,7 @@ endif
 # (racoon_free() is a plain free() in this non-debug build); a canary
 # free() at startup SKIPs only that one assertion, not this binary's
 # other (wrap-independent) tests, if the wrap does not intercept on this
-# toolchain -- see doc/dev/wrap-based-tests-vs-lto.md.
+# toolchain -- see doc/dev/v0.9.1-hardening-spec.md §3.2.
 #
 # Also excluded from sanitizer builds, same reason as the other
 # wrapped-static-function tests above.
@@ -540,8 +540,8 @@ test_racoonctl_format_output_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
 test_racoonctl_format_output_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
-# Test: kmpstat com_recv() short-read/EOF diagnostics (daemon-issues.md
-# Issue 4) — com_recv()'s "sanity check" goto bad1 on a truncated header
+# Test: kmpstat com_recv() short-read/EOF diagnostics (v0.9.1-hardening-spec.md
+# §5.6, Issue 4) — com_recv()'s "sanity check" goto bad1 on a truncated header
 # used to print nothing at all, so racoonctl (vpn-disconnect and any other
 # admin-socket event wait) exited non-zero with zero output whenever the
 # admin socket EOFed or delivered a short header before the expected
@@ -818,7 +818,7 @@ test_script_hook_leak_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
 endif
 
 # Test: script_exec() bounded wait for RACOON_SCRIPT_WAIT-flagged hooks
-# (daemon-issues.md Issue 1 / F2) -- close_session()'s shutdown path used
+# (v0.9.1-hardening-spec.md §5.6, Issue 1 / F2) -- close_session()'s shutdown path used
 # to never wait for a SCRIPT_PHASE1_DOWN hook's forked child, routinely
 # outracing phase1-down.sh and leaving its routes/DNS/SPD state behind.
 #
@@ -851,7 +851,7 @@ test_script_exec_wait_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_script_exec_wait_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
-# Test: privsep_sigterm_forward() (daemon-issues.md Issue 1, privsep half)
+# Test: privsep_sigterm_forward() (v0.9.1-hardening-spec.md §5.6, Issue 1, privsep half)
 # -- under privsep, the privileged process (privsep.c) used to leave
 # SIGTERM at its default disposition (immediate termination) instead of
 # forwarding it to the unprivileged child, so a `systemctl stop racoon`
@@ -893,13 +893,13 @@ endif
 # _exit() at every exit point bypasses gcov's atexit()-registered flush, so
 # without this a coverage build's forked privsep_priv() child never writes
 # its .gcda and `make coverage` reports privsep.c as unexecuted even though
-# it demonstrably ran (doc/dev/privsep-priv-extraction.md §5 has the full
+# it demonstrably ran (doc/dev/v0.9.1-hardening-spec.md §2.2/§2.4 has the full
 # writeup -- this wires that report's diagnostic workaround into the
 # regular build instead of a one-off rebuild). The same two lines are
 # repeated on every check_PROGRAMS target below that pulls in privsep.c via
 # privsep_unittest_src.c, for the same reason.
 # SANITIZER_BUILD variant per the sanitizer-build spike (doc/dev/
-# privsep-hardening-followup-audit.md, §4/§9; see test_privsep_do_exit's
+# v0.9.1-hardening-spec.md §2.4; see test_privsep_do_exit's
 # own comment above for the full reasoning). Without --gc-sections, the
 # linker needs every symbol privsep.c's whole translation unit
 # references, not just what this test calls, so this variant also links
@@ -945,7 +945,7 @@ test_privsep_sigterm_forward_LDFLAGS += -Wl,--wrap=_exit
 endif
 endif
 
-# Test: prune_stale_monitored_fds() (daemon-issues.md Issue 4 follow-up)
+# Test: prune_stale_monitored_fds() (v0.9.1-hardening-spec.md §5.6, Issue 4 follow-up)
 # -- session()'s main loop used to treat any select() failure other than
 # EINTR as fatal (return -1, no cleanup; main.c just calls session();
 # return 0;, so the whole daemon process exits). A live bug (since fixed
@@ -985,8 +985,8 @@ test_prune_stale_monitored_fds_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_prune_stale_monitored_fds_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
-# Test: cmpsatrns() "authtype mismatched" log level (daemon-issues.md
-# Issue 3) -- this line used to log at LLV_WARNING (the default visible
+# Test: cmpsatrns() "authtype mismatched" log level (v0.9.1-hardening-spec.md
+# §5.6, Issue 3) -- this line used to log at LLV_WARNING (the default visible
 # level) once per rejected (peer, mine) transform-pair candidate a
 # Phase 2 proposal search tries, so a peer legitimately offering more
 # than one authtype alternative made it fire on every negotiation, not
@@ -1055,7 +1055,7 @@ test_monitor_fd_range_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
 # Test: monitor_fd()'s self-enforcing fd_monitor_tree[] initialization
-# (doc/dev/privsep-hardening-followup-audit.md §2.3/§9) -- unlike every
+# (doc/dev/v0.9.1-hardening-spec.md §2.4) -- unlike every
 # other monitor_fd() test above, this binary deliberately never calls
 # init_fd_monitor_unittest(), so its one monitor_fd() call is the first
 # thing in the whole process that could touch fd_monitor_tree[] at all.
@@ -1093,7 +1093,7 @@ endif
 # otherwise requires to ever reach this code at all. Covers a real
 # dispatch (socketpair() fd made readable), the EBADF-recovery path
 # reaching prune_stale_monitored_fds() from this call site specifically
-# (daemon-issues.md Issue 4 follow-up; prune_stale_monitored_fds() itself
+# (v0.9.1-hardening-spec.md §5.6, Issue 4 follow-up; prune_stale_monitored_fds() itself
 # is already covered in isolation by test_prune_stale_monitored_fds.c),
 # a real signal interrupting select() (EINTR must retry, not fail), and
 # an unrecovered select() failure (invalid timeval -> EINVAL) that must
@@ -1102,8 +1102,7 @@ endif
 # Every assertion here goes through session_wait_and_dispatch()'s own
 # observable effects (its return value, dispatch-callback call count,
 # is_fd_monitored_unittest()) -- no -Wl,--wrap= involved, so none of the
-# whole-program-LTO wrap-defeat risk documented in doc/dev/
-# wrap-based-tests-vs-lto.md applies here.
+# whole-program-LTO wrap-defeat risk documented in doc/dev/v0.9.1-hardening-spec.md §3.2 applies here.
 #
 # Same session.c wrapper source and -DENABLE_UNITTEST accessors as the
 # other monitor_fd()/session.c tests above; also excluded from sanitizer
@@ -1147,7 +1146,7 @@ endif
 # Also excluded from sanitizer builds, same reason as the other
 # wrapped-static-function tests above.
 # SANITIZER_BUILD variant, same reasoning as test_privsep_sigterm_forward
-# above (doc/dev/privsep-hardening-followup-audit.md §4/§9).
+# above (doc/dev/v0.9.1-hardening-spec.md §2.4).
 if SANITIZER_BUILD
 check_PROGRAMS += test_privsep_fd_passing
 
@@ -1189,7 +1188,7 @@ endif
 endif
 
 # Test: privsep_do_exit() (privsep.c) in isolation, decoupled from
-# monitor_fd() -- doc/dev/privsep-hardening-followup-audit.md's review
+# monitor_fd() -- doc/dev/v0.9.1-hardening-spec.md §2.4's review
 # follow-up on §2.3: in production this is reachable only as the callback
 # monitor_fd() dispatches to when privsep_sock[1] shows readable/EOF, so a
 # test that only ever drove it through that full dispatch path could not
@@ -1204,8 +1203,7 @@ endif
 # test_privsep_priv_*.c this target does not link privsep_priv_test_stubs.c
 # there; --gc-sections has nothing pulling those symbols in.
 #
-# PILOT for the sanitizer-build spike (doc/dev/privsep-hardening-followup-
-# audit.md's review follow-up, §4/§9): every other privsep test in this
+# PILOT for the sanitizer-build spike (doc/dev/v0.9.1-hardening-spec.md §2.4's review follow-up): every other privsep test in this
 # suite is unconditionally excluded from sanitizer builds
 # (if !SANITIZER_BUILD), citing a conflict between -ffunction-sections/
 # --gc-sections (needed to keep a normal build's dependency closure small)
@@ -1284,7 +1282,7 @@ endif
 # Also excluded from sanitizer builds, same reason as the other
 # wrapped-static-function tests above.
 # SANITIZER_BUILD variant, same reasoning as test_privsep_sigterm_forward
-# above (doc/dev/privsep-hardening-followup-audit.md §4/§9).
+# above (doc/dev/v0.9.1-hardening-spec.md §2.4).
 #
 # HAVE_PF_PACKET-gated (configure.ac): this test's own PF_PACKET refusal
 # case, and its #include <net/pfkeyv2.h>, are both Linux-specific -- see
@@ -1351,7 +1349,7 @@ endif
 # Also excluded from sanitizer builds, same reason as the other
 # wrapped-static-function tests above.
 # SANITIZER_BUILD variant, same reasoning as test_privsep_sigterm_forward
-# above (doc/dev/privsep-hardening-followup-audit.md §4/§9).
+# above (doc/dev/v0.9.1-hardening-spec.md §2.4).
 if SANITIZER_BUILD
 check_PROGRAMS += test_privsep_setsockopt
 
@@ -1394,8 +1392,8 @@ endif
 
 # Tests: privsep_priv() -- the privileged dispatch loop itself, extracted
 # out of privsep_init()'s inline while(1) as pure code motion (doc/dev/
-# privsep-priv-extraction.md, follow-up to issue #105 and
-# privsep-verification-runbook.md §7 "Making this permanent"). Before this
+# v0.9.1-hardening-spec.md §2.2, follow-up to issue #105 and
+# v0.9.1-hardening-spec.md §2.3, §7 "Making this permanent"). Before this
 # extraction the loop was reachable only inside privsep_init()'s real
 # privilege-dropping fork(), so every one of the runbook's phases had to be
 # run by hand on a live host; now a test can fork(), have the child call
@@ -1415,7 +1413,7 @@ endif
 # the same reason (relies on --gc-sections dead-code elimination that ASan
 # defeats).
 # SANITIZER_BUILD variant, same reasoning as test_privsep_sigterm_forward
-# above (doc/dev/privsep-hardening-followup-audit.md §4/§9). Already links
+# above (doc/dev/v0.9.1-hardening-spec.md §2.4). Already links
 # privsep_priv_test_stubs.c in the ordinary build below, so only adds
 # privsep_sanitizer_monitor_fd_stub.c and drops -ffunction-sections/
 # --gc-sections.
@@ -1550,7 +1548,7 @@ endif
 # build. 200ms is far above what a healthy exchange over a local
 # socketpair needs and far below this suite's own IO_TIMEOUT_MS bounds.
 # SANITIZER_BUILD variant, same reasoning as test_privsep_sigterm_forward
-# above (doc/dev/privsep-hardening-followup-audit.md §4/§9).
+# above (doc/dev/v0.9.1-hardening-spec.md §2.4).
 if SANITIZER_BUILD
 check_PROGRAMS += test_privsep_priv_bounded_wait
 
@@ -1619,7 +1617,7 @@ endif
 # -Wl,--wrap=_exit treatment as every other check_PROGRAMS target that
 # compiles privsep.c via privsep_unittest_src.c.
 # SANITIZER_BUILD variant, same reasoning as test_privsep_sigterm_forward
-# above (doc/dev/privsep-hardening-followup-audit.md §4/§9).
+# above (doc/dev/v0.9.1-hardening-spec.md §2.4).
 if SANITIZER_BUILD
 check_PROGRAMS += test_privsep_client_wrappers
 
@@ -1677,7 +1675,7 @@ endif
 # Also excluded from sanitizer builds and gets the same ENABLE_COVERAGE
 # treatment, same reasons as test_privsep_client_wrappers above.
 # SANITIZER_BUILD variant, same reasoning as test_privsep_client_wrappers
-# above (doc/dev/privsep-hardening-followup-audit.md §4/§9).
+# above (doc/dev/v0.9.1-hardening-spec.md §2.4).
 if SANITIZER_BUILD
 check_PROGRAMS += test_privsep_hybrid_client_wrappers
 
@@ -2286,7 +2284,7 @@ clean-local:
 # still-root forked privsep_priv() child, per CONTRIBUTING.md's "Running
 # the Test Suite" section. Run unprivileged (the normal CI case), they
 # detect that up front and exit 77, automake's own SKIP convention -- see
-# test/README.md §4.4 of doc/dev/privsep-hardening-followup-audit.md.
+# test/README.md §4.4 of doc/dev/v0.9.1-hardening-spec.md §2.4.
 # --error-exitcode=1 only overrides valgrind's own exit code when
 # *valgrind itself* reports an error; with none found, valgrind exits
 # with the child's own code unchanged, so a clean SKIP surfaces here as

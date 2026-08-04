@@ -28,7 +28,7 @@
  * free() calls via -Wl,--wrap=free (racoon_free() is a plain free() in
  * this non-debug build) around one such call, the same technique and
  * the same LTO-defeat caution as test_admin_establish_sa_psk.c's
- * -Wl,--wrap=vfree (doc/dev/wrap-based-tests-vs-lto.md): a canary
+ * -Wl,--wrap=vfree (doc/dev/v0.9.1-hardening-spec.md §3.2): a canary
  * free() at startup confirms the wrap is actually intercepting on this
  * toolchain before any count is trusted, SKIP rather than a
  * false-reading FAIL/PASS if it is not.
@@ -265,7 +265,7 @@ test_comindexes_bad_arg_count_rejected(void)
  * bottom out in the same plain free() this file's own canary already
  * found -Wl,--wrap= does not intercept on this toolchain (free() gets
  * special GCC builtin treatment regardless of LTO -- doc/dev/
- * wrap-based-tests-vs-lto.md's risk tier 3), so a second count here
+ * v0.9.1-hardening-spec.md §3.2's risk tier 3), so a second count here
  * would be exactly as unreliable. `cd test && make check-valgrind` is
  * the confirmed-working verification for this one, the same fallback
  * this project's own test_script_hook_leak.c documents for the
@@ -351,7 +351,7 @@ __wrap_free(void *ptr)
  * Confirms -Wl,--wrap=free is actually intercepting free() calls on this
  * toolchain before trusting the count below -- same caution as
  * test_admin_establish_sa_psk.c's -Wl,--wrap=vfree canary
- * (doc/dev/wrap-based-tests-vs-lto.md): under whole-program LTO, a
+ * (doc/dev/v0.9.1-hardening-spec.md §3.2): under whole-program LTO, a
  * plain free() call can be resolved/inlined in a way that leaves
  * __wrap_free entirely unreferenced, which would otherwise read as a
  * false "0 leaks" pass indistinguishable from a genuine one.
@@ -376,7 +376,7 @@ skip_if_wrap_free_ineffective(void)
 	printf("\nSKIP: -Wl,--wrap=free did not intercept a canary free() call on "
 	    "this toolchain -- skipping only the issue #120 leak-count assertion "
 	    "below, not this binary's other (wrap-independent) tests. "
-	    "See doc/dev/wrap-based-tests-vs-lto.md.\n");
+	    "See doc/dev/v0.9.1-hardening-spec.md §3.2.\n");
 	return 1;
 }
 

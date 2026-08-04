@@ -480,7 +480,7 @@ cmpsaprop_alloc(ph1, pp1, pp2, side)
 		}
 
 		/*
-		 * daemon-issues.md Issue 3: the negotiation's actual outcome,
+		 * doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 3: the negotiation's actual outcome,
 		 * logged once here rather than inferred from however many
 		 * per-pair cmpsatrns() rejections preceded it (now at
 		 * LLV_DEBUG; see the comment there). Consistent with the
@@ -607,7 +607,7 @@ cmpsatrns(proto_id, tr1, tr2, check_level)
 
 	if (tr1->authtype != tr2->authtype) {
 		/*
-		 * daemon-issues.md Issue 3: this fires once per (peer
+		 * doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 3: this fires once per (peer
 		 * transform, my transform) candidate pair the caller's
 		 * nested search loop (get_ph2approval(), below) tries, not
 		 * once per negotiation -- a peer legitimately offering

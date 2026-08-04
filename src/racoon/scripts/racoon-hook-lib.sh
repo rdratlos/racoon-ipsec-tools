@@ -2307,7 +2307,7 @@ rhook_plan_spd() {
 #   [trace]   command: ip link add "racoon0" type dummy && ip link set "racoon0" up
 #   [trace]   output: RTNETLINK answers: File exists
 # An incomplete prior teardown -- F2's SIGTERM/script_exec() race
-# (doc/dev/daemon-issues.md), or simply racoon restarting without a
+# (doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 1), or simply racoon restarting without a
 # clean phase1-down.sh having run first -- left racoon0 already present.
 # The unconditional `ip link add ... type dummy` this step used to run
 # then failed outright (ip exit 2), a *required* step, halting

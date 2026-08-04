@@ -1,3 +1,5 @@
+> **Archived.** Superseded by [doc/dev/v0.9.1-hardening-spec.md](../../dev/v0.9.1-hardening-spec.md)#58-terminology-pass--hooks-vs-scripts as of 2026-08-04; retained for provenance. See also git tag `archive/pre-doc-consolidation`.
+
 # Terminology pass: "phase1-up/phase1-down scripts" leads, "hooks" demoted
 
 Records the `grep -rn -i 'hook'` worklist this pass was built from and the disposition

@@ -6,7 +6,7 @@
  */
 
 /*
- * Regression test for daemon-issues.md's Issue 4 follow-up hardening:
+ * Regression test for doc/dev/v0.9.1-hardening-spec.md §5.6's Issue 4 follow-up hardening:
  * session()'s main loop used to treat ANY select() failure other than
  * EINTR as fatal -- return -1, no cleanup, the whole daemon process
  * exits (main.c just calls session(); return 0;). A real, live bug
@@ -189,7 +189,7 @@ main(void)
 {
 	int failed = 0;
 
-	printf("\n=== prune_stale_monitored_fds() test (daemon-issues.md Issue 4 follow-up) ===\n");
+	printf("\n=== prune_stale_monitored_fds() test (v0.9.1-hardening-spec.md §5.6, Issue 4 follow-up) ===\n");
 
 	init_fd_monitor_unittest();
 

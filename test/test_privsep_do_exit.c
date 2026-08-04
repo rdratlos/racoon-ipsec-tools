@@ -7,7 +7,7 @@
 
 /*
  * Standalone unit test for privsep_do_exit() (privsep.c), split out per
- * doc/dev/privsep-hardening-followup-audit.md's review follow-up: in
+ * doc/dev/v0.9.1-hardening-spec.md §2.4's review follow-up: in
  * production this function is reachable only as the callback
  * monitor_fd() dispatches to when privsep_sock[1] shows up readable/EOF
  * in the unprivileged child's own select() loop -- so a test that only
@@ -185,7 +185,7 @@ main(void)
 {
 	int failed = 0;
 
-	printf("\n=== privsep_do_exit() (privsep-hardening-followup-audit.md "
+	printf("\n=== privsep_do_exit() (v0.9.1-hardening-spec.md §2.4 "
 	    "review follow-up) ===\n");
 
 	if (test_do_exit_terminates_via_sigterm() != 0) failed++;

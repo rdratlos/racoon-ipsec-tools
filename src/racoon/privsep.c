@@ -408,7 +408,7 @@ privsep_do_exit(void *ctx, int fd)
 }
 
 /*
- * daemon-issues.md Issue 1 (F2), privsep-specific half: under the shipped
+ * doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 1 (F2), privsep-specific half: under the shipped
  * Type=simple systemd unit (no KillMode=), `systemctl stop racoon` (or any
  * `kill <pid>`) targets $MAINPID, which -- since fork() leaves the
  * original pid in the parent -- is *this*, the privileged process, not
@@ -522,7 +522,7 @@ privsep_socket_allowed_unittest(int domain, int type, int protocol)
  * through the exact monitor_fd() call this task's other fix (the
  * fd_monitor_tree[] self-init guard, above monitor_fd() in session.c)
  * hardens. Exposed so privsep_do_exit()'s own logic (it raises SIGTERM on
- * its caller, full stop -- see privsep-hardening-followup-audit.md §9)
+ * its caller, full stop -- see doc/dev/v0.9.1-hardening-spec.md §2.4)
  * can be tested in isolation, decoupled from monitor_fd()'s own dispatch
  * machinery: a test driving it only through monitor_fd() cannot tell "the
  * callback itself is wrong" apart from "the dispatch around it is wrong".
@@ -710,7 +710,7 @@ privsep_init(void)
 	 * which is static... except SIGINT/SIGTERM, forwarded to the
 	 * unprivileged child instead of left at the default (immediate
 	 * termination) disposition; see privsep_sigterm_forward() above for
-	 * why (daemon-issues.md Issue 1).
+	 * why (doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 1).
 	 */
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP, SIG_DFL);
@@ -733,10 +733,10 @@ privsep_init(void)
  * closing its end of privsep_sock still reaches "out".)
  *
  * Extracted out of privsep_init() as pure code motion (no behaviour
- * change -- see doc/dev/privsep-priv-extraction.md): before this, the
+ * change -- see doc/dev/v0.9.1-hardening-spec.md §2.2): before this, the
  * loop was only reachable inside privsep_init()'s privilege-dropping
  * fork(), which needs a real PF_KEY/XFRM kernel and could only be
- * exercised by hand (doc/dev/privsep-verification-runbook.md). Now a test
+ * exercised by hand (doc/dev/v0.9.1-hardening-spec.md §2.3). Now a test
  * can fork(), have the child call privsep_priv(sock) for real -- with the
  * same _exit(0)/_exit(1) at "out:"/"fail:", untouched -- and have the
  * parent drive sock as the unprivileged side, asserting on both the wire

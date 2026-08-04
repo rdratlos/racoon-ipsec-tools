@@ -1,3 +1,5 @@
+> **Archived.** Superseded by [doc/dev/v0.9.1-hardening-spec.md](../../dev/v0.9.1-hardening-spec.md)#24-the-follow-up-audit-and-pr-108-review-response as of 2026-08-04; retained for provenance. See also git tag `archive/pre-doc-consolidation`.
+
 # Audit: privsep test-hardening follow-up (issue #107 / PR #108)
 
 ## 0. Scope and how to read this document

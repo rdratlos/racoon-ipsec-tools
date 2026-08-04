@@ -1,3 +1,5 @@
+> **Archived.** Superseded by [doc/dev/v0.9.1-hardening-spec.md](../../dev/v0.9.1-hardening-spec.md)#31-the-wrapper-translation-unit-pattern as of 2026-08-04; retained for provenance. See also git tag `archive/pre-doc-consolidation`.
+
 # `admin.c`/`session.c` unit test coverage: wrapper confirmation, gap analysis, and replication verdict
 
 Prepared as part of the v0.9.1 unit-test-coverage hardening effort (Tier 2

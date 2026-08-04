@@ -20,7 +20,7 @@
  * (isakmp_cfg.c) and xauth_login_pam() (isakmp_xauth.c). None of these
  * six commands are exercised by any test using this file (they are
  * outside the runbook's own six-command scope, doc/dev/
- * privsep-priv-extraction.md explains why), but privsep_priv()'s switch
+ * v0.9.1-hardening-spec.md §2.2 explains why), but privsep_priv()'s switch
  * still references them at compile time, so the symbols must resolve at
  * link time regardless -- and whether HAVE_LIBPAM is defined depends on
  * what's installed on the build host, not on anything this file controls,
@@ -107,7 +107,7 @@ privsep_priv_test_lcconf_init(certdir, scriptdir)
 /*
  * eay_get_pkcs1privkey()'s call site (privsep.c) only *logs* an
  * unsafe_path() rejection, it does not refuse on it -- pre-existing,
- * untouched behaviour (see doc/dev/privsep-priv-extraction.md), so this
+ * untouched behaviour (see doc/dev/v0.9.1-hardening-spec.md §2.2), so this
  * stub does not need a path-authorization concept of its own. A path
  * containing "FAIL" reports the failure a real OpenSSL parse error would;
  * anything else succeeds with canned key bytes, so a test can assert the

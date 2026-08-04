@@ -49,7 +49,7 @@
 /*
  * OR'd into ac_cmd alongside PRIVSEP_SCRIPT_EXEC: ask the privileged
  * process's script_exec() to wait, bounded, for this hook invocation
- * (daemon-issues.md Issue 1). A dedicated ac_cmd bit rather than an extra
+ * (doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 1). A dedicated ac_cmd bit rather than an extra
  * envp entry, deliberately -- envp is marshaled into the same
  * PRIVSEP_NBUF_MAX-slot admin_com_bufs as script/name/envp below, so an
  * extra entry there contends with a config's own env vars (modecfg,
@@ -68,8 +68,8 @@ struct admin_com_bufs {
 };
 
 /*
- * PRIVSEP_SCRIPT_EXEC's wire budget accounting (daemon-issues.md's Issue
- * 4 follow-up): a PRIVSEP_SCRIPT_EXEC message packs script, name, every
+ * PRIVSEP_SCRIPT_EXEC's wire budget accounting (doc/dev/v0.9.1-hardening-spec.md
+ * §5.6, Issue 4 follow-up): a PRIVSEP_SCRIPT_EXEC message packs script, name, every
  * envp[] entry, and a void terminator into the PRIVSEP_NBUF_MAX slots of
  * one admin_com_bufs above -- 3 fixed slots plus one per env var.
  *
@@ -117,7 +117,7 @@ int privsep_init __P((void));
  * The privileged dispatch loop itself, extracted out of privsep_init() so
  * it can be driven directly -- by privsep_init() over privsep_sock[0] in
  * production, and by a unit test over a plain socketpair() (see
- * test/test_privsep_priv_dispatch.c and doc/dev/privsep-priv-extraction.md).
+ * test/test_privsep_priv_dispatch.c and doc/dev/v0.9.1-hardening-spec.md §2.2).
  * Never returns: every path out of it ends in _exit(0) (an ordinary
  * shutdown) or _exit(1) (a fault), exactly as when this was still
  * privsep_init()'s inline while(1) loop.

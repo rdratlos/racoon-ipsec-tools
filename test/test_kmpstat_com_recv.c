@@ -6,13 +6,13 @@
  */
 
 /*
- * Regression test for doc/dev/daemon-issues.md Issue 4: com_recv()'s
+ * Regression test for doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 4: com_recv()'s
  * short-read/EOF sanity check (the "if (len < sizeof(h)) goto bad1;"
  * branch) used to goto bad1 with no diagnostic call at all, so a
  * "racoonctl vpn-disconnect" (or any other admin-socket event wait) whose
  * connection EOFed or delivered a truncated header before the expected
  * event arrived exited non-zero with zero output -- reproduced 100% of
- * the time across 8 live Task F test runs (daemon-issues.md Issue 4).
+ * the time across 8 live Task F test runs (doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 4).
  *
  * com_recv() is not static, but the admin-socket fd it reads ("so") is a
  * static, file-scope variable private to kmpstat.c. This test reaches it

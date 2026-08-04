@@ -276,14 +276,14 @@ main(ac, av)
 	int error;
 
 	/*
-	 * daemon-issues.md Issue 2 (F5): plogv() (plog.c) writes every
+	 * doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 2 (F5): plogv() (plog.c) writes every
 	 * foreground (-F) log line to stdout via vprintf(), and glibc/NetBSD
 	 * libc both default to full block buffering (not line buffering)
 	 * whenever stdout isn't a TTY -- which is exactly what a systemd
 	 * unit's stdout is (piped into the journal). That delays and can
 	 * reorder log lines relative to the events they describe, exactly
 	 * the "logs lie" confusion the -F | cat vs. real-TTY reproducer in
-	 * daemon-issues.md demonstrates. Force line buffering unconditionally
+	 * doc/dev/v0.9.1-hardening-spec.md §5.6 demonstrates. Force line buffering unconditionally
 	 * so a full line reaches its destination (journal, pipe, redirected
 	 * file) as soon as it is written, matching a TTY's own default
 	 * behavior and the *intended* immediacy of "-F to a terminal for

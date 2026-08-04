@@ -15,7 +15,7 @@
  * Unlike malloc()/free(), GCC/LTO has no special builtin semantic
  * knowledge of getpass() that would let it inline away a call site and
  * defeat a linker substitution the way vfree() did under whole-program
- * LTO (doc/dev/wrap-based-tests-vs-lto.md) -- it is an ordinary external
+ * LTO (doc/dev/v0.9.1-hardening-spec.md §3.2) -- it is an ordinary external
  * libc symbol. A same-named strong definition in this test binary,
  * linked before libc resolves the reference, shadows it directly; no
  * -Wl,--wrap= needed. Spiked before relying on this broadly: confirmed

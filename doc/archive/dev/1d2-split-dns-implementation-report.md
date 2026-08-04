@@ -1,3 +1,5 @@
+> **Archived.** Superseded by [doc/dev/v0.9.1-hardening-spec.md](../../dev/v0.9.1-hardening-spec.md)#54-outcome-report--briefs-1-and-3-implemented as of 2026-08-04; retained for provenance. See also git tag `archive/pre-doc-consolidation`.
+
 # Split-DNS/routing hooks rewrite — implementation report
 
 Final report for the `racoon-hook-lib.sh` / `phase1-up.sh` / `phase1-down.sh` /

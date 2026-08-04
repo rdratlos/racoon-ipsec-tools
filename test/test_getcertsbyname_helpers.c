@@ -37,7 +37,7 @@
  * for a reason that has nothing to do with freecertinfo() itself. A
  * canary free() at startup distinguishes that (SKIP) from a genuine
  * partial-free regression (FAIL, a nonzero but wrong count) -- see
- * doc/dev/wrap-based-tests-vs-lto.md for the full writeup.
+ * doc/dev/v0.9.1-hardening-spec.md §3.2 for the full writeup.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -107,7 +107,7 @@ skip_if_wrap_free_ineffective(void)
 	    "(-flto=auto -ffat-lto-objects): GCC's malloc()/free() pairing "
 	    "elision can remove a provably-non-escaping allocate/free sequence "
 	    "outright, since it has no knowledge of the linker's --wrap=free "
-	    "redirection. See doc/dev/wrap-based-tests-vs-lto.md.\n\n");
+	    "redirection. See doc/dev/v0.9.1-hardening-spec.md §3.2.\n\n");
 	return 1;
 }
 

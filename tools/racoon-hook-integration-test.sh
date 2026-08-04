@@ -14,7 +14,7 @@
 #   - Steps 5/6 ("Branch A"/"Branch B"): does any SPD policy survive a
 #     confirmed-complete phase1-down.sh, and does that provoke a kernel
 #     ACQUIRE / on-demand reconnection? Originated as the Task F
-#     ACQUIRE-provenance investigation (doc/dev/teardown-investigation.md);
+#     ACQUIRE-provenance investigation (doc/dev/v0.9.1-hardening-spec.md §5.7);
 #     kept as a standing regression check, not a one-off.
 #   - Steps 3b/4b/5c (issue #90): does phase1-down.sh's state-file
 #     generation matching pick this run's own generation, by its
@@ -82,7 +82,7 @@
 # Everything is captured under a timestamped results directory printed at
 # the end -- tar it up and hand it back for whoever is triaging the
 # question this particular run was investigating. See
-# doc/dev/teardown-investigation.md for the ACQUIRE-provenance
+# doc/dev/v0.9.1-hardening-spec.md §5.7 for the ACQUIRE-provenance
 # investigation this tool originated from.
 
 set -u
@@ -460,7 +460,7 @@ fi
 # daemonize itself (fork, detach, parent exits) -- confirmed against
 # src/racoon/main.c's usage() text ("-F: run in foreground, do not
 # become daemon", "-f: pathname for configuration file", two distinct
-# flags, not the same one) and doc/dev/daemon-issues.md's F5 entry
+# flags, not the same one) and doc/dev/v0.9.1-hardening-spec.md §5.6's F5 entry
 # (f_foreground/-F is specifically what routes plogv() through
 # vprintf()-to-stdout, block-buffered and unreliable under a non-TTY;
 # the default non-F path logs via syslog only, sidestepping it
@@ -520,7 +520,7 @@ narrate "no real (non-per-socket) policy present before connect, as expected -- 
 # $STATE_DIR exists) and BEFORE this run's own connect (so this run's
 # real generation is allocated strictly after the synthetic one, exactly
 # like the live Arch host's own accumulated orphans in
-# doc/dev/teardown-investigation.md).
+# doc/dev/v0.9.1-hardening-spec.md §5.7).
 #
 # The synthetic generation's single state-file line uses the same
 # id/type/outcome/undo_command shape rhook_state_append() writes
@@ -706,7 +706,7 @@ tail -n "+$((PRE_DISCONNECT_LOGLINE_COUNT + 1))" "$RACOON_LOG" 2>/dev/null | gre
 # racoonctl vpn-disconnect, no core dump, logging only
 # "ERROR: failed to send admin command: Broken pipe" /
 # "ERROR: failed to select (Bad file descriptor)" moments before dying
-# (doc/dev/daemon-issues.md's Issue 4 follow-up has the full trace). This
+# (doc/dev/v0.9.1-hardening-spec.md §5.6's Issue 4 follow-up has the full trace). This
 # run's own earlier evidence (task-f-results-20260727T172711Z) had exactly
 # this in racoon-syslog.log at the time and still reported a clean run:
 # the async SCRIPT_PHASE1_DOWN hook had already been fork()'d before
@@ -1091,4 +1091,4 @@ fi
 narrate "=== DONE ==="
 narrate "Results directory: $OUT"
 narrate "Start with $SUMMARY, then cross-reference 04-hook-state-content.log against 04/05-*-filtered-spd.log by hand for the parts this script only captured rather than concluded."
-narrate "Hand the whole directory back (tar czf task-f-results-${TS}.tar.gz -C /root task-f-results-${TS}) for the doc/dev/teardown-investigation.md write-up."
+narrate "Hand the whole directory back (tar czf task-f-results-${TS}.tar.gz -C /root task-f-results-${TS}) for the doc/dev/v0.9.1-hardening-spec.md §5.7 write-up."

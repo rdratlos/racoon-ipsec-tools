@@ -20,7 +20,7 @@
 #     CI's actual runner today, SKIP-with-the-documented-message is also
 #     fine (and means the defeat triggered, e.g. after a runner image
 #     upgrade), and only a genuine FAIL or a SKIP with an unexplained
-#     message is a problem. See doc/dev/wrap-based-tests-vs-lto.md and
+#     message is a problem. See doc/dev/v0.9.1-hardening-spec.md §3.2 and
 #     CONTRIBUTING.md's "Two tests skip under whole-program LTO".
 #   - root (currently empty): binaries that would report SKIP only when
 #     run AS root -- none exist in this suite today (the root-dependent
@@ -39,12 +39,12 @@ lto_canary:
   - binary: test_admin_establish_sa_psk
     reason: >-
       -Wl,--wrap=vfree canary, defeated by whole-program LTO on some
-      toolchains -- see doc/dev/wrap-based-tests-vs-lto.md
+      toolchains -- see doc/dev/v0.9.1-hardening-spec.md §3.2
     skip_message_substring: "did not intercept a canary vfree"
   - binary: test_getcertsbyname_helpers
     reason: >-
       -Wl,--wrap=free canary, defeated by whole-program LTO on some
-      toolchains -- see doc/dev/wrap-based-tests-vs-lto.md
+      toolchains -- see doc/dev/v0.9.1-hardening-spec.md §3.2
     skip_message_substring: "did not intercept free"
 
 root: []

@@ -6,7 +6,7 @@
  */
 
 /*
- * Regression test for doc/dev/daemon-issues.md Issue 3: cmpsatrns()
+ * Regression test for doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 3: cmpsatrns()
  * (proposal.c) logged "authtype mismatched" at LLV_WARNING -- the
  * default visible level -- once per (peer transform, my transform)
  * candidate pair its caller's search loop (get_ph2approval()) tries, so
@@ -175,7 +175,7 @@ main(void)
 {
 	int failed = 0;
 
-	printf("\n=== cmpsatrns() authtype log-level test (daemon-issues.md Issue 3) ===\n");
+	printf("\n=== cmpsatrns() authtype log-level test (v0.9.1-hardening-spec.md §5.6, Issue 3) ===\n");
 
 	if (test_authtype_mismatch_hidden_at_warning_level() != 0)
 		failed++;

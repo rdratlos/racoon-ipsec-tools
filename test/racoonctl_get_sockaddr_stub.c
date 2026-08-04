@@ -12,7 +12,7 @@
  * struct sockaddr. The real one calls getaddrinfo() with no numeric-only
  * hints, i.e. a genuine resolver call -- the same category of OS-boundary
  * dependency flagged for getcertsbyname()/res_query() (see
- * doc/dev/wrap-based-tests-vs-lto.md and issue #114): not something a
+ * doc/dev/v0.9.1-hardening-spec.md §3.2 and issue #114): not something a
  * unit test should depend on succeeding or being fast, and not something
  * -Wl,--wrap= is the right tool for here, since it would need to survive
  * across this project's whole Bionic/Resolute/Arch toolchain range for a

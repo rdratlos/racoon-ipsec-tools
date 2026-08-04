@@ -12,7 +12,7 @@
  * its own paths -- production and unchanged here -- via _exit(), which by
  * design bypasses every atexit() handler (what makes it safe to call right
  * after fork() without double-flushing an inherited stdio buffer); see
- * doc/dev/privsep-priv-extraction.md §5 for the full writeup. Without this
+ * doc/dev/v0.9.1-hardening-spec.md §2.4 for the full writeup. Without this
  * shim, a coverage build's forked privsep_priv() child never writes its
  * .gcda, and `make coverage` reports privsep.c as effectively unexecuted
  * even though it demonstrably ran.
