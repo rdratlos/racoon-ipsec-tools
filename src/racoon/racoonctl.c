@@ -874,7 +874,7 @@ get_comindexes(family, ac, av)
 	int ac;
 	char **av;
 {
-	vchar_t *buf;
+	vchar_t *buf = NULL;
 	struct admin_com_indexes *ci;
 	char *p_name = NULL, *p_port = NULL;
 	char *p_prefs = NULL, *p_prefd = NULL;
@@ -965,6 +965,15 @@ get_comindexes(family, ac, av)
 		racoon_free(p_prefs);
 	if (p_prefd)
 		racoon_free(p_prefd);
+	/*
+	 * buf is allocated (vmalloc(), above) before the ul_proto check
+	 * that is the only remaining way to reach this label afterward --
+	 * every earlier "goto bad" above happens before buf exists. Never
+	 * freeing it here leaked the whole admin_com_indexes allocation
+	 * whenever get_ulproto() rejected the trailing argument (#121).
+	 */
+	if (buf)
+		vfree(buf);
 	return NULL;
 }
 

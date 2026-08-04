@@ -252,12 +252,32 @@ test_comindexes_bad_arg_count_rejected(void)
 	return 0;
 }
 
+/*
+ * Also the regression test for issue #121: this exact call reaches
+ * get_comindexes()'s "bad:" label *after* buf (the vmalloc()'d
+ * struct admin_com_indexes) was already allocated -- the only one of
+ * the function's several goto-bad sites that can. Before the fix, buf
+ * was never freed there, leaking it on every rejected ul_proto
+ * argument; found via Valgrind against this exact test case
+ * ("definitely lost ... by 0x... get_comindexes (racoonctl.c:918)").
+ * Not re-asserted here via -Wl,--wrap=free/vfree the way issue #120's
+ * own test is: vfree()'s two internal racoon_free() calls (vmbuf.c)
+ * bottom out in the same plain free() this file's own canary already
+ * found -Wl,--wrap= does not intercept on this toolchain (free() gets
+ * special GCC builtin treatment regardless of LTO -- doc/dev/
+ * wrap-based-tests-vs-lto.md's risk tier 3), so a second count here
+ * would be exactly as unreliable. `cd test && make check-valgrind` is
+ * the confirmed-working verification for this one, the same fallback
+ * this project's own test_script_hook_leak.c documents for the
+ * -Wl,--wrap=free-is-unreliable case generally.
+ */
 static int
 test_comindexes_bad_ulproto_rejected(void)
 {
 	char *av[] = { "10.0.0.1", "10.0.0.2", "not-a-real-ulproto" };
 
-	TEST_START("get_comindexes() rejects an unrecognized ul_proto argument");
+	TEST_START("get_comindexes() rejects an unrecognized ul_proto argument "
+	    "without leaking buf (issue #121)");
 
 	reset_stub_state();
 	if (get_comindexes_unittest(AF_INET, 3, av) != NULL)
