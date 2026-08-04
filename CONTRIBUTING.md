@@ -101,6 +101,11 @@ intentionally branch-specific and never cross between them:
   workflow file that already exists on the branch an event targets.)
 - `develop`-only test infrastructure (`test/expected-skips.yml`,
   `test/check-expected-skips.sh`) stays off `main`.
+- `doc/dev/` and `doc/archive/` (internal development audits, methodology
+  notes, and the archive of documents they superseded) are `develop`-owned
+  and stay off `main`, same rationale as `.claude/`. `doc/admin/` is not
+  in this list — it is packaged, user-facing documentation and is meant
+  to reach `main` once the feature it documents does.
 
 **Automated, both directions:** `.github/workflows/guard-tree-purity.yml`
 (this branch) rejects any PR or push into `main` that touches a
