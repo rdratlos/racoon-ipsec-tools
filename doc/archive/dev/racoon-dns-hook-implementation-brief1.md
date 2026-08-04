@@ -1,3 +1,5 @@
+> **Archived.** Superseded by [doc/dev/v0.9.1-hardening-spec.md](../../dev/v0.9.1-hardening-spec.md)#51-brief-1--the-origin-spec as of 2026-08-04; retained for provenance. See also git tag `archive/pre-doc-consolidation`.
+
 # Implementation brief: racoon phase1-up/down split-DNS and routing hooks
 
 You are working in `rdratlos/racoon-ipsec-tools` (BSD-3-Clause, IKEv1 daemon, v0.9.0

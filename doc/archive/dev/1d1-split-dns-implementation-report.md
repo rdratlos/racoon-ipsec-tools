@@ -1,3 +1,5 @@
+> **Archived.** Superseded by [doc/dev/v0.9.1-hardening-spec.md](../../dev/v0.9.1-hardening-spec.md)#55-early-nm-dummy-interface-track--abandoned as of 2026-08-04; retained for provenance. See also git tag `archive/pre-doc-consolidation`.
+
 # Split DNS NetworkManager Integration — Development Report
 
 **Branch:** `feature/dns-nm-integration`

@@ -111,7 +111,7 @@ as of Ubuntu 26.04 "Resolute") the compiler can inline or eliminate those
 calls entirely before the linker ever gets a chance to redirect them --
 both binaries detect this with a startup canary and report `SKIP` (exit
 77) rather than a false `FAIL`. See
-`doc/dev/wrap-based-tests-vs-lto.md` for the full mechanism and why a
+`doc/dev/v0.9.1-hardening-spec.md` §3.2 for the full mechanism and why a
 build-time exclusion (this project's `SANITIZER_BUILD` precedent) wasn't
 used instead.
 

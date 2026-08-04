@@ -2,6 +2,86 @@
 
 ## 0.9.1 (unreleased)
 
+This release closes a hardening phase that ran for about five weeks after
+`0.9.0`: a security/availability fix for IKE fragmentation, a privilege-
+separation hardening pass, a large expansion of unit-test coverage, and
+the split-DNS roadwarrior hooks reaching production maturity through a
+live field test and two external reviews. Full technical detail for
+everything below lives in `doc/dev/v0.9.1-hardening-spec.md`.
+
+### Security fix: IKE fragment reassembly regression (CVE-2016-10396 follow-up)
+
+Versions up to and including 0.9.0, when configured with `ike_frag on` or
+`ike_frag force`, could fail to complete a VPN connection with peers whose
+IKE payload was large enough to fragment (modern DH groups, certificate
+chains) whenever a fragment was lost or reordered on the wire — logging
+`Repeated last fragment index mismatch` and timing out the negotiation.
+The root cause was a follow-up defect in this fork's inherited
+CVE-2016-10396 patch: a legitimate retransmission of the last fragment was
+misclassified as a replay attack. This shipped as hotfix `0.9.0.1` and is
+also merged to `develop` here. The original DoS protection is preserved
+and strengthened, not weakened. If you worked around this with `ike_frag
+off`, you can safely re-enable fragmentation after upgrading. See
+`docs/security/2016-10396-fragment-reassembly-followup.md` for the full
+advisory.
+
+### Pre-authentication hardening
+
+A focused security audit found and fixed several out-of-bounds reads
+reachable by any peer that can send an ISAKMP packet to UDP/500, before
+authentication completes — in SA transform attribute parsing, Vendor ID
+handling, and IKE fragmentation cleanup — plus a handful of related
+issues from an OpenSSL 3.x migration audit (timing side-channels, error
+queue handling, key-material lifetime). All are fixed; no configuration
+changes are needed.
+
+### Privilege separation hardening
+
+The privileged helper process used to exit the whole daemon on almost any
+unexpected failure in a single client request. It now contains failures
+per-request wherever safely possible — a malformed or refused request
+fails only itself, with every wait now bounded so a stuck request can no
+longer hang the daemon. This pass also fixed a PF_KEY policy gate that
+had been silently blocking `racoonctl vd`/`show-sa`/DPD under privilege
+separation, an `EPERM`-handling bug that could mask a real failure as
+success, and a credential-handling memory leak on the admin socket that
+a malformed or unmatched request could trigger repeatedly. Privilege
+separation is now the packaging-documented default configuration.
+
+### Split-DNS / roadwarrior hooks hardening
+
+The `phase1-up.sh`/`phase1-down.sh` split-DNS and routing hooks (introduced
+in 0.9.0) went through a live field test on a real roadwarrior deployment
+and two rounds of external review, closing several real-world issues:
+a race that could leave two concurrent connections fighting over the same
+dummy network interface, additional validation for gateway-supplied DNS
+servers and split-include networks, a fix for a DNS-health check that
+could falsely report failure and trigger an unnecessary reconnect loop,
+and a fix for the daemon occasionally not running the teardown hook at
+all during shutdown. Also fixed: unreliable foreground log output under
+systemd, a harmless but noisy warning logged during every phase 2
+negotiation, and a case where `racoonctl vpn-disconnect` could exit
+non-zero with no explanation.
+
+### Unit test coverage
+
+Substantially expanded unit-test coverage across the privilege-separation
+code, the admin socket and session-management code, certificate-name
+handling, and `racoonctl`. This is mentioned here because of what it
+found along the way: six previously-unknown bugs in `racoonctl` alone
+(a rejected valid connection syntax, a couple of memory leaks, an
+out-of-bounds read in event/SA-dump formatting, and an uninitialized-
+memory read affecting piped output), plus several smaller issues in the
+privilege-separation layer — all now fixed. See the new consolidated
+spec for the full list and the testing methodology behind it.
+
+### CI and build
+
+`develop` now has its own CI workflow, runs with AddressSanitizer/
+UndefinedBehaviorSanitizer on by default on the NetBSD job, and fixed a
+gap where the privilege-separation code and several wrapper-based test
+modules were invisible to coverage reporting.
+
 ### Packaging: roadwarrior templates moved out of /usr/share/doc
 
 Some distributions configure their package manager to silently strip

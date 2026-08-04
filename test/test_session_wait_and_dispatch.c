@@ -19,8 +19,8 @@
  *   - test_normal_dispatch_fires_callback_once(): a real socketpair() fd
  *     made readable is dispatched to its registered callback exactly
  *     once, and the call reports success (0).
- *   - test_ebadf_recovery_reaches_prune(): reproduces daemon-issues.md's
- *     Issue 4 follow-up exactly -- close() a monitored fd directly
+ *   - test_ebadf_recovery_reaches_prune(): reproduces doc/dev/v0.9.1-hardening-spec.md
+ *     §5.6's Issue 4 follow-up exactly -- close() a monitored fd directly
  *     (bypassing unmonitor_fd()), confirming the resulting EBADF is
  *     recovered via prune_stale_monitored_fds() (already covered in
  *     isolation by test_prune_stale_monitored_fds.c; this test's job is
@@ -153,7 +153,7 @@ test_ebadf_recovery_reaches_prune(void)
 		TEST_FAIL("monitor_fd() refused a perfectly valid fd");
 	}
 
-	/* Reproduce daemon-issues.md's Issue 4 follow-up exactly: close()
+	/* Reproduce v0.9.1-hardening-spec.md §5.6's Issue 4 follow-up exactly: close()
 	 * directly, bypassing unmonitor_fd(), leaving a stale entry that
 	 * fails the very next select() with EBADF. */
 	close(fds[0]);

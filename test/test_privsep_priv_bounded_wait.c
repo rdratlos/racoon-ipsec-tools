@@ -6,11 +6,11 @@
  */
 
 /*
- * Automates doc/dev/privsep-verification-runbook.md's Phase 3 -- the
+ * Automates doc/dev/v0.9.1-hardening-spec.md §2.3's Phase 3 -- the
  * `gdb -p $CHILD -batch -ex 'break send_fd' ...` freeze that reproduces
- * fatal-exit-path-audit.md §2.3.1's bounded mid-request wait -- now that
- * privsep_priv() (the extracted dispatch loop, doc/dev/privsep-priv-
- * extraction.md) can be driven directly. The scripted peer here is simpler
+ * doc/dev/v0.9.1-hardening-spec.md §2.1's bounded mid-request wait -- now that
+ * privsep_priv() (the extracted dispatch loop, doc/dev/v0.9.1-hardening-
+ * spec.md §2.2) can be driven directly. The scripted peer here is simpler
  * than gdb: it sends the command half of a PRIVSEP_BIND/PRIVSEP_SETSOCKOPTS
  * exchange and then just stops, exactly the real failure mode §2.3.1 fixed
  * (a child that goes silent, not one that errors or exits).
@@ -341,7 +341,7 @@ main(void)
 	int failed = 0;
 
 	printf("\n=== privsep_priv() bounded mid-request wait "
-	    "(runbook Phase 3, privsep-priv-extraction task) ===\n");
+	    "(runbook Phase 3, v0.9.1-hardening-spec.md §2.2 task) ===\n");
 
 	if (test_bind_wait_times_out() != 0)
 		failed++;

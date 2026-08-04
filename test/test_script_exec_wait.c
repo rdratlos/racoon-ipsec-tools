@@ -6,7 +6,7 @@
  */
 
 /*
- * Regression test for doc/dev/daemon-issues.md Issue 1 (F2): racoon's
+ * Regression test for doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 1 (F2): racoon's
  * shutdown path never waited for a SCRIPT_PHASE1_DOWN hook's forked
  * child before proceeding, routinely outracing phase1-down.sh and
  * leaving its routes/DNS/SPD state behind.
@@ -283,7 +283,7 @@ main(void)
 	int failed = 0;
 	pid_t mypid = getpid();
 
-	printf("\n=== script_exec() bounded-wait test (daemon-issues.md Issue 1) ===\n");
+	printf("\n=== script_exec() bounded-wait test (v0.9.1-hardening-spec.md §5.6, Issue 1) ===\n");
 
 	snprintf(script_path, sizeof(script_path),
 	    "/tmp/racoon_test_script_exec_%d.sh", (int)mypid);

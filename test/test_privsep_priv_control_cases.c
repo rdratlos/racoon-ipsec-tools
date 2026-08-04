@@ -6,8 +6,8 @@
  */
 
 /*
- * "A well-formed control case per command family" (privsep-priv-extraction
- * task, §3) -- the part of doc/dev/privsep-verification-runbook.md's Phase
+ * "A well-formed control case per command family" (v0.9.1-hardening-spec.md
+ * §2.2 task, §3) -- the part of doc/dev/v0.9.1-hardening-spec.md §2.3's Phase
  * 1 table that a unit test can actually reach: PRIVSEP_EAY_GET_PKCS1PRIVKEY,
  * PRIVSEP_GETPSK, PRIVSEP_SOCKET, PRIVSEP_BIND, PRIVSEP_SETSOCKOPTS and
  * PRIVSEP_SCRIPT_EXEC, driven in one continuous privsep_priv() session over
@@ -16,7 +16,7 @@
  * The point of this file, distinct from test_privsep_priv_containment.c: a
  * regression that makes *every* request fail (not just the deliberately bad
  * ones) would not be caught by a suite that only ever sends malformed
- * input -- fatal-exit-path-audit.md's §1 rule 1 ("containment must not
+ * input -- doc/dev/v0.9.1-hardening-spec.md §2.1's §1 rule 1 ("containment must not
  * silently succeed") applies just as much to this test suite itself.
  * Running every command in one session, in sequence, also doubles as the
  * closest a unit test gets to the runbook's Phase 2 framing check: each
@@ -42,7 +42,7 @@
  * struct socket_args/bind_args/sockopt_args are file-private to privsep.c
  * by design (task brief §1: their shape is explicitly out of scope to
  * change here); this file only mirrors their existing layout, the same way
- * doc/dev/privsep-verification-runbook.md's LD_PRELOAD shim (§5b) already
+ * doc/dev/v0.9.1-hardening-spec.md §2.3's LD_PRELOAD shim (§5b) already
  * treats the wire format as a stable, external contract.
  */
 
@@ -109,8 +109,8 @@ struct test_sockopt_args {
 #define WAIT_MAX_POLLS 250   /* 5s bound on any waitpid() poll below */
 
 /*
- * IO_TIMEOUT_MS bounds every read below via poll() -- fatal-exit-path-audit.md
- * §1 rule 2 applies to this suite's own blocking waits as much as to
+ * IO_TIMEOUT_MS bounds every read below via poll() -- doc/dev/v0.9.1-hardening-spec.md
+ * §2.1 rule 2 applies to this suite's own blocking waits as much as to
  * privsep.c: a regression that reintroduces an unbounded wait in
  * privsep_priv() must fail this test loudly (a read that gives up), not
  * hang the harness the same way. 5s is far above anything a healthy
@@ -260,8 +260,8 @@ recv_reply(int sock, void *buf, size_t bufsize)
 	return hdr.ac_len;
 }
 
-/* Bounded: never blocks the harness indefinitely (fatal-exit-path-audit.md
- * §1 rule 2, applied to this test suite as much as to privsep.c itself). */
+/* Bounded: never blocks the harness indefinitely (doc/dev/v0.9.1-hardening-spec.md
+ * §2.1 rule 2, applied to this test suite as much as to privsep.c itself). */
 static int
 wait_child_bounded(pid_t child, int *status)
 {
@@ -594,7 +594,7 @@ main(void)
 	int failed = 0;
 
 	printf("\n=== privsep_priv() well-formed control cases "
-	    "(privsep-priv-extraction task) ===\n");
+	    "(v0.9.1-hardening-spec.md §2.2 task) ===\n");
 
 	if (test_control_cases() != 0)
 		failed++;

@@ -4,6 +4,9 @@ Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
 Part of rdratlos/racoon-ipsec-tools — https://github.com/rdratlos/racoon-ipsec-tools
 -->
 
+> **Archived.** Superseded by [doc/dev/v0.9.1-hardening-spec.md](../../dev/v0.9.1-hardening-spec.md)#22-extracting-privsep_priv as of 2026-08-04; retained for provenance. See also git tag `archive/pre-doc-consolidation`.
+
+
 # Extracting `privsep_priv()` for automated dispatch-loop testing
 
 Follow-up to issue #105 (`fatal-exit-path-audit.md`) and this project's

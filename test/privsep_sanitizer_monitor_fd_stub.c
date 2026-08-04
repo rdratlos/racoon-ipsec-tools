@@ -8,7 +8,7 @@
 /*
  * Link-only stub for monitor_fd() (session.c), used exclusively by the
  * SANITIZER_BUILD variant of the privsep.c-only test binaries (see
- * test/Makefile.am and doc/dev/privsep-hardening-followup-audit.md §4/§9
+ * test/Makefile.am and doc/dev/v0.9.1-hardening-spec.md §2.4
  * for the full story).
  *
  * privsep_unittest_src.c pulls in the whole of privsep.c by #include, and

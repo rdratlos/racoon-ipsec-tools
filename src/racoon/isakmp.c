@@ -3126,8 +3126,8 @@ frag_handler(iph1, msg, remote, local)
 #endif
 
 /* How long script_exec() waits for a wait-flagged hook to
- * exit before giving up and continuing shutdown anyway (daemon-issues.md
- * Issue 1). 3s is comfortably above what the shipped hook scripts need
+ * exit before giving up and continuing shutdown anyway (doc/dev/v0.9.1-hardening-spec.md
+ * §5.6, Issue 1). 3s is comfortably above what the shipped hook scripts need
  * for their normal work (resolving SCRIPT_DIR, sourcing racoon-hook-lib.sh,
  * a handful of ip/resolvectl/setkey invocations -- sub-second in
  * practice) while staying well under systemd's default 90s
@@ -3140,7 +3140,7 @@ frag_handler(iph1, msg, remote, local)
 
 /*
  * Compile-time guard for privsep.h's PRIVSEP_SCRIPT_EXEC wire-budget
- * accounting (daemon-issues.md's Issue 4 follow-up; see the long comment
+ * accounting (doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 4 follow-up; see the long comment
  * on PRIVSEP_SCRIPT_EXEC_MAX_ENVC there for the full rationale). 3 fixed
  * slots (script, name, void terminator) plus every env var
  * script_hook()/isakmp_cfg_setenv() can ever produce must fit within
@@ -3247,7 +3247,7 @@ script_hook(iph1, script)
 	}
 
 	/*
-	 * daemon-issues.md Issue 1 (F2): close_session()'s shutdown path
+	 * doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 1 (F2): close_session()'s shutdown path
 	 * (session.c) never waited for this hook's forked child before
 	 * proceeding to exit(0), routinely outracing a SCRIPT_PHASE1_DOWN
 	 * hook and leaving its routes/DNS/SPD state behind. Ask

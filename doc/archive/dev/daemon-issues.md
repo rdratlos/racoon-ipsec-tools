@@ -1,3 +1,5 @@
+> **Archived.** Superseded by [doc/dev/v0.9.1-hardening-spec.md](../../dev/v0.9.1-hardening-spec.md)#56-daemon-side-issues-found-during-field-testing as of 2026-08-04; retained for provenance. See also git tag `archive/pre-doc-consolidation`.
+
 # racoon daemon-side issues found during split-DNS hook testing
 
 Filed per brief 3 §G (Issues 1-3) and the Task F ACQUIRE-provenance

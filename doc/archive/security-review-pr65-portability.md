@@ -1,3 +1,5 @@
+> **Archived.** Superseded by [doc/dev/v0.9.1-hardening-spec.md](../dev/v0.9.1-hardening-spec.md)#61-pr-65--netbsd-portability-review as of 2026-08-04; retained for provenance. See also git tag `archive/pre-doc-consolidation`.
+
 # Security & Correctness Review: NetBSD Portability Branch (PR #65 / Issue #64)
 
 **Status: FINAL — PR #65 merged into `develop`, all tracked issues closed**

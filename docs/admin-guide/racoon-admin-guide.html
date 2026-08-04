@@ -3032,7 +3032,7 @@ racoonctl vpn-connect 192.168.1.1</code></pre>
     </p>
     <p>
       This is filed as a known daemon-side issue, not fixed at the daemon level (see this
-      project's <code>doc/dev/daemon-issues.md</code> for the full analysis and a reproducer).
+      project's <code>doc/dev/v0.9.1-hardening-spec.md</code> §5.6 for the full analysis and a reproducer).
       The hooks themselves are defensive about it: an interrupted teardown leaves its
       generation's state file (<code>/run/racoon/hook-state.&lt;remote-addr&gt;.&lt;n&gt;</code>)
       in place rather than deleting it, so it is picked up and retried automatically —
@@ -3124,7 +3124,7 @@ racoonctl vpn-connect 192.168.1.1</code></pre>
       can never contain a real per-link server by design. A false failure here was the
       direct trigger for a kernel-ACQUIRE reconnect loop observed during this hook set's own
       Bionic testing (an unscoped DNS server left registered by a partially-rolled-back
-      apply) — see this project's <code>doc/dev/teardown-investigation.md</code> for the full
+      apply) — see this project's <code>doc/dev/v0.9.1-hardening-spec.md</code> §5.7 for the full
       causal chain.</li>
     </ul>
   </section>

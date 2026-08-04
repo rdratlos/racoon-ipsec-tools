@@ -6,17 +6,17 @@
  */
 
 /*
- * Automates doc/dev/privsep-verification-runbook.md's Phase 4 (§5a, §5b,
+ * Automates doc/dev/v0.9.1-hardening-spec.md §2.3's Phase 4 (§5a, §5b,
  * §5c) -- "a single malformed or refused request fails *itself* and the
  * daemon keeps running" -- now that privsep_priv() (the extracted dispatch
- * loop, doc/dev/privsep-priv-extraction.md) can be driven directly instead
+ * loop, doc/dev/v0.9.1-hardening-spec.md §2.2) can be driven directly instead
  * of needing a live host, a real privilege drop, and either a config
  * mistake (§5a) or an LD_PRELOAD shim mangling `ac_cmd` in flight (§5b).
  *
  * The assertion that actually proves containment, per the task brief this
  * file was written against, is not just that the bad request fails: it is
  * that the *next*, well-formed request on the same connection still gets
- * served. fatal-exit-path-audit.md §1 rule 1 ("containment must not
+ * served. doc/dev/v0.9.1-hardening-spec.md §2.1 rule 1 ("containment must not
  * silently succeed") cuts the other way here too -- a test that only
  * checks the bad request failed would also pass against a build that
  * _exit()s afterward, which is the exact regression this guards.
@@ -65,12 +65,12 @@ extern void privsep_priv_test_lcconf_init(const char *certdir,
 #define TEST_START(name) do { printf("\n[TEST] %s ... ", name); fflush(stdout); } while (0)
 
 #define WAIT_POLL_MS   20
-#define WAIT_MAX_POLLS 250   /* 5s bound -- see privsep-priv-extraction.md */
+#define WAIT_MAX_POLLS 250   /* 5s bound -- see v0.9.1-hardening-spec.md §2.2 */
 
 /* See test_privsep_priv_control_cases.c's IO_TIMEOUT_MS comment: every
  * blocking wait in this file is bounded so a regression that reintroduces
  * an unbounded wait in privsep_priv() fails this test loudly instead of
- * hanging the harness (fatal-exit-path-audit.md §1 rule 2). */
+ * hanging the harness (v0.9.1-hardening-spec.md §2.1 rule 2). */
 #define IO_TIMEOUT_MS 5000
 
 static ssize_t
@@ -487,7 +487,7 @@ main(void)
 	int failed = 0;
 
 	printf("\n=== privsep_priv() containment (runbook Phase 4/5a/5b/5c, "
-	    "privsep-priv-extraction task) ===\n");
+	    "v0.9.1-hardening-spec.md §2.2 task) ===\n");
 
 	if (test_refused_hook_is_contained() != 0)
 		failed++;

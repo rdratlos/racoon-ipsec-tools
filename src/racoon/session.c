@@ -181,7 +181,7 @@ monitor_fd(int fd, int (*callback)(void *, int), void *ctx, int priority)
 	 * compat sys/queue.h (src/include-glibc, Linux) and NetBSD's native
 	 * one -- both define TAILQ_HEAD with a tqh_last field and have
 	 * TAILQ_INIT() set it to &head->tqh_first, never NULL. See
-	 * doc/dev/privsep-hardening-followup-audit.md §2.3/§9 for the
+	 * doc/dev/v0.9.1-hardening-spec.md §2.4 for the
 	 * finding this closes: privsep_init()'s child branch used to
 	 * segfault calling this function directly, without
 	 * session_init_before_cfparse() having run first.
@@ -241,7 +241,7 @@ unmonitor_fd(int fd)
  * that are no longer open. Returns 1 if at least one stale fd was found
  * and dropped, 0 if none were -- see the comment at this function's call
  * site (session()'s main loop, on select() failing with EBADF) for why
- * this exists: a bug elsewhere (e.g. daemon-issues.md's Issue 4 follow-up)
+ * this exists: a bug elsewhere (e.g. doc/dev/v0.9.1-hardening-spec.md §5.6's Issue 4 follow-up)
  * can close() a monitored fd directly instead of going through
  * unmonitor_fd(), leaving a stale entry that fails every subsequent
  * select() with EBADF.
@@ -403,7 +403,7 @@ session_wait_and_dispatch(struct timeval *timeout)
 			 * connection's socket registered here even
 			 * after admin_handler() had already close()'d
 			 * it, taking the entire daemon down on the
-			 * very next select() -- daemon-issues.md's
+			 * very next select() -- doc/dev/v0.9.1-hardening-spec.md §5.6's
 			 * Issue 4 follow-up has the full trace).
 			 * Losing every other still-live Phase 1/2 SA
 			 * (and its dummy interface/SPD/routes) over

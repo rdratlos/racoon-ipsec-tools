@@ -379,7 +379,7 @@ treated as a failure.
 [TEST] freecertinfo() frees ci_cert and the node for every entry in the chain ...
 SKIP: -Wl,--wrap=free did not intercept free() calls made via a canary
       getnewci_unittest()/freecertinfo() round trip on this toolchain.
-      See doc/dev/wrap-based-tests-vs-lto.md.
+      See doc/dev/v0.9.1-hardening-spec.md §3.2.
 ...
 All tests passed! (2 skipped)
 ```
@@ -399,7 +399,7 @@ covered in more depth in `CONTRIBUTING.md`:
   GitHub's hosted `ubuntu-latest` runner (Ubuntu 24.04 "Noble" as of
   this writing) with the same flags — both binaries `PASS` there
   instead. See "Two tests skip under whole-program LTO" and
-  `doc/dev/wrap-based-tests-vs-lto.md`.
+  `doc/dev/v0.9.1-hardening-spec.md` §3.2.
 
 `develop`'s CI (`develop-build-test.yml`) checks both populations, but
 not the same way — see `test/expected-skips.yml`'s two lists and
@@ -431,7 +431,7 @@ preference:
    `test_script_hook_leak.c`'s `ipsecdoi_id2str()` path)? `-Wl,--wrap=`
    is safe here — the indirection defeats the same whole-program-LTO
    interprocedural analysis that makes simple cases risky (see
-   `doc/dev/wrap-based-tests-vs-lto.md`'s "Why test_script_hook_leak.c is
+   `doc/dev/v0.9.1-hardening-spec.md` §3.2's "Why test_script_hook_leak.c is
    unaffected").
 3. **Is it a simple, local allocate/free (or similarly trivial) pair**,
    wrapped via `-Wl,--wrap=` **with no cross-TU opacity in between?**
@@ -628,7 +628,7 @@ and others):
    binary built this way is ordinarily skipped under a sanitizer build.
    Where the module under test needs no dependencies outside itself (every
    `privsep.c`-only `test_privsep_*` binary — see `doc/dev/
-   privsep-hardening-followup-audit.md` §9.4 for the investigation), a
+   v0.9.1-hardening-spec.md` §2.4 for the investigation), a
    `SANITIZER_BUILD`-conditional variant that drops `-ffunction-sections`/
    `--gc-sections` and links whatever those flags were otherwise pruning
    away can build a genuinely ASan/UBSan-instrumented binary instead of
@@ -638,7 +638,7 @@ and others):
    uniformly.
 
 `privsep_priv()` (privsep.c's privileged dispatch loop, extracted from
-`privsep_init()` -- see `doc/dev/privsep-priv-extraction.md`) is a
+`privsep_init()` -- see `doc/dev/v0.9.1-hardening-spec.md` §2.2) is a
 variant worth calling out explicitly: it is *not* wrapped in an
 `ENABLE_UNITTEST`-only accessor the way `send_fd()`/`rec_fd()` etc. are.
 It has ordinary external linkage and is called directly, by design -- a
@@ -658,7 +658,7 @@ counters never reach disk on their own. Every `check_PROGRAMS` target that
 compiles `privsep.c` (via `privsep_unittest_src.c`) links
 `privsep_gcov_dump_shim.c` and `-Wl,--wrap=_exit` under `ENABLE_COVERAGE`
 (`test/Makefile.am`) to flush counters before the real `_exit()` runs --
-see `doc/dev/privsep-priv-extraction.md` §5 for the full writeup, including
+see `doc/dev/v0.9.1-hardening-spec.md` §2.2/§2.4 for the full writeup, including
 a second, separate gap this same fix closed (`make coverage` not scanning
 `test/` at all, so every `<module>_unittest_src.c`-only module, not just
 `privsep.c`, was previously missing from the report entirely).
@@ -779,7 +779,7 @@ what all of this looks like in `make check`'s own output and why
 #### Overriding a Production Timing Constant for One Binary
 
 `privsep_priv()`'s mid-request bound (`PRIVSEP_IPC_WAIT_MAX_MS`,
-privsep.c -- 3s in production, doc/dev/fatal-exit-path-audit.md §2.3.1)
+privsep.c -- 3s in production, doc/dev/v0.9.1-hardening-spec.md §2.1, rule 3)
 needs to actually *fire* to be tested, which nobody wants costing 3 real
 seconds per run. `privsep.c` exposes a compile-time-only seam for this:
 

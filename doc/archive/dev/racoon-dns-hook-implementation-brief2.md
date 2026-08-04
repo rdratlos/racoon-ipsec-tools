@@ -1,3 +1,5 @@
+> **Archived.** Superseded by [doc/dev/v0.9.1-hardening-spec.md](../../dev/v0.9.1-hardening-spec.md)#52-brief-2--superseded as of 2026-08-04; retained for provenance. See also git tag `archive/pre-doc-consolidation`.
+
 # Follow-up brief: SPD ownership, teardown investigation, and open items
 
 Continuation of the split-DNS/routing hook work in `rdratlos/racoon-ipsec-tools`.

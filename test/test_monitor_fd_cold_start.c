@@ -7,7 +7,7 @@
 
 /*
  * Regression test for monitor_fd()'s self-enforcing fd_monitor_tree[]
- * initialization (doc/dev/privsep-hardening-followup-audit.md §2.3/§9).
+ * initialization (doc/dev/v0.9.1-hardening-spec.md §2.4).
  *
  * fd_monitor_tree[] (session.c, a static array of TAILQ_HEADs) is safe to
  * insert into only after TAILQ_INIT() has run on it. In production that
@@ -99,7 +99,7 @@ main(void)
 	int failed = 0;
 
 	printf("\n=== monitor_fd(), called cold -- no fd_monitor_tree[] init "
-	    "anywhere first (privsep-hardening-followup-audit.md §2.3/§9) "
+	    "anywhere first (v0.9.1-hardening-spec.md §2.4) "
 	    "===\n");
 
 	if (test_monitor_fd_before_any_init() != 0)

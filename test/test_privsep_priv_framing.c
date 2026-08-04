@@ -6,12 +6,12 @@
  */
 
 /*
- * Automates doc/dev/privsep-verification-runbook.md's Phase 2 -- the
+ * Automates doc/dev/v0.9.1-hardening-spec.md §2.3's Phase 2 -- the
  * `strace -tt -p $PRIV -e trace=socket,bind,setsockopt,recvmsg,sendmsg,
  * sendto,recvfrom` capture that verified, by eye, that the descriptor
- * handshake goes over the wire in the order fatal-exit-path-audit.md §2.2
+ * handshake goes over the wire in the order doc/dev/v0.9.1-hardening-spec.md §2.1
  * put it in. Now that privsep_priv() can be driven directly (doc/dev/
- * privsep-priv-extraction.md), the same invariants are checkable
+ * v0.9.1-hardening-spec.md §2.2), the same invariants are checkable
  * mechanically instead:
  *
  *   1. peeks == body reads == replies: every request this file sends gets
@@ -585,7 +585,7 @@ main(void)
 	int failed = 0;
 
 	printf("\n=== privsep_priv() handshake framing (runbook Phase 2, "
-	    "privsep-priv-extraction task) ===\n");
+	    "v0.9.1-hardening-spec.md §2.2 task) ===\n");
 
 	if (test_no_drift_across_mixed_requests() != 0)
 		failed++;

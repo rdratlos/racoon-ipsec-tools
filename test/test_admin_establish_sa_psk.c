@@ -66,7 +66,7 @@
  * from inside that one test, from vfree() genuinely never being
  * intercepted at all. A canary vfree() at startup tells them apart: SKIP
  * if the canary itself isn't observed, FAIL only for a genuine wrong
- * count. See doc/dev/wrap-based-tests-vs-lto.md for the full writeup.
+ * count. See doc/dev/v0.9.1-hardening-spec.md §3.2 for the full writeup.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -142,7 +142,7 @@ skip_if_wrap_vfree_ineffective(void)
 	    "LTO (-flto=auto -ffat-lto-objects): vfree()'s real definition is "
 	    "visible to LTO's whole-program analysis and gets inlined directly "
 	    "at the call site, leaving no symbol reference for --wrap=vfree to "
-	    "redirect. See doc/dev/wrap-based-tests-vs-lto.md.\n\n");
+	    "redirect. See doc/dev/v0.9.1-hardening-spec.md §3.2.\n\n");
 	return 1;
 }
 

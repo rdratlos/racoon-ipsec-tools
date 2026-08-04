@@ -32,7 +32,7 @@
  *    no-op that appends nothing.
  *
  * script_hook() also now reads racoon_shutting_down (session.c, added for
- * daemon-issues.md Issue 1) to decide whether to ask privsep_script_exec()
+ * doc/dev/v0.9.1-hardening-spec.md §5.6, Issue 1) to decide whether to ask privsep_script_exec()
  * to wait (passed as an explicit argument, not an envp entry -- see
  * isakmp.c/privsep.h); this test doesn't link session.o, so the symbol is
  * stubbed at 0 below -- the REMOTE_ID leak under test here is independent

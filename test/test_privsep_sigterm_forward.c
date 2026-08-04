@@ -6,8 +6,8 @@
  */
 
 /*
- * Regression test for the privsep half of doc/dev/daemon-issues.md
- * Issue 1 (F2): under the shipped Type=simple systemd unit (no
+ * Regression test for the privsep half of doc/dev/v0.9.1-hardening-spec.md
+ * §5.6, Issue 1 (F2): under the shipped Type=simple systemd unit (no
  * KillMode=), `systemctl stop racoon` (or any `kill <pid>`) targets
  * $MAINPID, which under privsep is the privileged process, not the
  * unprivileged child that actually runs close_session()/script_hook().
@@ -22,7 +22,7 @@
  *
  * This test cannot exercise privsep_init()'s own fork() (it needs a
  * real PF_KEY/XFRM-capable kernel, which not every host this project
- * tests on has -- see daemon-issues.md's own note that Issue 1 needs
+ * tests on has -- see v0.9.1-hardening-spec.md §5.6's own note that Issue 1 needs
  * live testing beyond what a unit test can reach). What it does verify,
  * with a real fork() and a real signal delivered by the kernel (not
  * simulated), is privsep_sigterm_forward() itself: given a real child
@@ -155,7 +155,7 @@ main(void)
 {
 	int failed = 0;
 
-	printf("\n=== privsep_sigterm_forward() test (daemon-issues.md Issue 1) ===\n");
+	printf("\n=== privsep_sigterm_forward() test (v0.9.1-hardening-spec.md §5.6, Issue 1) ===\n");
 
 	if (test_forward_delivers_sigterm_to_child() != 0)
 		failed++;

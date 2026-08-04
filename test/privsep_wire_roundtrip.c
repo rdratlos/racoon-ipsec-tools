@@ -51,7 +51,7 @@
 
 /* Bounded, same reasoning and constants as test_privsep_priv_control_cases.c's
  * own wait_child_bounded(): never block the harness indefinitely on a
- * privileged child that fails to exit (fatal-exit-path-audit.md §1 rule 2,
+ * privileged child that fails to exit (doc/dev/v0.9.1-hardening-spec.md §2.1 rule 2,
  * applied to this test suite as much as to privsep.c itself). */
 #define WAIT_POLL_MS   20
 #define WAIT_MAX_POLLS 250   /* 5s bound */
