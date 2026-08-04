@@ -1224,15 +1224,22 @@ char *long_h1 =
 		printf("%s ", long_format ?
 			  fixed_addr(_addr1_, _addr2_, 45)
 			: fixed_addr(_addr1_, _addr2_, 22));
-		addr++;
+		/*
+		 * Measure the address just read, before advancing past
+		 * it -- advancing first and measuring the *next* address
+		 * instead reads one struct sockaddr past the end of the
+		 * buffer for the second (dst) block below, since nothing
+		 * follows dst in a normal src+dst record (issue #122).
+		 */
 		tlen -= sysdep_sa_len(addr);
+		addr++;
 
 		GETNAMEINFO(addr, _addr1_, _addr2_);
 		printf("%s ", long_format ?
 			  fixed_addr(_addr1_, _addr2_, 45)
 			: fixed_addr(_addr1_, _addr2_, 22));
-		addr++;
 		tlen -= sysdep_sa_len(addr);
+		addr++;
 
 		printf("\n");
 	}
