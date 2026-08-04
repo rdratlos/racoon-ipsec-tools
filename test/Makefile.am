@@ -503,6 +503,43 @@ test_racoonctl_exchangesa_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
 test_racoonctl_exchangesa_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# Test: racoonctl.c reply-decoding/output-formatting coverage --
+# pindex_isakmp(), fixed_addr(), dump_isakmp_sa(), dump_internal(),
+# print_schedule(), print_evt(), print_cfg(), and handle_recv() itself
+# (the ADMIN_* reply dispatcher, the client-side mirror of admin.c's own
+# dispatch from the other direction). All previously entirely untested.
+#
+# Also the regression test for issue #118 (print_cfg()'s uninitialized
+# ioctl(TIOCGWINSZ) read) -- see test_racoonctl_format_output.c's own
+# header comment for why this is the one place in this pass where a
+# well-behaved-output assertion, not just a return value, is what proves
+# the fix.
+#
+# print_evt() calls saddr2str() (sockmisc.c); racoonctl_cmdtab_stubs.c's
+# existing stand-in (see test_racoonctl_encode_requests.c above) is
+# reused rather than adding a second one. Nothing in this file reaches
+# get_sockaddr()/getpass(), so those stubs are not linked here.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_racoonctl_format_output
+
+test_racoonctl_format_output_SOURCES  = test_racoonctl_format_output.c \
+	racoonctl_unittest_src.c \
+	racoonctl_unittest_stubs.c \
+	racoonctl_cmdtab_stubs.c
+test_racoonctl_format_output_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_racoonctl_format_output_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_racoonctl_format_output_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_racoonctl_format_output_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Test: kmpstat com_recv() short-read/EOF diagnostics (daemon-issues.md
 # Issue 4) — com_recv()'s "sanity check" goto bad1 on a truncated header
 # used to print nothing at all, so racoonctl (vpn-disconnect and any other
