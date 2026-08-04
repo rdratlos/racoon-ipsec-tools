@@ -1334,7 +1334,17 @@ print_evt(evtdump)
 		if (evtmsg[i].type == evtdump->ec_type)
 			break;
 
-	if (evtmsg[i].msg == NULL)
+	/*
+	 * i == ARRAYLEN(evtmsg) here means no entry matched (the loop ran
+	 * to completion without ever hitting the break) -- evtmsg[i] at
+	 * that point is one element past the end of the array, undefined
+	 * memory read as a struct evtmsg. Whether that memory happens to
+	 * read back as msg == NULL (the intended fallback firing "by
+	 * coincidence") or as a stray non-NULL pointer dereferenced as if
+	 * it were a real message string is toolchain/layout-dependent --
+	 * confirmed to differ in practice between toolchains (issue #123).
+	 */
+	if (i >= sizeof(evtmsg) / sizeof(evtmsg[0]) || evtmsg[i].msg == NULL)
 		printf("Event %d: ", evtdump->ec_type);
 	else
 		printf("%s : ", evtmsg[i].msg);
