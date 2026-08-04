@@ -324,6 +324,222 @@ test_racoonctl_logoutusr_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 endif
 
+# Test: get_comindex() address-form grammar (racoonctl.c, issue #119) --
+# the "addr/prefix[port]" branch stripped ']' by searching *pref (already
+# truncated to just the prefix digits, so it can never contain ']')
+# instead of *port (which actually holds it), unconditionally rejecting
+# every "addr/prefix[port]" input -- the documented esp/ah <saopts> form
+# from usage(). See test_racoonctl_get_comindex.c's own header comment
+# for the full grammar matrix this covers and the upstream-provenance
+# finding (present in this repo's own upstream/0.8.2+20140711 tag and
+# still unfixed in vendor/netbsd's current tree as of this writing).
+#
+# Same racoonctl.c wrapper source and link approach as
+# test_racoonctl_logoutusr above; get_comindex() itself needs no vmbuf.o
+# at all (it uses only racoon_strdup()/racoon_free(), gcmalloc.h macros
+# for plain strdup()/free() in a non-debug build, not vmalloc()/vfree()),
+# so it is omitted here.
+#
+# Unlike test_racoonctl_logoutusr, not gated on ENABLE_HYBRID:
+# get_comindex() is unconditional.
+#
+# Also excluded from sanitizer builds, same reason as
+# test_racoonctl_logoutusr above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_racoonctl_get_comindex
+
+test_racoonctl_get_comindex_SOURCES  = test_racoonctl_get_comindex.c \
+	racoonctl_unittest_src.c \
+	racoonctl_unittest_stubs.c
+test_racoonctl_get_comindex_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_racoonctl_get_comindex_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_racoonctl_get_comindex_LDADD    = $(top_builddir)/src/racoon/misc_noplog.o
+test_racoonctl_get_comindex_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
+# Test: get_comindexes()/get_index()/get_family()/get_proto()/
+# get_ulproto() (racoonctl.c) -- the struct admin_com_indexes wire-layout
+# builder above get_comindex() (test_racoonctl_get_comindex.c, issue
+# #119). Also the regression test for issue #120 (p_prefs/p_prefd leaked
+# on every successful parse with an explicit prefix). See
+# test_racoonctl_get_comindexes.c's own header comment for both.
+#
+# get_comindexes() calls get_sockaddr() (kmpstat.c, a real getaddrinfo()
+# call) twice per invocation; racoonctl_get_sockaddr_stub.c substitutes a
+# numeric-only, DNS-free stand-in (ordinary external linkage, no
+# -Wl,--wrap= needed -- see that file's own header comment). vmbuf.o is
+# linked (unlike test_racoonctl_get_comindex/test_racoonctl_logoutusr's
+# reasoning) because get_comindexes() itself calls vmalloc().
+#
+# -Wl,--wrap=free backs the issue #120 leak-count assertion specifically
+# (racoon_free() is a plain free() in this non-debug build); a canary
+# free() at startup SKIPs only that one assertion, not this binary's
+# other (wrap-independent) tests, if the wrap does not intercept on this
+# toolchain -- see doc/dev/wrap-based-tests-vs-lto.md.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_racoonctl_get_comindexes
+
+test_racoonctl_get_comindexes_SOURCES  = test_racoonctl_get_comindexes.c \
+	racoonctl_unittest_src.c \
+	racoonctl_unittest_stubs.c \
+	racoonctl_get_sockaddr_stub.c
+test_racoonctl_get_comindexes_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_racoonctl_get_comindexes_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_racoonctl_get_comindexes_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_racoonctl_get_comindexes_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
+	-Wl,--wrap=free
+endif
+
+# Test: racoonctl.c request-encoding coverage -- make_request()
+# (struct admin_com header shared by every request), get_combuf()
+# (command-string dispatch), and every f_*() encoder except
+# f_exchangesa() (test_racoonctl_exchangesa.c, its own dedicated test)
+# and f_vpnc() (needs a real getaddrinfo()+UDP-socket source-address
+# lookup, left as integration territory -- see f_vpnd()'s own test here
+# instead, which covers its sibling's pure delegation-to-
+# f_deleteallsadst() logic without any of that). This is racoonctl's own
+# encode side of a wire protocol admin.c's tests already cover from the
+# daemon's decode side; nothing here duplicates that.
+#
+# f_getsacert()/f_deletesa()/f_deleteallsadst()/get_proto_and_index()
+# transitively reach get_sockaddr() (kmpstat.c, a real getaddrinfo()
+# call); racoonctl_get_sockaddr_stub.c substitutes the same numeric-only
+# stand-in as test_racoonctl_get_comindexes.c.
+#
+# get_combuf_unittest() needs cmdtab[] linked (it walks that table to
+# dispatch a command string), and cmdtab[] is one data object holding
+# function pointers to every f_*() handler including f_vpnc() --
+# --gc-sections can only keep or discard that whole array, not prune
+# individual pointers out of it, so linking cmdtab[] pulls in f_vpnc()
+# too even though nothing here calls it. racoonctl_cmdtab_stubs.c
+# supplies dead-but-linkable getlocaladdr()/saddr2str() (sockmisc.c)
+# stand-ins so that transitive pull-in resolves without needing
+# sockmisc.o's own much larger dependency closure -- see that file's own
+# header comment.
+#
+# -Wl,--wrap=exit backs get_combuf()'s ac==0 path specifically (a direct
+# exit(0) call in racoonctl.c itself, same technique as
+# test_session_check_sigreq.c) -- NOT the various f_*() encoders'
+# errx()-driven argument-count/protocol guards, which turned out not to
+# be testable the same way: errx() lives inside libc (a pre-built shared
+# object on a normal dynamically-linked build), so its own internal
+# exit() call was already resolved when libc itself was built, before
+# this binary's own -Wl,--wrap=exit (which only rewrites undefined
+# references inside the object files this link session compiles) can
+# apply. Confirmed empirically -- see test_racoonctl_encode_requests.c's
+# own comment for the failure mode this produced. Those guards are
+# exercised only on branches that return NULL/-1 instead of calling
+# errx() (e.g. f_deletesa()'s unsupported-protocol case).
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_racoonctl_encode_requests
+
+test_racoonctl_encode_requests_SOURCES  = test_racoonctl_encode_requests.c \
+	racoonctl_unittest_src.c \
+	racoonctl_unittest_stubs.c \
+	racoonctl_get_sockaddr_stub.c \
+	racoonctl_cmdtab_stubs.c
+test_racoonctl_encode_requests_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_racoonctl_encode_requests_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_racoonctl_encode_requests_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_racoonctl_encode_requests_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
+	-Wl,--wrap=exit
+endif
+
+# Test: f_exchangesa() (racoonctl.c) -- the establish-sa encoder, the
+# most structurally involved of racoonctl's request builders: "-u
+# identity"/PSK injection, "-n remoteconf" name append, "-w"
+# wait-for-completion flag. See test_racoonctl_exchangesa.c's own header
+# comment for the PSK id_len/key_len-includes-NUL convention this test
+# pins down by decoding the real f_exchangesa() output through the exact
+# struct layout admin.c's own ADMIN_ESTABLISH_SA_PSK test
+# (test_admin_establish_sa_psk.c) assumes -- a genuine, previously
+# unpinned assumption gap between the two sides of this wire protocol.
+#
+# Same racoonctl_get_sockaddr_stub.c as the other racoonctl.c tests
+# above (get_proto_and_index() -> get_sockaddr()); also links
+# racoonctl_getpass_stub.c for the "-u identity" branch's getpass() call
+# (real terminal I/O) -- see that file's own header comment for the
+# spike that confirmed this plain-symbol-shadowing substitution (no
+# -Wl,--wrap=) is safe on this toolchain.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_racoonctl_exchangesa
+
+test_racoonctl_exchangesa_SOURCES  = test_racoonctl_exchangesa.c \
+	racoonctl_unittest_src.c \
+	racoonctl_unittest_stubs.c \
+	racoonctl_get_sockaddr_stub.c \
+	racoonctl_getpass_stub.c
+test_racoonctl_exchangesa_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_racoonctl_exchangesa_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_racoonctl_exchangesa_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_racoonctl_exchangesa_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
+# Test: racoonctl.c reply-decoding/output-formatting coverage --
+# pindex_isakmp(), fixed_addr(), dump_isakmp_sa(), dump_internal(),
+# print_schedule(), print_evt(), print_cfg(), and handle_recv() itself
+# (the ADMIN_* reply dispatcher, the client-side mirror of admin.c's own
+# dispatch from the other direction). All previously entirely untested.
+#
+# Also the regression test for issue #118 (print_cfg()'s uninitialized
+# ioctl(TIOCGWINSZ) read) -- see test_racoonctl_format_output.c's own
+# header comment for why this is the one place in this pass where a
+# well-behaved-output assertion, not just a return value, is what proves
+# the fix.
+#
+# print_evt() calls saddr2str() (sockmisc.c); racoonctl_cmdtab_stubs.c's
+# existing stand-in (see test_racoonctl_encode_requests.c above) is
+# reused rather than adding a second one. Nothing in this file reaches
+# get_sockaddr()/getpass(), so those stubs are not linked here.
+#
+# Also excluded from sanitizer builds, same reason as the other
+# wrapped-static-function tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_racoonctl_format_output
+
+test_racoonctl_format_output_SOURCES  = test_racoonctl_format_output.c \
+	racoonctl_unittest_src.c \
+	racoonctl_unittest_stubs.c \
+	racoonctl_cmdtab_stubs.c
+test_racoonctl_format_output_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_racoonctl_format_output_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_racoonctl_format_output_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_racoonctl_format_output_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Test: kmpstat com_recv() short-read/EOF diagnostics (daemon-issues.md
 # Issue 4) — com_recv()'s "sanity check" goto bad1 on a truncated header
 # used to print nothing at all, so racoonctl (vpn-disconnect and any other
