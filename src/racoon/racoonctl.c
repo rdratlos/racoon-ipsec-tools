@@ -1394,7 +1394,18 @@ print_cfg(buf, len)
 		int col = 0;
 		int i;
 
-		if (ioctl(1, TIOCGWINSZ, &win) != 1)
+		/*
+		 * ioctl(2) returns 0 on success, -1 on error -- never 1.
+		 * stdout is not a tty on any scripted/piped/redirected
+		 * invocation (including every unit test, which necessarily
+		 * captures stdout), so this is not a rare corner case: a
+		 * "!= 1" check here is unconditionally true and used to
+		 * leave win, and so col, reading uninitialized stack memory
+		 * whenever the ioctl() failed (issue #118).
+		 */
+		if (ioctl(1, TIOCGWINSZ, &win) == -1)
+			col = 0;
+		else
 			col = win.ws_col;
 
 		for (i = 0; i < col; i++)
