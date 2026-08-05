@@ -56,6 +56,21 @@
 int racoonctl_test_get_sockaddr_fail = 0;
 int racoonctl_test_get_sockaddr_calls = 0;
 
+/*
+ * sin_len/sin6_len: this project never defines HAVE_SA_LEN (no
+ * configure.ac check for it exists), so gating this on that macro,
+ * as an earlier version of this stub did, was dead code on every
+ * platform -- harmless on Linux, where sysdep_sa_len() (libpfkey.h)
+ * ignores sa_len entirely and switches on sa_family instead, but not
+ * on NetBSD/other BSD-derived targets, where sysdep_sa_len() trusts
+ * sa_len as-is. Left at 0 by this function's own memset() above, that
+ * makes every sysdep_sa_len(this stub's result) call return 0, so
+ * get_comindexes()'s memcpy(&ci->src/dst, src/dst, sysdep_sa_len(...))
+ * copied zero bytes -- leaving the embedded index's family/address
+ * all-zero instead of AF_INET. #ifndef __linux__ matches
+ * sysdep_sa_len()'s own condition exactly, so this stub's sa_len
+ * behavior always agrees with what the code under test actually reads.
+ */
 struct sockaddr *
 get_sockaddr(int family, char *name, char *port)
 {
@@ -83,7 +98,7 @@ get_sockaddr(int family, char *name, char *port)
 			return NULL;
 		sin->sin_family = AF_INET;
 		sin->sin_port = htons(portnum);
-#ifdef HAVE_SA_LEN
+#ifndef __linux__
 		sin->sin_len = sizeof(*sin);
 #endif
 		return (struct sockaddr *)sin;
@@ -96,7 +111,7 @@ get_sockaddr(int family, char *name, char *port)
 			return NULL;
 		sin6->sin6_family = AF_INET6;
 		sin6->sin6_port = htons(portnum);
-#ifdef HAVE_SA_LEN
+#ifndef __linux__
 		sin6->sin6_len = sizeof(*sin6);
 #endif
 		return (struct sockaddr *)sin6;

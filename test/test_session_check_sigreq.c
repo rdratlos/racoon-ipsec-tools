@@ -86,10 +86,28 @@ extern int session_test_rmconf_finish_reload_calls;
 static sigjmp_buf exit_jmp;
 static int exit_was_called;
 static int wrapped_exit_status;
+static int exit_trap_armed;
 
+extern void __real_exit(int) __attribute__((__noreturn__));
+
+/* -Wl,--wrap=exit redirects *every* undefined reference to exit() in
+ * this binary's final link -- not just close_session()'s own exit(0)
+ * call this file means to catch. See test_racoonctl_encode_requests.c's
+ * matching comment for the full reasoning: on a toolchain where the C
+ * runtime's own post-main() exit() call resolves at link time (e.g. a
+ * statically-linked crt object) rather than through a shared libc,
+ * --wrap reaches that call too, and siglongjmp()ing for it here is
+ * undefined behaviour (exit_jmp has no live target once main() itself
+ * has returned) -- observed in practice as the whole test binary
+ * re-entering itself in an unbounded loop. exit_trap_armed scopes the
+ * jump to only the one exit() call each test below is actively driving;
+ * any other exit() takes the real exit() path and actually terminates
+ * the process. */
 void
 __wrap_exit(int status)
 {
+	if (!exit_trap_armed)
+		__real_exit(status);
 	exit_was_called = 1;
 	wrapped_exit_status = status;
 	siglongjmp(exit_jmp, 1);
@@ -128,6 +146,7 @@ reset_stub_state(void)
 	session_test_rmconf_finish_reload_calls = 0;
 	exit_was_called = 0;
 	wrapped_exit_status = -999;
+	exit_trap_armed = 0;
 }
 
 static int
@@ -291,10 +310,13 @@ test_sigterm_runs_shutdown_sequence_and_exits(void)
 	reset_stub_state();
 
 	if (sigsetjmp(exit_jmp, 1) == 0) {
+		exit_trap_armed = 1;
 		signal_handler(SIGTERM);
 		check_sigreq_unittest();
+		exit_trap_armed = 0;
 		TEST_FAIL("close_session() returned instead of calling exit()");
 	}
+	exit_trap_armed = 0;
 
 	if (!exit_was_called)
 		TEST_FAIL("exit() was never called");
@@ -331,10 +353,13 @@ test_sigint_also_runs_shutdown_sequence(void)
 	reset_stub_state();
 
 	if (sigsetjmp(exit_jmp, 1) == 0) {
+		exit_trap_armed = 1;
 		signal_handler(SIGINT);
 		check_sigreq_unittest();
+		exit_trap_armed = 0;
 		TEST_FAIL("close_session() returned instead of calling exit()");
 	}
+	exit_trap_armed = 0;
 
 	if (!exit_was_called)
 		TEST_FAIL("exit() was never called");

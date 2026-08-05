@@ -34,6 +34,9 @@
 #ifndef _VMBUF_H
 #define _VMBUF_H
 
+#include <sys/types.h>
+#include <stddef.h>
+
 /*
  *	bp      v
  *	v       v

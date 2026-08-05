@@ -1,0 +1,222 @@
+# NetBSD full-coverage gate for racoon-ipsec-tools, develop-resident
+# (same tree-separation reasoning as develop-netbsd-build-test.yml and
+# develop-build-test.yml -- see CONTRIBUTING.md).
+#
+# Why this workflow exists, and how it differs from
+# develop-netbsd-build-test.yml: doc/dev/v0.9.1-hardening-spec.md §11.
+# In short, that workflow's sanitizer-on-by-default posture, combined
+# with test/Makefile.am's `if !SANITIZER_BUILD` gate around roughly half
+# this suite's check_PROGRAMS, meant `develop`'s NetBSD CI reported
+# green for five weeks while never once building the binaries that
+# would have caught a real, live NetBSD regression -- and separately,
+# neither NetBSD workflow nor either Linux workflow has ever run this
+# suite as real root, so privsep's client-side wire-protocol assertions
+# (test_privsep_client_wrappers, test_privsep_hybrid_client_wrappers,
+# part of test_privsep_init) have never actually executed on any CI job
+# at all, on any platform (CONTRIBUTING.md's "Why some tests need root";
+# test/expected-skips.yml's own `root: []` placeholder names this exact,
+# previously-unfilled gap).
+#
+# This workflow closes both gaps deliberately, as a second, additional
+# NetBSD job rather than a replacement for develop-netbsd-build-test.yml
+# -- that workflow's ASan/UBSan coverage is real and still needed, it
+# just needs a companion that covers what it structurally cannot:
+#   - No -fsanitize= flags at all, ever (not configurable, unlike the
+#     other NetBSD workflow's opt-out): guarantees SANITIZER_BUILD=no,
+#     so every check_PROGRAMS binary in test/Makefile.am actually
+#     compiles and links here, sanitizer build or not.
+#   - Runs as real root (`sudo`) throughout, including `make check`
+#     itself: the disposable, single-purpose NetBSD VM
+#     cross-platform-actions/action already spins up per run is a
+#     materially smaller blast radius than the shared, persistent
+#     `ubuntu-latest` runner pool CONTRIBUTING.md's "Why CI itself
+#     doesn't run as root" was written about -- this is the "explicit,
+#     separately-gated job" that section's own text anticipates for
+#     full-privilege coverage, now created.
+#   - Runs test/check-netbsd-parity.sh, a coverage-parity gate: it does
+#     not just build and run the suite, it asserts that a specific,
+#     maintained baseline of binaries (test/netbsd-parity-baseline.yml)
+#     — every one found silently missing during the §11 investigation —
+#     is actually present and, for the root-gated ones, actually PASSes
+#     here. A future change that reintroduces the same silent-omission
+#     failure mode (deliberately or not) fails this job loudly instead
+#     of just not showing up in a transcript nobody reads line-by-line.
+#
+# Deliberately does NOT run test/check-expected-skips.sh: that script
+# asserts test_privsep_client_wrappers/test_privsep_hybrid_client_wrappers
+# report exactly SKIP, the correct behavior for an *unprivileged* run
+# (develop-build-test.yml's job) -- this job runs privileged and expects
+# those same two binaries to PASS instead, which is check-expected-
+# skips.sh's failure condition, not its success one. The two scripts
+# check opposite, equally-legitimate outcomes for the same binaries
+# under different privilege levels; do not add the wrong one here.
+#
+# Dependencies (installed via pkgin): same as develop-netbsd-build-test.yml.
+#
+# workflow_dispatch's `branch` input, and proving this gate actually
+# discriminates: dispatching with branch=develop checks out develop's
+# unpatched source, but always gates it with *this run's own* guard
+# scripts (see the "guard scripts" steps below) -- never develop's,
+# which for a commit predating this gate don't exist. That is what makes
+# `branch` usable as a real negative control: point it at the commit
+# right before this PR's fixes and this job must fail, the same failure
+# doc/dev/v0.9.1-hardening-spec.md §11 documents; point it at this
+# branch (the default `github.ref` on push/pull_request) and it must
+# pass. If a dispatch against unpatched develop ever comes back green,
+# the gate has regressed and needs the same kind of investigation §11
+# describes, not a shrug.
+
+name: NetBSD full-coverage gate (develop)
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build and test'
+        required: false
+        default: 'develop'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  netbsd-full-check:
+    name: 'NetBSD 10 full-coverage gate (develop)'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}
+
+      # workflow_dispatch lets a maintainer point `branch` at arbitrary
+      # history -- in particular, at a commit that predates this guard
+      # (test/check-netbsd-parity.sh + test/netbsd-parity-baseline.yml)
+      # ever existing, e.g. `develop` itself. Without this step, that
+      # checkout would silently run *without* the gate (script not found
+      # -> hard failure for the wrong, uninformative reason) instead of
+      # actually proving whether the gate catches the regression on that
+      # unpatched history -- which is the entire point of being able to
+      # target an arbitrary branch here. Always overlay the guard scripts
+      # from the ref the workflow run itself was dispatched from (never
+      # from `branch`), so `branch`'s checkout supplies production+test
+      # *source* only, and this run always gates it with the current,
+      # maintained version of the gate -- the same comparison a manual
+      # "does this still catch the regression on unpatched develop"
+      # regression check needs, now repeatable on real NetBSD instead of
+      # by hand.
+      - name: Fetch current guard scripts (dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            test/check-netbsd-parity.sh
+            test/netbsd-parity-baseline.yml
+          sparse-checkout-cone-mode: false
+          path: _guard-overlay
+
+      - name: Overlay current guard scripts onto checked-out source (dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          if [ ! -f _guard-overlay/test/check-netbsd-parity.sh ] || \
+             [ ! -f _guard-overlay/test/netbsd-parity-baseline.yml ]; then
+            echo "::error::_guard-overlay is missing the guard scripts -- the ref this workflow was dispatched from (${{ github.sha }}) doesn't have them either. Dispatch from a ref that includes test/check-netbsd-parity.sh and test/netbsd-parity-baseline.yml." >&2
+            exit 1
+          fi
+          cp _guard-overlay/test/check-netbsd-parity.sh test/check-netbsd-parity.sh
+          cp _guard-overlay/test/netbsd-parity-baseline.yml test/netbsd-parity-baseline.yml
+          rm -rf _guard-overlay
+          echo "=== Guard scripts overlaid from ${{ github.sha }} onto '${{ github.event.inputs.branch || github.ref }}' source ==="
+
+      - name: Build and gate on NetBSD 10
+        uses: cross-platform-actions/action@v0.27.0
+        with:
+          operating_system: netbsd
+          architecture: x86_64
+          # Keep in step with develop-netbsd-build-test.yml's own pin.
+          version: '10.0'
+          shell: bash
+          memory: 4096
+          cpu_count: 2
+          run: |
+            set -euo pipefail
+
+            # ------------------------------------------------------------------
+            # Install build dependencies via pkgin.
+            # ------------------------------------------------------------------
+            echo "=== Syncing package repository ==="
+            sudo pkgin -y update
+
+            echo "=== Installing build dependencies ==="
+            sudo pkgin -y install autoconf automake libtool pkgconf gmake m4 bison
+
+            # ------------------------------------------------------------------
+            # Environment setup. No SAN_CFLAGS/SAN_LDFLAGS anywhere in this
+            # workflow, on purpose -- see the file header. If a future edit
+            # adds sanitizer flags here, it silently defeats this job's
+            # entire reason to exist (configure.ac's sanitizer_build=auto
+            # would flip SANITIZER_BUILD back on and re-hide the same
+            # binaries §11 found missing).
+            # ------------------------------------------------------------------
+            export CC=cc
+
+            # ------------------------------------------------------------------
+            # Bootstrap the autotools build system
+            # ------------------------------------------------------------------
+            echo "=== Bootstrapping build system ==="
+            ./bootstrap || autoreconf -fi
+
+            # ------------------------------------------------------------------
+            # Configure -- deliberately the same base flags as
+            # develop-netbsd-build-test.yml minus SAN_CFLAGS/SAN_LDFLAGS, so
+            # the only variable between the two NetBSD jobs is the one this
+            # job exists to isolate.
+            # ------------------------------------------------------------------
+            CFLAGS="-g -O2 -Wformat -Werror=format-security -Wno-old-style-definition" \
+            ./configure --verbose \
+              --prefix=/usr \
+              --sysconfdir=/etc/racoon \
+              --libdir=/usr/lib/ipsec-tools \
+              --localstatedir=/var/run
+
+            # ------------------------------------------------------------------
+            # Build
+            # ------------------------------------------------------------------
+            echo "=== Building ==="
+            NCPU=$(sysctl -n hw.ncpu 2>/dev/null || echo 2)
+            make -j"${NCPU}" VERBOSE=1
+
+            # Compile every check_PROGRAMS binary without running any of
+            # them yet -- same two-step shape as develop-netbsd-build-test.yml.
+            echo "=== Building test binaries ==="
+            make check TESTS=
+
+            # ------------------------------------------------------------------
+            # Coverage-parity gate: confirms every binary
+            # netbsd-parity-baseline.yml tracks actually got built, and
+            # (since this whole job runs as root) that the root-gated ones
+            # actually PASS rather than self-skipping. This is the actual
+            # gate -- a failure here means this specific job just
+            # reproduced the §11 regression's root cause, and should block
+            # the same way a real test FAIL does.
+            # ------------------------------------------------------------------
+            echo "=== NetBSD coverage-parity gate ==="
+            (cd test && sudo ./check-netbsd-parity.sh)
+
+            # ------------------------------------------------------------------
+            # Full unit-test run, as real root throughout -- gives complete
+            # PASS/FAIL/SKIP visibility for the whole suite, not just the
+            # baseline-tracked binaries above (which only cover the two
+            # gaps §11 found; every other test still needs to actually
+            # pass here too).
+            # ------------------------------------------------------------------
+            echo "=== Running unit tests (as root) ==="
+            (cd test && sudo make check-verbose)

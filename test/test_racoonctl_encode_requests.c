@@ -85,10 +85,32 @@ extern int evt_quit_event;
 static sigjmp_buf exit_jmp;
 static int exit_was_called;
 static int wrapped_exit_status;
+static int exit_trap_armed;
 
+extern void __real_exit(int) __attribute__((__noreturn__));
+
+/* -Wl,--wrap=exit redirects *every* undefined reference to exit() in
+ * this binary's final link -- not just get_combuf()'s own exit(0) call
+ * this file means to catch. That includes any exit() reachable from the
+ * C runtime's own post-main() shutdown (e.g. a statically-linked crt
+ * object's exit(main(...)) call) wherever the toolchain resolves that
+ * reference at link time rather than at runtime through a shared libc.
+ * On this project's usual (glibc/dynamically-linked) toolchains that
+ * split spares us -- __libc_start_main's exit() call resolves through
+ * the PLT into libc.so, which --wrap's link-time rewriting can't reach
+ * -- but nothing guarantees it everywhere. Firing siglongjmp() for an
+ * exit() this file isn't currently expecting is undefined behaviour
+ * (exit_jmp may hold no live target, e.g. after main() itself has
+ * returned), and manifested exactly that way: the whole test binary
+ * re-entering itself in an unbounded loop. exit_trap_armed scopes the
+ * jump to only the one exit() call each test below is actively driving;
+ * every other exit() -- expected or not -- takes the real exit() path
+ * and actually terminates the process. */
 void
 __wrap_exit(int status)
 {
+	if (!exit_trap_armed)
+		__real_exit(status);
 	exit_was_called = 1;
 	wrapped_exit_status = status;
 	siglongjmp(exit_jmp, 1);
@@ -409,9 +431,12 @@ test_get_combuf_no_args_exits_via_usage(void)
 
 	if (sigsetjmp(exit_jmp, 1) == 0) {
 		exit_was_called = 0;
+		exit_trap_armed = 1;
 		get_combuf_unittest(0, NULL);
+		exit_trap_armed = 0;
 		TEST_FAIL("get_combuf() returned instead of calling exit()");
 	}
+	exit_trap_armed = 0;
 
 	if (!exit_was_called)
 		TEST_FAIL("exit() was never called");

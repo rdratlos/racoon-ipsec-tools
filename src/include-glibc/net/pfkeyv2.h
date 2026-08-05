@@ -12,25 +12,54 @@
 #include </usr/include/net/pfkeyv2.h>
 #endif /* __linux__ */
 
-/* Private allocations for authentication algorithms */
+/* Private allocations for authentication algorithms.
+ *
+ * Guarded with #ifndef: on platforms whose system pfkeyv2.h (included
+ * just above) already defines these -- e.g. NetBSD 10's -- a blind
+ * #define here redefines them to the same value, which is still a
+ * redefinition and fails the build under -Werror. */
+#ifndef SADB_AALG_SHA2_256
 #define SADB_AALG_SHA2_256		SADB_X_AALG_SHA2_256HMAC
+#endif
+#ifndef SADB_X_AALG_SHA2_256
 #define SADB_X_AALG_SHA2_256		SADB_X_AALG_SHA2_256HMAC
+#endif
+#ifndef SADB_AALG_SHA2_384
 #define SADB_AALG_SHA2_384		SADB_X_AALG_SHA2_384HMAC
+#endif
+#ifndef SADB_X_AALG_SHA2_384
 #define SADB_X_AALG_SHA2_384		SADB_X_AALG_SHA2_384HMAC
+#endif
+#ifndef SADB_AALG_SHA2_512
 #define SADB_AALG_SHA2_512		SADB_X_AALG_SHA2_512HMAC
+#endif
+#ifndef SADB_X_AALG_SHA2_512
 #define SADB_X_AALG_SHA2_512		SADB_X_AALG_SHA2_512HMAC
+#endif
+#ifndef SADB_AALG_RIPEMD160HMAC
 #define SADB_AALG_RIPEMD160HMAC		SADB_X_AALG_RIPEMD160HMAC
+#endif
+#ifndef SADB_X_AALG_MD5
 #define SADB_X_AALG_MD5              249
+#endif
+#ifndef SADB_X_AALG_SHA
 #define SADB_X_AALG_SHA              250
+#endif
 
 /* private allocations - based on RFC2407/IANA assignment */
+#ifndef SADB_X_EALG_CAST128CBC
 #ifdef SADB_X_EALG_CASTCBC
 #define SADB_X_EALG_CAST128CBC		SADB_X_EALG_CASTCBC
 #else
 #define SADB_X_EALG_CAST128CBC		5
 #endif
+#endif
+#ifndef SADB_X_EALG_RIJNDAELCBC
 #define SADB_X_EALG_RIJNDAELCBC		SADB_X_EALG_AESCBC
+#endif
+#ifndef SADB_X_EALG_AES
 #define SADB_X_EALG_AES			SADB_X_EALG_AESCBC
+#endif
 
 
 #define SADB_X_CALG_NONE	0
@@ -65,14 +94,22 @@
 
 
 #define PFKEY_ALIGN8(a) (1 + (((a) - 1) | (8 - 1)))
+#ifndef PFKEY_EXTLEN
 #define	PFKEY_EXTLEN(msg) \
 	PFKEY_UNUNIT64(((struct sadb_ext *)(msg))->sadb_ext_len)
+#endif
+#ifndef PFKEY_ADDR_PREFIX
 #define PFKEY_ADDR_PREFIX(ext) \
 	(((struct sadb_address *)(ext))->sadb_address_prefixlen)
+#endif
+#ifndef PFKEY_ADDR_PROTO
 #define PFKEY_ADDR_PROTO(ext) \
 	(((struct sadb_address *)(ext))->sadb_address_proto)
+#endif
+#ifndef PFKEY_ADDR_SADDR
 #define PFKEY_ADDR_SADDR(ext) \
 	((struct sockaddr *)((caddr_t)(ext) + sizeof(struct sadb_address)))
+#endif
 
 /* in 64bits */
 #define	PFKEY_UNUNIT64(a)	((a) << 3)

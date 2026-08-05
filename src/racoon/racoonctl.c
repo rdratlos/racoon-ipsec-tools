@@ -1217,6 +1217,8 @@ char *long_h1 =
 	printf("%s\n", long_format ? long_h1 : short_h1);
 
 	while (tlen > 0) {
+		u_int8_t salen;
+
 		iph2 = (struct ph2handle *)buf;
 		addr = (struct sockaddr *)(++iph2);
 
@@ -1230,15 +1232,32 @@ char *long_h1 =
 		 * instead reads one struct sockaddr past the end of the
 		 * buffer for the second (dst) block below, since nothing
 		 * follows dst in a normal src+dst record (issue #122).
+		 *
+		 * On a sysdep_sa_len() that trusts sa_len as-is (every
+		 * non-Linux target), a zero-length address -- corrupt
+		 * data, or a peer/version that never set sa_len -- would
+		 * leave tlen undecremented forever: an infinite loop that
+		 * floods stdout. Bail out instead of trusting the length
+		 * blindly.
 		 */
-		tlen -= sysdep_sa_len(addr);
+		salen = sysdep_sa_len(addr);
+		if (salen == 0) {
+			printf("(zero-length address)\n");
+			break;
+		}
+		tlen -= salen;
 		addr++;
 
 		GETNAMEINFO(addr, _addr1_, _addr2_);
 		printf("%s ", long_format ?
 			  fixed_addr(_addr1_, _addr2_, 45)
 			: fixed_addr(_addr1_, _addr2_, 22));
-		tlen -= sysdep_sa_len(addr);
+		salen = sysdep_sa_len(addr);
+		if (salen == 0) {
+			printf("(zero-length address)\n");
+			break;
+		}
+		tlen -= salen;
 		addr++;
 
 		printf("\n");
