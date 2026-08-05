@@ -34,6 +34,8 @@
 #ifndef _PLOG_H
 #define _PLOG_H
 
+#include <sys/types.h>
+#include <stddef.h>
 #ifdef HAVE_STDARG_H
 #include <stdarg.h>
 #else

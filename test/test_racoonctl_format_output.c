@@ -191,6 +191,9 @@ test_dump_isakmp_sa(void)
 	pd.ph2cnt = 2;
 
 	remote = (struct sockaddr_in *)&pd.remote;
+#ifndef __linux__
+	remote->sin_len = sizeof(*remote);
+#endif
 	remote->sin_family = AF_INET;
 	inet_pton(AF_INET, "203.0.113.9", &remote->sin_addr);
 	remote->sin_port = htons(500);
@@ -262,6 +265,10 @@ test_dump_internal_single_record(void)
 	src = (struct sockaddr_in *)(raw + sizeof(struct ph2handle));
 	dst = (struct sockaddr_in *)((char *)src + sizeof(struct sockaddr_in));
 
+#ifndef __linux__
+	src->sin_len = sizeof(*src);
+	dst->sin_len = sizeof(*dst);
+#endif
 	src->sin_family = AF_INET;
 	inet_pton(AF_INET, "10.1.1.1", &src->sin_addr);
 	dst->sin_family = AF_INET;
@@ -710,6 +717,10 @@ test_handle_recv_show_sa_internal(void)
 	memset(raw, 0, sizeof(raw));
 	src = (struct sockaddr_in *)(raw + sizeof(struct ph2handle));
 	dst = (struct sockaddr_in *)((char *)src + sizeof(struct sockaddr_in));
+#ifndef __linux__
+	src->sin_len = sizeof(*src);
+	dst->sin_len = sizeof(*dst);
+#endif
 	src->sin_family = AF_INET;
 	inet_pton(AF_INET, "172.16.0.1", &src->sin_addr);
 	dst->sin_family = AF_INET;

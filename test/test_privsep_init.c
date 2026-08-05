@@ -396,6 +396,9 @@ gc_body_hybrid_roundtrip(int rc)
 		return 'F';
 
 	memset(&gc_body_raddr, 0, sizeof(gc_body_raddr));
+#ifndef __linux__
+	gc_body_raddr.sin_len = sizeof(gc_body_raddr);
+#endif
 	gc_body_raddr.sin_family = AF_INET;
 	gc_body_raddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 

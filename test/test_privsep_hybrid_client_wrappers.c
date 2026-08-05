@@ -174,6 +174,9 @@ test_accounting_system_passthrough(void)
 		TEST_FAIL("must run as root for the passthrough case");
 
 	memset(&raddr, 0, sizeof(raddr));
+#ifndef __linux__
+	raddr.sin_len = sizeof(raddr);
+#endif
 	raddr.sin_family = AF_INET;
 	raddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
@@ -216,6 +219,9 @@ test_accounting_system_wire(void)
 	}
 
 	memset(&raddr, 0, sizeof(raddr));
+#ifndef __linux__
+	raddr.sin_len = sizeof(raddr);
+#endif
 	raddr.sin_family = AF_INET;
 	raddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
@@ -311,6 +317,9 @@ test_xauth_login_pam_passthrough(void)
 		TEST_FAIL("must run as root for the passthrough case");
 
 	memset(&raddr, 0, sizeof(raddr));
+#ifndef __linux__
+	raddr.sin_len = sizeof(raddr);
+#endif
 	raddr.sin_family = AF_INET;
 	raddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
@@ -342,6 +351,9 @@ test_xauth_login_pam_wire(void)
 	}
 
 	memset(&raddr, 0, sizeof(raddr));
+#ifndef __linux__
+	raddr.sin_len = sizeof(raddr);
+#endif
 	raddr.sin_family = AF_INET;
 	raddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
