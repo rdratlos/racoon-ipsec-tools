@@ -15,7 +15,7 @@ jobs:
         run: ./bootstrap
       - name: configure WITHOUT -Wno-old-style-definition
         run: ./configure
-      - name: build (expected to fail while issue #<N> is open)
+      - name: build (expected to fail while issue #66 is open)
         id: build
         continue-on-error: true
         run: make -j$(nproc)
@@ -23,5 +23,5 @@ jobs:
         if: steps.build.outcome == 'success'
         run: |
           echo "::error::Build succeeded WITHOUT -Wno-old-style-definition." 
-          echo "::error::Issue #68 appears resolved — remove DISTCHECK_CONFIGURE_FLAGS from Makefile.am."
+          echo "::error::Issue #66 appears resolved — remove DISTCHECK_CONFIGURE_FLAGS from Makefile.am."
           exit 1
