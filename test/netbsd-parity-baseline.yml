@@ -11,16 +11,26 @@
 #   check_PROGRAMS *entirely* whenever SANITIZER_BUILD=yes, which is
 #   exactly the condition develop-netbsd-build-test.yml's sanitizer-by-
 #   default design satisfies on every ordinary push/PR. Seeded from a
-#   full conditional-stack parse of test/Makefile.am (§11.3.1), not a
-#   hand-curated guess -- 33 binaries matched that condition at the time
-#   this file was written; test_nattraversal_natd is excluded from this
-#   list even though it matched, because it also requires ENABLE_NATT,
-#   which this project's own NetBSD configure flags report "no" for
-#   independent of SANITIZER_BUILD -- it would never build here either
-#   way, so including it would make this baseline permanently unsatisfiable
-#   on NetBSD and defeat the point of a gate that's supposed to stay green.
-#   test_grabmyaddr_netlink (HAVE_LINUX_NETLINK) is Linux-only by design
-#   and was never a candidate.
+#   full conditional-stack parse of test/Makefile.am (§11.3.1) and
+#   re-verified against develop-netbsd-full-check.yml's own first live
+#   runs on real NetBSD 10 (§11.6) -- 33 binaries matched that condition,
+#   all 33 confirmed present in the real `make check TESTS=` binary list
+#   on NetBSD, so all 33 are tracked here.
+#
+#   Two binaries matched the same `!SANITIZER_BUILD` condition but are
+#   platform-excluded on NetBSD for an unrelated reason, confirmed absent
+#   from that same real build, and are correctly never candidates for
+#   this list: test_grabmyaddr_netlink (HAVE_LINUX_NETLINK, Linux-only)
+#   and test_privsep_socket_policy (HAVE_PF_PACKET, a Linux-only socket
+#   family -- see its own file header). An earlier version of this file
+#   also excluded test_nattraversal_natd on the theory that
+#   this project's NetBSD configure reports ENABLE_NATT=no; that theory
+#   was never actually checked against real NetBSD and turned out to be
+#   wrong -- `--enable-natt`'s default is `auto` (configure.ac), and
+#   NetBSD 10's kernel NAT-T probe succeeds, so ENABLE_NATT=yes there and
+#   test_nattraversal_natd builds like every other binary in this list
+#   (confirmed present in both of develop-netbsd-full-check.yml's first
+#   live NetBSD runs, §11.6).
 #
 #   A binary appearing in test/ that is NOT in this list is not an
 #   error -- check-netbsd-parity.sh only warns about it (new coverage
@@ -54,6 +64,7 @@ must_build:
   - test_kmpstat_com_recv
   - test_monitor_fd_cold_start
   - test_monitor_fd_range
+  - test_nattraversal_natd
   - test_privsep_init
   - test_privsep_init_fork_failure
   - test_proposal_authtype_log
