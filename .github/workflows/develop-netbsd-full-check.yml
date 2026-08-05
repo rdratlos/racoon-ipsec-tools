@@ -52,6 +52,19 @@
 # under different privilege levels; do not add the wrong one here.
 #
 # Dependencies (installed via pkgin): same as develop-netbsd-build-test.yml.
+#
+# workflow_dispatch's `branch` input, and proving this gate actually
+# discriminates: dispatching with branch=develop checks out develop's
+# unpatched source, but always gates it with *this run's own* guard
+# scripts (see the "guard scripts" steps below) -- never develop's,
+# which for a commit predating this gate don't exist. That is what makes
+# `branch` usable as a real negative control: point it at the commit
+# right before this PR's fixes and this job must fail, the same failure
+# doc/dev/v0.9.1-hardening-spec.md §11 documents; point it at this
+# branch (the default `github.ref` on push/pull_request) and it must
+# pass. If a dispatch against unpatched develop ever comes back green,
+# the gate has regressed and needs the same kind of investigation §11
+# describes, not a shrug.
 
 name: NetBSD full-coverage gate (develop)
 
@@ -81,6 +94,47 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
+
+      # workflow_dispatch lets a maintainer point `branch` at arbitrary
+      # history -- in particular, at a commit that predates this guard
+      # (test/check-netbsd-parity.sh + test/netbsd-parity-baseline.yml)
+      # ever existing, e.g. `develop` itself. Without this step, that
+      # checkout would silently run *without* the gate (script not found
+      # -> hard failure for the wrong, uninformative reason) instead of
+      # actually proving whether the gate catches the regression on that
+      # unpatched history -- which is the entire point of being able to
+      # target an arbitrary branch here. Always overlay the guard scripts
+      # from the ref the workflow run itself was dispatched from (never
+      # from `branch`), so `branch`'s checkout supplies production+test
+      # *source* only, and this run always gates it with the current,
+      # maintained version of the gate -- the same comparison a manual
+      # "does this still catch the regression on unpatched develop"
+      # regression check needs, now repeatable on real NetBSD instead of
+      # by hand.
+      - name: Fetch current guard scripts (dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            test/check-netbsd-parity.sh
+            test/netbsd-parity-baseline.yml
+          sparse-checkout-cone-mode: false
+          path: _guard-overlay
+
+      - name: Overlay current guard scripts onto checked-out source (dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          if [ ! -f _guard-overlay/test/check-netbsd-parity.sh ] || \
+             [ ! -f _guard-overlay/test/netbsd-parity-baseline.yml ]; then
+            echo "::error::_guard-overlay is missing the guard scripts -- the ref this workflow was dispatched from (${{ github.sha }}) doesn't have them either. Dispatch from a ref that includes test/check-netbsd-parity.sh and test/netbsd-parity-baseline.yml." >&2
+            exit 1
+          fi
+          cp _guard-overlay/test/check-netbsd-parity.sh test/check-netbsd-parity.sh
+          cp _guard-overlay/test/netbsd-parity-baseline.yml test/netbsd-parity-baseline.yml
+          rm -rf _guard-overlay
+          echo "=== Guard scripts overlaid from ${{ github.sha }} onto '${{ github.event.inputs.branch || github.ref }}' source ==="
 
       - name: Build and gate on NetBSD 10
         uses: cross-platform-actions/action@v0.27.0
