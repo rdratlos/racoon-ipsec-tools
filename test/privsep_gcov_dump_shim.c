@@ -33,8 +33,7 @@ extern void __gcov_dump(void);
 extern void __real__exit(int status);
 
 void
-__wrap__exit(status)
-	int status;
+__wrap__exit(int status)
 {
 	__gcov_dump();
 	__real__exit(status);

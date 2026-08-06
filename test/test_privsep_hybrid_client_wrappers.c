@@ -203,8 +203,9 @@ static int
 test_accounting_system_wire(void)
 {
 	pid_t child;
-	struct sockaddr_in raddr;
+	struct sockaddr_in raddr, wrong_raddr;
 	int allowed_result, refused_result, refused_errno;
+	int corrupt_result, corrupt_errno;
 
 	TEST_START("privsep_accounting_system(), wire protocol (unprivileged)");
 
@@ -232,6 +233,29 @@ test_accounting_system_wire(void)
 	    (struct sockaddr *)&raddr, "someuser", 1) != 0);
 	refused_errno = errno;
 
+	/*
+	 * issue #131's cross-check, the negative half: an in-range port (so
+	 * this can only be refused for one reason) with an address that
+	 * does NOT match what privsep_priv_test_stubs.c's
+	 * raddr_matches_test_fixture() expects. Proves the privileged
+	 * side's raddr check actually discriminates real content, not just
+	 * that the wire round trip returns *something* -- a stub that
+	 * ignored raddr entirely (as this one used to) would pass the
+	 * allowed_result assertion above just as easily whether or not
+	 * sysdep_sa_len()/the wire serialization preserved the address
+	 * correctly.
+	 */
+	memset(&wrong_raddr, 0, sizeof(wrong_raddr));
+#ifndef __linux__
+	wrong_raddr.sin_len = sizeof(wrong_raddr);
+#endif
+	wrong_raddr.sin_family = AF_INET;
+	inet_pton(AF_INET, "203.0.113.9", &wrong_raddr.sin_addr);
+
+	corrupt_result = (privsep_accounting_system(0,
+	    (struct sockaddr *)&wrong_raddr, "someuser", 1) != 0);
+	corrupt_errno = errno;
+
 	if (privsep_wire_roundtrip_restore_priv() != 0)
 		TEST_FAIL("seteuid(0) restore failed");
 
@@ -239,9 +263,11 @@ test_accounting_system_wire(void)
 		TEST_FAIL("privileged child did not shut down cleanly");
 
 	if (!allowed_result)
-		TEST_FAIL("in-range port did not round-trip cleanly");
+		TEST_FAIL("in-range port with a correct raddr did not round-trip cleanly");
 	if (!refused_result || refused_errno != ERANGE)
 		TEST_FAIL("out-of-range port was not refused with ERANGE");
+	if (!corrupt_result || corrupt_errno != EINVAL)
+		TEST_FAIL("an in-range port with a mismatched raddr was not refused with EINVAL");
 
 	TEST_PASS();
 	return 0;
@@ -335,8 +361,9 @@ static int
 test_xauth_login_pam_wire(void)
 {
 	pid_t child;
-	struct sockaddr_in raddr;
+	struct sockaddr_in raddr, wrong_raddr;
 	int allowed_result, refused_result, refused_errno;
+	int corrupt_result, corrupt_errno;
 
 	TEST_START("privsep_xauth_login_pam(), wire protocol (unprivileged)");
 
@@ -363,6 +390,25 @@ test_xauth_login_pam_wire(void)
 	    (struct sockaddr *)&raddr, "someuser", "somepass") != 0);
 	refused_errno = errno;
 
+	/*
+	 * issue #131's cross-check, the negative half -- same reasoning as
+	 * test_accounting_system_wire()'s corrupt_result: an in-range port
+	 * (privsep.c's own port_check() runs before xauth_login_pam() is
+	 * even called, so this isolates the raddr check from the port
+	 * check) with an address privsep_priv_test_stubs.c's
+	 * raddr_matches_test_fixture() does not recognize.
+	 */
+	memset(&wrong_raddr, 0, sizeof(wrong_raddr));
+#ifndef __linux__
+	wrong_raddr.sin_len = sizeof(wrong_raddr);
+#endif
+	wrong_raddr.sin_family = AF_INET;
+	inet_pton(AF_INET, "203.0.113.9", &wrong_raddr.sin_addr);
+
+	corrupt_result = (privsep_xauth_login_pam(0,
+	    (struct sockaddr *)&wrong_raddr, "someuser", "somepass") != 0);
+	corrupt_errno = errno;
+
 	if (privsep_wire_roundtrip_restore_priv() != 0)
 		TEST_FAIL("seteuid(0) restore failed");
 
@@ -370,9 +416,11 @@ test_xauth_login_pam_wire(void)
 		TEST_FAIL("privileged child did not shut down cleanly");
 
 	if (!allowed_result)
-		TEST_FAIL("in-range port did not round-trip cleanly");
+		TEST_FAIL("in-range port with a correct raddr did not round-trip cleanly");
 	if (!refused_result || refused_errno != ERANGE)
 		TEST_FAIL("out-of-range port was not refused with ERANGE");
+	if (!corrupt_result || corrupt_errno != EINVAL)
+		TEST_FAIL("an in-range port with a mismatched raddr was not refused with EINVAL");
 
 	TEST_PASS();
 	return 0;

@@ -56,8 +56,7 @@
 extern int h_errno;
 
 vchar_t *
-dnssec_getcert(id)
-	vchar_t *id;
+dnssec_getcert(vchar_t *id)
 {
 	vchar_t *cert = NULL;
 	struct certinfo *res = NULL;

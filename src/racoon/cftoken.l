@@ -721,8 +721,7 @@ yywarn(char *s, ...)
 }
 
 int
-yycf_switch_buffer(path)
-	char *path;
+yycf_switch_buffer(char *path)
 {
 	char *filepath = NULL;
 
@@ -763,8 +762,7 @@ yycf_switch_buffer(path)
 }
 
 int
-yycf_set_buffer(path)
-	char *path;
+yycf_set_buffer(char *path)
 {
 	yyin = fopen(path, "r");
 	if (yyin == NULL) {
@@ -813,7 +811,7 @@ yycf_set_buffer(path)
 }
 
 void
-yycf_init_buffer()
+yycf_init_buffer(void)
 {
 	int i;
 
@@ -823,7 +821,7 @@ yycf_init_buffer()
 }
 
 void
-yycf_clean_buffer()
+yycf_clean_buffer(void)
 {
 	int i;
 

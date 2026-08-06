@@ -25,7 +25,7 @@
 
 /* --- genlist_init tests --- */
 
-int test_genlist_init()
+int test_genlist_init(void)
 {
     struct genlist *gl;
 
@@ -45,7 +45,7 @@ int test_genlist_init()
 
 /* --- genlist_insert tests --- */
 
-int test_genlist_insert_single()
+int test_genlist_insert_single(void)
 {
     struct genlist *gl;
     void *data;
@@ -70,7 +70,7 @@ int test_genlist_insert_single()
     return 0;
 }
 
-int test_genlist_insert_order()
+int test_genlist_insert_order(void)
 {
     struct genlist *gl;
     void *data;
@@ -114,7 +114,7 @@ int test_genlist_insert_order()
 
 /* --- genlist_append tests --- */
 
-int test_genlist_append_order()
+int test_genlist_append_order(void)
 {
     struct genlist *gl;
     void *data;
@@ -144,7 +144,7 @@ int test_genlist_append_order()
     return 0;
 }
 
-int test_genlist_append_after_insert()
+int test_genlist_append_after_insert(void)
 {
     struct genlist *gl;
     void *data;
@@ -184,7 +184,7 @@ static void *foreach_counter(void *entry, void *arg)
     return NULL;  /* continue iteration */
 }
 
-int test_genlist_foreach_count()
+int test_genlist_foreach_count(void)
 {
     struct genlist *gl;
     int count = 0;
@@ -216,7 +216,7 @@ static void *foreach_find(void *entry, void *arg)
     return NULL;
 }
 
-int test_genlist_foreach_find()
+int test_genlist_foreach_find(void)
 {
     struct genlist *gl;
     void *result;
@@ -241,7 +241,7 @@ int test_genlist_foreach_find()
     return 0;
 }
 
-int test_genlist_foreach_empty()
+int test_genlist_foreach_empty(void)
 {
     struct genlist *gl;
     int count = 0;
@@ -259,7 +259,7 @@ int test_genlist_foreach_empty()
     return 0;
 }
 
-int test_genlist_foreach_early_exit()
+int test_genlist_foreach_early_exit(void)
 {
     struct genlist *gl;
     int count = 0;
@@ -288,7 +288,7 @@ static void *foreach_count_limited(void *entry, void *arg)
     return (void *)1;  /* stop after first element */
 }
 
-int test_genlist_foreach_stops_on_nonnull()
+int test_genlist_foreach_stops_on_nonnull(void)
 {
     struct genlist *gl;
     int count = 0;
@@ -310,7 +310,7 @@ int test_genlist_foreach_stops_on_nonnull()
     return 0;
 }
 
-int test_genlist_foreach_iteration_order_append()
+int test_genlist_foreach_iteration_order_append(void)
 {
     struct genlist *gl;
     long expected = 10;
@@ -331,7 +331,7 @@ int test_genlist_foreach_iteration_order_append()
     return 0;
 }
 
-int test_genlist_foreach_iteration_order_insert()
+int test_genlist_foreach_iteration_order_insert(void)
 {
     struct genlist *gl;
 
@@ -353,7 +353,7 @@ int test_genlist_foreach_iteration_order_insert()
 
 /* --- genlist_next tests --- */
 
-int test_genlist_next_basic()
+int test_genlist_next_basic(void)
 {
     struct genlist *gl;
     struct genlist_entry *buf = NULL;
@@ -382,7 +382,7 @@ int test_genlist_next_basic()
     return 0;
 }
 
-int test_genlist_next_null_head_restart()
+int test_genlist_next_null_head_restart(void)
 {
     struct genlist *gl;
     struct genlist_entry *buf = NULL;
@@ -407,7 +407,7 @@ int test_genlist_next_null_head_restart()
     return 0;
 }
 
-int test_genlist_next_empty_list()
+int test_genlist_next_empty_list(void)
 {
     struct genlist *gl;
     struct genlist_entry *buf = NULL;
@@ -434,7 +434,7 @@ static void count_free(void *data)
     free_count++;
 }
 
-int test_genlist_free_calls_func()
+int test_genlist_free_calls_func(void)
 {
     struct genlist *gl;
 
@@ -455,7 +455,7 @@ int test_genlist_free_calls_func()
     return 0;
 }
 
-int test_genlist_free_null_func()
+int test_genlist_free_null_func(void)
 {
     struct genlist *gl;
 
@@ -472,7 +472,7 @@ int test_genlist_free_null_func()
     return 0;
 }
 
-int test_genlist_free_empty_list()
+int test_genlist_free_empty_list(void)
 {
     struct genlist *gl;
 

@@ -47,7 +47,7 @@ static const char *test_iv = "fedcba9876543210";  /* 128-bit IV */
  * SYMMETRIC CIPHER TESTS
  * ============================================================================ */
 
-int test_des_cipher()
+int test_des_cipher(void)
 {
 	vchar_t *data = NULL, *key = NULL, *iv = NULL;
 	vchar_t *encrypted = NULL, *decrypted = NULL;
@@ -105,7 +105,7 @@ int test_des_cipher()
 	return ret;
 }
 
-int test_3des_cipher()
+int test_3des_cipher(void)
 {
 	vchar_t *data = NULL, *key = NULL, *iv = NULL;
 	vchar_t *encrypted = NULL, *decrypted = NULL;
@@ -158,7 +158,7 @@ int test_3des_cipher()
 	return ret;
 }
 
-int test_aes_cipher()
+int test_aes_cipher(void)
 {
 	vchar_t *data = NULL, *key = NULL, *iv = NULL;
 	vchar_t *encrypted = NULL, *decrypted = NULL;
@@ -242,7 +242,7 @@ cleanup_aes:
 	return ret;
 }
 
-int test_blowfish_cipher()
+int test_blowfish_cipher(void)
 {
 	vchar_t *data = NULL, *key = NULL, *iv = NULL;
 	vchar_t *encrypted = NULL, *decrypted = NULL;
@@ -295,7 +295,7 @@ int test_blowfish_cipher()
 	return ret;
 }
 
-int test_cast_cipher()
+int test_cast_cipher(void)
 {
 	vchar_t *data = NULL, *key = NULL, *iv = NULL;
 	vchar_t *encrypted = NULL, *decrypted = NULL;
@@ -349,7 +349,7 @@ int test_cast_cipher()
 }
 
 #if defined(HAVE_OPENSSL_CAMELLIA_H)
-int test_camellia_cipher()
+int test_camellia_cipher(void)
 {
 	vchar_t *data = NULL, *key = NULL, *iv = NULL;
 	vchar_t *encrypted = NULL, *decrypted = NULL;
@@ -407,7 +407,7 @@ int test_camellia_cipher()
  * HASH FUNCTION TESTS
  * ============================================================================ */
 
-int test_md5_hash()
+int test_md5_hash(void)
 {
 	vchar_t *data = NULL, *hash1 = NULL, *hash2 = NULL;
 	caddr_t ctx = NULL;
@@ -449,7 +449,7 @@ int test_md5_hash()
 	return ret;
 }
 
-int test_sha1_hash()
+int test_sha1_hash(void)
 {
 	vchar_t *data = NULL, *hash1 = NULL, *hash2 = NULL;
 	caddr_t ctx = NULL;
@@ -492,7 +492,7 @@ int test_sha1_hash()
 }
 
 #ifdef WITH_SHA2
-int test_sha2_256_hash()
+int test_sha2_256_hash(void)
 {
 	vchar_t *data = NULL, *hash1 = NULL, *hash2 = NULL;
 	caddr_t ctx = NULL;
@@ -534,7 +534,7 @@ int test_sha2_256_hash()
 	return ret;
 }
 
-int test_sha2_384_hash()
+int test_sha2_384_hash(void)
 {
 	vchar_t *data = NULL, *hash1 = NULL, *hash2 = NULL;
 	caddr_t ctx = NULL;
@@ -573,7 +573,7 @@ int test_sha2_384_hash()
 	return ret;
 }
 
-int test_sha2_384_multi_update()
+int test_sha2_384_multi_update(void)
 {
 	vchar_t *hash1 = NULL, *hash2 = NULL;
 	caddr_t ctx = NULL;
@@ -622,7 +622,7 @@ int test_sha2_384_multi_update()
 	return ret;
 }
 
-int test_sha2_512_hash()
+int test_sha2_512_hash(void)
 {
 	vchar_t *data = NULL, *hash1 = NULL, *hash2 = NULL;
 	caddr_t ctx = NULL;
@@ -661,7 +661,7 @@ int test_sha2_512_hash()
 	return ret;
 }
 
-int test_sha2_512_multi_update()
+int test_sha2_512_multi_update(void)
 {
 	vchar_t *hash1 = NULL, *hash2 = NULL;
 	caddr_t ctx = NULL;
@@ -715,7 +715,7 @@ int test_sha2_512_multi_update()
  * HMAC FUNCTION TESTS
  * ============================================================================ */
 
-int test_hmac_md5()
+int test_hmac_md5(void)
 {
 	vchar_t *data = NULL, *key = NULL, *hmac1 = NULL, *hmac2 = NULL;
 	caddr_t ctx = NULL;
@@ -760,7 +760,7 @@ int test_hmac_md5()
 	return ret;
 }
 
-int test_hmac_sha1()
+int test_hmac_sha1(void)
 {
 	vchar_t *data = NULL, *key = NULL, *hmac1 = NULL, *hmac2 = NULL;
 	caddr_t ctx = NULL;
@@ -806,7 +806,7 @@ int test_hmac_sha1()
 }
 
 #ifdef WITH_SHA2
-int test_hmac_sha2_256()
+int test_hmac_sha2_256(void)
 {
 	vchar_t *data = NULL, *key = NULL, *hmac1 = NULL, *hmac2 = NULL;
 	caddr_t ctx = NULL;
@@ -850,7 +850,7 @@ int test_hmac_sha2_256()
 	return ret;
 }
 
-int test_hmac_sha2_384()
+int test_hmac_sha2_384(void)
 {
 	vchar_t *data = NULL, *key = NULL, *hmac1 = NULL, *hmac2 = NULL;
 	caddr_t ctx = NULL;
@@ -894,7 +894,7 @@ int test_hmac_sha2_384()
 	return ret;
 }
 
-int test_hmac_sha2_512()
+int test_hmac_sha2_512(void)
 {
 	vchar_t *data = NULL, *key = NULL, *hmac1 = NULL, *hmac2 = NULL;
 	caddr_t ctx = NULL;
@@ -943,7 +943,7 @@ int test_hmac_sha2_512()
  * X.509 CERTIFICATE TESTS
  * ============================================================================ */
 
-int test_asn1_dn_conversion()
+int test_asn1_dn_conversion(void)
 {
 	vchar_t *asn1dn = NULL;
 	char *dn_string = "C=US, ST=California, L=San Francisco, O=Test Org, CN=Test User";
@@ -965,7 +965,7 @@ int test_asn1_dn_conversion()
 	return ret;
 }
 
-int test_asn1_dn_comparison()
+int test_asn1_dn_comparison(void)
 {
 	vchar_t *dn1 = NULL, *dn2 = NULL, *dn3 = NULL;
 	char *dn_str1 = "C=US, O=Test, CN=User1";
@@ -1002,7 +1002,7 @@ int test_asn1_dn_comparison()
 	return ret;
 }
 
-int test_asn1_dn_escapes()
+int test_asn1_dn_escapes(void)
 {
 	vchar_t *esc = NULL, *plain = NULL, *special = NULL;
 	vchar_t *bad = NULL, *invalid = NULL, *dangling = NULL;
@@ -1053,7 +1053,7 @@ int test_asn1_dn_escapes()
 	return ret;
 }
 
-int test_hex_asn1_dn()
+int test_hex_asn1_dn(void)
 {
 	vchar_t *asn1dn = NULL;
 	/* Simple hex-encoded DN */
@@ -1087,7 +1087,7 @@ int test_hex_asn1_dn()
  * EVP_DecodeBlock() output length, so decoded->l must equal the original
  * data length exactly.
  */
-int test_base64_encode_decode()
+int test_base64_encode_decode(void)
 {
 	vchar_t *encoded = NULL, *decoded = NULL;
 	char *test_data = "Hello, Base64 World!";
@@ -1136,7 +1136,7 @@ int test_base64_encode_decode()
  * With the base64_decode() padding fix in place, decoded->l must equal
  * the original data length exactly for all input sizes.
  */
-int test_base64_various_sizes()
+int test_base64_various_sizes(void)
 {
 	int sizes[] = {1, 10, 50, 100, 1000};
 	int i;
@@ -1219,7 +1219,7 @@ int test_base64_various_sizes()
  * RANDOM NUMBER TESTS
  * ============================================================================ */
 
-int test_random_generation()
+int test_random_generation(void)
 {
 	vchar_t *rand1 = NULL, *rand2 = NULL, *rand3 = NULL;
 	int ret = -1;
@@ -1253,7 +1253,7 @@ int test_random_generation()
 	return ret;
 }
 
-int test_random_u32()
+int test_random_u32(void)
 {
 	u_int32_t r1, r2, r3;
 	int ret = -1;
@@ -1280,7 +1280,7 @@ int test_random_u32()
  * BIGNUM CONVERSION TESTS
  * ============================================================================ */
 
-int test_bignum_conversions()
+int test_bignum_conversions(void)
 {
 	BIGNUM *bn1 = NULL, *bn2 = NULL;
 	vchar_t *vch = NULL;
@@ -1323,7 +1323,7 @@ int test_bignum_conversions()
 	return ret;
 }
 
-int test_bignum_edge_cases()
+int test_bignum_edge_cases(void)
 {
 	BIGNUM *bn = NULL;
 	vchar_t *vch = NULL;
@@ -1373,7 +1373,7 @@ int test_bignum_edge_cases()
  * CIPHER KEYLEN TESTS
  * ============================================================================ */
 
-int test_cipher_keylen()
+int test_cipher_keylen(void)
 {
 	int ret = -1;
 
@@ -1437,7 +1437,7 @@ int test_cipher_keylen()
  * CIPHER WEAKKEY TESTS
  * ============================================================================ */
 
-int test_des_weakkey()
+int test_des_weakkey(void)
 {
 	vchar_t *weak = NULL, *strong = NULL;
 	int ret = -1;
@@ -1468,7 +1468,7 @@ int test_des_weakkey()
 	return ret;
 }
 
-int test_3des_weakkey()
+int test_3des_weakkey(void)
 {
 	vchar_t *weak = NULL, *strong = NULL;
 	int ret = -1;
@@ -1499,7 +1499,7 @@ int test_3des_weakkey()
 	return ret;
 }
 
-int test_stub_weakkey()
+int test_stub_weakkey(void)
 {
 	vchar_t *key = NULL;
 	int ret = -1;
@@ -1541,7 +1541,7 @@ int test_stub_weakkey()
  * UTILITY FUNCTION TESTS
  * ============================================================================ */
 
-int test_version_string()
+int test_version_string(void)
 {
 	const char *version = NULL;
 	int ret = -1;
@@ -1565,7 +1565,7 @@ int test_version_string()
 	return ret;
 }
 
-int test_error_string()
+int test_error_string(void)
 {
 	char *errstr = NULL;
 	int ret = -1;

@@ -121,9 +121,7 @@ check_openssl_errors(const char *test_name)
 }
 
 static int
-rsa_verify_with_pubkey(src, sig, pubkey_txt)
-	vchar_t *src, *sig;
-	char *pubkey_txt;
+rsa_verify_with_pubkey(vchar_t *src, vchar_t *sig, char *pubkey_txt)
 {
 	BIO *bio;
 	EVP_PKEY *evp;
@@ -163,9 +161,7 @@ rsa_verify_with_pubkey(src, sig, pubkey_txt)
 }
 
 int
-rsatest(ac, av)
-	int ac;
-	char **av;
+rsatest(int ac, char **av)
 {
 	char *text = "this is test.";
 	vchar_t src;
@@ -259,8 +255,7 @@ rsatest(ac, av)
 }
 
 static vchar_t *
-pem_read_buf(buf)
-	char *buf;
+pem_read_buf(char *buf)
 {
 	BIO *bio;
 	char *nm = NULL, *header = NULL;
@@ -288,9 +283,7 @@ pem_read_buf(buf)
 
 #ifndef CERTTEST_BROKEN
 int
-certtest(ac, av)
-	int ac;
-	char **av;
+certtest(int ac, char **av)
 {
 	char *certpath;
 	char **certs;
@@ -487,8 +480,7 @@ certtest(ac, av)
 }
 
 static char **
-getcerts(path)
-	char *path;
+getcerts(char *path)
 {
 	char **certs = NULL, **p;
 	DIR *dirp;
@@ -729,9 +721,7 @@ done:
 }
 
 int
-ciphertest(ac, av)
-	int ac;
-	char **av;
+ciphertest(int ac, char **av)
 {
 	vchar_t data;
 	vchar_t key;
@@ -830,9 +820,7 @@ done:
 }
 
 int
-hmactest(ac, av)
-	int ac;
-	char **av;
+hmactest(int ac, char **av)
 {
 	char *keyword = "hehehe test secret!";
 	char *object  = "d7e6a6c1876ef0488bb74958b9fee94e";
@@ -940,9 +928,7 @@ hmactest(ac, av)
 }
 
 int
-sha1test(ac, av)
-	int ac;
-	char **av;
+sha1test(int ac, char **av)
 {
 	char *word1 = "1234567890", *word2 = "12345678901234567890";
 	caddr_t ctx;
@@ -977,9 +963,7 @@ sha1test(ac, av)
 }
 
 int
-md5test(ac, av)
-	int ac;
-	char **av;
+md5test(int ac, char **av)
 {
 	char *word1 = "1234567890", *word2 = "12345678901234567890";
 	caddr_t ctx;
@@ -1014,9 +998,7 @@ md5test(ac, av)
 }
 
 int
-dhtest(ac, av)
-	int ac;
-	char **av;
+dhtest(int ac, char **av)
 {
 	static struct {
 		char *name;
@@ -1103,9 +1085,7 @@ dhtest(ac, av)
 }
 
 int
-bntest(ac, av)
-	int ac;
-	char **av;
+bntest(int ac, char **av)
 {
 	vchar_t *rn;
 
@@ -1119,9 +1099,7 @@ bntest(ac, av)
 }
 
 int
-compat_test(ac, av)
-	int ac;
-	char **av;
+compat_test(int ac, char **av)
 {
 	(void)ac;
 	(void)av;
@@ -1324,9 +1302,7 @@ compat_test(ac, av)
 }
 
 int
-eayrsa_test(ac, av)
-	int ac;
-	char **av;
+eayrsa_test(int ac, char **av)
 {
 	(void)ac;
 	(void)av;
@@ -1395,9 +1371,7 @@ struct {
 };
 
 int
-main(ac, av)
-	int ac;
-	char **av;
+main(int ac, char **av)
 {
 	int i;
 	int len = sizeof(func)/sizeof(func[0]);
@@ -1439,7 +1413,7 @@ main(ac, av)
 }
 
 void
-Usage()
+Usage(void)
 {
 	int i;
 	int len = sizeof(func)/sizeof(func[0]);

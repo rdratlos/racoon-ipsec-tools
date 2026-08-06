@@ -136,9 +136,7 @@ static int isakmp_cfg_accounting_radius(struct ph1handle *, int);
  * We expect HDR, HASH, ATTR
  */
 void
-isakmp_cfg_r(iph1, msg)
-	struct ph1handle *iph1;
-	vchar_t *msg;
+isakmp_cfg_r(struct ph1handle *iph1, vchar_t *msg)
 {
 	struct isakmp *packet;
 	struct isakmp_gen *ph;
@@ -271,10 +269,7 @@ out:
 }
 
 int
-isakmp_cfg_attr_r(iph1, msgid, attrpl) 
-	struct ph1handle *iph1;
-	u_int32_t msgid;
-	struct isakmp_pl_attr *attrpl;
+isakmp_cfg_attr_r(struct ph1handle *iph1, u_int32_t msgid, struct isakmp_pl_attr *attrpl)
 {
 	int type = attrpl->type;
 
@@ -313,9 +308,7 @@ isakmp_cfg_attr_r(iph1, msgid, attrpl)
 }
 
 int
-isakmp_cfg_reply(iph1, attrpl)
-	struct ph1handle *iph1;
-	struct isakmp_pl_attr *attrpl;
+isakmp_cfg_reply(struct ph1handle *iph1, struct isakmp_pl_attr *attrpl)
 {
 	struct isakmp_data *attr;
 	int tlen;
@@ -491,9 +484,7 @@ isakmp_cfg_reply(iph1, attrpl)
 }
 
 int
-isakmp_cfg_request(iph1, attrpl)
-	struct ph1handle *iph1;
-	struct isakmp_pl_attr *attrpl;
+isakmp_cfg_request(struct ph1handle *iph1, struct isakmp_pl_attr *attrpl)
 {
 	struct isakmp_data *attr;
 	int tlen;
@@ -683,9 +674,7 @@ end:
 }
 
 int
-isakmp_cfg_set(iph1, attrpl)
-	struct ph1handle *iph1;
-	struct isakmp_pl_attr *attrpl;
+isakmp_cfg_set(struct ph1handle *iph1, struct isakmp_pl_attr *attrpl)
 {
 	struct isakmp_data *attr;
 	int tlen;
@@ -785,9 +774,7 @@ end:
 
 
 static vchar_t *
-buffer_cat(s, append)
-	vchar_t *s;
-	vchar_t *append;
+buffer_cat(vchar_t *s, vchar_t *append)
 {
 	vchar_t *new;
 
@@ -806,9 +793,7 @@ buffer_cat(s, append)
 }
 
 static vchar_t *
-isakmp_cfg_net(iph1, attr)
-	struct ph1handle *iph1;
-	struct isakmp_data *attr;
+isakmp_cfg_net(struct ph1handle *iph1, struct isakmp_data *attr)
 {
 	struct unity_network *net;
 	struct in_addr addr4;
@@ -981,9 +966,7 @@ isakmp_cfg_void(iph1, attr)
 #endif
 
 vchar_t *
-isakmp_cfg_copy(iph1, attr)
-	struct ph1handle *iph1;
-	struct isakmp_data *attr;
+isakmp_cfg_copy(struct ph1handle *iph1, struct isakmp_data *attr)
 {
 	vchar_t *buffer;
 	size_t len = 0;
@@ -1002,10 +985,7 @@ isakmp_cfg_copy(iph1, attr)
 }
 
 vchar_t *
-isakmp_cfg_short(iph1, attr, value)
-	struct ph1handle *iph1;
-	struct isakmp_data *attr;
-	int value;
+isakmp_cfg_short(struct ph1handle *iph1, struct isakmp_data *attr, int value)
 {
 	vchar_t *buffer;
 	struct isakmp_data *new;
@@ -1026,11 +1006,7 @@ isakmp_cfg_short(iph1, attr, value)
 }
 
 vchar_t *
-isakmp_cfg_varlen(iph1, attr, string, len)
-	struct ph1handle *iph1;
-	struct isakmp_data *attr;
-	char *string;
-	size_t len;
+isakmp_cfg_varlen(struct ph1handle *iph1, struct isakmp_data *attr, char *string, size_t len)
 {
 	vchar_t *buffer;
 	struct isakmp_data *new;
@@ -1055,20 +1031,14 @@ isakmp_cfg_varlen(iph1, attr, string, len)
 	return buffer;
 }
 vchar_t *
-isakmp_cfg_string(iph1, attr, string)
-	struct ph1handle *iph1;
-	struct isakmp_data *attr;
-	char *string;
+isakmp_cfg_string(struct ph1handle *iph1, struct isakmp_data *attr, char *string)
 {
 	size_t len = strlen(string);
 	return isakmp_cfg_varlen(iph1, attr, string, len);
 }
 
 static vchar_t *
-isakmp_cfg_addr4(iph1, attr, addr)
-	struct ph1handle *iph1;
-	struct isakmp_data *attr;
-	in_addr_t *addr;
+isakmp_cfg_addr4(struct ph1handle *iph1, struct isakmp_data *attr, in_addr_t *addr)
 {
 	vchar_t *buffer;
 	struct isakmp_data *new;
@@ -1090,11 +1060,7 @@ isakmp_cfg_addr4(iph1, attr, addr)
 }
 
 static vchar_t *
-isakmp_cfg_addrnet4(iph1, attr, addr, mask)
-	struct ph1handle *iph1;
-	struct isakmp_data *attr;
-	in_addr_t *addr;
-	in_addr_t *mask;
+isakmp_cfg_addrnet4(struct ph1handle *iph1, struct isakmp_data *attr, in_addr_t *addr, in_addr_t *mask)
 {
 	vchar_t *buffer;
 	struct isakmp_data *new;
@@ -1120,11 +1086,7 @@ isakmp_cfg_addrnet4(iph1, attr, addr, mask)
 
 
 static vchar_t *
-isakmp_cfg_addr4_list(iph1, attr, addr, nbr)
-	struct ph1handle *iph1;
-	struct isakmp_data *attr;
-	in_addr_t *addr;
-	int nbr;
+isakmp_cfg_addr4_list(struct ph1handle *iph1, struct isakmp_data *attr, in_addr_t *addr, int nbr)
 {
 	int error = -1;
 	vchar_t *buffer = NULL;
@@ -1165,9 +1127,7 @@ out:
 }
 
 struct isakmp_ivm *
-isakmp_cfg_newiv(iph1, msgid)
-	struct ph1handle *iph1;
-	u_int32_t msgid;
+isakmp_cfg_newiv(struct ph1handle *iph1, u_int32_t msgid)
 {
 	struct isakmp_cfg_state *ics = iph1->mode_cfg;
 
@@ -1188,12 +1148,7 @@ isakmp_cfg_newiv(iph1, msgid)
 
 /* Derived from isakmp_info_send_common */
 int
-isakmp_cfg_send(iph1, payload, np, flags, new_exchange)
-	struct ph1handle *iph1;
-	vchar_t *payload;
-	u_int32_t np;
-	int flags;
-	int new_exchange;
+isakmp_cfg_send(struct ph1handle *iph1, vchar_t *payload, u_int32_t np, int flags, int new_exchange)
 {
 	struct ph2handle *iph2 = NULL;
 	vchar_t *hash = NULL;
@@ -1356,8 +1311,7 @@ end:
 
 
 void 
-isakmp_cfg_rmstate(iph1)
-	struct ph1handle *iph1;
+isakmp_cfg_rmstate(struct ph1handle *iph1)
 {
 	struct isakmp_cfg_state *state = iph1->mode_cfg;
 
@@ -1407,8 +1361,7 @@ isakmp_cfg_mkstate(void)
 }
 
 int 
-isakmp_cfg_getport(iph1)
-	struct ph1handle *iph1;
+isakmp_cfg_getport(struct ph1handle *iph1)
 {
 	unsigned int i;
 	size_t size = isakmp_cfg_config.pool_size;
@@ -1444,9 +1397,7 @@ isakmp_cfg_getport(iph1)
 }
 
 int 
-isakmp_cfg_putport(iph1, index)
-	struct ph1handle *iph1;
-	unsigned int index;
+isakmp_cfg_putport(struct ph1handle *iph1, unsigned int index)
 {
 	if (isakmp_cfg_config.port_pool == NULL) {
 		plog(LLV_ERROR, LOCATION, NULL, 
@@ -1476,8 +1427,7 @@ isakmp_cfg_putport(iph1, index)
 
 #ifdef HAVE_LIBPAM
 void
-cleanup_pam(port)
-	int port;
+cleanup_pam(int port)
 {
 	if (isakmp_cfg_config.port_pool[port].pam != NULL) {
 		pam_end(isakmp_cfg_config.port_pool[port].pam, PAM_SUCCESS);
@@ -1490,9 +1440,7 @@ cleanup_pam(port)
 
 /* Accounting, only for RADIUS or PAM */
 static int
-isakmp_cfg_accounting(iph1, inout)
-	struct ph1handle *iph1;
-	int inout;
+isakmp_cfg_accounting(struct ph1handle *iph1, int inout)
 {
 #ifdef HAVE_LIBPAM
 	if (isakmp_cfg_config.accounting == ISAKMP_CFG_ACCT_PAM)
@@ -1511,9 +1459,7 @@ isakmp_cfg_accounting(iph1, inout)
 
 #ifdef HAVE_LIBPAM
 int 
-isakmp_cfg_accounting_pam(port, inout)
-	int port;
-	int inout;
+isakmp_cfg_accounting_pam(int port, int inout)
 {
 	int error = 0;
 	pam_handle_t *pam;
@@ -1557,9 +1503,7 @@ isakmp_cfg_accounting_pam(port, inout)
 
 #ifdef HAVE_LIBRADIUS
 static int
-isakmp_cfg_accounting_radius(iph1, inout)
-	struct ph1handle *iph1;
-	int inout;
+isakmp_cfg_accounting_radius(struct ph1handle *iph1, int inout)
 {
 	if (rad_create_request(radius_acct_state, 
 	    RAD_ACCOUNTING_REQUEST) != 0) {
@@ -1632,9 +1576,7 @@ isakmp_cfg_accounting_radius(iph1, inout)
  */
 #ifdef HAVE_LIBRADIUS
 int
-isakmp_cfg_radius_common(radius_state, port)
-	struct rad_handle *radius_state;
-	int port;
+isakmp_cfg_radius_common(struct rad_handle *radius_state, int port)
 { 
 	struct utsname name;
 	static struct hostent *host = NULL;
@@ -1695,11 +1637,7 @@ isakmp_cfg_radius_common(radius_state, port)
 */
 
 int
-isakmp_cfg_accounting_system(port, raddr, usr, inout)
-	int port;
-	struct sockaddr *raddr;
-	char *usr;
-	int inout;
+isakmp_cfg_accounting_system(int port, struct sockaddr *raddr, char *usr, int inout)
 {
 	int error = 0;
 	struct utmpx ut;
@@ -1749,8 +1687,7 @@ isakmp_cfg_accounting_system(port, raddr, usr, inout)
 }
 	
 int 
-isakmp_cfg_getconfig(iph1)
-	struct ph1handle *iph1;
+isakmp_cfg_getconfig(struct ph1handle *iph1)
 {
 	vchar_t *buffer;
 	struct isakmp_pl_attr *attrpl;
@@ -1822,9 +1759,7 @@ isakmp_cfg_getconfig(iph1)
 }
 
 static void
-isakmp_cfg_getaddr4(attr, ip)
-	struct isakmp_data *attr;
-	struct in_addr *ip;
+isakmp_cfg_getaddr4(struct isakmp_data *attr, struct in_addr *ip)
 {
 	size_t alen = ntohs(attr->lorv);
 	in_addr_t *addr;
@@ -1841,11 +1776,7 @@ isakmp_cfg_getaddr4(attr, ip)
 }
 
 static void
-isakmp_cfg_appendaddr4(attr, ip, num, max)
-	struct isakmp_data *attr;
-	struct in_addr *ip;
-	int *num;
-	int max;
+isakmp_cfg_appendaddr4(struct isakmp_data *attr, struct in_addr *ip, int *num, int max)
 {
 	size_t alen = ntohs(attr->lorv);
 	in_addr_t *addr;
@@ -1867,9 +1798,7 @@ isakmp_cfg_appendaddr4(attr, ip, num, max)
 }
 
 static void
-isakmp_cfg_getstring(attr, str)
-	struct isakmp_data *attr;
-	char *str;
+isakmp_cfg_getstring(struct isakmp_data *attr, char *str)
 {
 	size_t alen = ntohs(attr->lorv);
 	char *src;
@@ -1883,11 +1812,7 @@ isakmp_cfg_getstring(attr, str)
 #define IP_MAX 40
 
 void
-isakmp_cfg_iplist_to_str(dest, count, addr, withmask)
-	char *dest;
-	int count;
-	void *addr;
-	int withmask;
+isakmp_cfg_iplist_to_str(char *dest, int count, void *addr, int withmask)
 {
 	int i;
 	int p;
@@ -1921,10 +1846,7 @@ isakmp_cfg_iplist_to_str(dest, count, addr, withmask)
 }
 
 int
-isakmp_cfg_setenv(iph1, envp, envc)
-	struct ph1handle *iph1; 
-	char ***envp;
-	int *envc;
+isakmp_cfg_setenv(struct ph1handle *iph1, char ***envp, int *envc)
 {
 	char addrstr[IP_MAX];
 	/*
@@ -2148,8 +2070,7 @@ isakmp_cfg_setenv(iph1, envp, envc)
 }
 
 int
-isakmp_cfg_resize_pool(size)
-	int size;
+isakmp_cfg_resize_pool(int size)
 {
 	struct isakmp_cfg_port *new_pool;
 	size_t len;
@@ -2205,8 +2126,7 @@ isakmp_cfg_resize_pool(size)
 }
 
 int
-isakmp_cfg_init(cold) 
-	int cold;
+isakmp_cfg_init(int cold)
 {
 	int i;
 	int error;

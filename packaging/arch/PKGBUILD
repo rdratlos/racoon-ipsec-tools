@@ -25,7 +25,6 @@ sha256sums=('SKIP'
 build() {
   cd "racoon-ipsec-tools"
   autoreconf -fi
-  export CFLAGS="$CFLAGS -Wno-old-style-definition"
   ./configure \
     --host=x86_64-linux-gnu \
     --build=x86_64-linux-gnu \

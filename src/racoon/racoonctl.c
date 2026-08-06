@@ -204,7 +204,7 @@ void print_evt __P((struct evt_async *));
 char * fixed_addr __P((char *, char *, int));
 
 static void
-usage()
+usage(void)
 {
 	printf(
 "Usage:\n"
@@ -246,9 +246,7 @@ usage()
 #endif
 
 int
-main(ac, av)
-	int ac;
-	char **av;
+main(int ac, char **av)
 {
 	vchar_t *combuf;
 	int c;
@@ -330,9 +328,7 @@ bad:
  * return command buffer.
  */
 static vchar_t *
-get_combuf(ac, av)
-	int ac;
-	char **av;
+get_combuf(int ac, char **av)
 {
 	struct cmd_tag *cp;
 
@@ -378,17 +374,13 @@ make_request(u_int16_t cmd, u_int16_t proto, size_t len)
 }
 
 static vchar_t *
-f_reload(ac, av)
-	int ac;
-	char **av;
+f_reload(int ac, char **av)
 {
 	return make_request(ADMIN_RELOAD_CONF, 0, 0);
 }
 
 static vchar_t *
-f_getevt(ac, av)
-	int ac;
-	char **av;
+f_getevt(int ac, char **av)
 {
 	evt_quit_event = -1;
 	if (ac >= 1)
@@ -398,17 +390,13 @@ f_getevt(ac, av)
 }
 
 static vchar_t *
-f_getsched(ac, av)
-	int ac;
-	char **av;
+f_getsched(int ac, char **av)
 {
 	return make_request(ADMIN_SHOW_SCHED, 0, 0);
 }
 
 static vchar_t *
-f_getsa(ac, av)
-	int ac;
-	char **av;
+f_getsa(int ac, char **av)
 {
 	int proto;
 
@@ -423,9 +411,7 @@ f_getsa(ac, av)
 }
 
 static vchar_t *
-f_getsacert(ac, av)
-	int ac;
-	char **av;
+f_getsacert(int ac, char **av)
 {
 	vchar_t *buf, *index;
 	struct admin_com_indexes *com;
@@ -447,9 +433,7 @@ f_getsacert(ac, av)
 }
 
 static vchar_t *
-f_flushsa(ac, av)
-	int ac;
-	char **av;
+f_flushsa(int ac, char **av)
 {
 	vchar_t *buf;
 	struct admin_com *head;
@@ -466,9 +450,7 @@ f_flushsa(ac, av)
 }
 
 static vchar_t *
-f_deletesa(ac, av)
-	int ac;
-	char **av;
+f_deletesa(int ac, char **av)
 {
 	vchar_t *buf, *index;
 	int proto;
@@ -514,9 +496,7 @@ out:
 }
 
 static vchar_t *
-f_deleteallsadst(ac, av)
-	int ac;
-	char **av;
+f_deleteallsadst(int ac, char **av)
 {
 	vchar_t *buf, *index;
 	u_int16_t proto;
@@ -539,9 +519,7 @@ out:
 }
 
 static vchar_t *
-f_exchangesa(ac, av)
-	int ac;
-	char **av;
+f_exchangesa(int ac, char **av)
 {
 	vchar_t *buf, *index;
 	u_int16_t proto;
@@ -641,9 +619,7 @@ f_exchangesa(ac, av)
 }
 
 static vchar_t *
-f_vpnc(ac, av)
-	int ac;
-	char **av;
+f_vpnc(int ac, char **av)
 {
 	char *nav[] = {NULL, NULL, NULL, NULL, NULL, NULL};
 	int nac = 0;
@@ -705,9 +681,7 @@ f_vpnc(ac, av)
 }
 
 static vchar_t *
-f_vpnd(ac, av)
-	int ac;
-	char **av;
+f_vpnd(int ac, char **av)
 {
 	char *nav[] = {NULL, NULL, NULL, NULL};
 	int nac = 0;
@@ -733,9 +707,7 @@ f_vpnd(ac, av)
 
 #ifdef ENABLE_HYBRID
 static vchar_t *
-f_logoutusr(ac, av)
-	int ac;
-	char **av;
+f_logoutusr(int ac, char **av)
 {
 	vchar_t *buf;
 	char *user;
@@ -781,10 +753,7 @@ f_logoutusr_unittest(int ac, char **av)
 #endif /* ENABLE_HYBRID */
 
 static vchar_t *
-get_proto_and_index(ac, av, proto)
-	int ac;
-	char **av;
-	u_int16_t *proto;
+get_proto_and_index(int ac, char **av, u_int16_t *proto)
 {
 	vchar_t *index = NULL;
 
@@ -812,8 +781,7 @@ get_proto_and_index(ac, av, proto)
 }
 
 static int
-get_proto(str)
-	char *str;
+get_proto(char *str)
 {
 	struct proto_tag *cp;
 
@@ -833,9 +801,7 @@ get_proto(str)
 }
 
 static vchar_t *
-get_index(ac, av)
-	int ac;
-	char **av;
+get_index(int ac, char **av)
 {
 	int family;
 
@@ -855,8 +821,7 @@ get_index(ac, av)
 }
 
 static int
-get_family(str)
-	char *str;
+get_family(char *str)
 {
 	if (strcmp("inet", str) == 0)
 		return AF_INET;
@@ -869,10 +834,7 @@ get_family(str)
 }
 
 static vchar_t *
-get_comindexes(family, ac, av)
-	int family;
-	int ac;
-	char **av;
+get_comindexes(int family, int ac, char **av)
 {
 	vchar_t *buf = NULL;
 	struct admin_com_indexes *ci;
@@ -978,8 +940,7 @@ get_comindexes(family, ac, av)
 }
 
 static int
-get_comindex(str, name, port, pref)
-	char *str, **name, **port, **pref;
+get_comindex(char *str, char **name, char **port, char **pref)
 {
 	char *p;
 
@@ -1047,8 +1008,7 @@ get_comindex(str, name, port, pref)
 }
 
 static int
-get_ulproto(str)
-	char *str;
+get_ulproto(char *str)
 {
 	struct ulproto_tag *cp;
 
@@ -1069,9 +1029,7 @@ get_ulproto(str)
 
 /* %%% */
 void
-dump_isakmp_sa(buf, len)
-	char *buf;
-	int len;
+dump_isakmp_sa(char *buf, int len)
 {
 	struct ph1dump *pd;
 	struct tm *tm;
@@ -1190,9 +1148,7 @@ char *header3 =
 
 /* %%% */
 void
-dump_internal(buf, tlen)
-	char *buf;
-	int tlen;
+dump_internal(char *buf, int tlen)
 {
 	struct ph2handle *iph2;
 	struct sockaddr *addr;
@@ -1268,8 +1224,7 @@ char *long_h1 =
 
 /* %%% */
 char *
-pindex_isakmp(index)
-	isakmp_index *index;
+pindex_isakmp(isakmp_index *index)
 {
 	static char buf[64];
 	u_char *p;
@@ -1310,9 +1265,7 @@ char *str_sched_id[] = {
 };
 
 void
-print_schedule(buf, len)
-	caddr_t buf;
-	int len;
+print_schedule(caddr_t buf, int len)
 {
 	struct scheddump *sc = (struct scheddump *)buf;
 	struct tm *tm;
@@ -1342,8 +1295,7 @@ print_schedule(buf, len)
 
 
 void
-print_evt(evtdump)
-	struct evt_async *evtdump;
+print_evt(struct evt_async *evtdump)
 {
 	int i;
 	char *srcstr;
@@ -1384,9 +1336,7 @@ print_evt(evtdump)
  * Print ISAKMP mode config info (IP and banner)
  */
 void
-print_cfg(buf, len)
-	caddr_t buf;
-	int len;
+print_cfg(caddr_t buf, int len)
 {
 	struct evt_async *evtdump = (struct evt_async *)buf;
 	struct isakmp_data *attr;
@@ -1485,9 +1435,7 @@ print_cfg(buf, len)
 
 
 char *
-fixed_addr(addr, port, len)
-	char *addr, *port;
-	int len;
+fixed_addr(char *addr, char *port, int len)
 {
 	static char _addr_buf_[BUFSIZ];
 	char *p;
@@ -1514,8 +1462,7 @@ fixed_addr(addr, port, len)
 }
 
 static int
-handle_recv(combuf)
-	vchar_t *combuf;
+handle_recv(vchar_t *combuf)
 {
         struct admin_com *com;
         caddr_t buf;
@@ -1550,7 +1497,7 @@ handle_recv(combuf)
 		else if (evt_quit_event == ec->ec_type) {
 			switch (ec->ec_type) {
 			case EVT_PHASE1_MODE_CFG:
-				print_cfg(ec, len);
+				print_cfg((caddr_t)ec, len);
 				break;
 			default:
 				print_evt(ec);

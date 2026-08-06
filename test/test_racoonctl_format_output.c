@@ -289,6 +289,93 @@ test_dump_internal_single_record(void)
 	return 0;
 }
 
+/*
+ * dump_internal(): the zero-length-address bailout (issue #131's
+ * cross-check; the fix itself is dump_internal()'s own commit, see
+ * doc/dev/v0.9.1-hardening-spec.md §11.1/§11.2(A)). sysdep_sa_len()
+ * trusts sa->sa_len completely on every non-Linux target with zero
+ * validation; a zero-length address there -- corrupt admin-socket
+ * data, or a peer/version that never set sa_len -- left `tlen`
+ * undecremented forever, an infinite loop that filled a real NetBSD
+ * VM's disk with output (§11's own trigger). The fix bails out
+ * ("(zero-length address)", then return) instead of trusting the
+ * length blindly.
+ *
+ * This is fault injection at the fixture level, not integration:
+ * dst is left with sin_len == 0 deliberately, the same malformed
+ * input a corrupt reply buffer would produce -- not a state any real
+ * protocol exchange produces, so this does not attempt to reach it
+ * via a live racoonctl/racoon session (see this file's own header
+ * comment on why these tests exercise racoonctl.c's decode layer
+ * directly instead).
+ *
+ * Only meaningful on the platforms where sysdep_sa_len() actually
+ * reads sa_len at all: on Linux it is *total* -- computed purely from
+ * sa_family, falling back to sizeof(struct sockaddr_in) for anything
+ * it doesn't recognize (libpfkey.h's own comment: "always > 0,
+ * whatever sa_family is") -- so salen can provably never be 0 there,
+ * regardless of what this fixture puts in sin_len (a field Linux's
+ * struct sockaddr_in doesn't even have). The bailout branch is real,
+ * shipped, unconditionally-compiled production code on every
+ * platform; this fixture can only *reach* it on the platform where
+ * the bug it guards against was real to begin with. Matches this
+ * file's own #ifndef __linux__ / sin_len idiom used throughout (e.g.
+ * test_dump_isakmp_sa() above) -- same asymmetry, just load-bearing
+ * for the assertion itself here instead of only for constructing a
+ * valid fixture.
+ */
+static int
+test_dump_internal_zero_length_address_bails_out(void)
+{
+#ifndef __linux__
+	char raw[sizeof(struct ph2handle) + 2 * sizeof(struct sockaddr_in)];
+	struct sockaddr_in *src, *dst;
+	char *out;
+
+	TEST_START("dump_internal() bails out on a zero-length address instead of looping");
+
+	memset(raw, 0, sizeof(raw));
+	src = (struct sockaddr_in *)(raw + sizeof(struct ph2handle));
+	dst = (struct sockaddr_in *)((char *)src + sizeof(struct sockaddr_in));
+
+	src->sin_len = sizeof(*src);
+	src->sin_family = AF_INET;
+	inet_pton(AF_INET, "10.1.1.1", &src->sin_addr);
+
+	/* Deliberately malformed: dst->sin_len left at 0 (memset above),
+	 * dst->sin_family also left unset -- the exact "peer/version that
+	 * never set sa_len" case the fix's own comment describes. */
+
+	long_format = 0;
+	capture_start();
+	dump_internal(raw, 2 * sizeof(struct sockaddr_in));
+	capture_end();
+	out = capture_buf;
+
+	if (strstr(out, "10.1.1.1") == NULL) {
+		printf("(output: %s) ", out);
+		TEST_FAIL("the valid src address before the bad one was not printed");
+	}
+	if (strstr(out, "zero-length address") == NULL) {
+		printf("(output: %s) ", out);
+		TEST_FAIL("bailout message not printed for a zero-length address");
+	}
+
+	TEST_PASS();
+	return 0;
+#else
+	TEST_START("dump_internal() bails out on a zero-length address instead of looping");
+	printf("SKIP (Linux-only build): sysdep_sa_len() is total on Linux -- computed "
+	    "purely from sa_family, never reads/needs sin_len, and provably cannot "
+	    "return 0 for any input (libpfkey.h). The bug this bailout guards "
+	    "against, and so this fixture's ability to reach the bailout at all, "
+	    "is real only on the non-Linux (sa_len-trusting) sysdep_sa_len() "
+	    "branch -- see doc/dev/v0.9.1-hardening-spec.md §11.2(A). Verified "
+	    "on NetBSD, not reproducible in this build.\n");
+	return 0;
+#endif
+}
+
 /* ---- print_schedule(): real struct scheddump formatting ---- */
 
 static int
@@ -795,6 +882,8 @@ main(void)
 	if (test_dump_isakmp_sa_invalid_length_warns() != 0)
 		failed++;
 	if (test_dump_internal_single_record() != 0)
+		failed++;
+	if (test_dump_internal_zero_length_address_bails_out() != 0)
 		failed++;
 	if (test_print_schedule() != 0)
 		failed++;

@@ -45,9 +45,7 @@
 #include "safefile.h"
 
 int
-safefile(path, secret)
-	const char *path;
-	int secret;
+safefile(const char *path, int secret)
 {
 	struct stat s;
 	uid_t me;

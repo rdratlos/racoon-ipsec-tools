@@ -92,9 +92,7 @@ char *script_names[SCRIPT_MAX + 1] = {
 /*%%%*/
 
 int
-rmconf_match_identity(rmconf, id_p)
-	struct remoteconf *rmconf;
-	vchar_t *id_p;
+rmconf_match_identity(struct remoteconf *rmconf, vchar_t *id_p)
 {
 	struct ipsecdoi_id_b *id_b = (struct ipsecdoi_id_b *) id_p->v;
 	struct sockaddr *sa;
@@ -163,10 +161,7 @@ rmconf_match_identity(rmconf, id_p)
 }
 
 static int
-rmconf_match_etype_and_approval(rmconf, etype, approval)
-	struct remoteconf *rmconf;
-	int etype;
-	struct isakmpsa *approval;
+rmconf_match_etype_and_approval(struct remoteconf *rmconf, int etype, struct isakmpsa *approval)
 {
 	struct isakmpsa *p;
 
@@ -197,9 +192,7 @@ enum rmconf_match_t {
 };
 
 static int
-rmconf_match_type(rmsel, rmconf)
-	struct rmconfselector *rmsel;
-	struct remoteconf *rmconf;
+rmconf_match_type(struct rmconfselector *rmsel, struct remoteconf *rmconf)
 {
 	int ret = MATCH_NONE, tmp;
 
@@ -291,9 +284,7 @@ rmconf_match_type(rmsel, rmconf)
 	return ret;
 }
 
-void rmconf_selector_from_ph1(rmsel, iph1)
-	struct rmconfselector *rmsel;
-	struct ph1handle *iph1;
+void rmconf_selector_from_ph1(struct rmconfselector *rmsel, struct ph1handle *iph1)
 {
 	memset(rmsel, 0, sizeof(*rmsel));
 	rmsel->flags = 0;
@@ -305,10 +296,7 @@ void rmconf_selector_from_ph1(rmsel, iph1)
 }
 
 int
-enumrmconf(rmsel, enum_func, enum_arg)
-	struct rmconfselector *rmsel;
-	int (* enum_func)(struct remoteconf *rmconf, void *arg);
-	void *enum_arg;
+enumrmconf(struct rmconfselector *rmsel, int (*enum_func)(struct remoteconf *rmconf, void *arg), void *enum_arg)
 {
 	struct remoteconf *p;
 	int ret = 0;
@@ -347,9 +335,7 @@ struct rmconf_find_context {
 };
 
 static int
-rmconf_find(rmconf, ctx)
-	struct remoteconf *rmconf;
-	void *ctx;
+rmconf_find(struct remoteconf *rmconf, void *ctx)
 {
 	struct rmconf_find_context *fctx = (struct rmconf_find_context *) ctx;
 	int match_type;
@@ -387,9 +373,7 @@ rmconf_find(rmconf, ctx)
  */
 
 struct remoteconf *
-getrmconf(remote, flags)
-	struct sockaddr *remote;
-	int flags;
+getrmconf(struct sockaddr *remote, int flags)
 {
 	struct rmconf_find_context ctx;
 	int n = 0;
@@ -424,8 +408,7 @@ getrmconf(remote, flags)
 }
 
 struct remoteconf *
-getrmconf_by_ph1(iph1)
-	struct ph1handle *iph1;
+getrmconf_by_ph1(struct ph1handle *iph1)
 {
 	struct rmconf_find_context ctx;
 
@@ -471,8 +454,7 @@ getrmconf_by_ph1(iph1)
 }
 
 struct remoteconf *
-getrmconf_by_name(name)
-	const char *name;
+getrmconf_by_name(const char *name)
 {
 	struct remoteconf *p;
 
@@ -492,7 +474,7 @@ getrmconf_by_name(name)
 }
 
 struct remoteconf *
-newrmconf()
+newrmconf(void)
 {
 	struct remoteconf *new;
 	int i;
@@ -550,9 +532,7 @@ newrmconf()
 }
 
 void *
-dupidvl(entry, arg)
-	void *entry;
-	void *arg;
+dupidvl(void *entry, void *arg)
 {
 	struct idspec *id;
 	struct idspec *old = (struct idspec *) entry;
@@ -571,9 +551,7 @@ dupidvl(entry, arg)
 }
 
 void *
-duprsa(entry, arg)
-	void *entry;
-	void *arg;
+duprsa(void *entry, void *arg)
 {
 	struct rsa_key *new;
 
@@ -588,8 +566,7 @@ duprsa(entry, arg)
 
 /* Creates shallow copy of a remote config. Used for "inherit" keyword. */
 struct remoteconf *
-duprmconf_shallow (rmconf)
-	struct remoteconf *rmconf;
+duprmconf_shallow(struct remoteconf *rmconf)
 {
 	struct remoteconf *new;
 	struct proposalspec *prspec;
@@ -612,8 +589,7 @@ duprmconf_shallow (rmconf)
  * prevent both double free() and memory leak during config reload.
  */
 int
-duprmconf_finish (new)
-	struct remoteconf *new;
+duprmconf_finish(struct remoteconf *new)
 {
 	struct remoteconf *rmconf;
 	int i;
@@ -719,8 +695,7 @@ idspec_free(void *data)
 }
 
 void
-delrmconf(rmconf)
-	struct remoteconf *rmconf;
+delrmconf(struct remoteconf *rmconf)
 {
 	int i;
 
@@ -773,8 +748,7 @@ delrmconf(rmconf)
 }
 
 void
-delisakmpsa(sa)
-	struct isakmpsa *sa;
+delisakmpsa(struct isakmpsa *sa)
 {
 	if (sa->dhgrp)
 		oakley_dhgrp_free(sa->dhgrp);
@@ -788,8 +762,7 @@ delisakmpsa(sa)
 }
 
 struct etypes *
-dupetypes(orig)
-	struct etypes *orig;
+dupetypes(struct etypes *orig)
 {
 	struct etypes *new;
 
@@ -810,8 +783,7 @@ dupetypes(orig)
 }
 
 void
-deletypes(e)
-	struct etypes *e;
+deletypes(struct etypes *e)
 {
 	if (e->next)
 		deletypes(e->next);
@@ -822,8 +794,7 @@ deletypes(e)
  * insert into head of list.
  */
 void
-insrmconf(new)
-	struct remoteconf *new;
+insrmconf(struct remoteconf *new)
 {
 	if (new->name == NULL) {
 		new->name = racoon_strdup(saddr2str(new->remote));
@@ -837,14 +808,13 @@ insrmconf(new)
 }
 
 void
-remrmconf(rmconf)
-	struct remoteconf *rmconf;
+remrmconf(struct remoteconf *rmconf)
 {
 	TAILQ_REMOVE(&rmtree, rmconf, chain);
 }
 
 void
-flushrmconf()
+flushrmconf(void)
 {
 	struct remoteconf *p, *next;
 
@@ -856,20 +826,20 @@ flushrmconf()
 }
 
 void
-initrmconf()
+initrmconf(void)
 {
 	TAILQ_INIT(&rmtree);
 }
 
 void
-rmconf_start_reload()
+rmconf_start_reload(void)
 {
 	rmtree_save=rmtree;
 	initrmconf();
 }
 
 void
-rmconf_finish_reload()
+rmconf_finish_reload(void)
 {
 	remoteconf_tailq_head_t rmtree_tmp;
 
@@ -884,9 +854,7 @@ rmconf_finish_reload()
 
 /* check exchange type to be acceptable */
 int
-check_etypeok(rmconf, ctx)
-	struct remoteconf *rmconf;
-	void *ctx;
+check_etypeok(struct remoteconf *rmconf, void *ctx)
 {
 	u_int8_t etype = (u_int8_t) (intptr_t) ctx;
 	struct etypes *e;
@@ -903,7 +871,7 @@ check_etypeok(rmconf, ctx)
 
 /*%%%*/
 struct isakmpsa *
-newisakmpsa()
+newisakmpsa(void)
 {
 	struct isakmpsa *new;
 
@@ -929,9 +897,7 @@ newisakmpsa()
  * insert into tail of list.
  */
 void
-insisakmpsa(new, rmconf)
-	struct isakmpsa *new;
-	struct remoteconf *rmconf;
+insisakmpsa(struct isakmpsa *new, struct remoteconf *rmconf)
 {
 	struct isakmpsa *p;
 
@@ -1077,13 +1043,13 @@ dump_rmconf_single (struct remoteconf *p, void *data)
 }
 
 void
-dumprmconf()
+dumprmconf(void)
 {
 	enumrmconf(NULL, dump_rmconf_single, NULL);
 }
 
 struct idspec *
-newidspec()
+newidspec(void)
 {
 	struct idspec *new;
 
@@ -1096,8 +1062,7 @@ newidspec()
 }
 
 vchar_t *
-script_path_add(path)
-	vchar_t *path;
+script_path_add(vchar_t *path)
 {
 	char *script_dir;
 	vchar_t *new_path;
@@ -1159,8 +1124,7 @@ dupisakmpsa(struct isakmpsa *sa)
 
 #ifdef ENABLE_HYBRID
 int
-isakmpsa_switch_authmethod(authmethod)
-	int authmethod;
+isakmpsa_switch_authmethod(int authmethod)
 {
 	switch(authmethod) {
 	case OAKLEY_ATTR_AUTH_METHOD_HYBRID_RSA_R:
@@ -1198,9 +1162,7 @@ isakmpsa_switch_authmethod(authmethod)
  * returns first match (if any).
  */
 struct isakmpsa *
-checkisakmpsa(pcheck_level, proposal, acceptable)
-	int pcheck_level;
-	struct isakmpsa *proposal, *acceptable;
+checkisakmpsa(int pcheck_level, struct isakmpsa *proposal, struct isakmpsa *acceptable)
 {
 	struct isakmpsa *p;
 

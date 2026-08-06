@@ -173,9 +173,7 @@ usage(int only_version)
 }
 
 int
-main(argc, argv)
-	int argc;
-	char **argv;
+main(int argc, char **argv)
 {
 	FILE *fp = stdin;
 	const char *fname = "<stdin>";
@@ -333,7 +331,7 @@ get_supported(void)
 }
 
 static void
-stdin_loop()
+stdin_loop(void)
 {
 	char line[1024], *semicolon, *comment;
 	size_t linelen = 0;
@@ -633,9 +631,7 @@ sendkeymsg_spigrep(unsigned int satype, struct addrinfo *srcs,
 }
 
 int
-sendkeymsg(buf, len)
-	char *buf;
-	size_t len;
+sendkeymsg(char *buf, size_t len)
 {
 	u_char rbuf[1024 * 32];	/* XXX: Enough ? Should I do MSG_PEEK ? */
 	ssize_t l;
@@ -1032,7 +1028,7 @@ shortdump(struct sadb_msg *msg)
  * Print the timestamp
  */
 static void
-printdate()
+printdate(void)
 {
 	struct timeval tp;
 	int s;

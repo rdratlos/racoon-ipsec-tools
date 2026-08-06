@@ -133,8 +133,7 @@ static int check_typeofcertname __P((int, int));
 static int oakley_padlen __P((int, int));
 static int get_plainrsa_fromlocal __P((struct ph1handle *, int));
 
-int oakley_get_certtype(cert)
-	vchar_t *cert;
+int oakley_get_certtype(vchar_t *cert)
 {
 	if (cert == NULL)
 		return ISAKMP_CERT_NONE;
@@ -143,8 +142,7 @@ int oakley_get_certtype(cert)
 }
 
 static vchar_t *
-dump_isakmp_payload(gen)
-	struct isakmp_gen *gen;
+dump_isakmp_payload(struct isakmp_gen *gen)
 {
 	vchar_t p;
 
@@ -161,8 +159,7 @@ dump_isakmp_payload(gen)
 }
 
 static vchar_t *
-dump_x509(cert)
-	X509 *cert;
+dump_x509(X509 *cert)
 {
 	vchar_t *pl;
 	u_char *bp;
@@ -187,13 +184,13 @@ dump_x509(cert)
 
 
 int
-oakley_get_defaultlifetime()
+oakley_get_defaultlifetime(void)
 {
 	return OAKLEY_ATTR_SA_LD_SEC_DEFAULT;
 }
 
 int
-oakley_dhinit()
+oakley_dhinit(void)
 {
 	/* set DH MODP */
 	INITDHVAL(dh_modp768, OAKLEY_PRIME_MODP768,
@@ -217,8 +214,7 @@ oakley_dhinit()
 }
 
 void
-oakley_dhgrp_free(dhgrp)
-	struct dhgroup *dhgrp;
+oakley_dhgrp_free(struct dhgroup *dhgrp)
 {
 	if (dhgrp->prime)
 		vfree(dhgrp->prime);
@@ -238,8 +234,7 @@ oakley_dhgrp_free(dhgrp)
  * performed, prepending zero bits to the value if necessary.
  */
 static int
-oakley_check_dh_pub(prime, pub0)
-	vchar_t *prime, **pub0;
+oakley_check_dh_pub(vchar_t *prime, vchar_t **pub0)
 {
 	vchar_t *tmp;
 	vchar_t *pub = *pub0;
@@ -275,9 +270,7 @@ oakley_check_dh_pub(prime, pub0)
  * OUT: **gxy
  */
 int
-oakley_dh_compute(dh, pub, priv, pub_p, gxy)
-	const struct dhgroup *dh;
-	vchar_t *pub, *priv, *pub_p, **gxy;
+oakley_dh_compute(const struct dhgroup *dh, vchar_t *pub, vchar_t *priv, vchar_t *pub_p, vchar_t **gxy)
 {
 #ifdef ENABLE_STATS
 	struct timeval start, end;
@@ -329,9 +322,7 @@ oakley_dh_compute(dh, pub, priv, pub_p, gxy)
  * OUT: **pub, **priv
  */
 int
-oakley_dh_generate(dh, pub, priv)
-	const struct dhgroup *dh;
-	vchar_t **pub, **priv;
+oakley_dh_generate(const struct dhgroup *dh, vchar_t **pub, vchar_t **priv)
 {
 #ifdef ENABLE_STATS
 	struct timeval start, end;
@@ -379,9 +370,7 @@ oakley_dh_generate(dh, pub, priv)
  * copy pre-defined dhgroup values.
  */
 int
-oakley_setdhgroup(group, dhgrp)
-	int group;
-	struct dhgroup **dhgrp;
+oakley_setdhgroup(int group, struct dhgroup **dhgrp)
 {
 	struct dhgroup *g;
 
@@ -424,9 +413,7 @@ oakley_setdhgroup(group, dhgrp)
  * modify oakley_compute_keymat() accordingly.
  */
 vchar_t *
-oakley_prf(key, buf, iph1)
-	vchar_t *key, *buf;
-	struct ph1handle *iph1;
+oakley_prf(vchar_t *key, vchar_t *buf, struct ph1handle *iph1)
 {
 	vchar_t *res = NULL;
 	int type;
@@ -454,9 +441,7 @@ oakley_prf(key, buf, iph1)
  * hash
  */
 vchar_t *
-oakley_hash(buf, iph1)
-	vchar_t *buf;
-	struct ph1handle *iph1;
+oakley_hash(vchar_t *buf, struct ph1handle *iph1)
 {
 	vchar_t *res = NULL;
 	int type;
@@ -485,9 +470,7 @@ oakley_hash(buf, iph1)
  *   see seciton 5.5 Phase 2 - Quick Mode in isakmp-oakley-05.
  */
 int
-oakley_compute_keymat(iph2, side)
-	struct ph2handle *iph2;
-	int side;
+oakley_compute_keymat(struct ph2handle *iph2, int side)
 {
 	int error = -1;
 
@@ -521,10 +504,7 @@ end:
  * so we do not implement RFC2409 Appendix B (DOORAK-MAC example).
  */
 static int
-oakley_compute_keymat_x(iph2, side, sa_dir)
-	struct ph2handle *iph2;
-	int side;
-	int sa_dir;
+oakley_compute_keymat_x(struct ph2handle *iph2, int side, int sa_dir)
 {
 	vchar_t *buf = NULL, *res = NULL, *bp;
 	char *p;
@@ -786,10 +766,7 @@ oakley_compute_hashx(struct ph1handle *iph1, ...)
  *   see seciton 5.5 Phase 2 - Quick Mode in isakmp-oakley-05.
  */
 vchar_t *
-oakley_compute_hash3(iph1, msgid, body)
-	struct ph1handle *iph1;
-	u_int32_t msgid;
-	vchar_t *body;
+oakley_compute_hash3(struct ph1handle *iph1, u_int32_t msgid, vchar_t *body)
 {
 	vchar_t *buf = 0, *res = 0;
 	int len;
@@ -840,10 +817,7 @@ end:
  *		prf(SKEYID_a, M-ID | N/D)
  */
 vchar_t *
-oakley_compute_hash1(iph1, msgid, body)
-	struct ph1handle *iph1;
-	u_int32_t msgid;
-	vchar_t *body;
+oakley_compute_hash1(struct ph1handle *iph1, u_int32_t msgid, vchar_t *body)
 {
 	vchar_t *buf = NULL, *res = NULL;
 	char *p;
@@ -893,9 +867,7 @@ end:
  * for gssapi, also include all GSS tokens, and call gss_wrap on the result
  */
 vchar_t *
-oakley_ph1hash_common(iph1, sw)
-	struct ph1handle *iph1;
-	int sw;
+oakley_ph1hash_common(struct ph1handle *iph1, int sw)
 {
 	vchar_t *buf = NULL, *res = NULL, *bp;
 	char *p, *bp2;
@@ -1017,9 +989,7 @@ end:
  *   HASH_I = prf(hash(Ni_b | Nr_b), g^xi | CKY-I | CKY-R | SAi_b | IDii_b)
  */
 vchar_t *
-oakley_ph1hash_base_i(iph1, sw)
-	struct ph1handle *iph1;
-	int sw;
+oakley_ph1hash_base_i(struct ph1handle *iph1, int sw)
 {
 	vchar_t *buf = NULL, *res = NULL, *bp;
 	vchar_t *hashkey = NULL;
@@ -1159,9 +1129,7 @@ end:
  * HASH_R = prf(hash(Ni_b | Nr_b), g^xi | g^xr | CKY-I | CKY-R | SAi_b | IDii_b)
  */
 vchar_t *
-oakley_ph1hash_base_r(iph1, sw)
-	struct ph1handle *iph1;
-	int sw;
+oakley_ph1hash_base_r(struct ph1handle *iph1, int sw)
 {
 	vchar_t *buf = NULL, *res = NULL, *bp;
 	vchar_t *hash = NULL;
@@ -1288,8 +1256,7 @@ end:
  *	        the value is notification type.
  */
 int
-oakley_validate_auth(iph1)
-	struct ph1handle *iph1;
+oakley_validate_auth(struct ph1handle *iph1)
 {
 	vchar_t *my_hash = NULL;
 	int result;
@@ -1651,8 +1618,7 @@ oakley_validate_auth(iph1)
  * NOTE: include certificate type.
  */
 int
-oakley_getmycert(iph1)
-	struct ph1handle *iph1;
+oakley_getmycert(struct ph1handle *iph1)
 {
 	switch (oakley_get_certtype(iph1->rmconf->mycert)) {
 	case ISAKMP_CERT_X509SIGN:
@@ -1675,9 +1641,7 @@ oakley_getmycert(iph1)
 }
 
 static int
-get_plainrsa_fromlocal(iph1, my)
-	struct ph1handle *iph1;
-	int my;
+get_plainrsa_fromlocal(struct ph1handle *iph1, int my)
 {
 	char path[MAXPATHLEN];
 	vchar_t *cert = NULL;
@@ -1728,8 +1692,7 @@ end:
 
 /* get signature */
 int
-oakley_getsign(iph1)
-	struct ph1handle *iph1;
+oakley_getsign(struct ph1handle *iph1)
 {
 	char path[MAXPATHLEN];
 	vchar_t *privkey = NULL;
@@ -1788,8 +1751,7 @@ end:
  * compare certificate name and ID value.
  */
 static int
-oakley_check_certid(iph1)
-	struct ph1handle *iph1;
+oakley_check_certid(struct ph1handle *iph1)
 {
 	struct ipsecdoi_id_b *id_b;
 	vchar_t *name = NULL;
@@ -1971,8 +1933,7 @@ oakley_check_certid(iph1)
 }
 
 static int
-check_typeofcertname(doi, genid)
-	int doi, genid;
+check_typeofcertname(int doi, int genid)
 {
 	switch (doi) {
 	case IPSECDOI_ID_IPV4_ADDR:
@@ -2005,9 +1966,7 @@ check_typeofcertname(doi, genid)
  * save certificate including certificate type.
  */
 int
-oakley_savecert(iph1, gen)
-	struct ph1handle *iph1;
-	struct isakmp_gen *gen;
+oakley_savecert(struct ph1handle *iph1, struct isakmp_gen *gen)
 {
 	vchar_t **c;
 	u_int8_t type;
@@ -2190,9 +2149,7 @@ oakley_savecert(iph1, gen)
  * save certificate including certificate type.
  */
 int
-oakley_savecr(iph1, gen)
-	struct ph1handle *iph1;
-	struct isakmp_gen *gen;
+oakley_savecr(struct ph1handle *iph1, struct isakmp_gen *gen)
 {
 	vchar_t *cert;
 	vchar_t **c;
@@ -2259,9 +2216,7 @@ struct append_cr_ctx {
 };
 
 static int
-oakley_append_rmconf_cr(rmconf, ctx)
-	struct remoteconf *rmconf;
-	void *ctx;
+oakley_append_rmconf_cr(struct remoteconf *rmconf, void *ctx)
 {
 	struct append_cr_ctx *actx = (struct append_cr_ctx *) ctx;
 	vchar_t *buf, *asn1dn = NULL;
@@ -2310,9 +2265,7 @@ err:
  * RFC2048 3.10
  */
 struct payload_list *
-oakley_append_cr(plist, iph1)
-	struct payload_list *plist;
-	struct ph1handle *iph1;
+oakley_append_cr(struct payload_list *plist, struct ph1handle *iph1)
 {
 	struct append_cr_ctx ctx;
 	struct rmconfselector sel;
@@ -2333,8 +2286,7 @@ oakley_append_cr(plist, iph1)
  * check peer's CR.
  */
 int
-oakley_checkcr(iph1)
-	struct ph1handle *iph1;
+oakley_checkcr(struct ph1handle *iph1)
 {
 	int type;
 
@@ -2360,8 +2312,7 @@ oakley_checkcr(iph1)
  * check to need CR payload.
  */
 int
-oakley_needcr(type)
-	int type;
+oakley_needcr(int type)
 {
 	switch (type) {
 	case OAKLEY_ATTR_AUTH_METHOD_DSSSIG:
@@ -2389,8 +2340,7 @@ oakley_needcr(type)
  * enc: SKEYID = prf(H(Ni_b | Nr_b), CKY-I | CKY-R)
  */
 int
-oakley_skeyid(iph1)
-	struct ph1handle *iph1;
+oakley_skeyid(struct ph1handle *iph1)
 {
 	vchar_t *buf = NULL, *bp;
 	char *p;
@@ -2541,8 +2491,7 @@ end:
  * SKEYID_e = prf(SKEYID, SKEYID_a | g^ir | CKY-I | CKY-R | 2)
  */
 int
-oakley_skeyid_dae(iph1)
-	struct ph1handle *iph1;
+oakley_skeyid_dae(struct ph1handle *iph1)
 {
 	vchar_t *buf = NULL;
 	char *p;
@@ -2653,8 +2602,7 @@ end:
  * see Appendix B.
  */
 int
-oakley_compute_enckey(iph1)
-	struct ph1handle *iph1;
+oakley_compute_enckey(struct ph1handle *iph1)
 {
 	u_int keylen, prflen;
 	int error = -1;
@@ -2794,8 +2742,7 @@ end:
  * see 4.1 Phase 1 state in draft-ietf-ipsec-ike.
  */
 int
-oakley_newiv(iph1)
-	struct ph1handle *iph1;
+oakley_newiv(struct ph1handle *iph1)
 {
 	struct isakmp_ivm *newivm = NULL;
 	vchar_t *buf = NULL, *bp;
@@ -2878,9 +2825,7 @@ oakley_newiv(iph1)
  * see 4.2 Phase 2 state in draft-ietf-ipsec-ike.
  */
 struct isakmp_ivm *
-oakley_newiv2(iph1, msgid)
-	struct ph1handle *iph1;
-	u_int32_t msgid;
+oakley_newiv2(struct ph1handle *iph1, u_int32_t msgid)
 {
 	struct isakmp_ivm *newivm = NULL;
 	vchar_t *buf = NULL;
@@ -2951,8 +2896,7 @@ end:
 }
 
 void
-oakley_delivm(ivm)
-	struct isakmp_ivm *ivm;
+oakley_delivm(struct isakmp_ivm *ivm)
 {
 	if (ivm == NULL)
 		return;
@@ -2972,9 +2916,7 @@ oakley_delivm(ivm)
  *   save new iv and old iv.
  */
 vchar_t *
-oakley_do_decrypt(iph1, msg, ivdp, ivep)
-	struct ph1handle *iph1;
-	vchar_t *msg, *ivdp, *ivep;
+oakley_do_decrypt(struct ph1handle *iph1, vchar_t *msg, vchar_t *ivdp, vchar_t *ivep)
 {
 	vchar_t *buf = NULL, *new = NULL;
 	char *pl;
@@ -3093,9 +3035,7 @@ end:
  * encrypt packet.
  */
 vchar_t *
-oakley_do_encrypt(iph1, msg, ivep, ivp)
-	struct ph1handle *iph1;
-	vchar_t *msg, *ivep, *ivp;
+oakley_do_encrypt(struct ph1handle *iph1, vchar_t *msg, vchar_t *ivep, vchar_t *ivp)
 {
 	vchar_t *buf = 0, *new = 0;
 	char *pl;
@@ -3200,8 +3140,7 @@ end:
 
 /* culculate padding length */
 static int
-oakley_padlen(len, base)
-	int len, base;
+oakley_padlen(int len, int base)
 {
 	int padlen;
 

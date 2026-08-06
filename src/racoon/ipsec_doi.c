@@ -170,9 +170,7 @@ struct ph1approvalx_ctx {
  *	NULL	: error occurd.
  */
 int
-ipsecdoi_checkph1proposal(sa, iph1)
-	vchar_t *sa;
-	struct ph1handle *iph1;
+ipsecdoi_checkph1proposal(vchar_t *sa, struct ph1handle *iph1)
 {
 	vchar_t *newsa;		/* new SA payload approved. */
 	struct prop_pair **pair;
@@ -196,9 +194,7 @@ ipsecdoi_checkph1proposal(sa, iph1)
 }
 
 static void
-print_ph1proposal(pair, s)
-	struct prop_pair *pair;
-	struct isakmpsa *s;
+print_ph1proposal(struct prop_pair *pair, struct isakmpsa *s)
 {
 	struct isakmp_pl_p *prop = pair->prop;
 	struct isakmp_pl_t *trns = pair->trns;
@@ -237,10 +233,7 @@ print_ph1proposal(pair, s)
  */
 
 static vchar_t *
-get_ph1approval(iph1, doitype, sittype, pair)
-	struct ph1handle *iph1;
-	u_int32_t doitype, sittype;
-	struct prop_pair **pair;
+get_ph1approval(struct ph1handle *iph1, u_int32_t doitype, u_int32_t sittype, struct prop_pair **pair)
 {
 	vchar_t *newsa;
 	struct ph1approvalx_ctx ctx;
@@ -350,9 +343,7 @@ saok:
  * and select one if suiatable.
  */
 static int
-get_ph1approvalx(rmconf, ctx)
-	struct remoteconf *rmconf;
-	void *ctx;
+get_ph1approvalx(struct remoteconf *rmconf, void *ctx)
 {
 	struct ph1approvalx_ctx *pctx = (struct ph1approvalx_ctx *) ctx;
 	struct isakmpsa *sa;
@@ -395,10 +386,7 @@ get_ph1approvalx(rmconf, ctx)
  * get ISAKMP data attributes
  */
 static int
-t2isakmpsa(trns, sa, vendorid_mask)
-	struct isakmp_pl_t *trns;
-	struct isakmpsa *sa;
-	u_int32_t vendorid_mask;
+t2isakmpsa(struct isakmp_pl_t *trns, struct isakmpsa *sa, u_int32_t vendorid_mask)
 {
 	struct isakmp_data *d, *prev;
 	int flag, type;
@@ -772,8 +760,7 @@ t2isakmpsa_unittest(struct isakmp_pl_t *trns, struct isakmpsa *sa,
  *	-1: error occured.
  */
 int
-ipsecdoi_selectph2proposal(iph2)
-	struct ph2handle *iph2;
+ipsecdoi_selectph2proposal(struct ph2handle *iph2)
 {
 	struct prop_pair **pair;
 	struct prop_pair *ret;
@@ -809,8 +796,7 @@ ipsecdoi_selectph2proposal(iph2)
  *	-1: invalid.
  */
 int
-ipsecdoi_checkph2proposal(iph2)
-	struct ph2handle *iph2;
+ipsecdoi_checkph2proposal(struct ph2handle *iph2)
 {
 	struct prop_pair **rpair = NULL, **spair = NULL;
 	struct prop_pair *p;
@@ -917,8 +903,7 @@ end:
  * XXX cannot understand the comment!
  */
 static int
-cmp_aproppair_i(a, b)
-	struct prop_pair *a, *b;
+cmp_aproppair_i(struct prop_pair *a, struct prop_pair *b)
 {
 	struct prop_pair *p, *q, *r;
 	int len;
@@ -1001,9 +986,7 @@ cmp_aproppair_i(a, b)
  * return a new SA payload to be reply to peer.
  */
 static struct prop_pair *
-get_ph2approval(iph2, pair)
-	struct ph2handle *iph2;
-	struct prop_pair **pair;
+get_ph2approval(struct ph2handle *iph2, struct prop_pair **pair)
 {
 	struct prop_pair *ret;
 	int i;
@@ -1038,9 +1021,7 @@ get_ph2approval(iph2, pair)
  * set a approval.
  */
 static struct prop_pair *
-get_ph2approvalx(iph2, pp)
-	struct ph2handle *iph2;
-	struct prop_pair *pp;
+get_ph2approvalx(struct ph2handle *iph2, struct prop_pair *pp)
 {
 	struct prop_pair *ret = NULL;
 	struct saprop *pr0, *pr = NULL;
@@ -1137,8 +1118,7 @@ found:
 }
 
 void
-free_proppair(pair)
-	struct prop_pair **pair;
+free_proppair(struct prop_pair **pair)
 {
 	int i;
 
@@ -1150,8 +1130,7 @@ free_proppair(pair)
 }
 
 static void
-free_proppair0(pair)
-	struct prop_pair *pair;
+free_proppair0(struct prop_pair *pair)
 {
 	struct prop_pair *p, *q, *r, *s;
 
@@ -1173,10 +1152,7 @@ free_proppair0(pair)
  * tiny check for proposal payload.
  */
 static struct prop_pair **
-get_proppair_and_doi_sit(sa, mode, doitype, sittype)
-	vchar_t *sa;
-	int mode;
-	u_int32_t *doitype, *sittype;
+get_proppair_and_doi_sit(vchar_t *sa, int mode, u_int32_t *doitype, u_int32_t *sittype)
 {
 	struct prop_pair **pair = NULL;
 	int num_p = 0;			/* number of proposal for use */
@@ -1341,9 +1317,7 @@ bad:
 }
 
 struct prop_pair **
-get_proppair(sa, mode)
-	vchar_t *sa;
-	int mode;
+get_proppair(vchar_t *sa, int mode)
 {
 	return get_proppair_and_doi_sit(sa, mode, NULL, NULL);
 }
@@ -1356,10 +1330,7 @@ get_proppair(sa, mode)
  *	0	: No valid transform found.
  */
 static int
-get_transform(prop, pair, num_p)
-	struct isakmp_pl_p *prop;
-	struct prop_pair **pair;
-	int *num_p;
+get_transform(struct isakmp_pl_p *prop, struct prop_pair **pair, int *num_p)
 {
 	int tlen; /* total length of all transform in a proposal */
 	caddr_t bp;
@@ -1463,9 +1434,7 @@ get_transform(prop, pair, num_p)
  * NOTE: this function make spi value clear.
  */
 vchar_t *
-get_sabyproppair(doitype, sittype, pair)
-	u_int32_t doitype, sittype;
-	struct prop_pair *pair;
+get_sabyproppair(u_int32_t doitype, u_int32_t sittype, struct prop_pair *pair)
 {
 	vchar_t *newsa;
 	int newtlen;
@@ -1528,8 +1497,7 @@ get_sabyproppair(doitype, sittype, pair)
  * update responder's spi
  */
 int
-ipsecdoi_updatespi(iph2)
-	struct ph2handle *iph2;
+ipsecdoi_updatespi(struct ph2handle *iph2)
 {
 	struct prop_pair **pair, *p;
 	struct saprop *pp;
@@ -1587,9 +1555,7 @@ end:
  * make a new SA payload from prop_pair.
  */
 vchar_t *
-get_sabysaprop(pp0, sa0)
-	struct saprop *pp0;
-	vchar_t *sa0;
+get_sabysaprop(struct saprop *pp0, vchar_t *sa0)
 {
 	struct prop_pair **pair = NULL;
 	vchar_t *newsa = NULL;
@@ -1702,8 +1668,7 @@ out:
  * to care of it.
  */
 static u_int32_t
-ipsecdoi_set_ld(buf)
-	vchar_t *buf;
+ipsecdoi_set_ld(vchar_t *buf)
 {
 	u_int32_t ld;
 
@@ -1731,10 +1696,7 @@ ipsecdoi_set_ld(buf)
  * parse responder-lifetime attributes from payload
  */
 int
-ipsecdoi_parse_responder_lifetime(notify, lifetime_sec, lifetime_kb)
-	struct isakmp_pl_n *notify;
-	u_int32_t *lifetime_sec;
-	u_int32_t *lifetime_kb;
+ipsecdoi_parse_responder_lifetime(struct isakmp_pl_n *notify, u_int32_t *lifetime_sec, u_int32_t *lifetime_kb)
 {
 	struct isakmp_data *d;
 	int flag, type, tlen, ld_type = -1;
@@ -1822,8 +1784,7 @@ ipsecdoi_parse_responder_lifetime(notify, lifetime_sec, lifetime_kb)
  * check DOI
  */
 static int
-check_doi(doi)
-	u_int32_t doi;
+check_doi(u_int32_t doi)
 {
 	switch (doi) {
 	case IPSEC_DOI:
@@ -1840,8 +1801,7 @@ check_doi(doi)
  * check situation
  */
 static int
-check_situation(sit)
-	u_int32_t sit;
+check_situation(u_int32_t sit)
 {
 	switch (sit) {
 	case IPSECDOI_SIT_IDENTITY_ONLY:
@@ -1865,8 +1825,7 @@ check_situation(sit)
  * check protocol id in main mode
  */
 static int
-check_prot_main(proto_id)
-	int proto_id;
+check_prot_main(int proto_id)
 {
 	switch (proto_id) {
 	case IPSECDOI_PROTO_ISAKMP:
@@ -1884,8 +1843,7 @@ check_prot_main(proto_id)
  * check protocol id in quick mode
  */
 static int
-check_prot_quick(proto_id)
-	int proto_id;
+check_prot_quick(int proto_id)
 {
 	switch (proto_id) {
 	case IPSECDOI_PROTO_IPSEC_AH:
@@ -1904,8 +1862,7 @@ check_prot_quick(proto_id)
 }
 
 static int
-check_spi_size(proto_id, size)
-	int proto_id, size;
+check_spi_size(int proto_id, int size)
 {
 	switch (proto_id) {
 	case IPSECDOI_PROTO_ISAKMP:
@@ -1946,8 +1903,7 @@ check_spi_size(proto_id, size)
  * check transform ID in ISAKMP.
  */
 static int
-check_trns_isakmp(t_id)
-	int t_id;
+check_trns_isakmp(int t_id)
 {
 	switch (t_id) {
 	case IPSECDOI_KEY_IKE:
@@ -1965,8 +1921,7 @@ check_trns_isakmp(t_id)
  * check transform ID in AH.
  */
 static int
-check_trns_ah(t_id)
-	int t_id;
+check_trns_ah(int t_id)
 {
 	switch (t_id) {
 	case IPSECDOI_AH_MD5:
@@ -1991,8 +1946,7 @@ check_trns_ah(t_id)
  * check transform ID in ESP.
  */
 static int
-check_trns_esp(t_id)
-	int t_id;
+check_trns_esp(int t_id)
 {
 	switch (t_id) {
 	case IPSECDOI_ESP_DES:
@@ -2025,8 +1979,7 @@ check_trns_esp(t_id)
  * check transform ID in IPCOMP.
  */
 static int
-check_trns_ipcomp(t_id)
-	int t_id;
+check_trns_ipcomp(int t_id)
 {
 	switch (t_id) {
 	case IPSECDOI_IPCOMP_OUI:
@@ -2045,8 +1998,7 @@ check_trns_ipcomp(t_id)
  * check data attributes in IKE.
  */
 static int
-check_attr_isakmp(trns)
-	struct isakmp_pl_t *trns;
+check_attr_isakmp(struct isakmp_pl_t *trns)
 {
 	struct isakmp_data *d;
 	int tlen;
@@ -2246,23 +2198,19 @@ check_attr_isakmp(trns)
  * check data attributes in IPSEC AH/ESP.
  */
 static int
-check_attr_ah(trns)
-	struct isakmp_pl_t *trns;
+check_attr_ah(struct isakmp_pl_t *trns)
 {
 	return check_attr_ipsec(IPSECDOI_PROTO_IPSEC_AH, trns);
 }
 
 static int
-check_attr_esp(trns)
-	struct isakmp_pl_t *trns;
+check_attr_esp(struct isakmp_pl_t *trns)
 {
 	return check_attr_ipsec(IPSECDOI_PROTO_IPSEC_ESP, trns);
 }
 
 static int
-check_attr_ipsec(proto_id, trns)
-	int proto_id;
-	struct isakmp_pl_t *trns;
+check_attr_ipsec(int proto_id, struct isakmp_pl_t *trns)
 {
 	struct isakmp_data *d;
 	int tlen;
@@ -2482,8 +2430,7 @@ ahmismatch:
 }
 
 static int
-check_attr_ipcomp(trns)
-	struct isakmp_pl_t *trns;
+check_attr_ipcomp(struct isakmp_pl_t *trns)
 {
 	struct isakmp_data *d;
 	int tlen;
@@ -2632,9 +2579,7 @@ check_attr_ipcomp(trns)
  * NOT INCLUDING isakmp general header of SA payload
  */
 vchar_t *
-ipsecdoi_setph1proposal(rmconf, props)
-	struct remoteconf *rmconf;
-	struct isakmpsa *props;
+ipsecdoi_setph1proposal(struct remoteconf *rmconf, struct isakmpsa *props)
 {
 	vchar_t *mysa;
 	int sablen;
@@ -2662,9 +2607,7 @@ ipsecdoi_setph1proposal(rmconf, props)
 }
 
 static int
-setph1prop(props, buf)
-	struct isakmpsa *props;
-	caddr_t buf;
+setph1prop(struct isakmpsa *props, caddr_t buf)
 {
 	struct isakmp_pl_p *prop = NULL;
 	struct isakmpsa *s = NULL;
@@ -2713,9 +2656,7 @@ setph1prop(props, buf)
 }
 
 static int
-setph1trns(sa, buf)
-	struct isakmpsa *sa;
-	caddr_t buf;
+setph1trns(struct isakmpsa *sa, caddr_t buf)
 {
 	struct isakmp_pl_t *trns = NULL;
 	int trnslen, attrlen;
@@ -2743,9 +2684,7 @@ setph1trns(sa, buf)
 }
 
 static int
-setph1attr(sa, buf)
-	struct isakmpsa *sa;
-	caddr_t buf;
+setph1attr(struct isakmpsa *sa, caddr_t buf)
 {
 	caddr_t p = buf;
 	int attrlen = 0;
@@ -2925,10 +2864,7 @@ setph1attr(sa, buf)
 }
 
 static vchar_t *
-setph2proposal0(iph2, pp, pr)
-	const struct ph2handle *iph2;
-	const struct saprop *pp;
-	const struct saproto *pr;
+setph2proposal0(const struct ph2handle *iph2, const struct saprop *pp, const struct saproto *pr)
 {
 	vchar_t *p;
 	struct isakmp_pl_p *prop;
@@ -3146,8 +3082,7 @@ setph2proposal0(iph2, pp, pr)
  * This function is called by initiator only.
  */
 int
-ipsecdoi_setph2proposal(iph2)
-	struct ph2handle *iph2;
+ipsecdoi_setph2proposal(struct ph2handle *iph2)
 {
 	struct saprop *proposal, *a;
 	struct saproto *b = NULL;
@@ -3221,8 +3156,7 @@ ipsecdoi_setph2proposal(iph2)
  * return 1 if all of the given protocols are transport mode.
  */
 int
-ipsecdoi_transportmode(pp)
-	struct saprop *pp;
+ipsecdoi_transportmode(struct saprop *pp)
 {
 	struct saproto *pr = NULL;
 
@@ -3239,14 +3173,13 @@ ipsecdoi_transportmode(pp)
 }
 
 int
-ipsecdoi_get_defaultlifetime()
+ipsecdoi_get_defaultlifetime(void)
 {
 	return IPSECDOI_ATTR_SA_LD_SEC_DEFAULT;
 }
 
 int
-ipsecdoi_checkalgtypes(proto_id, enc, auth, comp)
-	int proto_id, enc, auth, comp;
+ipsecdoi_checkalgtypes(int proto_id, int enc, int auth, int comp)
 {
 #define TMPALGTYPE2STR(n) s_algtype(algclass_ipsec_##n, n)
 	switch (proto_id) {
@@ -3293,8 +3226,7 @@ ipsecdoi_checkalgtypes(proto_id, enc, auth, comp)
 }
 
 int
-ipproto2doi(proto)
-	int proto;
+ipproto2doi(int proto)
 {
 	switch (proto) {
 	case IPPROTO_AH:
@@ -3308,8 +3240,7 @@ ipproto2doi(proto)
 }
 
 int
-doi2ipproto(proto)
-	int proto;
+doi2ipproto(int proto)
 {
 	switch (proto) {
 	case IPSECDOI_PROTO_IPSEC_AH:
@@ -3332,9 +3263,7 @@ doi2ipproto(proto)
  */
 
 int
-ipsecdoi_subnetisaddr_v4( subnet, address )
-	const vchar_t *subnet;
-	const vchar_t *address;
+ipsecdoi_subnetisaddr_v4(const vchar_t *subnet, const vchar_t *address)
 {
 	struct in_addr *mask;
 
@@ -3355,9 +3284,7 @@ ipsecdoi_subnetisaddr_v4( subnet, address )
 #ifdef INET6
 
 int
-ipsecdoi_subnetisaddr_v6( subnet, address )
-	const vchar_t *subnet;
-	const vchar_t *address;
+ipsecdoi_subnetisaddr_v6(const vchar_t *subnet, const vchar_t *address)
 {
 	struct in6_addr *mask;
 	int i;
@@ -3389,10 +3316,7 @@ ipsecdoi_subnetisaddr_v6( subnet, address )
  */
 
 int
-ipsecdoi_chkcmpids( idt, ids, exact )
-	const vchar_t *idt; /* id cmp target */
-	const vchar_t *ids; /* id cmp source */
-	int exact;
+ipsecdoi_chkcmpids(const vchar_t *idt, const vchar_t *ids, int exact)
 {
 	struct ipsecdoi_id_b *id_bt;
 	struct ipsecdoi_id_b *id_bs;
@@ -3586,8 +3510,7 @@ cmpid_invalid:
  * both of "id" and "id_p" should be ID payload without general header,
  */
 int
-ipsecdoi_checkid1(iph1)
-	struct ph1handle *iph1;
+ipsecdoi_checkid1(struct ph1handle *iph1)
 {
 	struct ipsecdoi_id_b *id_b;
 
@@ -3675,8 +3598,7 @@ ipsecdoi_checkid1(iph1)
  * see, RFC2407 4.6.2.1
  */
 int
-ipsecdoi_setid1(iph1)
-	struct ph1handle *iph1;
+ipsecdoi_setid1(struct ph1handle *iph1)
 {
 	vchar_t *ret = NULL;
 	struct ipsecdoi_id_b id_b;
@@ -3795,18 +3717,13 @@ err:
 
 /* it's only called by cfparse.y. */
 int
-set_identifier(vpp, type, value)
-	vchar_t **vpp, *value;
-	int type;
+set_identifier(vchar_t **vpp, int type, vchar_t *value)
 {
 	return set_identifier_qual(vpp, type, value, IDQUAL_UNSPEC);
 }
 
 int
-set_identifier_qual(vpp, type, value, qual)
-	vchar_t **vpp, *value;
-	int type;
-	int qual;
+set_identifier_qual(vchar_t **vpp, int type, vchar_t *value, int qual)
 {
 	vchar_t *new = NULL;
 
@@ -3953,8 +3870,7 @@ set_identifier_qual(vpp, type, value, qual)
  * see, RFC2407 4.6.2.1
  */
 int
-ipsecdoi_setid2(iph2)
-	struct ph2handle *iph2;
+ipsecdoi_setid2(struct ph2handle *iph2)
 {
 	struct secpolicy *sp;
 
@@ -4026,10 +3942,7 @@ ipsecdoi_setid2(iph2)
  * NOT INCLUDING general header.
  */
 vchar_t *
-ipsecdoi_sockaddr2id(saddr, prefixlen, ul_proto)
-	struct sockaddr *saddr;
-	u_int prefixlen;
-	u_int ul_proto;
+ipsecdoi_sockaddr2id(struct sockaddr *saddr, u_int prefixlen, u_int ul_proto)
 {
 	vchar_t *new;
 	int type, len1, len2;
@@ -4118,9 +4031,7 @@ ipsecdoi_sockaddr2id(saddr, prefixlen, ul_proto)
 }
 
 vchar_t *
-ipsecdoi_sockrange2id(laddr, haddr, ul_proto)
-	struct sockaddr *laddr, *haddr;
-	u_int ul_proto;
+ipsecdoi_sockrange2id(struct sockaddr *laddr, struct sockaddr *haddr, u_int ul_proto)
 {
 	vchar_t *new;
 	int type, len1, len2;
@@ -4188,11 +4099,7 @@ ipsecdoi_sockrange2id(laddr, haddr, ul_proto)
  * see, RFC2407 4.6.2.1
  */
 int
-ipsecdoi_id2sockaddr(buf, saddr, prefixlen, ul_proto)
-	vchar_t *buf;
-	struct sockaddr *saddr;
-	u_int8_t *prefixlen;
-	u_int16_t *ul_proto;
+ipsecdoi_id2sockaddr(vchar_t *buf, struct sockaddr *saddr, u_int8_t *prefixlen, u_int16_t *ul_proto)
 {
 	struct ipsecdoi_id_b *id_b = NULL;
 	u_int plen = 0;
@@ -4325,8 +4232,7 @@ ipsecdoi_id2sockaddr(buf, saddr, prefixlen, ul_proto)
  * make printable string from ID payload except of general header.
  */
 char *
-ipsecdoi_id2str(id)
-	const vchar_t *id;
+ipsecdoi_id2str(const vchar_t *id)
 {
 #define BUFLEN 512
 	char * ret = NULL;
@@ -4534,11 +4440,7 @@ ipsecdoi_id2str(id)
  * NOTE: MUST called per a transform.
  */
 int
-ipsecdoi_t2satrns(t, pp, pr, tr)
-	struct isakmp_pl_t *t;
-	struct saprop *pp;
-	struct saproto *pr;
-	struct satrns *tr;
+ipsecdoi_t2satrns(struct isakmp_pl_t *t, struct saprop *pp, struct saproto *pr, struct satrns *tr)
 {
 	struct isakmp_data *d, *prev;
 	int flag, type;
@@ -4748,8 +4650,7 @@ end:
 }
 
 int
-ipsecdoi_authalg2trnsid(alg)
-	int alg;
+ipsecdoi_authalg2trnsid(int alg)
 {
 	switch (alg) {
         case IPSECDOI_ATTR_AUTH_HMAC_MD5:
@@ -4789,8 +4690,7 @@ static int rm_idtype2doi[] = {
  *	other: converted.
  */
 int
-idtype2doi(idtype)
-	int idtype;
+idtype2doi(int idtype)
 {
 	if (ARRAYLEN(rm_idtype2doi) > idtype)
 		return rm_idtype2doi[idtype];
@@ -4798,8 +4698,7 @@ idtype2doi(idtype)
 }
 
 int
-doi2idtype(doi)
-	int doi;
+doi2idtype(int doi)
 {
 	switch(doi) {
 	case IPSECDOI_ID_FQDN:

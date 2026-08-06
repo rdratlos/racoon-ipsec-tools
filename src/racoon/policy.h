@@ -162,7 +162,7 @@ extern const char *spidx2str __P((const struct policyindex *));
 #include <selinux/selinux.h>
 extern int get_security_context __P((vchar_t *, struct policyindex *));
 extern void init_avc __P((void));
-extern int within_range __P((security_context_t, security_context_t));
+extern int within_range __P((char *, char *));
 extern void set_secctx_in_proposal __P((struct ph2handle *, struct policyindex));
 #endif
 

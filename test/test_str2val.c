@@ -28,7 +28,7 @@
 #define TEST_START(name) printf("\n[TEST] %s ... ", name); fflush(stdout)
 
 /* Test str2val: hex string -> binary */
-int test_str2val_basic()
+int test_str2val_basic(void)
 {
     size_t len;
     char *result;
@@ -48,7 +48,7 @@ int test_str2val_basic()
 }
 
 /* Test str2val with spaces interspersed */
-int test_str2val_with_spaces()
+int test_str2val_with_spaces(void)
 {
     size_t len;
     char *result;
@@ -68,7 +68,7 @@ int test_str2val_with_spaces()
 }
 
 /* Test str2val with uppercase hex */
-int test_str2val_uppercase()
+int test_str2val_uppercase(void)
 {
     size_t len;
     char *result;
@@ -88,7 +88,7 @@ int test_str2val_uppercase()
 }
 
 /* Test str2val with empty string -> should fail */
-int test_str2val_empty()
+int test_str2val_empty(void)
 {
     size_t len;
     char *result;
@@ -103,7 +103,7 @@ int test_str2val_empty()
 }
 
 /* Test str2val with odd number of hex digits -> should fail */
-int test_str2val_odd_digits()
+int test_str2val_odd_digits(void)
 {
     size_t len;
     char *result;
@@ -118,7 +118,7 @@ int test_str2val_odd_digits()
 }
 
 /* Test str2val with invalid characters -> should fail */
-int test_str2val_invalid_chars()
+int test_str2val_invalid_chars(void)
 {
     size_t len;
     char *result;
@@ -133,7 +133,7 @@ int test_str2val_invalid_chars()
 }
 
 /* Test str2val with single byte */
-int test_str2val_single_byte()
+int test_str2val_single_byte(void)
 {
     size_t len;
     char *result;
@@ -152,7 +152,7 @@ int test_str2val_single_byte()
 }
 
 /* Test str2val with zeros */
-int test_str2val_zeros()
+int test_str2val_zeros(void)
 {
     size_t len;
     char *result;
@@ -171,7 +171,7 @@ int test_str2val_zeros()
 }
 
 /* Test val2str: binary -> hex string */
-int test_val2str_basic()
+int test_val2str_basic(void)
 {
     unsigned char data[] = { 0xDE, 0xAD, 0xBE, 0xEF };
     char *result;
@@ -189,7 +189,7 @@ int test_val2str_basic()
 }
 
 /* Test val2str with spaces every 8 bytes */
-int test_val2str_with_spaces()
+int test_val2str_with_spaces(void)
 {
     unsigned char data[] = {
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
@@ -211,7 +211,7 @@ int test_val2str_with_spaces()
 }
 
 /* Test val2str with empty buffer */
-int test_val2str_empty()
+int test_val2str_empty(void)
 {
     char *result;
 
@@ -228,7 +228,7 @@ int test_val2str_empty()
 }
 
     /* Test val2str roundtrip: str -> binary -> str (7 bytes, no space) */
-int test_str2val_val2str_roundtrip()
+int test_str2val_val2str_roundtrip(void)
 {
     const char *input = "0123456789abcd";
     size_t len;
@@ -252,7 +252,7 @@ int test_str2val_val2str_roundtrip()
 }
 
 /* Test val2str with mixed case in binary produces lowercase hex */
-int test_val2str_lowercase()
+int test_val2str_lowercase(void)
 {
     unsigned char data[] = { 0x00, 0x0F, 0xA0, 0xFF };
     char *result;

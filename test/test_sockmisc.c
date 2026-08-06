@@ -62,7 +62,7 @@ static void make_inet6(struct sockaddr_in6 *sin6, const char *ip, uint16_t port)
 
 /* --- cmpsaddr tests --- */
 
-int test_cmpsaddr_both_null()
+int test_cmpsaddr_both_null(void)
 {
     TEST_START("cmpsaddr both NULL");
 
@@ -73,7 +73,7 @@ int test_cmpsaddr_both_null()
     return 0;
 }
 
-int test_cmpsaddr_one_null()
+int test_cmpsaddr_one_null(void)
 {
     struct sockaddr_in sin1, sin2;
 
@@ -90,7 +90,7 @@ int test_cmpsaddr_one_null()
     return 0;
 }
 
-int test_cmpsaddr_ipv4_exact_match()
+int test_cmpsaddr_ipv4_exact_match(void)
 {
     struct sockaddr_in sin1, sin2;
 
@@ -107,7 +107,7 @@ int test_cmpsaddr_ipv4_exact_match()
     return 0;
 }
 
-int test_cmpsaddr_ipv4_port_mismatch()
+int test_cmpsaddr_ipv4_port_mismatch(void)
 {
     struct sockaddr_in sin1, sin2;
 
@@ -124,7 +124,7 @@ int test_cmpsaddr_ipv4_port_mismatch()
     return 0;
 }
 
-int test_cmpsaddr_ipv4_addr_mismatch()
+int test_cmpsaddr_ipv4_addr_mismatch(void)
 {
     struct sockaddr_in sin1, sin2;
 
@@ -141,7 +141,7 @@ int test_cmpsaddr_ipv4_addr_mismatch()
     return 0;
 }
 
-int test_cmpsaddr_ipv4_wildcard_port_any()
+int test_cmpsaddr_ipv4_wildcard_port_any(void)
 {
     struct sockaddr_in sin1, sin2;
 
@@ -158,7 +158,7 @@ int test_cmpsaddr_ipv4_wildcard_port_any()
     return 0;
 }
 
-int test_cmpsaddr_ipv4_wildcard_port_both()
+int test_cmpsaddr_ipv4_wildcard_port_both(void)
 {
     struct sockaddr_in sin1, sin2;
 
@@ -175,7 +175,7 @@ int test_cmpsaddr_ipv4_wildcard_port_both()
     return 0;
 }
 
-int test_cmpsaddr_ipv6_exact_match()
+int test_cmpsaddr_ipv6_exact_match(void)
 {
     struct sockaddr_in6 sin6a, sin6b;
 
@@ -192,7 +192,7 @@ int test_cmpsaddr_ipv6_exact_match()
     return 0;
 }
 
-int test_cmpsaddr_ipv6_addr_mismatch()
+int test_cmpsaddr_ipv6_addr_mismatch(void)
 {
     struct sockaddr_in6 sin6a, sin6b;
 
@@ -209,7 +209,7 @@ int test_cmpsaddr_ipv6_addr_mismatch()
     return 0;
 }
 
-int test_cmpsaddr_family_mismatch()
+int test_cmpsaddr_family_mismatch(void)
 {
     struct sockaddr_in sin;
     struct sockaddr_in6 sin6;
@@ -227,7 +227,7 @@ int test_cmpsaddr_family_mismatch()
     return 0;
 }
 
-int test_cmpsaddr_unspec()
+int test_cmpsaddr_unspec(void)
 {
     struct sockaddr sa1 = { 0 };
     struct sockaddr sa2 = { 0 };
@@ -246,7 +246,7 @@ int test_cmpsaddr_unspec()
 
 /* --- extract_port tests --- */
 
-int test_extract_port_ipv4()
+int test_extract_port_ipv4(void)
 {
     struct sockaddr_in sin;
 
@@ -261,7 +261,7 @@ int test_extract_port_ipv4()
     return 0;
 }
 
-int test_extract_port_ipv6()
+int test_extract_port_ipv6(void)
 {
     struct sockaddr_in6 sin6;
 
@@ -276,7 +276,7 @@ int test_extract_port_ipv6()
     return 0;
 }
 
-int test_extract_port_null()
+int test_extract_port_null(void)
 {
     TEST_START("extract_port NULL");
 
@@ -287,7 +287,7 @@ int test_extract_port_null()
     return 0;
 }
 
-int test_extract_port_unspec()
+int test_extract_port_unspec(void)
 {
     struct sockaddr sa = { 0 };
 
@@ -304,7 +304,7 @@ int test_extract_port_unspec()
 
 /* --- set_port / get_port_ptr tests --- */
 
-int test_set_port_ipv4()
+int test_set_port_ipv4(void)
 {
     struct sockaddr_in sin;
 
@@ -323,7 +323,7 @@ int test_set_port_ipv4()
     return 0;
 }
 
-int test_set_port_ipv6()
+int test_set_port_ipv6(void)
 {
     struct sockaddr_in6 sin6;
 
@@ -340,7 +340,7 @@ int test_set_port_ipv6()
     return 0;
 }
 
-int test_get_port_ptr_ipv4()
+int test_get_port_ptr_ipv4(void)
 {
     struct sockaddr_in sin;
 
@@ -359,7 +359,7 @@ int test_get_port_ptr_ipv4()
     return 0;
 }
 
-int test_get_port_ptr_null()
+int test_get_port_ptr_null(void)
 {
     TEST_START("get_port_ptr NULL");
 
@@ -372,7 +372,7 @@ int test_get_port_ptr_null()
 
 /* --- newsaddr tests --- */
 
-int test_newsaddr_ipv4()
+int test_newsaddr_ipv4(void)
 {
     struct sockaddr *sa;
 
@@ -388,7 +388,7 @@ int test_newsaddr_ipv4()
     return 0;
 }
 
-int test_newsaddr_ipv6()
+int test_newsaddr_ipv6(void)
 {
     struct sockaddr *sa;
 
@@ -406,7 +406,7 @@ int test_newsaddr_ipv6()
 
 /* --- dupsaddr tests --- */
 
-int test_dupsaddr_ipv4()
+int test_dupsaddr_ipv4(void)
 {
     struct sockaddr_in sin;
     struct sockaddr *copy;
@@ -431,7 +431,7 @@ int test_dupsaddr_ipv4()
     return 0;
 }
 
-int test_dupsaddr_ipv6()
+int test_dupsaddr_ipv6(void)
 {
     struct sockaddr_in6 sin6;
     struct sockaddr *copy;
@@ -456,7 +456,7 @@ int test_dupsaddr_ipv6()
 
 /* --- saddr2str tests --- */
 
-int test_saddr2str_ipv4()
+int test_saddr2str_ipv4(void)
 {
     struct sockaddr_in sin;
     char *str;
@@ -474,7 +474,7 @@ int test_saddr2str_ipv4()
     return 0;
 }
 
-int test_saddr2str_unspec()
+int test_saddr2str_unspec(void)
 {
     struct sockaddr sa = { 0 };
     char *str;
@@ -492,7 +492,7 @@ int test_saddr2str_unspec()
     return 0;
 }
 
-int test_saddr2str_null()
+int test_saddr2str_null(void)
 {
     TEST_START("saddr2str NULL");
 
@@ -503,7 +503,7 @@ int test_saddr2str_null()
     return 0;
 }
 
-int test_saddrwop2str_ipv4()
+int test_saddrwop2str_ipv4(void)
 {
     struct sockaddr_in sin;
     char *str;
@@ -521,7 +521,7 @@ int test_saddrwop2str_ipv4()
     return 0;
 }
 
-int test_saddrwop2str_null()
+int test_saddrwop2str_null(void)
 {
     TEST_START("saddrwop2str NULL");
 
@@ -534,7 +534,7 @@ int test_saddrwop2str_null()
 
 /* --- naddrwop2str tests --- */
 
-int test_naddrwop2str_any()
+int test_naddrwop2str_any(void)
 {
     struct netaddr na = { 0 };
     char *str;
@@ -550,7 +550,7 @@ int test_naddrwop2str_any()
     return 0;
 }
 
-int test_naddrwop2str_with_prefix()
+int test_naddrwop2str_with_prefix(void)
 {
     struct netaddr na = { 0 };
     char *str;
@@ -571,7 +571,7 @@ int test_naddrwop2str_with_prefix()
     return 0;
 }
 
-int test_naddrwop2str_null()
+int test_naddrwop2str_null(void)
 {
     TEST_START("naddrwop2str NULL");
 
@@ -584,7 +584,7 @@ int test_naddrwop2str_null()
 
 /* --- saddr2str_fromto tests --- */
 
-int test_saddr2str_fromto_ipv4()
+int test_saddr2str_fromto_ipv4(void)
 {
     struct sockaddr_in sin1, sin2;
     char *str;
@@ -606,7 +606,7 @@ int test_saddr2str_fromto_ipv4()
     return 0;
 }
 
-int test_saddr2str_fromto_unspec()
+int test_saddr2str_fromto_unspec(void)
 {
     struct sockaddr sa1 = { 0 }, sa2 = { 0 };
     char *str;
@@ -625,7 +625,7 @@ int test_saddr2str_fromto_unspec()
     return 0;
 }
 
-int test_saddr2str_fromto_custom_format()
+int test_saddr2str_fromto_custom_format(void)
 {
     struct sockaddr_in sin1, sin2;
     char *str;
@@ -649,7 +649,7 @@ int test_saddr2str_fromto_custom_format()
 
 /* --- naddrwop2str_fromto tests --- */
 
-int test_naddrwop2str_fromto_both_any()
+int test_naddrwop2str_fromto_both_any(void)
 {
     struct netaddr na1 = { 0 }, na2 = { 0 };
     char *str;
@@ -665,7 +665,7 @@ int test_naddrwop2str_fromto_both_any()
     return 0;
 }
 
-int test_naddrwop2str_fromto_with_prefix()
+int test_naddrwop2str_fromto_with_prefix(void)
 {
     struct netaddr na1 = { 0 }, na2 = { 0 };
     char *str;
@@ -690,7 +690,7 @@ int test_naddrwop2str_fromto_with_prefix()
     return 0;
 }
 
-int test_naddrwop2str_fromto_custom_format()
+int test_naddrwop2str_fromto_custom_format(void)
 {
     struct netaddr na1 = { 0 }, na2 = { 0 };
     char *str;
@@ -710,7 +710,7 @@ int test_naddrwop2str_fromto_custom_format()
 
 /* --- mask_sockaddr tests --- */
 
-int test_mask_sockaddr_ipv4_full_mask()
+int test_mask_sockaddr_ipv4_full_mask(void)
 {
     struct sockaddr_in sin_src, sin_dst;
 
@@ -730,7 +730,7 @@ int test_mask_sockaddr_ipv4_full_mask()
     return 0;
 }
 
-int test_mask_sockaddr_ipv4_zero_mask()
+int test_mask_sockaddr_ipv4_zero_mask(void)
 {
     struct sockaddr_in sin_src, sin_dst;
 
@@ -750,7 +750,7 @@ int test_mask_sockaddr_ipv4_zero_mask()
     return 0;
 }
 
-int test_mask_sockaddr_ipv4_24_mask()
+int test_mask_sockaddr_ipv4_24_mask(void)
 {
     struct sockaddr_in sin_src, sin_dst;
 
@@ -770,7 +770,7 @@ int test_mask_sockaddr_ipv4_24_mask()
     return 0;
 }
 
-int test_mask_sockaddr_ipv4_16_mask()
+int test_mask_sockaddr_ipv4_16_mask(void)
 {
     struct sockaddr_in sin_src, sin_dst;
 
@@ -789,7 +789,7 @@ int test_mask_sockaddr_ipv4_16_mask()
     return 0;
 }
 
-int test_mask_sockaddr_ipv4_8_mask()
+int test_mask_sockaddr_ipv4_8_mask(void)
 {
     struct sockaddr_in sin_src, sin_dst;
 
@@ -808,7 +808,7 @@ int test_mask_sockaddr_ipv4_8_mask()
     return 0;
 }
 
-int test_mask_sockaddr_ipv4_odd_mask()
+int test_mask_sockaddr_ipv4_odd_mask(void)
 {
     struct sockaddr_in sin_src, sin_dst;
 
@@ -828,7 +828,7 @@ int test_mask_sockaddr_ipv4_odd_mask()
     return 0;
 }
 
-int test_mask_sockaddr_ipv4_preserves_port()
+int test_mask_sockaddr_ipv4_preserves_port(void)
 {
     struct sockaddr_in sin_src, sin_dst;
 
@@ -847,7 +847,7 @@ int test_mask_sockaddr_ipv4_preserves_port()
     return 0;
 }
 
-int test_mask_sockaddr_ipv6_full_mask()
+int test_mask_sockaddr_ipv6_full_mask(void)
 {
     struct sockaddr_in6 sin6_src, sin6_dst;
 
@@ -867,7 +867,7 @@ int test_mask_sockaddr_ipv6_full_mask()
     return 0;
 }
 
-int test_mask_sockaddr_ipv6_zero_mask()
+int test_mask_sockaddr_ipv6_zero_mask(void)
 {
     struct sockaddr_in6 sin6_src, sin6_dst;
 
@@ -887,7 +887,7 @@ int test_mask_sockaddr_ipv6_zero_mask()
     return 0;
 }
 
-int test_mask_sockaddr_ipv6_64_mask()
+int test_mask_sockaddr_ipv6_64_mask(void)
 {
     struct sockaddr_in6 sin6_src, sin6_dst;
 
@@ -907,7 +907,7 @@ int test_mask_sockaddr_ipv6_64_mask()
     return 0;
 }
 
-int test_mask_sockaddr_ipv6_odd_mask()
+int test_mask_sockaddr_ipv6_odd_mask(void)
 {
     struct sockaddr_in6 sin6_src, sin6_dst;
 
@@ -929,7 +929,7 @@ int test_mask_sockaddr_ipv6_odd_mask()
 
 /* --- naddr_score tests --- */
 
-int test_naddr_score_null_naddr()
+int test_naddr_score_null_naddr(void)
 {
     TEST_START("naddr_score NULL naddr");
 
@@ -943,7 +943,7 @@ int test_naddr_score_null_naddr()
     return 0;
 }
 
-int test_naddr_score_null_saddr()
+int test_naddr_score_null_saddr(void)
 {
     TEST_START("naddr_score NULL saddr");
 
@@ -958,7 +958,7 @@ int test_naddr_score_null_saddr()
     return 0;
 }
 
-int test_naddr_score_both_null()
+int test_naddr_score_both_null(void)
 {
     TEST_START("naddr_score both NULL");
 
@@ -969,7 +969,7 @@ int test_naddr_score_both_null()
     return 0;
 }
 
-int test_naddr_score_wildcard_any()
+int test_naddr_score_wildcard_any(void)
 {
     TEST_START("naddr_score wildcard (all-zeros netaddr)");
 
@@ -984,7 +984,7 @@ int test_naddr_score_wildcard_any()
     return 0;
 }
 
-int test_naddr_score_family_mismatch()
+int test_naddr_score_family_mismatch(void)
 {
     TEST_START("naddr_score family mismatch");
 
@@ -1002,7 +1002,7 @@ int test_naddr_score_family_mismatch()
     return 0;
 }
 
-int test_naddr_score_exact_match_with_port()
+int test_naddr_score_exact_match_with_port(void)
 {
     TEST_START("naddr_score exact match with port");
 
@@ -1021,7 +1021,7 @@ int test_naddr_score_exact_match_with_port()
     return 0;
 }
 
-int test_naddr_score_exact_match_no_port()
+int test_naddr_score_exact_match_no_port(void)
 {
     TEST_START("naddr_score exact match without port");
 
@@ -1040,7 +1040,7 @@ int test_naddr_score_exact_match_no_port()
     return 0;
 }
 
-int test_naddr_score_24_prefix_match()
+int test_naddr_score_24_prefix_match(void)
 {
     TEST_START("naddr_score /24 prefix match");
 
@@ -1059,7 +1059,7 @@ int test_naddr_score_24_prefix_match()
     return 0;
 }
 
-int test_naddr_score_16_prefix_match()
+int test_naddr_score_16_prefix_match(void)
 {
     TEST_START("naddr_score /16 prefix match");
 
@@ -1078,7 +1078,7 @@ int test_naddr_score_16_prefix_match()
     return 0;
 }
 
-int test_naddr_score_no_match()
+int test_naddr_score_no_match(void)
 {
     TEST_START("naddr_score no match (wrong network)");
 
@@ -1096,7 +1096,7 @@ int test_naddr_score_no_match()
     return 0;
 }
 
-int test_naddr_score_port_mismatch()
+int test_naddr_score_port_mismatch(void)
 {
     TEST_START("naddr_score port mismatch");
 
@@ -1114,7 +1114,7 @@ int test_naddr_score_port_mismatch()
     return 0;
 }
 
-int test_naddr_score_0_prefix_match()
+int test_naddr_score_0_prefix_match(void)
 {
     TEST_START("naddr_score /0 prefix match");
 
@@ -1134,7 +1134,7 @@ int test_naddr_score_0_prefix_match()
     return 0;
 }
 
-int test_naddr_score_ipv6_exact()
+int test_naddr_score_ipv6_exact(void)
 {
     TEST_START("naddr_score IPv6 exact match");
 
@@ -1153,7 +1153,7 @@ int test_naddr_score_ipv6_exact()
     return 0;
 }
 
-int test_naddr_score_ipv6_64_prefix()
+int test_naddr_score_ipv6_64_prefix(void)
 {
     TEST_START("naddr_score IPv6 /64 prefix match");
 
@@ -1172,7 +1172,7 @@ int test_naddr_score_ipv6_64_prefix()
     return 0;
 }
 
-int test_naddr_score_ipv6_no_match()
+int test_naddr_score_ipv6_no_match(void)
 {
     TEST_START("naddr_score IPv6 no match");
 

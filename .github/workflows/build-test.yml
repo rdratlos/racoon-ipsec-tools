@@ -84,7 +84,7 @@ jobs:
         fi
         CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=3" \
         LDFLAGS="-Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -Wl,-z,relro" \
-        CFLAGS="-g -O2 -Werror=implicit-function-declaration -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wformat -Werror=format-security -fcf-protection -Wno-old-style-definition $DIAG_CFLAGS" \
+        CFLAGS="-g -O2 -Werror=implicit-function-declaration -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wformat -Werror=format-security -fcf-protection $DIAG_CFLAGS" \
         ./configure --verbose --host=x86_64-linux-gnu --build=x86_64-linux-gnu \
           --prefix=/usr --sysconfdir=/etc/racoon --libdir=/usr/lib/ipsec-tools \
           --mandir=\${prefix}/share/man --infodir=\${prefix}/share/info \

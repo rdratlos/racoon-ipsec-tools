@@ -38,9 +38,6 @@
 #include <string.h>
 
 #include <selinux/selinux.h>
-#include <selinux/flask.h>
-#include <selinux/av_permissions.h>
-#include <selinux/avc.h>
 #include <selinux/context.h>
 
 #include "var.h"
@@ -60,9 +57,7 @@
  * Get the security context information from SA.
  */
 int
-get_security_context(sa, p)
-	vchar_t *sa;
-	struct policyindex *p;
+get_security_context(vchar_t *sa, struct policyindex *p)
 {
 	int len = 0;
 	int flag, type = 0;
@@ -161,9 +156,7 @@ get_security_context(sa, p)
 }
 
 void
-set_secctx_in_proposal(iph2, spidx)
-	struct ph2handle *iph2;
-	struct policyindex spidx;
+set_secctx_in_proposal(struct ph2handle *iph2, struct policyindex spidx)
 {
 	iph2->proposal->sctx.ctx_doi = spidx.sec_ctx.ctx_doi;
 	iph2->proposal->sctx.ctx_alg = spidx.sec_ctx.ctx_alg;
@@ -188,16 +181,19 @@ void
 init_avc(void)
 {
 	if (!is_selinux_mls_enabled()) {
-		plog(LLV_ERROR, LOCATION, NULL, "racoon: MLS support is not"
-				" enabled.\n");
+		/*
+		 * Expected on any system built with --enable-security-context
+		 * that isn't running an SELinux MLS policy (e.g. no SELinux
+		 * at all, or SELinux in targeted/non-MLS mode) -- not an
+		 * error, so this doesn't warrant LLV_ERROR.
+		 */
+		plog(LLV_INFO, LOCATION, NULL, "racoon: MLS support is not"
+				" enabled; labeled IPsec range checks will be"
+				" skipped.\n");
 		return;
 	}
 
-	if (avc_init("racoon", NULL, NULL, NULL, NULL) == 0)
-		mls_ready = 1;
-	else
-		plog(LLV_ERROR, LOCATION, NULL, 
-		     "racoon: could not initialize avc.\n");
+	mls_ready = 1;
 }
 
 /*
@@ -212,15 +208,8 @@ init_avc(void)
  */
 
 int
-within_range(security_context_t sl, security_context_t range)
+within_range(char *sl, char *range)
 {
-	int rtn = 1;
-	security_id_t slsid;
-	security_id_t rangesid;
-	struct av_decision avd;
-	security_class_t tclass;
-	access_vector_t av;
-
 	if (!*range)	/* This policy doesn't have security context */
 		return 1;
 
@@ -228,38 +217,20 @@ within_range(security_context_t sl, security_context_t range)
 		return 0;
 
 	/*
-	 * Get the sids for the sl and range contexts
+	 * Ask the loaded policy whether sl is permitted the "polmatch"
+	 * permission on range's "association" class. selinux_check_access()
+	 * takes context strings and class/permission names directly and
+	 * manages its own AVC internally, so this needs neither the
+	 * deprecated SID-based API (avc_context_to_sid()/avc_has_perm()/
+	 * sidput()) nor the compile-time class/permission constants that
+	 * used to come from flask.h/av_permissions.h.
 	 */
-	rtn = avc_context_to_sid(sl, &slsid);
-	if (rtn != 0) {
-		plog(LLV_ERROR, LOCATION, NULL, 
-				"within_range: Unable to retrieve "
-				"sid for sl context (%s).\n", sl);
-		return 0;
-	}
-	rtn = avc_context_to_sid(range, &rangesid);
-	if (rtn != 0) {
-		plog(LLV_ERROR, LOCATION, NULL, 
-				"within_range: Unable to retrieve "
-				"sid for range context (%s).\n", range);
-		sidput(slsid);
-		return 0;
-	}
-
-	/* 
-	 * Straight up test between sl and range
-	 */
-	tclass = SECCLASS_ASSOCIATION;
-	av = ASSOCIATION__POLMATCH;
-	rtn = avc_has_perm(slsid, rangesid, tclass, av, NULL, &avd);
-	if (rtn != 0) {
-		plog(LLV_INFO, LOCATION, NULL, 
+	if (selinux_check_access(sl, range, "association", "polmatch", NULL) != 0) {
+		plog(LLV_INFO, LOCATION, NULL,
 			"within_range: The sl is not within range\n");
-		sidput(slsid);
-		sidput(rangesid);
 		return 0;
 	}
-	plog(LLV_DEBUG, LOCATION, NULL, 
+	plog(LLV_DEBUG, LOCATION, NULL,
 		"within_range: The sl (%s) is within range (%s)\n", sl, range);
-		return 1;
+	return 1;
 }

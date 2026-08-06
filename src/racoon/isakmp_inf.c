@@ -121,9 +121,7 @@ static void purge_isakmp_spi __P((int, isakmp_index *, size_t));
  * receive Information
  */
 int
-isakmp_info_recv(iph1, msg0)
-	struct ph1handle *iph1;
-	vchar_t *msg0;
+isakmp_info_recv(struct ph1handle *iph1, vchar_t *msg0)
 {
 	vchar_t *msg = NULL;
 	vchar_t *pbuf = NULL;
@@ -332,10 +330,7 @@ isakmp_info_recv(iph1, msg0)
  * log unhandled / unallowed Notification payload
  */
 int
-isakmp_log_notify(iph1, notify, exchange)
-	struct ph1handle *iph1;
-	struct isakmp_pl_n *notify;
-	const char *exchange;
+isakmp_log_notify(struct ph1handle *iph1, struct isakmp_pl_n *notify, const char *exchange)
 {
 	u_int type;
 	char *nraw, *ndata, *nhex;
@@ -390,11 +385,7 @@ isakmp_log_notify(iph1, notify, exchange)
  * handling of Notification payload
  */
 static int
-isakmp_info_recv_n(iph1, notify, msgid, encrypted)
-	struct ph1handle *iph1;
-	struct isakmp_pl_n *notify;
-	u_int32_t msgid;
-	int encrypted;
+isakmp_info_recv_n(struct ph1handle *iph1, struct isakmp_pl_n *notify, u_int32_t msgid, int encrypted)
 {
 	u_int type;
 
@@ -448,11 +439,7 @@ isakmp_info_recv_n(iph1, notify, msgid, encrypted)
  * handling of Deletion payload
  */
 static int
-isakmp_info_recv_d(iph1, delete, msgid, encrypted)
-	struct ph1handle *iph1;
-	struct isakmp_pl_d *delete;
-	u_int32_t msgid;
-	int encrypted;
+isakmp_info_recv_d(struct ph1handle *iph1, struct isakmp_pl_d *delete, u_int32_t msgid, int encrypted)
 {
 	int tlen, num_spi;
 	vchar_t *pbuf;
@@ -576,8 +563,7 @@ isakmp_info_recv_d(iph1, delete, msgid, encrypted)
  * send Delete payload (for ISAKMP SA) in Informational exchange.
  */
 int
-isakmp_info_send_d1(iph1)
-	struct ph1handle *iph1;
+isakmp_info_send_d1(struct ph1handle *iph1)
 {
 	struct isakmp_pl_d *d;
 	vchar_t *payload = NULL;
@@ -620,8 +606,7 @@ isakmp_info_send_d1(iph1)
  * pfkey msg.  It sends always single SPI.
  */
 int
-isakmp_info_send_d2(iph2)
-	struct ph2handle *iph2;
+isakmp_info_send_d2(struct ph2handle *iph2)
 {
 	struct ph1handle *iph1;
 	struct saproto *pr;
@@ -691,11 +676,7 @@ isakmp_info_send_d2(iph2)
  * send Notification payload (for without ISAKMP SA) in Informational exchange
  */
 int
-isakmp_info_send_nx(isakmp, remote, local, type, data)
-	struct isakmp *isakmp;
-	struct sockaddr *remote, *local;
-	int type;
-	vchar_t *data;
+isakmp_info_send_nx(struct isakmp *isakmp, struct sockaddr *remote, struct sockaddr *local, int type, vchar_t *data)
 {
 	struct ph1handle *iph1 = NULL;
 	vchar_t *payload = NULL;
@@ -766,10 +747,7 @@ isakmp_info_send_nx(isakmp, remote, local, type, data)
  * send Notification payload (for ISAKMP SA) in Informational exchange
  */
 int
-isakmp_info_send_n1(iph1, type, data)
-	struct ph1handle *iph1;
-	int type;
-	vchar_t *data;
+isakmp_info_send_n1(struct ph1handle *iph1, int type, vchar_t *data)
 {
 	vchar_t *payload = NULL;
 	int tlen;
@@ -824,10 +802,7 @@ isakmp_info_send_n1(iph1, type, data)
  * send Notification payload (for IPsec SA) in Informational exchange
  */
 int
-isakmp_info_send_n2(iph2, type, data)
-	struct ph2handle *iph2;
-	int type;
-	vchar_t *data;
+isakmp_info_send_n2(struct ph2handle *iph2, int type, vchar_t *data)
 {
 	struct ph1handle *iph1 = iph2->ph1;
 	vchar_t *payload = NULL;
@@ -875,11 +850,7 @@ isakmp_info_send_n2(iph2, type, data)
  * When ph1->skeyid_a == NULL, send message without encoding.
  */
 int
-isakmp_info_send_common(iph1, payload, np, flags)
-	struct ph1handle *iph1;
-	vchar_t *payload;
-	u_int32_t np;
-	int flags;
+isakmp_info_send_common(struct ph1handle *iph1, vchar_t *payload, u_int32_t np, int flags)
 {
 	struct ph2handle *iph2 = NULL;
 	vchar_t *hash = NULL;
@@ -1030,12 +1001,7 @@ err:
  * XXX Which is SPI to be included, inbound or outbound ?
  */
 vchar_t *
-isakmp_add_pl_n(buf0, np_p, type, pr, data)
-	vchar_t *buf0;
-	u_int8_t **np_p;
-	int type;
-	struct saproto *pr;
-	vchar_t *data;
+isakmp_add_pl_n(vchar_t *buf0, u_int8_t **np_p, int type, struct saproto *pr, vchar_t *data)
 {
 	vchar_t *buf = NULL;
 	struct isakmp_pl_n *n;
@@ -1078,10 +1044,7 @@ isakmp_add_pl_n(buf0, np_p, type, pr, data)
 }
 
 static void
-purge_isakmp_spi(proto, spi, n)
-	int proto;
-	isakmp_index *spi;	/*network byteorder*/
-	size_t n;
+purge_isakmp_spi(int proto, isakmp_index *spi, size_t n)
 {
 	struct ph1handle *iph1;
 	size_t i;
@@ -1104,11 +1067,7 @@ purge_isakmp_spi(proto, spi, n)
 
 
 void
-purge_ipsec_spi(dst0, proto, spi, n)
-	struct sockaddr *dst0;
-	int proto;
-	u_int32_t *spi;	/*network byteorder*/
-	size_t n;
+purge_ipsec_spi(struct sockaddr *dst0, int proto, u_int32_t *spi, size_t n)
 {
 	vchar_t *buf = NULL;
 	struct sadb_msg *msg, *next, *end;
@@ -1236,9 +1195,7 @@ purge_ipsec_spi(dst0, proto, spi, n)
  * restarts.
  */
 int
-isakmp_info_recv_initialcontact(iph1, protectedph2)
-	struct ph1handle *iph1;
-	struct ph2handle *protectedph2;
+isakmp_info_recv_initialcontact(struct ph1handle *iph1, struct ph2handle *protectedph2)
 {
 	vchar_t *buf = NULL;
 	struct sadb_msg *msg, *next, *end;
@@ -1409,10 +1366,7 @@ isakmp_info_recv_initialcontact(iph1, protectedph2)
 
 #ifdef ENABLE_DPD
 static int
-isakmp_info_recv_r_u (iph1, ru, msgid)
-	struct ph1handle *iph1;
-	struct isakmp_pl_ru *ru;
-	u_int32_t msgid;
+isakmp_info_recv_r_u(struct ph1handle *iph1, struct isakmp_pl_ru *ru, u_int32_t msgid)
 {
 	struct isakmp_pl_ru *ru_ack;
 	vchar_t *payload = NULL;
@@ -1455,10 +1409,7 @@ isakmp_info_recv_r_u (iph1, ru, msgid)
 }
 
 static int
-isakmp_info_recv_r_u_ack (iph1, ru, msgid)
-	struct ph1handle *iph1;
-	struct isakmp_pl_ru *ru;
-	u_int32_t msgid;
+isakmp_info_recv_r_u_ack(struct ph1handle *iph1, struct isakmp_pl_ru *ru, u_int32_t msgid)
 {
 	u_int32_t seq;
 
@@ -1500,8 +1451,7 @@ isakmp_info_recv_r_u_ack (iph1, ru, msgid)
  * send DPD R-U-THERE payload in Informational exchange.
  */
 static void
-isakmp_info_send_r_u(sc)
-	struct sched *sc;
+isakmp_info_send_r_u(struct sched *sc)
 {
 	struct ph1handle *iph1 = container_of(sc, struct ph1handle, dpd_r_u);
 
@@ -1583,9 +1533,7 @@ isakmp_info_send_r_u(sc)
 
 /* Schedule a new R-U-THERE */
 int
-isakmp_sched_r_u(iph1, retry)
-	struct ph1handle *iph1;
-	int retry;
+isakmp_sched_r_u(struct ph1handle *iph1, int retry)
 {
 	if(iph1 == NULL ||
 	   iph1->rmconf == NULL)

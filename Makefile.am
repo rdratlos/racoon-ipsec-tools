@@ -4,11 +4,6 @@
 
 ACLOCAL_AMFLAGS = -I m4
 
-# TODO(#68): old-style function definitions being modernized
-# incrementally across ~80% of the codebase. Remove once that work lands —
-# see legacy-cflags-canary.yml, which fails loudly if this becomes stale.
-DISTCHECK_CONFIGURE_FLAGS = CFLAGS="-Wno-old-style-definition"
-
 # systemdsystemunitdir (default: queried from systemd.pc) and
 # environmentdir (default: /etc/default) are both real, distro-convention
 # absolute paths -- deliberately NOT relative to $(prefix), since a

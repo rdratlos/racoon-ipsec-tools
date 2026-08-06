@@ -50,8 +50,7 @@
 #include "gcmalloc.h"
 
 vchar_t *
-vmalloc(size)
-	size_t size;
+vmalloc(size_t size)
 {
 	vchar_t *var;
 
@@ -73,9 +72,7 @@ vmalloc(size)
 }
 
 vchar_t *
-vrealloc(ptr, size)
-	vchar_t *ptr;
-	size_t size;
+vrealloc(vchar_t *ptr, size_t size)
 {
 	caddr_t v;
 	
@@ -103,8 +100,7 @@ vrealloc(ptr, size)
 }
 
 void
-vfree(var)
-	vchar_t *var;
+vfree(vchar_t *var)
 {
 	if (var == NULL)
 		return;
@@ -118,8 +114,7 @@ vfree(var)
 }
 
 vchar_t *
-vdup(src)
-	vchar_t *src;
+vdup(vchar_t *src)
 {
 	vchar_t *new;
 

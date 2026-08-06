@@ -45,7 +45,7 @@ extern double timedelta __P((struct timeval *t1, struct timeval *t2));
  * Test close_on_exec: create a pipe, apply close-on-exec, then verify
  * the FD_CLOEXEC flag is set via fcntl(F_GETFD).
  */
-int test_close_on_exec_basic()
+int test_close_on_exec_basic(void)
 {
     int pipefd[2];
     int fdflags;
@@ -80,7 +80,7 @@ int test_close_on_exec_basic()
 /*
  * Test close_on_exec on both ends of a pipe.
  */
-int test_close_on_exec_both_ends()
+int test_close_on_exec_both_ends(void)
 {
     int pipefd[2];
     int flags0, flags1;
@@ -119,7 +119,7 @@ int test_close_on_exec_both_ends()
  * Test timedelta: t2 > t1, no microsecond borrow needed.
  * t1 = (0, 0), t2 = (5, 0) => delta = 5.0
  */
-int test_timedelta_simple()
+int test_timedelta_simple(void)
 {
     struct timeval t1, t2;
     double result;
@@ -146,7 +146,7 @@ int test_timedelta_simple()
  * Borrow: 5 - 0 - 1 = 4, microsecond part = 1000000 + 200000 - 500000 = 700000
  * => 4.7
  */
-int test_timedelta_borrow()
+int test_timedelta_borrow(void)
 {
     struct timeval t1, t2;
     double result;
@@ -174,7 +174,7 @@ int test_timedelta_borrow()
  * Test timedelta: same times.
  * t1 = t2 => delta = 0.0
  */
-int test_timedelta_zero()
+int test_timedelta_zero(void)
 {
     struct timeval t1, t2;
     double result;
@@ -200,7 +200,7 @@ int test_timedelta_zero()
  * Test timedelta: same seconds, t2.usec > t1.usec.
  * t1 = (10, 100000), t2 = (10, 400000) => 0.3
  */
-int test_timedelta_us_only()
+int test_timedelta_us_only(void)
 {
     struct timeval t1, t2;
     double result;
@@ -226,7 +226,7 @@ int test_timedelta_us_only()
  * Test timedelta: large values.
  * t1 = (0, 0), t2 = (1000000, 500000) => 1000000.5
  */
-int test_timedelta_large()
+int test_timedelta_large(void)
 {
     struct timeval t1, t2;
     double result;
@@ -253,7 +253,7 @@ int test_timedelta_large()
  * Borrow: 100 - 100 - 1 = -1, microsecond = 1000000 + 100000 - 900000 = 200000
  * => -1 + 0.2 = -0.8
  */
-int test_timedelta_negative()
+int test_timedelta_negative(void)
 {
     struct timeval t1, t2;
     double result;
