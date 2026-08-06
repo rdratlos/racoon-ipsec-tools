@@ -2402,9 +2402,7 @@ send_fd(int s, int fd)
 
 #ifdef HAVE_LIBPAM
 int 
-privsep_accounting_pam(port, inout)
-	int port;
-	int inout;
+privsep_accounting_pam(int port, int inout)
 {
 	struct privsep_com_msg *msg;
 	size_t len;
@@ -2462,11 +2460,7 @@ out:
 }
 
 int 
-privsep_xauth_login_pam(port, raddr, usr, pwd)
-	int port;
-	struct sockaddr *raddr;
-	char *usr;
-	char *pwd;
+privsep_xauth_login_pam(int port, struct sockaddr *raddr, char *usr, char *pwd)
 {
 	struct privsep_com_msg *msg;
 	size_t len;
@@ -2533,8 +2527,7 @@ out:
 }
 
 void
-privsep_cleanup_pam(port)
-	int port;
+privsep_cleanup_pam(int port)
 {
 	struct privsep_com_msg *msg;
 	size_t len;

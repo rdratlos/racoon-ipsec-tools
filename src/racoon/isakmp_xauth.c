@@ -639,11 +639,7 @@ xauth_login_radius(iph1, usr, pwd)
 
 #ifdef HAVE_LIBPAM
 static int 
-PAM_conv(msg_count, msg, rsp, dontcare)
-	int msg_count;
-	const struct pam_message **msg;
-	struct pam_response **rsp;
-	void *dontcare;
+PAM_conv(int msg_count, const struct pam_message **msg, struct pam_response **rsp, void *dontcare)
 {
 	int i;
 	int replies = 0;
@@ -716,11 +712,7 @@ err:
 }
 
 int
-xauth_login_pam(port, raddr, usr, pwd)
-	int port;
-	struct sockaddr *raddr;
-	char *usr;
-	char *pwd;
+xauth_login_pam(int port, struct sockaddr *raddr, char *usr, char *pwd)
 {
 	int error;
 	int res;
@@ -886,10 +878,7 @@ out:
 }
 
 int
-xauth_login_ldap(iph1, usr, pwd)
-	struct ph1handle *iph1;
-	char *usr;
-	char *pwd;
+xauth_login_ldap(struct ph1handle *iph1, char *usr, char *pwd)
 {
 	int rtn = -1;
 	int res = -1;
@@ -1159,9 +1148,7 @@ ldap_end:
 }
 
 int
-xauth_group_ldap(udn, grp)
-	char * udn;
-	char * grp;
+xauth_group_ldap(char *udn, char *grp)
 {
 	int rtn = -1;
 	int res = -1;

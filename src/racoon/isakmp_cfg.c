@@ -1427,8 +1427,7 @@ isakmp_cfg_putport(struct ph1handle *iph1, unsigned int index)
 
 #ifdef HAVE_LIBPAM
 void
-cleanup_pam(port)
-	int port;
+cleanup_pam(int port)
 {
 	if (isakmp_cfg_config.port_pool[port].pam != NULL) {
 		pam_end(isakmp_cfg_config.port_pool[port].pam, PAM_SUCCESS);
@@ -1460,9 +1459,7 @@ isakmp_cfg_accounting(struct ph1handle *iph1, int inout)
 
 #ifdef HAVE_LIBPAM
 int 
-isakmp_cfg_accounting_pam(port, inout)
-	int port;
-	int inout;
+isakmp_cfg_accounting_pam(int port, int inout)
 {
 	int error = 0;
 	pam_handle_t *pam;
