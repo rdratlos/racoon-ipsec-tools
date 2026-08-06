@@ -2498,7 +2498,7 @@ get_proposal_r(struct ph2handle *iph2)
 	}
 
 #ifdef HAVE_SECCTX
-	if (spidx.sec_ctx.ctx_str) {
+	if (*spidx.sec_ctx.ctx_str) {
 		set_secctx_in_proposal(iph2, spidx);
 	}
 #endif /* HAVE_SECCTX */
