@@ -491,8 +491,7 @@ pfkey_spdump_withports(struct sadb_msg *m)
  * Pass a non-zero value to suppress them.
  */
 void
-pfkey_spdump_filter_socket_policy(nosock)
-	int nosock;
+pfkey_spdump_filter_socket_policy(int nosock)
 {
 	pfkey_spdump_nosock = nosock;
 }

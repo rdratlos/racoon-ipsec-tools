@@ -172,8 +172,7 @@ void __policy__strbuffer__free__ __P((void));
 static YY_BUFFER_STATE strbuffer;
 
 void
-__policy__strbuffer__init__(msg)
-	char *msg;
+__policy__strbuffer__init__(char *msg)
 {
 	if (YY_CURRENT_BUFFER)
 		yy_delete_buffer(YY_CURRENT_BUFFER);
@@ -184,7 +183,7 @@ __policy__strbuffer__init__(msg)
 }
 
 void
-__policy__strbuffer__free__()
+__policy__strbuffer__free__(void)
 {
 	yy_delete_buffer(strbuffer);
 
