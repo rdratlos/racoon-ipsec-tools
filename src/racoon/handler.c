@@ -109,10 +109,7 @@ extern caddr_t val2str(const char *, size_t);
  * Phase 1 will not interfere with current enumeration process.
  */
 int
-enumph1(sel, enum_func, enum_arg)
-	struct ph1selector *sel;
-	int (* enum_func)(struct ph1handle *iph1, void *arg);
-	void *enum_arg;
+enumph1(struct ph1selector *sel, int (*enum_func)(struct ph1handle *iph1, void *arg), void *enum_arg)
 {
 	struct ph1handle *p, *next;
 	int ret;
@@ -148,8 +145,7 @@ enumph1(sel, enum_func, enum_arg)
 }
 
 struct ph1handle *
-getph1byindex(index)
-	isakmp_index *index;
+getph1byindex(isakmp_index *index)
 {
 	struct ph1handle *p;
 
@@ -168,8 +164,7 @@ getph1byindex(index)
  * search for isakmp handler by i_ck in index.
  */
 struct ph1handle *
-getph1byindex0(index)
-	isakmp_index *index;
+getph1byindex0(isakmp_index *index)
 {
 	struct ph1handle *p;
 
@@ -189,10 +184,7 @@ getph1byindex0(index)
  * with phase 2's destinaion.
  */
 struct ph1handle *
-getph1(ph1hint, local, remote, flags)
-	struct ph1handle *ph1hint;
-	struct sockaddr *local, *remote;
-	int flags;
+getph1(struct ph1handle *ph1hint, struct sockaddr *local, struct sockaddr *remote, int flags)
 {
 	struct ph1handle *p;
 
@@ -248,8 +240,7 @@ getph1(ph1hint, local, remote, flags)
 }
 
 int
-resolveph1rmconf(iph1)
-	struct ph1handle *iph1;
+resolveph1rmconf(struct ph1handle *iph1)
 {
 	struct remoteconf *rmconf;
 
@@ -281,8 +272,7 @@ resolveph1rmconf(iph1)
  * move phase2s from old_iph1 to new_iph1
  */
 void
-migrate_ph12(old_iph1, new_iph1)
-	struct ph1handle *old_iph1, *new_iph1;
+migrate_ph12(struct ph1handle *old_iph1, struct ph1handle *new_iph1)
 {
 	struct ph2handle *p, *next;
 
@@ -301,8 +291,7 @@ migrate_ph12(old_iph1, new_iph1)
 /*
  * the iph1 is new, migrate all phase2s that belong to a dying or dead ph1
  */
-void migrate_dying_ph12(iph1)
-	struct ph1handle *iph1;
+void migrate_dying_ph12(struct ph1handle *iph1)
 {
 	struct ph1handle *p;
 
@@ -323,7 +312,7 @@ void migrate_dying_ph12(iph1)
  * dump isakmp-sa
  */
 vchar_t *
-dumpph1()
+dumpph1(void)
 {
 	struct ph1handle *iph1;
 	struct ph1dump *pd;
@@ -362,7 +351,7 @@ dumpph1()
  * create new isakmp Phase 1 status record to handle isakmp in Phase1
  */
 struct ph1handle *
-newph1()
+newph1(void)
 {
 	struct ph1handle *iph1;
 
@@ -387,8 +376,7 @@ newph1()
  * delete new isakmp Phase 1 status record to handle isakmp in Phase1
  */
 void
-delph1(iph1)
-	struct ph1handle *iph1;
+delph1(struct ph1handle *iph1)
 {
 	if (iph1 == NULL)
 		return;
@@ -479,8 +467,7 @@ delph1(iph1)
  * create new isakmp Phase 1 status record to handle isakmp in Phase1
  */
 int
-insph1(iph1)
-	struct ph1handle *iph1;
+insph1(struct ph1handle *iph1)
 {
 	/* validity check */
 	if (iph1->remote == NULL) {
@@ -494,8 +481,7 @@ insph1(iph1)
 }
 
 void
-remph1(iph1)
-	struct ph1handle *iph1;
+remph1(struct ph1handle *iph1)
 {
 	LIST_REMOVE(iph1, chain);
 }
@@ -504,7 +490,7 @@ remph1(iph1)
  * flush isakmp-sa
  */
 void
-flushph1()
+flushph1(void)
 {
 	struct ph1handle *p, *next;
 
@@ -521,14 +507,13 @@ flushph1()
 }
 
 void
-initph1tree()
+initph1tree(void)
 {
 	LIST_INIT(&ph1tree);
 }
 
 int
-ph1_rekey_enabled(iph1)
-	struct ph1handle *iph1;
+ph1_rekey_enabled(struct ph1handle *iph1)
 {
 	if (iph1->rmconf == NULL)
 		return 0;
@@ -545,10 +530,7 @@ ph1_rekey_enabled(iph1)
 /* %%% management phase 2 handler */
 
 int
-enumph2(sel, enum_func, enum_arg)
-	struct ph2selector *sel;
-	int (*enum_func)(struct ph2handle *ph2, void *arg);
-	void *enum_arg;
+enumph2(struct ph2selector *sel, int (*enum_func)(struct ph2handle *ph2, void *arg), void *enum_arg)
 {
 	struct ph2handle *p, *next;
 	int ret;
@@ -591,8 +573,7 @@ enumph2(sel, enum_func, enum_arg)
  * search ph2handle with sequence number.
  */
 struct ph2handle *
-getph2byseq(seq)
-	u_int32_t seq;
+getph2byseq(u_int32_t seq)
 {
 	struct ph2handle *p;
 
@@ -608,9 +589,7 @@ getph2byseq(seq)
  * search ph2handle with message id.
  */
 struct ph2handle *
-getph2bymsgid(iph1, msgid)
-	struct ph1handle *iph1;
-	u_int32_t msgid;
+getph2bymsgid(struct ph1handle *iph1, u_int32_t msgid)
 {
 	struct ph2handle *p;
 
@@ -632,9 +611,7 @@ getph2bymsgid(iph1, msgid)
  * are in fact useless ...
  */
 struct ph2handle *
-getph2byid(src, dst, spid)
-	struct sockaddr *src, *dst;
-	u_int32_t spid;
+getph2byid(struct sockaddr *src, struct sockaddr *dst, u_int32_t spid)
 {
 	struct ph2handle *p, *next;
 
@@ -664,8 +641,7 @@ getph2byid(src, dst, spid)
 }
 
 struct ph2handle *
-getph2bysaddr(src, dst)
-	struct sockaddr *src, *dst;
+getph2bysaddr(struct sockaddr *src, struct sockaddr *dst)
 {
 	struct ph2handle *p;
 
@@ -682,10 +658,7 @@ getph2bysaddr(src, dst)
  * call by pk_recvexpire().
  */
 struct ph2handle *
-getph2bysaidx(src, dst, proto_id, spi)
-	struct sockaddr *src, *dst;
-	u_int proto_id;
-	u_int32_t spi;
+getph2bysaidx(struct sockaddr *src, struct sockaddr *dst, u_int proto_id, u_int32_t spi)
 {
 	struct ph2handle *iph2;
 	struct saproto *pr;
@@ -719,7 +692,7 @@ getph2bysaidx(src, dst, proto_id, spi)
  * create new isakmp Phase 2 status record to handle isakmp in Phase2
  */
 struct ph2handle *
-newph2()
+newph2(void)
 {
 	struct ph2handle *iph2 = NULL;
 
@@ -740,8 +713,7 @@ newph2()
  *       SPI in the proposal is cleared.
  */
 void
-initph2(iph2)
-	struct ph2handle *iph2;
+initph2(struct ph2handle *iph2)
 {
 	evt_list_cleanup(&iph2->evt_listeners);
 	unbindph12(iph2);
@@ -809,8 +781,7 @@ initph2(iph2)
  * delete new isakmp Phase 2 status record to handle isakmp in Phase2
  */
 void
-delph2(iph2)
-	struct ph2handle *iph2;
+delph2(struct ph2handle *iph2)
 {
 	initph2(iph2);
 
@@ -853,8 +824,7 @@ delph2(iph2)
  * create new isakmp Phase 2 status record to handle isakmp in Phase2
  */
 int
-insph2(iph2)
-	struct ph2handle *iph2;
+insph2(struct ph2handle *iph2)
 {
 	LIST_INSERT_HEAD(&ph2tree, iph2, chain);
 
@@ -862,21 +832,20 @@ insph2(iph2)
 }
 
 void
-remph2(iph2)
-	struct ph2handle *iph2;
+remph2(struct ph2handle *iph2)
 {
 	unbindph12(iph2);
 	LIST_REMOVE(iph2, chain);
 }
 
 void
-initph2tree()
+initph2tree(void)
 {
 	LIST_INIT(&ph2tree);
 }
 
 void
-flushph2()
+flushph2(void)
 {
 	struct ph2handle *p, *next;
 
@@ -908,9 +877,7 @@ flushph2()
  * send a message to the peer).
  */
 void
-deleteallph2(src, dst, proto_id)
-	struct sockaddr *src, *dst;
-	u_int proto_id;
+deleteallph2(struct sockaddr *src, struct sockaddr *dst, u_int proto_id)
 {
 	struct ph2handle *iph2, *next;
 	struct saproto *pr;
@@ -941,9 +908,7 @@ deleteallph2(src, dst, proto_id)
 
 /* %%% */
 void
-bindph12(iph1, iph2)
-	struct ph1handle *iph1;
-	struct ph2handle *iph2;
+bindph12(struct ph1handle *iph1, struct ph2handle *iph2)
 {
 	unbindph12(iph2);
 
@@ -953,8 +918,7 @@ bindph12(iph1, iph2)
 }
 
 void
-unbindph12(iph2)
-	struct ph2handle *iph2;
+unbindph12(struct ph2handle *iph2)
 {
 	if (iph2->ph1 != NULL) {
 		LIST_REMOVE(iph2, ph1bind);
@@ -968,8 +932,7 @@ unbindph12(iph2)
  * search contacted list.
  */
 struct contacted *
-getcontacted(remote)
-	struct sockaddr *remote;
+getcontacted(struct sockaddr *remote)
 {
 	struct contacted *p;
 
@@ -985,8 +948,7 @@ getcontacted(remote)
  * create new isakmp Phase 2 status record to handle isakmp in Phase2
  */
 int
-inscontacted(remote)
-	struct sockaddr *remote;
+inscontacted(struct sockaddr *remote)
 {
 	struct contacted *new;
 
@@ -1009,8 +971,7 @@ inscontacted(remote)
 }
 
 void
-remcontacted(remote)
-	struct sockaddr *remote;
+remcontacted(struct sockaddr *remote)
 {
 	struct contacted *p, *next;
 
@@ -1027,7 +988,7 @@ remcontacted(remote)
 }
 
 void
-initctdtree()
+initctdtree(void)
 {
 	LIST_INIT(&ctdtree);
 }
@@ -1042,9 +1003,7 @@ initctdtree()
  *	-1:	error happened.
  */
 int
-check_recvdpkt(remote, local, rbuf)
-	struct sockaddr *remote, *local;
-	vchar_t *rbuf;
+check_recvdpkt(struct sockaddr *remote, struct sockaddr *local, vchar_t *rbuf)
 {
 	vchar_t *hash;
 	struct recvdpkt *r;
@@ -1120,9 +1079,7 @@ check_recvdpkt(remote, local, rbuf)
  * adding a hash of received packet into the received list.
  */
 int
-add_recvdpkt(remote, local, sbuf, rbuf)
-	struct sockaddr *remote, *local;
-	vchar_t *sbuf, *rbuf;
+add_recvdpkt(struct sockaddr *remote, struct sockaddr *local, vchar_t *sbuf, vchar_t *rbuf)
 {
 	struct recvdpkt *new = NULL;
 
@@ -1176,8 +1133,7 @@ add_recvdpkt(remote, local, sbuf, rbuf)
 }
 
 void
-del_recvdpkt(r)
-	struct recvdpkt *r;
+del_recvdpkt(struct recvdpkt *r)
 {
 	if (r->remote)
 		racoon_free(r->remote);
@@ -1191,15 +1147,13 @@ del_recvdpkt(r)
 }
 
 void
-rem_recvdpkt(r)
-	struct recvdpkt *r;
+rem_recvdpkt(struct recvdpkt *r)
 {
 	LIST_REMOVE(r, chain);
 }
 
 static void
-sweep_recvdpkt(dummy)
-	struct sched *dummy;
+sweep_recvdpkt(struct sched *dummy)
 {
 	struct recvdpkt *r, *next;
 	struct timeval now, diff, sweep;
@@ -1224,7 +1178,7 @@ sweep_recvdpkt(dummy)
 }
 
 void
-init_recvdpkt()
+init_recvdpkt(void)
 {
 	time_t lt = lcconf->retry_counter * lcconf->retry_interval;
 
@@ -1239,8 +1193,7 @@ init_recvdpkt()
  * This should be in isakmp_cfg.c but ph1tree being private, it must be there
  */
 int
-exclude_cfg_addr(addr)
-	const struct sockaddr *addr;
+exclude_cfg_addr(const struct sockaddr *addr)
 {
 	struct ph1handle *p;
 	struct sockaddr_in *sin;
@@ -1565,8 +1518,7 @@ revalidate_ph12(void)
 
 #ifdef ENABLE_HYBRID
 struct ph1handle *
-getph1bylogin(login)
-	char *login;
+getph1bylogin(char *login)
 {
 	struct ph1handle *p;
 
@@ -1581,8 +1533,7 @@ getph1bylogin(login)
 }
 
 int
-purgeph1bylogin(login)
-	char *login;
+purgeph1bylogin(char *login)
 {
 	struct ph1handle *p, *next;
 	int found = 0;

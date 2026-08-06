@@ -68,7 +68,7 @@ struct localconf *lcconf;
 static void setdefault __P((void));
 
 void
-initlcconf()
+initlcconf(void)
 {
 	lcconf = racoon_calloc(1, sizeof(*lcconf));
 	if (lcconf == NULL)
@@ -80,7 +80,7 @@ initlcconf()
 }
 
 void
-flushlcconf()
+flushlcconf(void)
 {
 	int i;
 
@@ -96,7 +96,7 @@ flushlcconf()
 }
 
 static void
-setdefault()
+setdefault(void)
 {
 	lcconf->uid = 0;
 	lcconf->gid = 0;
@@ -126,8 +126,7 @@ setdefault()
  * get PSK by string.
  */
 vchar_t *
-getpskbyname(id0)
-	vchar_t *id0;
+getpskbyname(vchar_t *id0)
 {
 	char *id;
 	vchar_t *key = NULL;
@@ -154,8 +153,7 @@ end:
  * get PSK by address.
  */
 vchar_t *
-getpskbyaddr(remote)
-	struct sockaddr *remote;
+getpskbyaddr(struct sockaddr *remote)
 {
 	vchar_t *key = NULL;
 	char addr[NI_MAXHOST], port[NI_MAXSERV];
@@ -168,9 +166,7 @@ getpskbyaddr(remote)
 }
 
 vchar_t *
-getpsk(str, len)
-	const char *str;
-	const int len;
+getpsk(const char *str, const int len)
 {
 	FILE *fp;
 	char buf[1024];	/* XXX how is variable length ? */
@@ -248,10 +244,7 @@ end:
  * get a file name of a type specified.
  */
 void
-getpathname(path, len, type, name)
-	char *path;
-	int len, type;
-	const char *name;
+getpathname(char *path, int len, int type, const char *name)
 {
 	snprintf(path, len, "%s%s%s", 
 		name[0] == '/' ? "" : lcconf->pathinfo[type],
@@ -304,8 +297,7 @@ static int lc_sittype2doi[] = {
  *	other: converted.
  */
 int
-sittype2doi(sittype)
-	int sittype;
+sittype2doi(int sittype)
 {
 	if (ARRAYLEN(lc_sittype2doi) > sittype)
 		return lc_sittype2doi[sittype];
@@ -322,8 +314,7 @@ static int lc_doitype2doi[] = {
  *	other: converted.
  */
 int
-doitype2doi(doitype)
-	int doitype;
+doitype2doi(int doitype)
 {
 	if (ARRAYLEN(lc_doitype2doi) > doitype)
 		return lc_doitype2doi[doitype];
@@ -333,8 +324,7 @@ doitype2doi(doitype)
 
 
 static void
-saverestore_params(f)
-	int f;
+saverestore_params(int f)
 {
 	static u_int16_t s_port_isakmp;
 
@@ -347,13 +337,13 @@ saverestore_params(f)
 }
 
 void
-restore_params()
+restore_params(void)
 {
 	saverestore_params(1);
 }
 
 void
-save_params()
+save_params(void)
 {
 	saverestore_params(0);
 }

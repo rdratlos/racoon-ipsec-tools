@@ -106,15 +106,13 @@ static void quick_timeover __P((struct ph2handle *));
 
 /* called from scheduler */
 static void
-quick_timeover_stub(p)
-	struct sched *p;
+quick_timeover_stub(struct sched *p)
 {
 	quick_timeover(container_of(p, struct ph2handle, sce));
 }
 
 static void
-quick_timeover(iph2)
-	struct ph2handle *iph2;
+quick_timeover(struct ph2handle *iph2)
 {
 	plog(LLV_ERROR, LOCATION, NULL,
 		"%s give up to get IPsec-SA due to time up to wait.\n",
@@ -135,9 +133,7 @@ quick_timeover(iph2)
  * begin Quick Mode as initiator.  send pfkey getspi message to kernel.
  */
 int
-quick_i1prep(iph2, msg)
-	struct ph2handle *iph2;
-	vchar_t *msg; /* must be null pointer */
+quick_i1prep(struct ph2handle *iph2, vchar_t *msg)
 {
 	int error = ISAKMP_INTERNAL_ERROR;
 
@@ -181,9 +177,7 @@ end:
  * 	HDR*, HASH(1), SA, Ni [, KE ] [, IDi2, IDr2 ] [, NAT-OAi, NAT-OAr ]
  */
 int
-quick_i1send(iph2, msg)
-	struct ph2handle *iph2;
-	vchar_t *msg; /* must be null pointer */
+quick_i1send(struct ph2handle *iph2, vchar_t *msg)
 {
 	vchar_t *body = NULL;
 	vchar_t *hash = NULL;
@@ -397,9 +391,7 @@ end:
  * 	HDR*, HASH(2), SA, Nr [, KE ] [, IDi2, IDr2 ] [, NAT-OAi, NAT-OAr ]
  */
 int
-quick_i2recv(iph2, msg0)
-	struct ph2handle *iph2;
-	vchar_t *msg0;
+quick_i2recv(struct ph2handle *iph2, vchar_t *msg0)
 {
 	vchar_t *msg = NULL;
 	vchar_t *hbuf = NULL;	/* for hash computing. */
@@ -782,9 +774,7 @@ end:
  * 	HDR*, HASH(3)
  */
 int
-quick_i2send(iph2, msg0)
-	struct ph2handle *iph2;
-	vchar_t *msg0;
+quick_i2send(struct ph2handle *iph2, vchar_t *msg0)
 {
 	vchar_t *msg = NULL;
 	vchar_t *buf = NULL;
@@ -920,9 +910,7 @@ end:
  * 	HDR#*, HASH(4), notify
  */
 int
-quick_i3recv(iph2, msg0)
-	struct ph2handle *iph2;
-	vchar_t *msg0;
+quick_i3recv(struct ph2handle *iph2, vchar_t *msg0)
 {
 	vchar_t *msg = NULL;
 	vchar_t *pbuf = NULL;	/* for payload parsing */
@@ -1063,9 +1051,7 @@ end:
  * 	HDR*, HASH(1), SA, Ni [, KE ] [, IDi2, IDr2 ] [, NAT-OAi, NAT-OAr ]
  */
 int
-quick_r1recv(iph2, msg0)
-	struct ph2handle *iph2;
-	vchar_t *msg0;
+quick_r1recv(struct ph2handle *iph2, vchar_t *msg0)
 {
 	vchar_t *msg = NULL;
 	vchar_t *hbuf = NULL;	/* for hash computing. */
@@ -1435,9 +1421,7 @@ end:
  * call pfkey_getspi.
  */
 int
-quick_r1prep(iph2, msg)
-	struct ph2handle *iph2;
-	vchar_t *msg;
+quick_r1prep(struct ph2handle *iph2, vchar_t *msg)
 {
 	int error = ISAKMP_INTERNAL_ERROR;
 
@@ -1470,9 +1454,7 @@ end:
  * 	HDR*, HASH(2), SA, Nr [, KE ] [, IDi2, IDr2 ] [, NAT-OAi, NAT-OAr ]
  */
 int
-quick_r2send(iph2, msg)
-	struct ph2handle *iph2;
-	vchar_t *msg;
+quick_r2send(struct ph2handle *iph2, vchar_t *msg)
 {
 	vchar_t *body = NULL;
 	vchar_t *hash = NULL;
@@ -1721,9 +1703,7 @@ end:
 
  */
 int
-quick_r3recv(iph2, msg0)
-	struct ph2handle *iph2;
-	vchar_t *msg0;
+quick_r3recv(struct ph2handle *iph2, vchar_t *msg0)
 {
 	vchar_t *msg = NULL;
 	vchar_t *pbuf = NULL;	/* for payload parsing */
@@ -1841,9 +1821,7 @@ end:
  * 	HDR#*, HASH(4), notify
  */
 int
-quick_r3send(iph2, msg0)
-	struct ph2handle *iph2;
-	vchar_t *msg0;
+quick_r3send(struct ph2handle *iph2, vchar_t *msg0)
 {
 	vchar_t *buf = NULL;
 	vchar_t *myhash = NULL;
@@ -1943,8 +1921,7 @@ end:
 }
 
 int
-tunnel_mode_prop(p)
-	struct saprop *p;
+tunnel_mode_prop(struct saprop *p)
 {
 	struct saproto *pr;
 
@@ -1958,9 +1935,7 @@ tunnel_mode_prop(p)
  * set SA to kernel.
  */
 int
-quick_r3prep(iph2, msg0)
-	struct ph2handle *iph2;
-	vchar_t *msg0;
+quick_r3prep(struct ph2handle *iph2, vchar_t *msg0)
 {
 	int error = ISAKMP_INTERNAL_ERROR;
 
@@ -2073,9 +2048,7 @@ end:
  * create HASH, body (SA, NONCE) payload with isakmp header.
  */
 static vchar_t *
-quick_ir1mx(iph2, body, hash)
-	struct ph2handle *iph2;
-	vchar_t *body, *hash;
+quick_ir1mx(struct ph2handle *iph2, vchar_t *body, vchar_t *hash)
 {
 	struct isakmp *isakmp;
 	vchar_t *buf = NULL, *new = NULL;
@@ -2140,8 +2113,7 @@ end:
  * NOTE: this function is for responder.
  */
 static int
-get_sainfo_r(iph2)
-	struct ph2handle *iph2;
+get_sainfo_r(struct ph2handle *iph2)
 {
 	vchar_t *idsrc = NULL, *iddst = NULL, *client = NULL;
 	int error = ISAKMP_INTERNAL_ERROR;
@@ -2237,8 +2209,7 @@ end:
  * NOTE: This function is only for responder.
  */
 static int
-get_proposal_r(iph2)
-	struct ph2handle *iph2;
+get_proposal_r(struct ph2handle *iph2)
 {
 	struct policyindex spidx;
 	struct secpolicy *sp_in, *sp_out;
@@ -2543,9 +2514,7 @@ get_proposal_r(iph2)
  * for explicitely.
  */
 static int
-ph2_recv_n(iph2, gen)
-	struct ph2handle *iph2;
-	struct isakmp_gen *gen;
+ph2_recv_n(struct ph2handle *iph2, struct isakmp_gen *gen)
 {
 	struct ph1handle *iph1 = iph2->ph1;
 	struct isakmp_pl_n *notify = (struct isakmp_pl_n *) gen;

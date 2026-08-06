@@ -144,9 +144,7 @@ static __caddr_t eay_hmac_init __P((vchar_t *, const EVP_MD *));
  * e.g. str = "C=JP, ST=Kanagawa";
  */
 vchar_t *
-eay_str2asn1dn(str, len)
-	const char *str;
-	int len;
+eay_str2asn1dn(const char *str, int len)
 {
 	X509_NAME *name;
 	char *buf, *dst;
@@ -313,8 +311,7 @@ out:
  *	      -1: other error.
  */
 int
-eay_cmp_asn1dn(n1, n2)
-	vchar_t *n1, *n2;
+eay_cmp_asn1dn(vchar_t *n1, vchar_t *n2)
 {
 	X509_NAME *a = NULL, *b = NULL;
 	caddr_t p;
@@ -377,11 +374,7 @@ end:
  * this functions is derived from apps/verify.c in OpenSSL0.9.5
  */
 int
-eay_check_x509cert(cert, CApath, CAfile, local)
-	vchar_t *cert;
-	char *CApath;
-	char *CAfile;
-	int local;
+eay_check_x509cert(vchar_t *cert, char *CApath, char *CAfile, int local)
 {
 	X509_STORE *cert_ctx = NULL;
 	X509_LOOKUP *lookup = NULL;
@@ -452,9 +445,7 @@ end:
  * this function is derived from cb() in openssl/apps/s_server.c
  */
 static int
-cb_check_cert_local(ok, ctx)
-	int ok;
-	X509_STORE_CTX *ctx;
+cb_check_cert_local(int ok, X509_STORE_CTX *ctx)
 {
 	char buf[256];
 	int log_tag;
@@ -500,9 +491,7 @@ cb_check_cert_local(ok, ctx)
  * this function is derived from cb() in openssl/apps/s_server.c
  */
 static int
-cb_check_cert_remote(ok, ctx)
-	int ok;
-	X509_STORE_CTX *ctx;
+cb_check_cert_remote(int ok, X509_STORE_CTX *ctx)
 {
 	char buf[256];
 	int log_tag;
@@ -537,8 +526,7 @@ cb_check_cert_remote(ok, ctx)
  * get a subjectName from X509 certificate.
  */
 vchar_t *
-eay_get_x509asn1subjectname(cert)
-	vchar_t *cert;
+eay_get_x509asn1subjectname(vchar_t *cert)
 {
 	X509 *x509 = NULL;
 	u_char *bp;
@@ -580,11 +568,7 @@ error:
  * the name must be terminated by '\0'.
  */
 int
-eay_get_x509subjectaltname(cert, altname, type, pos)
-	vchar_t *cert;
-	char **altname;
-	int *type;
-	int pos;
+eay_get_x509subjectaltname(vchar_t *cert, char **altname, int *type, int pos)
 {
 	X509 *x509 = NULL;
 	GENERAL_NAMES *gens = NULL;
@@ -704,8 +688,7 @@ end:
  * get a issuerName from X509 certificate.
  */
 vchar_t *
-eay_get_x509asn1issuername(cert)
-	vchar_t *cert;
+eay_get_x509asn1issuername(vchar_t *cert)
 {
 	X509 *x509 = NULL;
 	u_char *bp;
@@ -747,8 +730,7 @@ error:
  * return the buffer allocated, so must free it later.
  */
 char *
-eay_get_x509text(cert)
-	vchar_t *cert;
+eay_get_x509text(vchar_t *cert)
 {
 	X509 *x509 = NULL;
 	BIO *bio = NULL;
@@ -798,8 +780,7 @@ end:
 
 /* get X509 structure from buffer. */
 static X509 *
-mem2x509(cert)
-	vchar_t *cert;
+mem2x509(vchar_t *cert)
 {
 	X509 *x509;
 
@@ -839,8 +820,7 @@ mem2x509(cert)
  *	other is the cert.
  */
 vchar_t *
-eay_get_x509cert(path)
-	char *path;
+eay_get_x509cert(char *path)
 {
 	FILE *fp;
 	X509 *x509;
@@ -884,10 +864,7 @@ eay_get_x509cert(path)
  *	0 on success
  */
 int
-eay_check_x509sign(source, sig, cert)
-	vchar_t *source;
-	vchar_t *sig;
-	vchar_t *cert;
+eay_check_x509sign(vchar_t *source, vchar_t *sig, vchar_t *cert)
 {
 	X509 *x509;
 	EVP_PKEY *evp;
@@ -924,10 +901,7 @@ eay_check_x509sign(source, sig, cert)
  *	0 on success
  */
 int
-eay_check_rsasign(source, sig, rsa)
-	vchar_t *source;
-	vchar_t *sig;
-	eayRSA *rsa;
+eay_check_rsasign(vchar_t *source, vchar_t *sig, eayRSA *rsa)
 {
 	if (!rsa) {
 		plog(LLV_ERROR, LOCATION, NULL, "eay_check_rsasign: NULL RSA key\n");
@@ -941,8 +915,7 @@ eay_check_rsasign(source, sig, rsa)
  * get PKCS#1 Private Key of PEM format from local file.
  */
 vchar_t *
-eay_get_pkcs1privkey(path)
-	char *path;
+eay_get_pkcs1privkey(char *path)
 {
 	FILE *fp;
 	EVP_PKEY *evp = NULL;
@@ -991,8 +964,7 @@ end:
  * get PKCS#1 Public Key of PEM format from local file.
  */
 vchar_t *
-eay_get_pkcs1pubkey(path)
-	char *path;
+eay_get_pkcs1pubkey(char *path)
 {
 	FILE *fp;
 	EVP_PKEY *evp = NULL;
@@ -1044,8 +1016,7 @@ end:
 }
 
 vchar_t *
-eay_get_x509sign(src, privkey)
-	vchar_t *src, *privkey;
+eay_get_x509sign(vchar_t *src, vchar_t *privkey)
 {
 	EVP_PKEY *evp;
 	u_char *bp = (unsigned char *) privkey->v;
@@ -1069,9 +1040,7 @@ eay_get_x509sign(src, privkey)
  * OUT: Returns signature in vchar_t* on success, NULL on failure
  */
 vchar_t *
-eay_get_rsasign(src, rsa)
-	vchar_t *src;
-	eayRSA *rsa;
+eay_get_rsasign(vchar_t *src, eayRSA *rsa)
 {
 	if (!rsa) {
 		plog(LLV_ERROR, LOCATION, NULL, "eay_get_rsasign: NULL RSA key\n");
@@ -1112,9 +1081,7 @@ eay_get_rsasign(src, rsa)
  * OUT: Returns signature in vchar_t* on success, NULL on failure
  */
 vchar_t *
-eay_pkey_sign(src, pkey)
-	vchar_t *src;
-	EVP_PKEY *pkey;
+eay_pkey_sign(vchar_t *src, EVP_PKEY *pkey)
 {
 	EVP_PKEY_CTX *ctx = NULL;
 	vchar_t *sig = NULL;
@@ -1224,9 +1191,7 @@ end:
  *      return  0 on successful verification
  */
 int
-eay_pkey_verify(src, sig, pkey)
-	vchar_t *src, *sig;
-	EVP_PKEY *pkey;
+eay_pkey_verify(vchar_t *src, vchar_t *sig, EVP_PKEY *pkey)
 {
 	EVP_PKEY_CTX *ctx = NULL;
 	vchar_t *recovered = NULL;
@@ -1331,17 +1296,13 @@ end:
 
 /* Legacy wrappers for compatibility */
 vchar_t *
-eay_rsa_sign(src, rsa)
-	vchar_t *src;
-	eayRSA *rsa;
+eay_rsa_sign(vchar_t *src, eayRSA *rsa)
 {
 	return eay_get_rsasign(src, rsa);
 }
 
 int
-eay_rsa_verify(src, sig, rsa)
-	vchar_t *src, *sig;
-	eayRSA *rsa;
+eay_rsa_verify(vchar_t *src, vchar_t *sig, eayRSA *rsa)
 {
 	return eay_check_rsasign(src, sig, rsa);
 }
@@ -1350,7 +1311,7 @@ eay_rsa_verify(src, sig, rsa)
  * get error string
  */
 char *
-eay_strerror()
+eay_strerror(void)
 {
 	static char ebuf[512];
 	int len = 0, n;
@@ -1617,22 +1578,19 @@ evp_keylen(int len, const EVP_CIPHER *e)
  * DES-CBC
  */
 vchar_t *
-eay_des_encrypt(data, key, iv)
-	vchar_t *data, *key, *iv;
+eay_des_encrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, EVP_des_cbc(), 1);
 }
 
 vchar_t *
-eay_des_decrypt(data, key, iv)
-	vchar_t *data, *key, *iv;
+eay_des_decrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, EVP_des_cbc(), 0);
 }
 
 int
-eay_des_weakkey(key)
-	vchar_t *key;
+eay_des_weakkey(vchar_t *key)
 {
 	/* DES_is_weak_key is OSSL_DEPRECATEDIN_3_0 but remains functional at
 	 * runtime.  The EVP_CIPHER API provides no equivalent weak-key check,
@@ -1644,8 +1602,7 @@ eay_des_weakkey(key)
 }
 
 int
-eay_des_keylen(len)
-	int len;
+eay_des_keylen(int len)
 {
 	return evp_keylen(len, EVP_des_cbc());
 }
@@ -1689,29 +1646,25 @@ eay_idea_keylen(len)
  * BLOWFISH-CBC
  */
 vchar_t *
-eay_bf_encrypt(data, key, iv)
-	vchar_t *data, *key, *iv;
+eay_bf_encrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, EVP_bf_cbc(), 1);
 }
 
 vchar_t *
-eay_bf_decrypt(data, key, iv)
-	vchar_t *data, *key, *iv;
+eay_bf_decrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, EVP_bf_cbc(), 0);
 }
 
 int
-eay_bf_weakkey(key)
-	vchar_t *key;
+eay_bf_weakkey(vchar_t *key)
 {
 	return 0;	/* XXX to be done. refer to RFC 2451 */
 }
 
 int
-eay_bf_keylen(len)
-	int len;
+eay_bf_keylen(int len)
 {
 	if (len == 0)
 		return 448;
@@ -1761,22 +1714,19 @@ eay_rc5_keylen(len)
  * 3DES-CBC
  */
 vchar_t *
-eay_3des_encrypt(data, key, iv)
-	vchar_t *data, *key, *iv;
+eay_3des_encrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, EVP_des_ede3_cbc(), 1);
 }
 
 vchar_t *
-eay_3des_decrypt(data, key, iv)
-	vchar_t *data, *key, *iv;
+eay_3des_decrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, EVP_des_ede3_cbc(), 0);
 }
 
 int
-eay_3des_weakkey(key)
-	vchar_t *key;
+eay_3des_weakkey(vchar_t *key)
 {
 	/* Same rationale as eay_des_weakkey: DES_is_weak_key is deprecated in
 	 * OpenSSL 3.0 (OSSL_DEPRECATEDIN_3_0) but functional.  3DES is just
@@ -1791,8 +1741,7 @@ eay_3des_weakkey(key)
 }
 
 int
-eay_3des_keylen(len)
-	int len;
+eay_3des_keylen(int len)
 {
 	if (len != 0 && len != 192)
 		return -1;
@@ -1803,29 +1752,25 @@ eay_3des_keylen(len)
  * CAST-CBC
  */
 vchar_t *
-eay_cast_encrypt(data, key, iv)
-	vchar_t *data, *key, *iv;
+eay_cast_encrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, EVP_cast5_cbc(), 1);
 }
 
 vchar_t *
-eay_cast_decrypt(data, key, iv)
-	vchar_t *data, *key, *iv;
+eay_cast_decrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, EVP_cast5_cbc(), 0);
 }
 
 int
-eay_cast_weakkey(key)
-	vchar_t *key;
+eay_cast_weakkey(vchar_t *key)
 {
 	return 0;	/* No known weak keys. */
 }
 
 int
-eay_cast_keylen(len)
-	int len;
+eay_cast_keylen(int len)
 {
 	if (len == 0)
 		return 128;
@@ -1917,30 +1862,26 @@ aes_evp_by_keylen(int keylen)
 }
 
 vchar_t *
-eay_aes_encrypt(data, key, iv)
-       vchar_t *data, *key, *iv;
+eay_aes_encrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, aes_evp_by_keylen(key->l), 1);
 }
 
 vchar_t *
-eay_aes_decrypt(data, key, iv)
-       vchar_t *data, *key, *iv;
+eay_aes_decrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, aes_evp_by_keylen(key->l), 0);
 }
 #endif
 
 int
-eay_aes_weakkey(key)
-	vchar_t *key;
+eay_aes_weakkey(vchar_t *key)
 {
 	return 0;
 }
 
 int
-eay_aes_keylen(len)
-	int len;
+eay_aes_keylen(int len)
 {
 	if (len == 0)
 		return 128;
@@ -1972,29 +1913,25 @@ camellia_evp_by_keylen(int keylen)
 }
 
 vchar_t *
-eay_camellia_encrypt(data, key, iv)
-       vchar_t *data, *key, *iv;
+eay_camellia_encrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, camellia_evp_by_keylen(key->l), 1);
 }
 
 vchar_t *
-eay_camellia_decrypt(data, key, iv)
-       vchar_t *data, *key, *iv;
+eay_camellia_decrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, camellia_evp_by_keylen(key->l), 0);
 }
 
 int
-eay_camellia_weakkey(key)
-	vchar_t *key;
+eay_camellia_weakkey(vchar_t *key)
 {
 	return 0;
 }
 
 int
-eay_camellia_keylen(len)
-	int len;
+eay_camellia_keylen(int len)
 {
 	if (len == 0)
 		return 128;
@@ -2007,20 +1944,19 @@ eay_camellia_keylen(len)
 
 /* for ipsec part */
 int
-eay_null_hashlen()
+eay_null_hashlen(void)
 {
 	return 0;
 }
 
 int
-eay_kpdk_hashlen()
+eay_kpdk_hashlen(void)
 {
 	return 0;
 }
 
 int
-eay_twofish_keylen(len)
-	int len;
+eay_twofish_keylen(int len)
 {
 	if (len < 0 || len > 256)
 		return -1;
@@ -2028,8 +1964,7 @@ eay_twofish_keylen(len)
 }
 
 int
-eay_null_keylen(len)
-	int len;
+eay_null_keylen(int len)
 {
 	return 0;
 }
@@ -2040,9 +1975,7 @@ eay_null_keylen(len)
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 /* Use EVP_MAC for OpenSSL 3.0+ */
 static caddr_t
-eay_hmac_init(key, md)
-vchar_t *key;
-const EVP_MD *md;
+eay_hmac_init(vchar_t *key, const EVP_MD *md)
 {
 	EVP_MAC *mac = NULL;
 	EVP_MAC_CTX *ctx = NULL;
@@ -2077,17 +2010,13 @@ const EVP_MD *md;
 }
 
 static void
-	eay_hmac_update(ctx, data)
-	caddr_t ctx;
-vchar_t *data;
+	eay_hmac_update(caddr_t ctx, vchar_t *data)
 {
 	EVP_MAC_update((EVP_MAC_CTX *)ctx, (unsigned char *)data->v, data->l);
 }
 
 static vchar_t *
-eay_hmac_final(ctx, expected_len)
-caddr_t ctx;
-int expected_len;
+eay_hmac_final(caddr_t ctx, int expected_len)
 {
 	vchar_t *res;
 	size_t len;
@@ -2172,9 +2101,7 @@ int expected_len;
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 /* Use EVP_MAC one-shot for OpenSSL 3.0+ */
 static vchar_t *
-eay_hmac_one(key, data, type)
-	vchar_t *key, *data;
-	const EVP_MD *type;
+eay_hmac_one(vchar_t *key, vchar_t *data, const EVP_MD *type)
 {
 	EVP_MAC *mac = NULL;
 	EVP_MAC_CTX *ctx = NULL;
@@ -2245,9 +2172,7 @@ eay_hmac_one(key, data, type)
 }
 #endif
 
-static vchar_t *eay_digest_one(data, type)
-	vchar_t *data;
-	const EVP_MD *type;
+static vchar_t *eay_digest_one(vchar_t *data, const EVP_MD *type)
 {
 	vchar_t *res;
 
@@ -2268,30 +2193,25 @@ static vchar_t *eay_digest_one(data, type)
  * HMAC SHA2-512
  */
 vchar_t *
-eay_hmacsha2_512_one(key, data)
-	vchar_t *key, *data;
+eay_hmacsha2_512_one(vchar_t *key, vchar_t *data)
 {
 	return eay_hmac_one(key, data, EVP_sha512());
 }
 
 caddr_t
-eay_hmacsha2_512_init(key)
-	vchar_t *key;
+eay_hmacsha2_512_init(vchar_t *key)
 {
 	return eay_hmac_init(key, EVP_sha512());
 }
 
 void
-eay_hmacsha2_512_update(c, data)
-	caddr_t c;
-	vchar_t *data;
+eay_hmacsha2_512_update(caddr_t c, vchar_t *data)
 {
 	eay_hmac_update(c, data);
 }
 
 vchar_t *
-eay_hmacsha2_512_final(c)
-	caddr_t c;
+eay_hmacsha2_512_final(caddr_t c)
 {
 	return eay_hmac_final(c, SHA512_DIGEST_LENGTH);
 }
@@ -2300,30 +2220,25 @@ eay_hmacsha2_512_final(c)
  * HMAC SHA2-384
  */
 vchar_t *
-eay_hmacsha2_384_one(key, data)
-	vchar_t *key, *data;
+eay_hmacsha2_384_one(vchar_t *key, vchar_t *data)
 {
 	return eay_hmac_one(key, data, EVP_sha384());
 }
 
 caddr_t
-eay_hmacsha2_384_init(key)
-	vchar_t *key;
+eay_hmacsha2_384_init(vchar_t *key)
 {
 	return eay_hmac_init(key, EVP_sha384());
 }
 
 void
-eay_hmacsha2_384_update(c, data)
-	caddr_t c;
-	vchar_t *data;
+eay_hmacsha2_384_update(caddr_t c, vchar_t *data)
 {
 	eay_hmac_update(c, data);
 }
 
 vchar_t *
-eay_hmacsha2_384_final(c)
-	caddr_t c;
+eay_hmacsha2_384_final(caddr_t c)
 {
 	return eay_hmac_final(c, SHA384_DIGEST_LENGTH);
 }
@@ -2332,30 +2247,25 @@ eay_hmacsha2_384_final(c)
  * HMAC SHA2-256
  */
 vchar_t *
-eay_hmacsha2_256_one(key, data)
-	vchar_t *key, *data;
+eay_hmacsha2_256_one(vchar_t *key, vchar_t *data)
 {
 	return eay_hmac_one(key, data, EVP_sha256());
 }
 
 caddr_t
-eay_hmacsha2_256_init(key)
-	vchar_t *key;
+eay_hmacsha2_256_init(vchar_t *key)
 {
 	return eay_hmac_init(key, EVP_sha256());
 }
 
 void
-eay_hmacsha2_256_update(c, data)
-	caddr_t c;
-	vchar_t *data;
+eay_hmacsha2_256_update(caddr_t c, vchar_t *data)
 {
 	eay_hmac_update(c, data);
 }
 
 vchar_t *
-eay_hmacsha2_256_final(c)
-	caddr_t c;
+eay_hmacsha2_256_final(caddr_t c)
 {
 	return eay_hmac_final(c, SHA256_DIGEST_LENGTH);
 }
@@ -2365,30 +2275,25 @@ eay_hmacsha2_256_final(c)
  * HMAC SHA1
  */
 vchar_t *
-eay_hmacsha1_one(key, data)
-	vchar_t *key, *data;
+eay_hmacsha1_one(vchar_t *key, vchar_t *data)
 {
 	return eay_hmac_one(key, data, EVP_sha1());
 }
 
 caddr_t
-eay_hmacsha1_init(key)
-	vchar_t *key;
+eay_hmacsha1_init(vchar_t *key)
 {
 	return eay_hmac_init(key, EVP_sha1());
 }
 
 void
-eay_hmacsha1_update(c, data)
-	caddr_t c;
-	vchar_t *data;
+eay_hmacsha1_update(caddr_t c, vchar_t *data)
 {
 	eay_hmac_update(c, data);
 }
 
 vchar_t *
-eay_hmacsha1_final(c)
-	caddr_t c;
+eay_hmacsha1_final(caddr_t c)
 {
 	return eay_hmac_final(c, SHA_DIGEST_LENGTH);
 }
@@ -2397,30 +2302,25 @@ eay_hmacsha1_final(c)
  * HMAC MD5
  */
 vchar_t *
-eay_hmacmd5_one(key, data)
-	vchar_t *key, *data;
+eay_hmacmd5_one(vchar_t *key, vchar_t *data)
 {
 	return eay_hmac_one(key, data, EVP_md5());
 }
 
 caddr_t
-eay_hmacmd5_init(key)
-	vchar_t *key;
+eay_hmacmd5_init(vchar_t *key)
 {
 	return eay_hmac_init(key, EVP_md5());
 }
 
 void
-eay_hmacmd5_update(c, data)
-	caddr_t c;
-	vchar_t *data;
+eay_hmacmd5_update(caddr_t c, vchar_t *data)
 {
 	eay_hmac_update(c, data);
 }
 
 vchar_t *
-eay_hmacmd5_final(c)
-	caddr_t c;
+eay_hmacmd5_final(caddr_t c)
 {
 	return eay_hmac_final(c, MD5_DIGEST_LENGTH);
 }
@@ -2430,7 +2330,7 @@ eay_hmacmd5_final(c)
  * SHA2-512 functions using EVP interface
  */
 caddr_t
-eay_sha2_512_init()
+eay_sha2_512_init(void)
 {
 	EVP_MD_CTX *c = EVP_MD_CTX_new();
 	if (!c)
@@ -2445,16 +2345,13 @@ eay_sha2_512_init()
 }
 
 void
-eay_sha2_512_update(c, data)
-	caddr_t c;
-	vchar_t *data;
+eay_sha2_512_update(caddr_t c, vchar_t *data)
 {
 	EVP_DigestUpdate((EVP_MD_CTX *)c, (unsigned char *) data->v, data->l);
 }
 
 vchar_t *
-eay_sha2_512_final(c)
-	caddr_t c;
+eay_sha2_512_final(caddr_t c)
 {
 	vchar_t *res;
 	unsigned int len;
@@ -2475,14 +2372,13 @@ eay_sha2_512_final(c)
 }
 
 vchar_t *
-eay_sha2_512_one(data)
-	vchar_t *data;
+eay_sha2_512_one(vchar_t *data)
 {
 	return eay_digest_one(data, EVP_sha512());
 }
 
 int
-eay_sha2_512_hashlen()
+eay_sha2_512_hashlen(void)
 {
 	return SHA512_DIGEST_LENGTH << 3;
 }
@@ -2493,7 +2389,7 @@ eay_sha2_512_hashlen()
  * SHA2-384 functions using EVP interface
  */
 caddr_t
-eay_sha2_384_init()
+eay_sha2_384_init(void)
 {
 	EVP_MD_CTX *c = EVP_MD_CTX_new();
 	if (!c)
@@ -2508,16 +2404,13 @@ eay_sha2_384_init()
 }
 
 void
-eay_sha2_384_update(c, data)
-	caddr_t c;
-	vchar_t *data;
+eay_sha2_384_update(caddr_t c, vchar_t *data)
 {
 	EVP_DigestUpdate((EVP_MD_CTX *)c, (unsigned char *) data->v, data->l);
 }
 
 vchar_t *
-eay_sha2_384_final(c)
-	caddr_t c;
+eay_sha2_384_final(caddr_t c)
 {
 	vchar_t *res;
 	unsigned int len;
@@ -2538,14 +2431,13 @@ eay_sha2_384_final(c)
 }
 
 vchar_t *
-eay_sha2_384_one(data)
-	vchar_t *data;
+eay_sha2_384_one(vchar_t *data)
 {
 	return eay_digest_one(data, EVP_sha384());
 }
 
 int
-eay_sha2_384_hashlen()
+eay_sha2_384_hashlen(void)
 {
 	return SHA384_DIGEST_LENGTH << 3;
 }
@@ -2556,7 +2448,7 @@ eay_sha2_384_hashlen()
  * SHA2-256 functions using EVP interface
  */
 caddr_t
-eay_sha2_256_init()
+eay_sha2_256_init(void)
 {
 	EVP_MD_CTX *c = EVP_MD_CTX_new();
 	if (!c)
@@ -2571,16 +2463,13 @@ eay_sha2_256_init()
 }
 
 void
-eay_sha2_256_update(c, data)
-	caddr_t c;
-	vchar_t *data;
+eay_sha2_256_update(caddr_t c, vchar_t *data)
 {
 	EVP_DigestUpdate((EVP_MD_CTX *)c, (unsigned char *) data->v, data->l);
 }
 
 vchar_t *
-eay_sha2_256_final(c)
-	caddr_t c;
+eay_sha2_256_final(caddr_t c)
 {
 	vchar_t *res;
 	unsigned int len;
@@ -2601,14 +2490,13 @@ eay_sha2_256_final(c)
 }
 
 vchar_t *
-eay_sha2_256_one(data)
-	vchar_t *data;
+eay_sha2_256_one(vchar_t *data)
 {
 	return eay_digest_one(data, EVP_sha256());
 }
 
 int
-eay_sha2_256_hashlen()
+eay_sha2_256_hashlen(void)
 {
 	return SHA256_DIGEST_LENGTH << 3;
 }
@@ -2618,7 +2506,7 @@ eay_sha2_256_hashlen()
  * SHA1 functions using EVP interface
  */
 caddr_t
-eay_sha1_init()
+eay_sha1_init(void)
 {
 	EVP_MD_CTX *c = EVP_MD_CTX_new();
 	if (!c)
@@ -2633,16 +2521,13 @@ eay_sha1_init()
 }
 
 void
-eay_sha1_update(c, data)
-	caddr_t c;
-	vchar_t *data;
+eay_sha1_update(caddr_t c, vchar_t *data)
 {
 	EVP_DigestUpdate((EVP_MD_CTX *)c, data->v, data->l);
 }
 
 vchar_t *
-eay_sha1_final(c)
-	caddr_t c;
+eay_sha1_final(caddr_t c)
 {
 	vchar_t *res;
 	unsigned int len;
@@ -2663,14 +2548,13 @@ eay_sha1_final(c)
 }
 
 vchar_t *
-eay_sha1_one(data)
-	vchar_t *data;
+eay_sha1_one(vchar_t *data)
 {
 	return eay_digest_one(data, EVP_sha1());
 }
 
 int
-eay_sha1_hashlen()
+eay_sha1_hashlen(void)
 {
 	return SHA_DIGEST_LENGTH << 3;
 }
@@ -2679,7 +2563,7 @@ eay_sha1_hashlen()
  * MD5 functions using EVP interface
  */
 caddr_t
-eay_md5_init()
+eay_md5_init(void)
 {
 	EVP_MD_CTX *c = EVP_MD_CTX_new();
 	if (!c)
@@ -2694,16 +2578,13 @@ eay_md5_init()
 }
 
 void
-eay_md5_update(c, data)
-	caddr_t c;
-	vchar_t *data;
+eay_md5_update(caddr_t c, vchar_t *data)
 {
 	EVP_DigestUpdate((EVP_MD_CTX *)c, data->v, data->l);
 }
 
 vchar_t *
-eay_md5_final(c)
-	caddr_t c;
+eay_md5_final(caddr_t c)
 {
 	vchar_t *res;
 	unsigned int len;
@@ -2724,14 +2605,13 @@ eay_md5_final(c)
 }
 
 vchar_t *
-eay_md5_one(data)
-	vchar_t *data;
+eay_md5_one(vchar_t *data)
 {
 	return eay_digest_one(data, EVP_md5());
 }
 
 int
-eay_md5_hashlen()
+eay_md5_hashlen(void)
 {
 	return MD5_DIGEST_LENGTH << 3;
 }
@@ -2741,8 +2621,7 @@ eay_md5_hashlen()
  *   size: number of bytes.
  */
 vchar_t *
-eay_set_random(size)
-	u_int32_t size;
+eay_set_random(u_int32_t size)
 {
 	BIGNUM *r = NULL;
 	vchar_t *res = 0;
@@ -2760,10 +2639,7 @@ end:
 
 /* DH operations using EVP_PKEY API */
 int
-eay_dh_generate(prime, g, publen, pub, priv)
-	vchar_t *prime, **pub, **priv;
-	u_int publen;
-	u_int32_t g;
+eay_dh_generate(vchar_t *prime, u_int32_t g, u_int publen, vchar_t **pub, vchar_t **priv)
 {
 	EVP_PKEY_CTX *pctx = NULL;
 	EVP_PKEY *params = NULL, *pkey = NULL;
@@ -2873,9 +2749,7 @@ end:
 }
 
 int
-eay_dh_compute(prime, g, pub, priv, pub2, key)
-	vchar_t *prime, *pub, *priv, *pub2, **key;
-	u_int32_t g;
+eay_dh_compute(vchar_t *prime, u_int32_t g, vchar_t *pub, vchar_t *priv, vchar_t *pub2, vchar_t **key)
 {
 	EVP_PKEY_CTX *pctx = NULL, *kctx = NULL;
 	EVP_PKEY *pkey = NULL, *peerkey = NULL;
@@ -3060,9 +2934,7 @@ end:
  *	BIGNUM (BN_ULONG = u_int32_t_t): 0xfe050104 0x0000003f
  */
 int
-eay_v2bn(bn, var)
-	BIGNUM **bn;
-	vchar_t *var;
+eay_v2bn(BIGNUM **bn, vchar_t *var)
 {
 	if ((*bn = BN_bin2bn((unsigned char *) var->v, var->l, NULL)) == NULL)
 		return -1;
@@ -3071,9 +2943,7 @@ eay_v2bn(bn, var)
 }
 
 int
-eay_bn2v(var, bn)
-	vchar_t **var;
-	BIGNUM *bn;
+eay_bn2v(vchar_t **var, BIGNUM *bn)
 {
 	*var = vmalloc(BN_num_bytes(bn));
 	if (*var == NULL)
@@ -3085,7 +2955,7 @@ eay_bn2v(var, bn)
 }
 
 void
-eay_init()
+eay_init(void)
 {
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 	/* OpenSSL 3.0+ - load legacy provider for DES, 3DES, Blowfish, CAST, etc. */
@@ -3118,7 +2988,7 @@ eay_init()
 }
 
 void
-eay_cleanup()
+eay_cleanup(void)
 {
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 	if (openssl_legacy_provider) {
@@ -3296,7 +3166,7 @@ bignum_pubkey2rsa(BIGNUM *in)
 }
 
 u_int32_t
-eay_random()
+eay_random(void)
 {
 	u_int32_t result;
 	vchar_t *vrand;
@@ -3309,7 +3179,7 @@ eay_random()
 }
 
 const char *
-eay_version()
+eay_version(void)
 {
 	return OpenSSL_version(OPENSSL_VERSION);
 }

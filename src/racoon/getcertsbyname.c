@@ -62,9 +62,7 @@ static struct certinfo *getnewci __P((int, int, int, int, int,
 			unsigned char *));
 
 static struct certinfo *
-getnewci(qtype, keytag, algorithm, flags, certlen, cert)
-	int qtype, keytag, algorithm, flags, certlen;
-	unsigned char *cert;
+getnewci(int qtype, int keytag, int algorithm, int flags, int certlen, unsigned char *cert)
 {
 	struct certinfo *res;
 
@@ -105,8 +103,7 @@ getnewci_unittest(qtype, keytag, algorithm, flags, certlen, cert)
 #endif /* ENABLE_UNITTEST */
 
 void
-freecertinfo(ci)
-	struct certinfo *ci;
+freecertinfo(struct certinfo *ci)
 {
 	struct certinfo *next;
 
@@ -145,10 +142,7 @@ freecertinfo(ci)
  * chown() short-circuiting before the logic under test could run).
  */
 static int
-parse_cert_answer(answer, anslen, res)
-	unsigned char *answer;
-	int anslen;
-	struct certinfo **res;
+parse_cert_answer(unsigned char *answer, int anslen, struct certinfo **res)
 {
 	HEADER *hp;
 	int qdcount, ancount, rdlength, len;
@@ -290,9 +284,7 @@ parse_cert_answer_unittest(answer, anslen, res)
  * get CERT RR by FQDN and create certinfo structure chain.
  */
 int
-getcertsbyname(name, res)
-	char *name;
-	struct certinfo **res;
+getcertsbyname(char *name, struct certinfo **res)
 {
 	unsigned char *answer = NULL, *p;
 	int buflen, anslen;

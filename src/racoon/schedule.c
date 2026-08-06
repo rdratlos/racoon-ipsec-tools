@@ -61,8 +61,7 @@
 static TAILQ_HEAD(_schedtree, sched) sctree;
 
 void
-sched_get_monotonic_time(tv)
-	struct timeval *tv;
+sched_get_monotonic_time(struct timeval *tv)
 {
 #ifdef HAVE_CLOCK_MONOTONIC
 	struct timespec ts;
@@ -76,8 +75,7 @@ sched_get_monotonic_time(tv)
 }
 
 time_t
-sched_monotonic_to_time_t(tv, now)
-	struct timeval *tv, *now;
+sched_monotonic_to_time_t(struct timeval *tv, struct timeval *now)
 {
 #ifdef HAVE_CLOCK_MONOTONIC
 	struct timeval mynow, res;
@@ -101,7 +99,7 @@ sched_monotonic_to_time_t(tv, now)
  *	if no entry, NULL returned.
  */
 struct timeval *
-schedular()
+schedular(void)
 {
 	static struct timeval timeout;
 	struct timeval now;
@@ -131,10 +129,7 @@ schedular()
  * add new schedule to schedule table.
  */
 void
-sched_schedule(sc, tick, func)
-	struct sched *sc;
-	time_t tick;
-	void (*func) __P((struct sched *));
+sched_schedule(struct sched *sc, time_t tick, void (*func)(struct sched *))
 {
 	static long id = 1;
 	struct sched *p;
@@ -164,8 +159,7 @@ sched_schedule(sc, tick, func)
  * cancel scheduled callback
  */
 void
-sched_cancel(sc)
-	struct sched *sc;
+sched_cancel(struct sched *sc)
 {
 	if (sc->func != NULL) {
 		TAILQ_REMOVE(&sctree, sc, chain);
@@ -177,9 +171,7 @@ sched_cancel(sc)
  * for debug
  */
 int
-sched_dump(buf, len)
-	caddr_t *buf;
-	int *len;
+sched_dump(caddr_t *buf, int *len)
 {
 	caddr_t new;
 	struct sched *p;
@@ -227,7 +219,7 @@ sched_dump(buf, len)
 
 /* initialize schedule table */
 void
-sched_init()
+sched_init(void)
 {
 	TAILQ_INIT(&sctree);
 }

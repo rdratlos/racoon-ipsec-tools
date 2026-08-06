@@ -96,7 +96,7 @@ static int so;
 u_int32_t loglevel = 0;
 
 int
-com_init()
+com_init(void)
 {
 	struct sockaddr_un name;
 
@@ -146,8 +146,7 @@ com_set_fd_unittest(int fd)
 #endif /* ENABLE_UNITTEST */
 
 int
-com_send(combuf)
-	vchar_t *combuf;
+com_send(vchar_t *combuf)
 {
 	int len;
 
@@ -161,8 +160,7 @@ com_send(combuf)
 }
 
 int
-com_recv(combufp) 
-	vchar_t **combufp;
+com_recv(vchar_t **combufp)
 {
 	struct admin_com h, *com;
 	caddr_t buf;
@@ -239,18 +237,13 @@ _plog(int pri, const char *func, struct sockaddr *sa, const char *fmt, ...)
 }
 
 void
-plogdump(pri, data, len) 
-	int pri;
-	void *data;
-	size_t len;
+plogdump(int pri, void *data, size_t len)
 {
 	return;
 }
 
 struct sockaddr *
-get_sockaddr(family, name, port)
-	int family;
-	char *name, *port;
+get_sockaddr(int family, char *name, char *port)
 {
 	struct addrinfo hint, *ai;
 	int error;

@@ -83,9 +83,7 @@ static vchar_t *isakmp_cfg_split(struct ph1handle *,
     struct isakmp_data *, struct unity_netentry*,int);
 
 vchar_t *
-isakmp_unity_req(iph1, attr)
-	struct ph1handle *iph1;
-	struct isakmp_data *attr;
+isakmp_unity_req(struct ph1handle *iph1, struct isakmp_data *attr)
 {
 	int type;
 	vchar_t *reply_attr = NULL;
@@ -200,9 +198,7 @@ isakmp_unity_req(iph1, attr)
 }
 
 void
-isakmp_unity_reply(iph1, attr)
-	struct ph1handle *iph1;
-	struct isakmp_data *attr;
+isakmp_unity_reply(struct ph1handle *iph1, struct isakmp_data *attr)
 {
 	int type = ntohs(attr->type);
 	int alen = ntohs(attr->lorv);
@@ -276,11 +272,7 @@ isakmp_unity_reply(iph1, attr)
 }
 
 static vchar_t *
-isakmp_cfg_split(iph1, attr, netentry, count)
-	struct ph1handle *iph1;
-	struct isakmp_data *attr;
-	struct unity_netentry *netentry;
-	int count;
+isakmp_cfg_split(struct ph1handle *iph1, struct isakmp_data *attr, struct unity_netentry *netentry, int count)
 {
 	vchar_t *buffer;
 	struct isakmp_data *new;
@@ -318,10 +310,7 @@ isakmp_cfg_split(iph1, attr, netentry, count)
 	return buffer;
 }
 
-int  splitnet_list_add(list, network, count)
-	struct unity_netentry ** list;
-	struct unity_network * network;
-	int *count;
+int  splitnet_list_add(struct unity_netentry **list, struct unity_network *network, int *count)
 {
 	struct unity_netentry * nentry;
 
@@ -365,9 +354,7 @@ int  splitnet_list_add(list, network, count)
 	return 0;
 }
 
-void splitnet_list_free(list, count)
-	struct unity_netentry * list;
-	int *count;
+void splitnet_list_free(struct unity_netentry *list, int *count)
 {
 	struct unity_netentry * netentry = list;
 	struct unity_netentry * delentry;
@@ -381,9 +368,7 @@ void splitnet_list_free(list, count)
 	}
 }
 
-char * splitnet_list_2str(list, splitnet_ipaddr)
-	struct unity_netentry * list;
-	enum splinet_ipaddr splitnet_ipaddr;
+char * splitnet_list_2str(struct unity_netentry *list, enum splinet_ipaddr splitnet_ipaddr)
 {
 	struct unity_netentry * netentry;
 	char tmp1[40];

@@ -73,8 +73,7 @@ struct ksmap {
 };
 
 char *
-num2str(n)
-	int n;
+num2str(int n)
 {
 	static char buf[20];
 
@@ -85,8 +84,7 @@ num2str(n)
 
 /* isakmp.h */
 char *
-s_isakmp_state(t, d, s)
-	int t, d, s;
+s_isakmp_state(int t, int d, int s)
 {
 	switch (t) {
 	case ISAKMP_ETYPE_AGG:
@@ -207,8 +205,7 @@ static struct ksmap name_isakmp_certtype[] = {
 };
 
 char *
-s_isakmp_certtype(k)
-	int k;
+s_isakmp_certtype(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_isakmp_certtype); i++)
@@ -231,8 +228,7 @@ static struct ksmap name_isakmp_etype[] = {
 };
 
 char *
-s_isakmp_etype(k)
-	int k;
+s_isakmp_etype(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_isakmp_etype); i++)
@@ -285,8 +281,7 @@ static struct ksmap name_isakmp_notify_msg[] = {
 };
 
 char *
-s_isakmp_notify_msg(k)
-	int k;
+s_isakmp_notify_msg(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_isakmp_notify_msg); i++)
@@ -321,8 +316,7 @@ static struct ksmap name_isakmp_nptype[] = {
 };
 
 char *
-s_isakmp_nptype(k)
-	int k;
+s_isakmp_nptype(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_isakmp_nptype); i++)
@@ -373,8 +367,7 @@ static struct ksmap name_isakmp_cfg_type[] = {
 };
 
 char *
-s_isakmp_cfg_type(k)
-	int k;
+s_isakmp_cfg_type(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_isakmp_cfg_type); i++)
@@ -392,8 +385,7 @@ static struct ksmap name_isakmp_cfg_ptype[] = {
 };
 
 char *
-s_isakmp_cfg_ptype(k)
-	int k;
+s_isakmp_cfg_ptype(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_isakmp_cfg_ptype); i++)
@@ -413,8 +405,7 @@ static struct ksmap name_ipsecdoi_proto[] = {
 };
 
 char *
-s_ipsecdoi_proto(k)
-	int k;
+s_ipsecdoi_proto(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_ipsecdoi_proto); i++)
@@ -428,8 +419,7 @@ static struct ksmap name_ipsecdoi_trns_isakmp[] = {
 };
 
 char *
-s_ipsecdoi_trns_isakmp(k)
-	int k;
+s_ipsecdoi_trns_isakmp(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_ipsecdoi_trns_isakmp); i++)
@@ -448,8 +438,7 @@ static struct ksmap name_ipsecdoi_trns_ah[] = {
 };
 
 char *
-s_ipsecdoi_trns_ah(k)
-	int k;
+s_ipsecdoi_trns_ah(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_ipsecdoi_trns_ah); i++)
@@ -476,8 +465,7 @@ static struct ksmap name_ipsecdoi_trns_esp[] = {
 };
 
 char *
-s_ipsecdoi_trns_esp(k)
-	int k;
+s_ipsecdoi_trns_esp(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_ipsecdoi_trns_esp); i++)
@@ -493,8 +481,7 @@ static struct ksmap name_ipsecdoi_trns_ipcomp[] = {
 };
 
 char *
-s_ipsecdoi_trns_ipcomp(k)
-	int k;
+s_ipsecdoi_trns_ipcomp(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_ipsecdoi_trns_ipcomp); i++)
@@ -504,8 +491,7 @@ s_ipsecdoi_trns_ipcomp(k)
 }
 
 char *
-s_ipsecdoi_trns(proto, trns)
-	int proto, trns;
+s_ipsecdoi_trns(int proto, int trns)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_ipsecdoi_proto); i++)
@@ -528,8 +514,7 @@ static struct ksmap name_attr_ipsec[] = {
 };
 
 char *
-s_ipsecdoi_attr(k)
-	int k;
+s_ipsecdoi_attr(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_attr_ipsec); i++)
@@ -544,8 +529,7 @@ static struct ksmap name_attr_ipsec_ltype[] = {
 };
 
 char *
-s_ipsecdoi_ltype(k)
-	int k;
+s_ipsecdoi_ltype(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_attr_ipsec_ltype); i++)
@@ -565,8 +549,7 @@ static struct ksmap name_attr_ipsec_encmode[] = {
 };
 
 char *
-s_ipsecdoi_encmode(k)
-	int k;
+s_ipsecdoi_encmode(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_attr_ipsec_encmode); i++)
@@ -586,8 +569,7 @@ static struct ksmap name_attr_ipsec_auth[] = {
 };
 
 char *
-s_ipsecdoi_auth(k)
-	int k;
+s_ipsecdoi_auth(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_attr_ipsec_auth); i++)
@@ -597,8 +579,7 @@ s_ipsecdoi_auth(k)
 }
 
 char *
-s_ipsecdoi_attr_v(type, val)
-	int type, val;
+s_ipsecdoi_attr_v(int type, int val)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_attr_ipsec); i++)
@@ -623,8 +604,7 @@ static struct ksmap name_ipsecdoi_ident[] = {
 };
 
 char *
-s_ipsecdoi_ident(k)
-	int k;
+s_ipsecdoi_ident(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_ipsecdoi_ident); i++)
@@ -656,8 +636,7 @@ static struct ksmap name_oakley_attr[] = {
 };
 
 char *
-s_oakley_attr(k)
-	int k;
+s_oakley_attr(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_oakley_attr); i++)
@@ -677,8 +656,7 @@ static struct ksmap name_attr_isakmp_enc[] = {
 };
 
 char *
-s_attr_isakmp_enc(k)
-	int k;
+s_attr_isakmp_enc(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_attr_isakmp_enc); i++)
@@ -697,8 +675,7 @@ static struct ksmap name_attr_isakmp_hash[] = {
 };
 
 char *
-s_attr_isakmp_hash(k)
-	int k;
+s_attr_isakmp_hash(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_attr_isakmp_hash); i++)
@@ -731,8 +708,7 @@ static struct ksmap name_attr_isakmp_method[] = {
 };
 
 char *
-s_oakley_attr_method(k)
-	int k;
+s_oakley_attr_method(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_attr_isakmp_method); i++)
@@ -755,8 +731,7 @@ static struct ksmap name_attr_isakmp_desc[] = {
 };
 
 char *
-s_attr_isakmp_desc(k)
-	int k;
+s_attr_isakmp_desc(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_attr_isakmp_desc); i++)
@@ -772,8 +747,7 @@ static struct ksmap name_attr_isakmp_group[] = {
 };
 
 char *
-s_attr_isakmp_group(k)
-	int k;
+s_attr_isakmp_group(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_attr_isakmp_group); i++)
@@ -788,8 +762,7 @@ static struct ksmap name_attr_isakmp_ltype[] = {
 };
 
 char *
-s_attr_isakmp_ltype(k)
-	int k;
+s_attr_isakmp_ltype(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_attr_isakmp_ltype); i++)
@@ -799,8 +772,7 @@ s_attr_isakmp_ltype(k)
 }
 
 char *
-s_oakley_attr_v(type, val)
-	int type, val;
+s_oakley_attr_v(int type, int val)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_oakley_attr); i++)
@@ -818,8 +790,7 @@ static struct ksmap name_ipsec_level[] = {
 };
 
 char *
-s_ipsec_level(k)
-	int k;
+s_ipsec_level(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_ipsec_level); i++)
@@ -839,8 +810,7 @@ static struct ksmap name_algclass[] = {
 };
 
 char *
-s_algclass(k)
-	int k;
+s_algclass(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_algclass); i++)
@@ -850,8 +820,7 @@ s_algclass(k)
 }
 
 char *
-s_algtype(class, n)
-	int class, n;
+s_algtype(int class, int n)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_algclass); i++)
@@ -894,8 +863,7 @@ static struct ksmap name_pfkey_type[] = {
 };
 
 char *
-s_pfkey_type(k)
-	int k;
+s_pfkey_type(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_pfkey_type); i++)
@@ -916,8 +884,7 @@ static struct ksmap name_pfkey_satype[] = {
 };
 
 char *
-s_pfkey_satype(k)
-	int k;
+s_pfkey_satype(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_pfkey_satype); i++)
@@ -935,8 +902,7 @@ static struct ksmap name_direction[] = {
 };
 
 char *
-s_direction(k)
-	int k;
+s_direction(int k)
 {
 	int i;
 	for (i = 0; i < ARRAYLEN(name_direction); i++)
@@ -946,8 +912,7 @@ s_direction(k)
 }
 
 char *
-s_proto(k)
-	int k;
+s_proto(int k)
 {
 	switch (k) {
 	case IPPROTO_ICMP:

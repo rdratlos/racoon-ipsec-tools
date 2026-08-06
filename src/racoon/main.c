@@ -91,7 +91,7 @@ static char version[] = "@(#) racoon / IPsec-tools";
 #endif /* TOP_PACKAGE */
 
 static void
-print_version()
+print_version(void)
 {
 	printf("%s\n"
 	       "\n"
@@ -134,7 +134,7 @@ print_version()
 }
 
 static void
-usage()
+usage(void)
 {
 	printf("usage: racoon [-BdFtv"
 #ifdef INET6
@@ -164,9 +164,7 @@ usage()
 }
 
 static void
-parse(ac, av)
-	int ac;
-	char **av;
+parse(int ac, char **av)
 {
 	extern char *optarg;
 	extern int optind;
@@ -269,9 +267,7 @@ parse(ac, av)
 }
 
 int
-main(ac, av)
-	int ac;
-	char **av;
+main(int ac, char **av)
 {
 	int error;
 

@@ -66,8 +66,7 @@ static TAILQ_HEAD(_sptree, secpolicy) sptree;
 
 /* perform exact match against security policy table. */
 struct secpolicy *
-getsp(spidx)
-	struct policyindex *spidx;
+getsp(struct policyindex *spidx)
 {
 	struct secpolicy *p;
 
@@ -87,8 +86,7 @@ getsp(spidx)
  */
 #if 1
 struct secpolicy *
-getsp_r(spidx)
-	struct policyindex *spidx;
+getsp_r(struct policyindex *spidx)
 {
 	struct secpolicy *p;
 	struct secpolicy *found = NULL;
@@ -167,8 +165,7 @@ getsp_r(spidx, iph2)
 #endif
 
 struct secpolicy *
-getspbyspid(spid)
-	u_int32_t spid;
+getspbyspid(u_int32_t spid)
 {
 	struct secpolicy *p;
 
@@ -187,8 +184,7 @@ getspbyspid(spid)
  *	1:	not equal
  */
 int
-cmpspidxstrict(a, b)
-	struct policyindex *a, *b;
+cmpspidxstrict(struct policyindex *a, struct policyindex *b)
 {
 	plog(LLV_DEBUG, LOCATION, NULL, "sub:%p: %s\n", a, spidx2str(a));
 	plog(LLV_DEBUG, LOCATION, NULL, "db :%p: %s\n", b, spidx2str(b));
@@ -223,8 +219,7 @@ cmpspidxstrict(a, b)
  *	1:	not equal
  */
 int
-cmpspidxwild(a, b)
-	struct policyindex *a, *b;
+cmpspidxwild(struct policyindex *a, struct policyindex *b)
 {
 	struct sockaddr_storage sa1, sa2;
 
@@ -308,7 +303,7 @@ cmpspidxwild(a, b)
 }
 
 struct secpolicy *
-newsp()
+newsp(void)
 {
 	struct secpolicy *new;
 
@@ -320,8 +315,7 @@ newsp()
 }
 
 void
-delsp(sp)
-	struct secpolicy *sp;
+delsp(struct secpolicy *sp)
 {
 	struct ipsecrequest *req = NULL, *next;
 
@@ -339,8 +333,7 @@ delsp(sp)
 }
 
 void
-delsp_bothdir(spidx0)
-	struct policyindex *spidx0;
+delsp_bothdir(struct policyindex *spidx0)
 {
 	struct policyindex spidx;
 	struct secpolicy *sp;
@@ -404,8 +397,7 @@ delsp_bothdir(spidx0)
 }
 
 void
-inssp(new)
-	struct secpolicy *new;
+inssp(struct secpolicy *new)
 {
 #ifdef HAVE_PFKEY_POLICY_PRIORITY
 	struct secpolicy *p;
@@ -424,14 +416,13 @@ inssp(new)
 }
 
 void
-remsp(sp)
-	struct secpolicy *sp;
+remsp(struct secpolicy *sp)
 {
 	TAILQ_REMOVE(&sptree, sp, chain);
 }
 
 void
-flushsp()
+flushsp(void)
 {
 	struct secpolicy *p, *next;
 
@@ -443,13 +434,13 @@ flushsp()
 }
 
 void
-initsp()
+initsp(void)
 {
 	TAILQ_INIT(&sptree);
 }
 
 struct ipsecrequest *
-newipsecreq()
+newipsecreq(void)
 {
 	struct ipsecrequest *new;
 
@@ -461,8 +452,7 @@ newipsecreq()
 }
 
 const char *
-spidx2str(spidx)
-	const struct policyindex *spidx;
+spidx2str(const struct policyindex *spidx)
 {
 	/* addr/pref[port] addr/pref[port] ul dir act */
 	static char buf[256];

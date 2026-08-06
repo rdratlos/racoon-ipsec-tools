@@ -176,7 +176,7 @@ static int load_x509(const char *file, char **filenameptr,
 	return 0;
 }
 
-static int process_rmconf()
+static int process_rmconf(void)
 {
 
 	/* check a exchange mode */
@@ -2446,7 +2446,7 @@ unittype_byte
 %%
 
 static struct secprotospec *
-newspspec()
+newspspec(void)
 {
 	struct secprotospec *new;
 
@@ -2472,9 +2472,7 @@ newspspec()
  * insert into head of list.
  */
 static void
-insspspec(rmconf, spspec)
-	struct remoteconf *rmconf;
-	struct secprotospec *spspec;
+insspspec(struct remoteconf *rmconf, struct secprotospec *spspec)
 {
 	if (rmconf->spspec != NULL)
 		rmconf->spspec->prev = spspec;
@@ -2483,8 +2481,7 @@ insspspec(rmconf, spspec)
 }
 
 static struct secprotospec *
-dupspspec(spspec)
-	struct secprotospec *spspec;
+dupspspec(struct secprotospec *spspec)
 {
 	struct secprotospec *new;
 
@@ -2517,8 +2514,7 @@ dupspspec(spspec)
  * copy the whole list
  */
 void
-dupspspec_list(dst, src)
-	struct remoteconf *dst, *src;
+dupspspec_list(struct remoteconf *dst, struct remoteconf *src)
 {
 	struct secprotospec *p, *new, *last;
 
@@ -2542,8 +2538,7 @@ dupspspec_list(dst, src)
  * delete the whole list
  */
 void
-flushspspec(rmconf)
-	struct remoteconf *rmconf;
+flushspspec(struct remoteconf *rmconf)
 {
 	struct secprotospec *p;
 
@@ -2564,8 +2559,7 @@ flushspspec(rmconf)
 
 /* set final acceptable proposal */
 static int
-set_isakmp_proposal(rmconf)
-	struct remoteconf *rmconf;
+set_isakmp_proposal(struct remoteconf *rmconf)
 {
 	struct secprotospec *s;
 	int prop_no = 1; 
@@ -2646,7 +2640,7 @@ set_isakmp_proposal(rmconf)
 }
 
 static void
-clean_tmpalgtype()
+clean_tmpalgtype(void)
 {
 	int i;
 	for (i = 0; i < MAXALGCLASS; i++)
@@ -2654,17 +2648,7 @@ clean_tmpalgtype()
 }
 
 static int
-expand_isakmpspec(prop_no, trns_no, types,
-		class, last, lifetime, lifebyte, encklen, vendorid, gssid,
-		rmconf)
-	int prop_no, trns_no;
-	int *types, class, last;
-	time_t lifetime;
-	int lifebyte;
-	int encklen;
-	int vendorid;
-	char *gssid;
-	struct remoteconf *rmconf;
+expand_isakmpspec(int prop_no, int trns_no, int *types, int class, int last, time_t lifetime, int lifebyte, int encklen, int vendorid, char *gssid, struct remoteconf *rmconf)
 {
 	struct isakmpsa *new;
 
@@ -2764,7 +2748,7 @@ fix_lifebyte(t)
 #endif
 
 int
-cfparse()
+cfparse(void)
 {
 	int error;
 
@@ -2819,7 +2803,7 @@ cfparse()
 }
 
 int
-cfreparse()
+cfreparse(void)
 {
 	flushph2();
 	flushph1();
@@ -2831,11 +2815,7 @@ cfreparse()
 
 #ifdef ENABLE_ADMINPORT
 static void
-adminsock_conf(path, owner, group, mode_dec)
-	vchar_t *path;
-	vchar_t *owner;
-	vchar_t *group;
-	int mode_dec;
+adminsock_conf(vchar_t *path, vchar_t *owner, vchar_t *group, int mode_dec)
 {
 	struct passwd *pw = NULL;
 	struct group *gr = NULL;

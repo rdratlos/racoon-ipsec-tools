@@ -90,8 +90,7 @@ static int str2num __P((char *, int));
  * output the sa parameter.
  */
 int
-backupsa_to_file(sa_args)
-	struct pfkey_send_sa_args *sa_args;
+backupsa_to_file(struct pfkey_send_sa_args *sa_args)
 {
 	char buf[1024];
 	struct tm *tm;
@@ -194,7 +193,7 @@ err:
 }
 
 int
-backupsa_from_file()
+backupsa_from_file(void)
 {
 	FILE *fp;
 	char buf[512];
@@ -336,7 +335,7 @@ next:
 }
 
 int
-backupsa_clean()
+backupsa_clean(void)
 {
 	FILE *fp;
 
@@ -426,9 +425,7 @@ str2tmx(char *p, struct tm *tm)
 }
 
 static int
-str2num(p, len)
-	char *p;
-	int len;
+str2num(char *p, int len)
 {
 	int res, i;
 

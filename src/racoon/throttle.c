@@ -59,8 +59,7 @@ static struct throttle_list throttle_list =
 	TAILQ_HEAD_INITIALIZER(throttle_list);
 
 struct throttle_entry *
-throttle_add(addr)
-	struct sockaddr *addr;
+throttle_add(struct sockaddr *addr)
 {
 	struct throttle_entry *te;
 	struct timeval now, penalty;
@@ -83,9 +82,7 @@ throttle_add(addr)
 }
 
 int
-throttle_host(addr, authfail) 
-	struct sockaddr *addr;
-	int authfail;
+throttle_host(struct sockaddr *addr, int authfail)
 {
 	struct throttle_entry *te;
 	struct timeval now, res;
