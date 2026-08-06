@@ -100,11 +100,7 @@ static struct {
 };
 
 static void
-evt_push(src, dst, type, optdata)
-	struct sockaddr *src;
-	struct sockaddr *dst;
-	int type;
-	vchar_t *optdata;
+evt_push(struct sockaddr_storage *src, struct sockaddr_storage *dst, int type, vchar_t *optdata)
 {
 	struct evtdump *evtdump;
 	struct evt *evt;
@@ -161,9 +157,9 @@ evt_push(src, dst, type, optdata)
 	}
 
 	if (src)
-		memcpy(&evtdump->src, src, sysdep_sa_len(src));
+		memcpy(&evtdump->src, src, sysdep_sa_len((struct sockaddr *)src));
 	if (dst)
-		memcpy(&evtdump->dst, dst, sysdep_sa_len(dst));
+		memcpy(&evtdump->dst, dst, sysdep_sa_len((struct sockaddr *)dst));
 	evtdump->len = len;
 	evtdump->type = type;
 	time(&evtdump->timestamp);
@@ -220,9 +216,7 @@ evt_dump(void) {
 }
 
 static struct evt_message *
-evtmsg_create(type, optdata)
-	int type;
-	vchar_t *optdata;
+evtmsg_create(int type, vchar_t *optdata)
 {
 	struct evt_message *e;
 	size_t len;
@@ -251,8 +245,7 @@ evtmsg_create(type, optdata)
 }
 
 static void
-evt_unsubscribe(l)
-	struct evt_listener *l;
+evt_unsubscribe(struct evt_listener *l)
 {
 	plog(LLV_DEBUG, LOCATION, NULL,
 	     "[%d] admin connection released\n", l->fd);
@@ -266,18 +259,14 @@ evt_unsubscribe(l)
 }
 
 static int
-evt_unsubscribe_cb(ctx, fd)
-	void *ctx;
-	int fd;
+evt_unsubscribe_cb(void *ctx, int fd)
 {
 	evt_unsubscribe((struct evt_listener *) ctx);
 	return 0;
 }
 
 static void
-evtmsg_broadcast(ll, e)
-	const struct evt_listener_list *ll;
-	struct evt_message *e;
+evtmsg_broadcast(const struct evt_listener_list *ll, struct evt_message *e)
 {
 	struct evt_listener *l, *nl;
 
@@ -293,9 +282,7 @@ evtmsg_broadcast(ll, e)
 }
 
 void
-evt_generic(type, optdata)
-	int type;
-	vchar_t *optdata;
+evt_generic(int type, vchar_t *optdata)
 {
 	struct evt_message *e;
 
@@ -309,10 +296,7 @@ evt_generic(type, optdata)
 }
 
 void
-evt_phase1(ph1, type, optdata)
-	const struct ph1handle *ph1;
-	int type;
-	vchar_t *optdata;
+evt_phase1(const struct ph1handle *ph1, int type, vchar_t *optdata)
 {
 	struct evt_message *e;
 
@@ -332,10 +316,7 @@ evt_phase1(ph1, type, optdata)
 }
 
 void
-evt_phase2(ph2, type, optdata)
-	const struct ph2handle *ph2;
-	int type;
-	vchar_t *optdata;
+evt_phase2(const struct ph2handle *ph2, int type, vchar_t *optdata)
 {
 	struct evt_message *e;
 	struct ph1handle *ph1 = ph2->ph1;
@@ -361,9 +342,7 @@ evt_phase2(ph2, type, optdata)
 }
 
 int
-evt_subscribe(list, fd)
-	struct evt_listener_list *list;
-	int fd;
+evt_subscribe(struct evt_listener_list *list, int fd)
 {
 	struct evt_listener *l;
 
@@ -404,15 +383,13 @@ evt_subscribe(list, fd)
 }
 
 void
-evt_list_init(list)
-	struct evt_listener_list *list;
+evt_list_init(struct evt_listener_list *list)
 {
 	LIST_INIT(list);
 }
 
 void
-evt_list_cleanup(list)
-	struct evt_listener_list *list;
+evt_list_cleanup(struct evt_listener_list *list)
 {
 	while (!LIST_EMPTY(list))
 		evt_unsubscribe(LIST_FIRST(list));
