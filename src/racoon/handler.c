@@ -592,6 +592,7 @@ status_dump(vchar_t **out, int verbose)
 	char *timestamp;
 	int first_ph1 = 1;
 	int first_ph2 = 1;
+	extern struct isakmp_cfg_config isakmp_cfg_config;
 
 	json = racoon_malloc(json_len);
 	if (json == NULL) {
@@ -607,8 +608,8 @@ status_dump(vchar_t **out, int verbose)
 	json_append(&json, &json_len, &json_pos, "\",\"phase1\":[");
 
 	LIST_FOREACH(iph1, &ph1tree, chain) {
-		const char *remote_str = saddr2str(iph1->remote);
-		const char *local_str = saddr2str(iph1->local);
+		const char *remote_str = racoon_strdup(saddr2str(iph1->remote));
+		const char *local_str = racoon_strdup(saddr2str(iph1->local));
 		char *initiator_spi = racoon_malloc(17);
 		char *responder_spi = racoon_malloc(17);
 		if (initiator_spi) {
@@ -657,7 +658,7 @@ status_dump(vchar_t **out, int verbose)
 
 #ifdef ENABLE_HYBRID
 		if (iph1->mode_cfg) {
-			mode_cfg_addr = saddr_to_cidr((struct sockaddr *)&iph1->mode_cfg->addr4);
+			mode_cfg_addr = racoon_strdup(saddr_to_cidr((struct sockaddr *)&iph1->mode_cfg->addr4));
 			if (iph1->mode_cfg->dns4_index > 0) {
 				char dns_buf[NI_MAXHOST];
 				getnameinfo((struct sockaddr *)&iph1->mode_cfg->dns4[0], sizeof(struct in_addr),
@@ -666,7 +667,9 @@ status_dump(vchar_t **out, int verbose)
 			}
 			if (iph1->mode_cfg->default_domain[0])
 				mode_cfg_domain = racoon_strdup(iph1->mode_cfg->default_domain);
-			if (iph1->mode_cfg->xauth.status != XAUTHST_NOTYET) {
+		if (isakmp_cfg_config.pfs_group)
+			mode_cfg_pfs = racoon_strdup(s_attr_isakmp_group(isakmp_cfg_config.pfs_group));
+		if (iph1->mode_cfg->xauth.status != XAUTHST_NOTYET) {
 				xauth_state_str = xauth_state_to_str(iph1->mode_cfg->xauth.status);
 				xauth_method_str = xauth_method_to_str(iph1->mode_cfg->xauth.authtype);
 			}
@@ -735,6 +738,8 @@ status_dump(vchar_t **out, int verbose)
 			racoon_free(lifetime_time_str);
 		if (lifetime_bytes_str != (char *)"0")
 			racoon_free(lifetime_bytes_str);
+		racoon_free((void *)remote_str);
+		racoon_free((void *)local_str);
 		racoon_free(mode_cfg_addr);
 		racoon_free(mode_cfg_dns);
 		racoon_free(mode_cfg_domain);
@@ -745,8 +750,8 @@ status_dump(vchar_t **out, int verbose)
 
 	LIST_FOREACH(iph2, &ph2tree, chain) {
 		struct ph1handle *parent_iph1 = iph2->ph1;
-		const char *remote_str = saddr2str(iph2->dst);
-		const char *local_str = saddr2str(iph2->src);
+		const char *remote_str = racoon_strdup(saddr2str(iph2->dst));
+		const char *local_str = racoon_strdup(saddr2str(iph2->src));
 		const char *protocol_str = "unknown";
 		const char *enc_alg = "none";
 		const char *auth_alg = "none";
@@ -845,8 +850,8 @@ status_dump(vchar_t **out, int verbose)
 			}
 		}
 
-		selector_src = saddr_to_cidr(iph2->src);
-		selector_dst = saddr_to_cidr(iph2->dst);
+		selector_src = racoon_strdup(saddr_to_cidr(iph2->src));
+		selector_dst = racoon_strdup(saddr_to_cidr(iph2->dst));
 		if (iph2->sa_src) {
 			struct sockaddr_in *sin = (struct sockaddr_in *)iph2->sa_src;
 			if (sin->sin_family == AF_INET) {
@@ -950,6 +955,8 @@ status_dump(vchar_t **out, int verbose)
 		racoon_free(spi_out);
 		racoon_free(selector_src);
 		racoon_free(selector_dst);
+		racoon_free((void *)remote_str);
+		racoon_free((void *)local_str);
 		if (selector_sport != (char *)"0")
 			racoon_free(selector_sport);
 		if (selector_dport != (char *)"0")
