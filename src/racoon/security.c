@@ -181,8 +181,15 @@ void
 init_avc(void)
 {
 	if (!is_selinux_mls_enabled()) {
-		plog(LLV_ERROR, LOCATION, NULL, "racoon: MLS support is not"
-				" enabled.\n");
+		/*
+		 * Expected on any system built with --enable-security-context
+		 * that isn't running an SELinux MLS policy (e.g. no SELinux
+		 * at all, or SELinux in targeted/non-MLS mode) -- not an
+		 * error, so this doesn't warrant LLV_ERROR.
+		 */
+		plog(LLV_INFO, LOCATION, NULL, "racoon: MLS support is not"
+				" enabled; labeled IPsec range checks will be"
+				" skipped.\n");
 		return;
 	}
 
