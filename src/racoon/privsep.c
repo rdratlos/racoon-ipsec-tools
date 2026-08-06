@@ -162,10 +162,7 @@ struct bind_args {
 };
 
 static int
-privsep_send(sock, buf, len)
-	int sock;
-	struct privsep_com_msg *buf;
-	size_t len;
+privsep_send(int sock, struct privsep_com_msg *buf, size_t len)
 {
 	if (buf == NULL)
 		return 0;
@@ -184,10 +181,7 @@ privsep_send(sock, buf, len)
 
 
 static int
-privsep_recv(sock, bufp, lenp)
-	int sock;
-	struct privsep_com_msg **bufp;
-	size_t *lenp;
+privsep_recv(int sock, struct privsep_com_msg **bufp, size_t *lenp)
 {
 	struct admin_com com;
 	struct admin_com *combuf;
@@ -272,11 +266,7 @@ privsep_recv(sock, bufp, lenp)
  * why the privileged dispatch loop needs this at all.
  */
 static int
-privsep_wait_io(sock, write, max_ms, what)
-	int sock;
-	int write;
-	int max_ms;
-	const char *what;
+privsep_wait_io(int sock, int write, int max_ms, const char *what)
 {
 	struct pollfd pfd;
 	int elapsed, ret;
@@ -343,9 +333,7 @@ privsep_wait_io(sock, write, max_ms, what)
  * follows.
  */
 static void
-privsep_handshake_failed(sock, reply)
-	int sock;
-	struct privsep_com_msg *reply;
+privsep_handshake_failed(int sock, struct privsep_com_msg *reply)
 {
 	plog(LLV_ERROR, LOCATION, NULL,
 	    "privsep: unprivileged process did not complete its request; "
@@ -386,10 +374,7 @@ privsep_handshake_failed(sock, reply)
  * "any PF_KEY socket you like".
  */
 static int
-privsep_socket_allowed(domain, type, protocol)
-	int domain;
-	int type;
-	int protocol;
+privsep_socket_allowed(int domain, int type, int protocol)
 {
 	if (domain == PF_INET || domain == PF_INET6)
 		return 1;
@@ -443,8 +428,7 @@ privsep_do_exit(void *ctx, int fd)
  * changing it is out of scope for Issue 1.
  */
 static RETSIGTYPE
-privsep_sigterm_forward(sig)
-	int sig;
+privsep_sigterm_forward(int sig)
 {
 	if (privsep_child_pid > 0)
 		kill(privsep_child_pid, SIGTERM);
@@ -775,8 +759,7 @@ privsep_init(void)
  *    shutdown that "goto out" reports.
  */
 int
-privsep_priv(sock)
-	int sock;
+privsep_priv(int sock)
 {
 	while (1) {
 		size_t len;
@@ -1601,8 +1584,7 @@ out:
 
 
 vchar_t *
-privsep_eay_get_pkcs1privkey(path) 
-	char *path;
+privsep_eay_get_pkcs1privkey(char *path)
 {
 	vchar_t *privkey;
 	struct privsep_com_msg *msg;
@@ -1647,11 +1629,7 @@ out:
 }
 
 int
-privsep_script_exec(script, name, envp, wait_for_exit)
-	char *script;
-	int name;
-	char *const envp[];
-	int wait_for_exit;
+privsep_script_exec(char *script, int name, char *const envp[], int wait_for_exit)
 {
 	int count = 0;
 	char *const *c;
@@ -1759,9 +1737,7 @@ privsep_script_exec(script, name, envp, wait_for_exit)
 }
 
 vchar_t *
-privsep_getpsk(str, keylen)
-	const char *str;
-	int keylen;
+privsep_getpsk(const char *str, int keylen)
 {
 	vchar_t *psk;
 	struct privsep_com_msg *msg;
@@ -1819,10 +1795,7 @@ out:
  * succeed but will be ineffective if performed on an unprivileged socket.
  */
 int
-privsep_socket(domain, type, protocol)
-	int domain;
-	int type;
-	int protocol;
+privsep_socket(int domain, int type, int protocol)
 {
 	struct privsep_com_msg *msg;
 	size_t len;
@@ -1903,10 +1876,7 @@ out:
  * privilege to do so, it will ask a privileged process to do it.
  */
 int
-privsep_bind(s, addr, addrlen)
-	int s;
-	const struct sockaddr *addr;
-	socklen_t addrlen;
+privsep_bind(int s, const struct sockaddr *addr, socklen_t addrlen)
 {
 	struct privsep_com_msg *msg;
 	size_t len;
@@ -1996,12 +1966,7 @@ out:
  * have the privilege to do so, it will ask a privileged process to do it.
  */
 int
-privsep_setsockopt(s, level, optname, optval, optlen)
-	int s;
-	int level;
-	int optname;
-	const void *optval;
-	socklen_t optlen;
+privsep_setsockopt(int s, int level, int optname, const void *optval, socklen_t optlen)
 {
 	struct privsep_com_msg *msg;
 	size_t len;
@@ -2107,9 +2072,7 @@ out:
 
 #ifdef ENABLE_HYBRID
 int
-privsep_xauth_login_system(usr, pwd)
-	char *usr;
-	char *pwd;
+privsep_xauth_login_system(char *usr, char *pwd)
 {
 	struct privsep_com_msg *msg;
 	size_t len;
@@ -2153,11 +2116,7 @@ privsep_xauth_login_system(usr, pwd)
 }
 
 int 
-privsep_accounting_system(port, raddr, usr, inout)
-	int port;
-	struct sockaddr *raddr;
-	char *usr;
-	int inout;
+privsep_accounting_system(int port, struct sockaddr *raddr, char *usr, int inout)
 {
 	struct privsep_com_msg *msg;
 	size_t len;
@@ -2220,8 +2179,7 @@ out:
 }
 
 static int
-port_check(port)
-	int port;
+port_check(int port)
 {
 	if ((port < 0) || (port >= isakmp_cfg_config.pool_size)) {
 		plog(LLV_ERROR, LOCATION, NULL,
@@ -2251,9 +2209,7 @@ port_check_unittest(int port)
 #endif
 
 static int 
-safety_check(msg, index)
-	struct privsep_com_msg *msg;
-	int index;
+safety_check(struct privsep_com_msg *msg, int index)
 {
 	if (index >= PRIVSEP_NBUF_MAX) {
 		plog(LLV_ERROR, LOCATION, NULL, 
@@ -2274,8 +2230,7 @@ safety_check(msg, index)
  * Filter unsafe environment variables
  */
 static int
-unsafe_env(envp)
-	char *const *envp;
+unsafe_env(char *const *envp)
 {
 	char *const *e;
 	char *const *be;
@@ -2300,9 +2255,7 @@ found:
  * Check path safety
  */
 static int 
-unsafe_path(script, pathtype)
-	char *script;
-	int pathtype;
+unsafe_path(char *script, int pathtype)
 {
 	char *path;
 	char rpath[MAXPATHLEN + 1];
@@ -2331,8 +2284,7 @@ unsafe_path(script, pathtype)
 }
 
 static int 
-unknown_name(name)
-	int name;
+unknown_name(int name)
 {
 	if ((name < 0) || (name > SCRIPT_MAX)) {
 		plog(LLV_ERROR, LOCATION, NULL, 
@@ -2354,8 +2306,7 @@ unknown_name(name)
  * keeps a truncated or EOF'd read from dereferencing CMSG_DATA(NULL).
  */
 static int
-rec_fd(s)
-	int s;
+rec_fd(int s)
 {
 	struct msghdr msg;
 	struct cmsghdr *cmsg;
@@ -2403,9 +2354,7 @@ rec_fd(s)
  * loop for why a failed request still has to send one.
  */
 static int
-send_fd(s, fd)
-	int s;
-	int fd;
+send_fd(int s, int fd)
 {
 	struct msghdr msg;
 	struct cmsghdr *cmsg;
