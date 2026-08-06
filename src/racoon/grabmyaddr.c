@@ -766,12 +766,12 @@ kernel_handle_message(caddr_t msg)
 
 	switch (rtm->rtm_type) {
 	case RTM_NEWADDR:
-		parse_addresses(ifa + 1, msg + ifa->ifam_msglen,
+		parse_addresses((caddr_t)(ifa + 1), msg + ifa->ifam_msglen,
 				ifa->ifam_addrs, &addr);
 		myaddr_open_all_configured((struct sockaddr *) &addr);
 		break;
 	case RTM_DELADDR:
-		parse_addresses(ifa + 1, msg + ifa->ifam_msglen,
+		parse_addresses((caddr_t)(ifa + 1), msg + ifa->ifam_msglen,
 				ifa->ifam_addrs, &addr);
 		myaddr_close_all_open((struct sockaddr *) &addr);
 		break;
