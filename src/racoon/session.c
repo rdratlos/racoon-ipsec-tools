@@ -570,7 +570,7 @@ int racoon_shutting_down = 0;
 
 /* clear all status and exit program. */
 static void
-close_session()
+close_session(void)
 {
 	/*
 	 * Must be set before flushph1() below fires any SCRIPT_PHASE1_DOWN
@@ -607,8 +607,7 @@ static int signals[] = {
  * main loop in session().
  */
 RETSIGTYPE
-signal_handler(sig)
-	int sig;
+signal_handler(int sig)
 {
 	sigreq[sig] = 1;
 }
@@ -616,7 +615,7 @@ signal_handler(sig)
 
 /* XXX possible mem leaks and no way to go back for now !!!
  */
-static void reload_conf(){
+static void reload_conf(void){
 	int error;
 
 #ifdef ENABLE_HYBRID
@@ -675,7 +674,7 @@ static void reload_conf(){
 }
 
 static void
-check_sigreq()
+check_sigreq(void)
 {
 	int sig, s;
 
@@ -745,7 +744,7 @@ check_sigreq_unittest(void)
 #endif /* ENABLE_UNITTEST */
 
 static void
-init_signal()
+init_signal(void)
 {
 	int i;
 
@@ -765,9 +764,7 @@ init_signal()
 }
 
 static int
-set_signal(sig, func)
-	int sig;
-	RETSIGTYPE (*func) __P((int));
+set_signal(int sig, RETSIGTYPE (*func)(int))
 {
 	struct sigaction sa;
 
@@ -785,7 +782,7 @@ set_signal(sig, func)
 }
 
 static int
-close_sockets()
+close_sockets(void)
 {
 	myaddr_close();
 	pfkey_close(lcconf->sock_pfkey);
