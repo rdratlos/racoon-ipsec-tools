@@ -334,9 +334,7 @@ end:
 
 #ifdef DNSSEC_DEBUG
 int
-b64encode(p, len)
-	char *p;
-	int len;
+b64encode(char *p, int len)
 {
 	static const char b64t[] =
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -368,9 +366,7 @@ b64encode(p, len)
 }
 
 int
-main(ac, av)
-	int ac;
-	char **av;
+main(int ac, char **av)
 {
 	struct certinfo *res, *p;
 	int i;

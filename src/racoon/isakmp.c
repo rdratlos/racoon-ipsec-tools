@@ -2705,8 +2705,7 @@ int safeputchar __P((int));
  * is assumed to be in network byte order.
  */
 char *
-getname(ap)
-	const u_char *ap;
+getname(const u_char *ap)
 {
 	struct sockaddr_in addr;
 	static char ntop_buf[NI_MAXHOST];
@@ -2731,8 +2730,7 @@ getname(ap)
  * is assumed to be in network byte order.
  */
 char *
-getname6(ap)
-	const u_char *ap;
+getname6(const u_char *ap)
 {
 	struct sockaddr_in6 addr;
 	static char ntop_buf[NI_MAXHOST];
@@ -2751,8 +2749,7 @@ getname6(ap)
 #endif /* INET6 */
 
 int
-safeputchar(c)
-	int c;
+safeputchar(int c)
 {
 	unsigned char ch;
 
@@ -2764,11 +2761,7 @@ safeputchar(c)
 }
 
 void
-isakmp_printpacket(msg, from, my, decoded)
-	vchar_t *msg;
-	struct sockaddr *from;
-	struct sockaddr *my;
-	int decoded;
+isakmp_printpacket(vchar_t *msg, struct sockaddr *from, struct sockaddr *my, int decoded)
 {
 #ifdef YIPS_DEBUG
 	struct timeval tv;

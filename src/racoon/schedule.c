@@ -231,15 +231,14 @@ sched_init(void)
 #include <err.h>
 
 void
-test(tick)
-	int *tick;
+test(int *tick)
 {
 	printf("execute %d\n", *tick);
 	racoon_free(tick);
 }
 
 void
-getstdin()
+getstdin(void)
 {
 	int *tick;
 	char buf[16];
@@ -266,7 +265,7 @@ getstdin()
 }
 
 int
-main()
+main(void)
 {
 	static fd_set mask0;
 	int nfds = 0;

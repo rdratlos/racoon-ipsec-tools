@@ -444,7 +444,7 @@ str2num(char *p, int len)
 #ifdef TEST
 #include <stdio.h>
 int
-main()
+main(void)
 {
 	struct tm tm;
 	time_t t;

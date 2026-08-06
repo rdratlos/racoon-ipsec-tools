@@ -190,7 +190,7 @@ int test_cast5_shim(void)
  * ============================================================================ */
 
 #ifdef HAVE_OPENSSL_IDEA_H
-int test_idea_shim()
+int test_idea_shim(void)
 {
 	vchar_t *data = NULL, *key = NULL, *iv = NULL;
 	int ret = -1;
@@ -229,7 +229,7 @@ int test_idea_shim()
  * ============================================================================ */
 
 #ifdef HAVE_OPENSSL_RC5_H
-int test_rc5_shim()
+int test_rc5_shim(void)
 {
 	vchar_t *data = NULL, *key = NULL, *iv = NULL;
 	int ret = -1;
@@ -350,13 +350,13 @@ int test_legacy_cipher_error_logging(void)
 	return ret;
 }
 #else
-int test_legacy_provider_loaded()
+int test_legacy_provider_loaded(void)
 {
 	TEST_START("Legacy provider check (OpenSSL 1.x - N/A)");
 	TEST_SKIP("Not applicable for OpenSSL 1.x");
 }
 
-int test_legacy_cipher_error_logging()
+int test_legacy_cipher_error_logging(void)
 {
 	TEST_START("Legacy cipher error path (OpenSSL 1.x - N/A)");
 	TEST_SKIP("Not applicable for OpenSSL 1.x");

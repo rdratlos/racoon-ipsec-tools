@@ -60,9 +60,7 @@
  * Get the security context information from SA.
  */
 int
-get_security_context(sa, p)
-	vchar_t *sa;
-	struct policyindex *p;
+get_security_context(vchar_t *sa, struct policyindex *p)
 {
 	int len = 0;
 	int flag, type = 0;
@@ -161,9 +159,7 @@ get_security_context(sa, p)
 }
 
 void
-set_secctx_in_proposal(iph2, spidx)
-	struct ph2handle *iph2;
-	struct policyindex spidx;
+set_secctx_in_proposal(struct ph2handle *iph2, struct policyindex spidx)
 {
 	iph2->proposal->sctx.ctx_doi = spidx.sec_ctx.ctx_doi;
 	iph2->proposal->sctx.ctx_alg = spidx.sec_ctx.ctx_alg;

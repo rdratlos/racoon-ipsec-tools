@@ -1612,29 +1612,25 @@ eay_des_keylen(int len)
  * IDEA-CBC
  */
 vchar_t *
-eay_idea_encrypt(data, key, iv)
-	vchar_t *data, *key, *iv;
+eay_idea_encrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, EVP_idea_cbc(), 1);
 }
 
 vchar_t *
-eay_idea_decrypt(data, key, iv)
-	vchar_t *data, *key, *iv;
+eay_idea_decrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, EVP_idea_cbc(), 0);
 }
 
 int
-eay_idea_weakkey(key)
-	vchar_t *key;
+eay_idea_weakkey(vchar_t *key)
 {
 	return 0;
 }
 
 int
-eay_idea_keylen(len)
-	int len;
+eay_idea_keylen(int len)
 {
 	if (len != 0 && len != 128)
 		return -1;
@@ -1678,29 +1674,25 @@ eay_bf_keylen(int len)
  * RC5-CBC
  */
 vchar_t *
-eay_rc5_encrypt(data, key, iv)
-	vchar_t *data, *key, *iv;
+eay_rc5_encrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, EVP_rc5_cbc(), 1);
 }
 
 vchar_t *
-eay_rc5_decrypt(data, key, iv)
-	vchar_t *data, *key, *iv;
+eay_rc5_decrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	return evp_crypt(data, key, iv, EVP_rc5_cbc(), 0);
 }
 
 int
-eay_rc5_weakkey(key)
-	vchar_t *key;
+eay_rc5_weakkey(vchar_t *key)
 {
 	return 0;
 }
 
 int
-eay_rc5_keylen(len)
-	int len;
+eay_rc5_keylen(int len)
 {
 	if (len == 0)
 		return 128;
@@ -1784,8 +1776,7 @@ eay_cast_keylen(int len)
  */
 #ifndef HAVE_OPENSSL_AES_H
 vchar_t *
-eay_aes_encrypt(data, key, iv)
-	vchar_t *data, *key, *iv;
+eay_aes_encrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	vchar_t *res;
 	keyInstance k;
@@ -1814,8 +1805,7 @@ eay_aes_encrypt(data, key, iv)
 }
 
 vchar_t *
-eay_aes_decrypt(data, key, iv)
-	vchar_t *data, *key, *iv;
+eay_aes_decrypt(vchar_t *data, vchar_t *key, vchar_t *iv)
 {
 	vchar_t *res;
 	keyInstance k;
@@ -2048,9 +2038,7 @@ eay_hmac_final(caddr_t ctx, int expected_len)
 #else
 /* Use HMAC_* for OpenSSL 1.1.x */
 static caddr_t
-eay_hmac_init(key, md)
-	vchar_t *key;
-	const EVP_MD *md;
+eay_hmac_init(vchar_t *key, const EVP_MD *md)
 {
 	HMAC_CTX *c = HMAC_CTX_new();
 
@@ -2063,17 +2051,13 @@ eay_hmac_init(key, md)
 }
 
 static void
-	eay_hmac_update(ctx, data)
-	caddr_t ctx;
-vchar_t *data;
+	eay_hmac_update(caddr_t ctx, vchar_t *data)
 {
 	HMAC_Update((HMAC_CTX *)ctx, (unsigned char *)data->v, data->l);
 }
 
 static vchar_t *
-eay_hmac_final(ctx, expected_len)
-caddr_t ctx;
-int expected_len;
+eay_hmac_final(caddr_t ctx, int expected_len)
 {
 	vchar_t *res;
 	unsigned int l;
@@ -2153,9 +2137,7 @@ eay_hmac_one(vchar_t *key, vchar_t *data, const EVP_MD *type)
 #else
 /* Use legacy HMAC() for OpenSSL 1.1.x */
 static vchar_t *
-eay_hmac_one(key, data, type)
-	vchar_t *key, *data;
-	const EVP_MD *type;
+eay_hmac_one(vchar_t *key, vchar_t *data, const EVP_MD *type)
 {
 	vchar_t *res;
 

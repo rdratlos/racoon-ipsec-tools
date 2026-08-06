@@ -718,10 +718,7 @@ kernel_sync(void)
 #define SAROUNDUP(X)   ROUNDUP(((struct sockaddr *)(X))->sa_len)
 
 static size_t
-parse_address(start, end, dest)
-	caddr_t start;
-	caddr_t end;
-	struct sockaddr_storage *dest;
+parse_address(caddr_t start, caddr_t end, struct sockaddr_storage *dest)
 {
 	int len;
 
@@ -739,11 +736,7 @@ parse_address(start, end, dest)
 }
 
 static void
-parse_addresses(start, end, flags, addr)
-	caddr_t start;
-	caddr_t end;
-	int flags;
-	struct sockaddr_storage *addr;
+parse_addresses(caddr_t start, caddr_t end, int flags, struct sockaddr_storage *addr)
 {
 	memset(addr, 0, sizeof(*addr));
 	if (flags & RTA_DST)
@@ -765,8 +758,7 @@ parse_addresses(start, end, flags, addr)
 }
 
 static void
-kernel_handle_message(msg)
-	caddr_t msg;
+kernel_handle_message(caddr_t msg)
 {
 	struct rt_msghdr *rtm = (struct rt_msghdr *) msg;
 	struct ifa_msghdr *ifa = (struct ifa_msghdr *) msg;
@@ -809,9 +801,7 @@ kernel_handle_message(msg)
 }
 
 static int
-kernel_receive(ctx, fd)
-	void *ctx;
-	int fd;
+kernel_receive(void *ctx, int fd)
 {
 	char buf[16*1024];
 	struct rt_msghdr *rtm = (struct rt_msghdr *) buf;
@@ -837,7 +827,7 @@ kernel_receive(ctx, fd)
 }
 
 static int
-kernel_open_socket()
+kernel_open_socket(void)
 {
 	int fd;
 
@@ -857,7 +847,7 @@ kernel_open_socket()
 }
 
 static void
-kernel_sync()
+kernel_sync(void)
 {
 	caddr_t ref, buf, end;
 	size_t bufsiz;

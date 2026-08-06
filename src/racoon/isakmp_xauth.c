@@ -556,10 +556,7 @@ xauth_radius_init(void)
 }
 
 int
-xauth_login_radius(iph1, usr, pwd)
-	struct ph1handle *iph1;
-	char *usr;
-	char *pwd;
+xauth_login_radius(struct ph1handle *iph1, char *usr, char *pwd)
 {
 	int res;
 	const void *data;

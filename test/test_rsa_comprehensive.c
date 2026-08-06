@@ -1271,7 +1271,7 @@ static RSA *generate_rsa_key(int bits)
 
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
 
-int test_ossl_param_bld_to_param_zero_init()
+int test_ossl_param_bld_to_param_zero_init(void)
 {
 	OSSL_PARAM_BLD *bld = NULL;
 	OSSL_PARAM *params = NULL;
@@ -1313,7 +1313,7 @@ int test_ossl_param_bld_to_param_zero_init()
 	return ret;
 }
 
-int test_ossl_param_bld_free_empty()
+int test_ossl_param_bld_free_empty(void)
 {
 	OSSL_PARAM_BLD *bld = NULL;
 	int ret = -1;
@@ -1332,7 +1332,7 @@ int test_ossl_param_bld_free_empty()
 	return ret;
 }
 
-int test_ossl_param_bld_push_null_bn()
+int test_ossl_param_bld_push_null_bn(void)
 {
 	OSSL_PARAM_BLD *bld = NULL;
 	OSSL_PARAM *params = NULL;
@@ -1364,7 +1364,7 @@ int test_ossl_param_bld_push_null_bn()
 	return ret;
 }
 
-int test_ossl_param_free_after_to_param()
+int test_ossl_param_free_after_to_param(void)
 {
 	OSSL_PARAM_BLD *bld = NULL;
 	OSSL_PARAM *params = NULL;
@@ -1408,7 +1408,7 @@ int test_ossl_param_free_after_to_param()
 	return ret;
 }
 
-int test_ossl_param_bld_push_size_t()
+int test_ossl_param_bld_push_size_t(void)
 {
 	OSSL_PARAM_BLD *bld = NULL;
 	OSSL_PARAM *params = NULL;
@@ -1440,7 +1440,7 @@ int test_ossl_param_bld_push_size_t()
 	return ret;
 }
 
-int test_ossl_param_bld_push_size_t_null_args()
+int test_ossl_param_bld_push_size_t_null_args(void)
 {
 	OSSL_PARAM_BLD *bld = NULL;
 	int ret = -1;
@@ -1474,7 +1474,7 @@ int test_ossl_param_bld_push_size_t_null_args()
  * (e.g., two "n" entries), the BN_free/BN_dup fix in EVP_PKEY_fromdata
  * ensured the second value overwrites the first without leaking the first BN.
  */
-int test_evp_pkey_fromdata_rsa_duplicate_keys()
+int test_evp_pkey_fromdata_rsa_duplicate_keys(void)
 {
 	OSSL_PARAM_BLD *bld = NULL;
 	OSSL_PARAM *params = NULL;
@@ -1615,7 +1615,7 @@ int test_evp_pkey_fromdata_rsa_duplicate_keys()
  * extracted n and e and called RSA_set0_key(rsa, n, e, NULL), silently
  * dropping d and all CRT parameters even for a KEYPAIR selection.
  */
-int test_evp_pkey_fromdata_rsa_private_key()
+int test_evp_pkey_fromdata_rsa_private_key(void)
 {
 	OSSL_PARAM_BLD *bld = NULL;
 	OSSL_PARAM *params = NULL;
@@ -1755,7 +1755,7 @@ int test_evp_pkey_fromdata_rsa_private_key()
  * Regression test: EVP_PKEY_fromdata with duplicate DH parameter keys.
  * Tests the same BN_free/BN_dup fix for DH parameters (p, g, q).
  */
-int test_evp_pkey_fromdata_dh_duplicate_keys()
+int test_evp_pkey_fromdata_dh_duplicate_keys(void)
 {
 	OSSL_PARAM_BLD *bld = NULL;
 	OSSL_PARAM *params = NULL;
@@ -1895,7 +1895,7 @@ int test_evp_pkey_fromdata_dh_duplicate_keys()
    called for the priv key by checking that the bld's BN pointer is properly
    released (no crash on double-free with ASAN) and that the public params
    (p, g) are still BN_free'd. */
-int test_ossl_param_bld_free_clears_priv_key()
+int test_ossl_param_bld_free_clears_priv_key(void)
 {
 	OSSL_PARAM_BLD *bld = NULL;
 	BIGNUM *priv = NULL;

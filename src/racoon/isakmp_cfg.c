@@ -1503,9 +1503,7 @@ isakmp_cfg_accounting_pam(int port, int inout)
 
 #ifdef HAVE_LIBRADIUS
 static int
-isakmp_cfg_accounting_radius(iph1, inout)
-	struct ph1handle *iph1;
-	int inout;
+isakmp_cfg_accounting_radius(struct ph1handle *iph1, int inout)
 {
 	if (rad_create_request(radius_acct_state, 
 	    RAD_ACCOUNTING_REQUEST) != 0) {
@@ -1578,9 +1576,7 @@ isakmp_cfg_accounting_radius(iph1, inout)
  */
 #ifdef HAVE_LIBRADIUS
 int
-isakmp_cfg_radius_common(radius_state, port)
-	struct rad_handle *radius_state;
-	int port;
+isakmp_cfg_radius_common(struct rad_handle *radius_state, int port)
 { 
 	struct utsname name;
 	static struct hostent *host = NULL;
