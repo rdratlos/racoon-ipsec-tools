@@ -221,7 +221,7 @@ usage(void)
 "  %s [opts] vpn-disconnect vpn_gateway\n"
 "  %s [opts] show-event\n"
 "  %s [opts] logout-user login\n"
-"  %s [opts] status\n"
+"  %s [opts] status [-v]\n"
 "\n"
 "General options:\n"
 "  -d		Debug: hexdump admin messages before sending\n"
@@ -395,10 +395,28 @@ f_getevt(int ac, char **av)
 
 f_status(int ac, char **av)
 {
+	int verbose = 0;
+	int ch;
+
+	while ((ch = getopt(ac, av, "v")) != -1) {
+		switch (ch) {
+		case 'v':
+			verbose = 1;
+			break;
+		default:
+			errx(1, "usage: status [-v]");
+		}
+	}
+	ac -= optind;
+	av += optind;
+
 	if (ac >= 1)
 		errx(1, "too many arguments");
 
-	return make_request(ADMIN_STATUS, 0, 0);
+	if (verbose)
+		return make_request(ADMIN_STATUS_VERBOSE, 0, 0);
+	else
+		return make_request(ADMIN_STATUS, 0, 0);
 }
 
 static vchar_t *

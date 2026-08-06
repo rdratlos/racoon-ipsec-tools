@@ -581,7 +581,7 @@ format_time(time_t t)
 }
 
 void
-status_dump(vchar_t **out)
+status_dump(vchar_t **out, int verbose)
 {
 	struct ph1handle *iph1;
 	struct ph2handle *iph2;
@@ -607,8 +607,8 @@ status_dump(vchar_t **out)
 	json_append(&json, &json_len, &json_pos, "\",\"phase1\":[");
 
 	LIST_FOREACH(iph1, &ph1tree, chain) {
-		char *remote_str = saddr2str(iph1->remote);
-		char *local_str = saddr2str(iph1->local);
+		const char *remote_str = saddr2str(iph1->remote);
+		const char *local_str = saddr2str(iph1->local);
 		char *initiator_spi = racoon_malloc(17);
 		char *responder_spi = racoon_malloc(17);
 		if (initiator_spi) {
@@ -696,10 +696,38 @@ status_dump(vchar_t **out)
 		json_append(&json, &json_len, &json_pos, "\"mode_cfg_dns\":\"%s\",", mode_cfg_dns);
 		json_append(&json, &json_len, &json_pos, "\"mode_cfg_domain\":\"%s\",", mode_cfg_domain);
 		json_append(&json, &json_len, &json_pos, "\"mode_cfg_pfs_group\":\"%s\"", mode_cfg_pfs);
+		if (verbose) {
+			char *dpd_str = racoon_malloc(32);
+			if (dpd_str) {
+				snprintf(dpd_str, 32, "%d", iph1->dpd_support);
+				json_append(&json, &json_len, &json_pos, ",\"dpd_support\":%s", dpd_str);
+				racoon_free(dpd_str);
+			}
+			if (iph1->natt_options) {
+				char *natt_str = racoon_malloc(32);
+				if (natt_str) {
+					snprintf(natt_str, 32, "%d", 1);
+					json_append(&json, &json_len, &json_pos, ",\"natt_enabled\":%s", natt_str);
+					racoon_free(natt_str);
+				}
+			}
+			if (iph1->rmconf) {
+				char *proposal_num = racoon_malloc(32);
+				if (proposal_num) {
+					snprintf(proposal_num, 32, "%d", iph1->rmconf->proposal ? 1 : 0);
+					json_append(&json, &json_len, &json_pos, ",\"has_proposals\":%s", proposal_num);
+					racoon_free(proposal_num);
+				}
+				char *gen_policy_str = racoon_malloc(32);
+				if (gen_policy_str) {
+					snprintf(gen_policy_str, 32, "%d", iph1->rmconf->gen_policy);
+					json_append(&json, &json_len, &json_pos, ",\"generate_policy\":%s", gen_policy_str);
+					racoon_free(gen_policy_str);
+				}
+			}
+		}
 		json_append(&json, &json_len, &json_pos, "}");
 
-		racoon_free(remote_str);
-		racoon_free(local_str);
 		racoon_free(initiator_spi);
 		racoon_free(responder_spi);
 		racoon_free(created_str);
@@ -717,13 +745,13 @@ status_dump(vchar_t **out)
 
 	LIST_FOREACH(iph2, &ph2tree, chain) {
 		struct ph1handle *parent_iph1 = iph2->ph1;
-		char *remote_str = saddr2str(iph2->dst);
-		char *local_str = saddr2str(iph2->src);
-		char *protocol_str = "unknown";
-		char *enc_alg = "none";
-		char *auth_alg = "none";
-		char *comp_alg = "none";
-		char *pfs_group_str = "none";
+		const char *remote_str = saddr2str(iph2->dst);
+		const char *local_str = saddr2str(iph2->src);
+		const char *protocol_str = "unknown";
+		const char *enc_alg = "none";
+		const char *auth_alg = "none";
+		const char *comp_alg = "none";
+		const char *pfs_group_str = "none";
 		char *lifetime_time_str = "0";
 		char *lifetime_bytes_str = "0";
 		char *selector_src = "0.0.0.0/0";
@@ -864,6 +892,38 @@ status_dump(vchar_t **out)
 		json_append(&json, &json_len, &json_pos, "\"dport\":%s,", selector_dport);
 		json_append(&json, &json_len, &json_pos, "\"proto\":%s", selector_proto);
 		json_append(&json, &json_len, &json_pos, "}");
+		if (verbose) {
+			if (iph2->approval && iph2->approval->head) {
+				struct saproto *proto = iph2->approval->head;
+				json_append(&json, &json_len, &json_pos, ",\"transforms\":[");
+				int first_transform = 1;
+				for (struct satrns *trns = proto->head; trns; trns = trns->next) {
+					if (!first_transform)
+						json_append(&json, &json_len, &json_pos, ",");
+					first_transform = 0;
+					json_append(&json, &json_len, &json_pos, "{");
+					json_append(&json, &json_len, &json_pos, "\"type\":%d,", trns->trns_id);
+					json_append(&json, &json_len, &json_pos, "\"authtype\":%d,", trns->authtype);
+					json_append(&json, &json_len, &json_pos, "\"encklen\":%d", trns->encklen);
+					json_append(&json, &json_len, &json_pos, "}");
+				}
+				json_append(&json, &json_len, &json_pos, "]");
+			}
+			char *side_str = racoon_malloc(32);
+			if (side_str) {
+				snprintf(side_str, 32, "%d", iph2->side);
+				json_append(&json, &json_len, &json_pos, ",\"side\":%s", side_str);
+				racoon_free(side_str);
+			}
+			if (iph2->sa) {
+				char *sa_str = racoon_malloc(32);
+				if (sa_str) {
+					snprintf(sa_str, 32, "%p", iph2->sa);
+					json_append(&json, &json_len, &json_pos, ",\"sa\":%s", sa_str);
+					racoon_free(sa_str);
+				}
+			}
+		}
 		if (parent_iph1) {
 			char *parent_initiator_spi = racoon_malloc(17);
 			char *parent_responder_spi = racoon_malloc(17);
@@ -886,8 +946,6 @@ status_dump(vchar_t **out)
 		}
 		json_append(&json, &json_len, &json_pos, "}");
 
-		racoon_free(remote_str);
-		racoon_free(local_str);
 		racoon_free(spi_in);
 		racoon_free(spi_out);
 		racoon_free(selector_src);

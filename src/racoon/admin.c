@@ -390,7 +390,13 @@ admin_process(int so2, char *combuf)
 	}
 
 	case ADMIN_STATUS:
-		status_dump(&buf);
+		status_dump(&buf, 0);
+		if (buf == NULL)
+			l_ac_errno = ENOMEM;
+		break;
+
+	case ADMIN_STATUS_VERBOSE:
+		status_dump(&buf, 1);
 		if (buf == NULL)
 			l_ac_errno = ENOMEM;
 		break;
