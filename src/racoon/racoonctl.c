@@ -100,6 +100,7 @@ static vchar_t *f_exchangesa __P((int, char **));
 static vchar_t *f_vpnc __P((int, char **));
 static vchar_t *f_vpnd __P((int, char **));
 static vchar_t *f_getevt __P((int, char **));
+static vchar_t *f_status __P((int, char **));
 #ifdef ENABLE_HYBRID
 static vchar_t *f_logoutusr __P((int, char **));
 #endif
@@ -132,6 +133,8 @@ struct cmd_tag {
 	{ f_logoutusr,	"logout-user" },
 	{ f_logoutusr,	"lu" },
 #endif
+	{ f_status,	"status" },
+	{ f_status,	"st" },
 	{ NULL, NULL },
 };
 
@@ -218,6 +221,7 @@ usage(void)
 "  %s [opts] vpn-disconnect vpn_gateway\n"
 "  %s [opts] show-event\n"
 "  %s [opts] logout-user login\n"
+"  %s [opts] status\n"
 "\n"
 "General options:\n"
 "  -d		Debug: hexdump admin messages before sending\n"
@@ -235,7 +239,7 @@ usage(void)
 "    <ul_proto>: \"icmp\", \"tcp\", \"udp\", \"gre\" or \"any\"\n"
 "\n",
 		pname, pname, pname, pname, pname, pname, pname, pname, pname, pname,
-		ADMINSOCK_PATH);
+		pname, ADMINSOCK_PATH);
 }
 
 /*
@@ -387,6 +391,14 @@ f_getevt(int ac, char **av)
 		errx(1, "too many arguments");
 
 	return make_request(ADMIN_SHOW_EVT, 0, 0);
+}
+
+f_status(int ac, char **av)
+{
+	if (ac >= 1)
+		errx(1, "too many arguments");
+
+	return make_request(ADMIN_STATUS, 0, 0);
 }
 
 static vchar_t *
@@ -1558,6 +1570,11 @@ handle_recv(vchar_t *combuf)
 		}
 
 	    }
+		break;
+
+	case ADMIN_STATUS:
+		fwrite(buf, len, 1, stdout);
+		printf("\n");
 		break;
 
 	default:

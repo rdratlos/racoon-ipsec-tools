@@ -42,6 +42,7 @@
 #include <string.h>
 #include <time.h>
 #include <errno.h>
+#include <stdarg.h>
 
 #include "var.h"
 #include "misc.h"
@@ -76,6 +77,8 @@
 #include "nattraversal.h"
 
 #include "sainfo.h"
+#include "ipsec_doi.h"
+#include "strnames.h"
 
 #ifdef HAVE_GSSAPI
 #include "gssapi.h"
@@ -345,6 +348,571 @@ dumpph1(void)
 	}
 
 	return buf;
+}
+
+static const char *
+ph1_state_to_str(int state)
+{
+	switch (state) {
+	case PHASE1ST_SPAWN:		return "spawn";
+	case PHASE1ST_START:		return "start";
+	case PHASE1ST_MSG1RECEIVED:	return "msg1received";
+	case PHASE1ST_MSG1SENT:		return "msg1sent";
+	case PHASE1ST_MSG2RECEIVED:	return "msg2received";
+	case PHASE1ST_MSG2SENT:		return "msg2sent";
+	case PHASE1ST_MSG3RECEIVED:	return "msg3received";
+	case PHASE1ST_MSG3SENT:		return "msg3sent";
+	case PHASE1ST_MSG4RECEIVED:	return "msg4received";
+	case PHASE1ST_ESTABLISHED:	return "established";
+	case PHASE1ST_DYING:		return "dying";
+	case PHASE1ST_EXPIRED:		return "expired";
+	default:			return "unknown";
+	}
+}
+
+static const char *
+ph2_state_to_str(int state)
+{
+	switch (state) {
+	case PHASE2ST_SPAWN:		return "spawn";
+	case PHASE2ST_START:		return "start";
+	case PHASE2ST_STATUS2:		return "status2";
+	case PHASE2ST_GETSPISENT:	return "getspisent";
+	case PHASE2ST_GETSPIDONE:	return "getspidone";
+	case PHASE2ST_MSG1SENT:		return "msg1sent";
+	case PHASE2ST_STATUS6:		return "status6";
+	case PHASE2ST_COMMIT:		return "commit";
+	case PHASE2ST_ADDSA:		return "addsa";
+	case PHASE2ST_ESTABLISHED:	return "established";
+	case PHASE2ST_EXPIRED:		return "expired";
+	default:			return "unknown";
+	}
+}
+
+#ifdef ENABLE_HYBRID
+static const char *
+xauth_state_to_str(int state)
+{
+	switch (state) {
+	case XAUTHST_NOTYET:		return "notyet";
+	case XAUTHST_REQSENT:		return "reqsent";
+	case XAUTHST_OK:			return "ok";
+	default:			return "unknown";
+	}
+}
+
+static const char *
+xauth_method_to_str(int method)
+{
+	switch (method) {
+	case XAUTH_TYPE_GENERIC:	return "generic";
+	case XAUTH_TYPE_CHAP:		return "chap";
+	case XAUTH_TYPE_OTP:		return "otp";
+	case XAUTH_TYPE_SKEY:		return "skey";
+	default:			return "unknown";
+	}
+}
+#endif
+
+static const char *
+auth_method_to_str(int method)
+{
+	switch (method) {
+	case OAKLEY_ATTR_AUTH_METHOD_PSKEY:	return "psk";
+	case OAKLEY_ATTR_AUTH_METHOD_DSSSIG:	return "dsssig";
+	case OAKLEY_ATTR_AUTH_METHOD_RSASIG:	return "rsasig";
+	case OAKLEY_ATTR_AUTH_METHOD_RSAENC:	return "rsaenc";
+	case OAKLEY_ATTR_AUTH_METHOD_RSAREV:	return "rsarev";
+	case OAKLEY_ATTR_AUTH_METHOD_EGENC:	return "egenc";
+	case OAKLEY_ATTR_AUTH_METHOD_EGREV:	return "egrev";
+	case OAKLEY_ATTR_AUTH_METHOD_HYBRID_RSA_I: return "hybrid_rsa_i";
+	case OAKLEY_ATTR_AUTH_METHOD_HYBRID_RSA_R: return "hybrid_rsa_r";
+	case OAKLEY_ATTR_AUTH_METHOD_HYBRID_DSS_I: return "hybrid_dss_i";
+	case OAKLEY_ATTR_AUTH_METHOD_HYBRID_DSS_R: return "hybrid_dss_r";
+	case OAKLEY_ATTR_AUTH_METHOD_XAUTH_PSKEY_I: return "xauth_pskey_i";
+	case OAKLEY_ATTR_AUTH_METHOD_XAUTH_PSKEY_R: return "xauth_pskey_r";
+	case OAKLEY_ATTR_AUTH_METHOD_XAUTH_DSSSIG_I: return "xauth_dsssig_i";
+	case OAKLEY_ATTR_AUTH_METHOD_XAUTH_DSSSIG_R: return "xauth_dsssig_r";
+	case OAKLEY_ATTR_AUTH_METHOD_XAUTH_RSASIG_I: return "xauth_rsasig_i";
+	case OAKLEY_ATTR_AUTH_METHOD_XAUTH_RSASIG_R: return "xauth_rsasig_r";
+	case OAKLEY_ATTR_AUTH_METHOD_XAUTH_RSAENC_I: return "xauth_rsaenc_i";
+	case OAKLEY_ATTR_AUTH_METHOD_XAUTH_RSAENC_R: return "xauth_rsaenc_r";
+	case OAKLEY_ATTR_AUTH_METHOD_XAUTH_RSAREV_I: return "xauth_rsarev_i";
+	case OAKLEY_ATTR_AUTH_METHOD_XAUTH_RSAREV_R: return "xauth_rsarev_r";
+	case OAKLEY_ATTR_AUTH_METHOD_GSSAPI_KRB: return "gssapi_krb";
+	default:				return "unknown";
+	}
+}
+
+static void
+json_escaped_append(char **dst, size_t *dst_len, size_t *dst_pos, const char *src)
+{
+	size_t src_len;
+	char *new_dst;
+
+	if (src == NULL)
+		return;
+
+	src_len = strlen(src);
+	while (*dst_pos + src_len + 1 >= *dst_len) {
+		*dst_len *= 2;
+		new_dst = racoon_realloc(*dst, *dst_len);
+		if (new_dst == NULL) {
+			plog(LLV_ERROR, LOCATION, NULL, "json realloc failed\n");
+			return;
+		}
+		*dst = new_dst;
+	}
+
+	for (size_t i = 0; i < src_len; i++) {
+		unsigned char c = (unsigned char)src[i];
+		if (c == '"' || c == '\\') {
+			(*dst)[(*dst_pos)++] = '\\';
+			(*dst)[(*dst_pos)++] = c;
+		} else if (c < 0x20) {
+			(*dst)[(*dst_pos)++] = '\\';
+			switch (c) {
+			case '\b': (*dst)[(*dst_pos)++] = 'b'; break;
+			case '\f': (*dst)[(*dst_pos)++] = 'f'; break;
+			case '\n': (*dst)[(*dst_pos)++] = 'n'; break;
+			case '\r': (*dst)[(*dst_pos)++] = 'r'; break;
+			case '\t': (*dst)[(*dst_pos)++] = 't'; break;
+			default:
+				snprintf(*dst + *dst_pos, 7, "u%04x", c);
+				*dst_pos += 6;
+				break;
+			}
+		} else {
+			(*dst)[(*dst_pos)++] = c;
+		}
+	}
+	(*dst)[*dst_pos] = '\0';
+}
+
+static void
+json_append(char **dst, size_t *dst_len, size_t *dst_pos, const char *fmt, ...)
+{
+	va_list ap;
+	char *new_dst;
+	int needed;
+
+	if (*dst_pos >= *dst_len - 1)
+		return;
+
+	va_start(ap, fmt);
+	needed = vsnprintf(*dst + *dst_pos, *dst_len - *dst_pos, fmt, ap);
+	va_end(ap);
+
+	if (needed < 0)
+		return;
+
+	if ((size_t)needed >= *dst_len - *dst_pos) {
+		*dst_len = *dst_pos + needed + 256;
+		new_dst = racoon_realloc(*dst, *dst_len);
+		if (new_dst == NULL) {
+			plog(LLV_ERROR, LOCATION, NULL, "json realloc failed\n");
+			return;
+		}
+		*dst = new_dst;
+
+		va_start(ap, fmt);
+		needed = vsnprintf(*dst + *dst_pos, *dst_len - *dst_pos, fmt, ap);
+		va_end(ap);
+		if (needed < 0)
+			return;
+	}
+
+	*dst_pos += needed;
+}
+
+static char *
+saddr_to_cidr(struct sockaddr *sa)
+{
+	char addr[NI_MAXHOST];
+	char *result = NULL;
+	int prefixlen = 128;
+
+	if (sa == NULL)
+		return racoon_strdup("0.0.0.0/0");
+
+	if (getnameinfo(sa, sysdep_sa_len(sa), addr, sizeof(addr), NULL, 0, NI_NUMERICHOST) != 0)
+		return racoon_strdup("?");
+
+	if (sa->sa_family == AF_INET) {
+		struct sockaddr_in *sin = (struct sockaddr_in *)sa;
+		prefixlen = 32;
+		if (sin->sin_addr.s_addr == INADDR_ANY)
+			prefixlen = 0;
+	} else if (sa->sa_family == AF_INET6) {
+		struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)sa;
+		if (IN6_IS_ADDR_UNSPECIFIED(&sin6->sin6_addr))
+			prefixlen = 0;
+	}
+
+	if (asprintf(&result, "%s/%d", addr, prefixlen) < 0)
+		return racoon_strdup("?");
+
+	return result;
+}
+
+static char *
+mask_spi(u_int32_t spi)
+{
+	char *result;
+	if (asprintf(&result, "0x%08x", spi) < 0)
+		return racoon_strdup("?");
+	return result;
+}
+
+static char *
+format_time(time_t t)
+{
+	char *result;
+	struct tm *tm;
+	char buf[32];
+
+	tm = gmtime(&t);
+	if (tm == NULL)
+		return racoon_strdup("1970-01-01T00:00:00Z");
+
+	strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", tm);
+	result = racoon_strdup(buf);
+	return result;
+}
+
+void
+status_dump(vchar_t **out)
+{
+	struct ph1handle *iph1;
+	struct ph2handle *iph2;
+	char *json = NULL;
+	size_t json_len = 8192;
+	size_t json_pos = 0;
+	time_t now = time(NULL);
+	char *timestamp;
+	int first_ph1 = 1;
+	int first_ph2 = 1;
+
+	json = racoon_malloc(json_len);
+	if (json == NULL) {
+		plog(LLV_ERROR, LOCATION, NULL, "status_dump: malloc failed\n");
+		*out = NULL;
+		return;
+	}
+
+	json_append(&json, &json_len, &json_pos, "{\"version\":1,\"timestamp\":\"");
+	timestamp = format_time(now);
+	json_escaped_append(&json, &json_len, &json_pos, timestamp);
+	racoon_free(timestamp);
+	json_append(&json, &json_len, &json_pos, "\",\"phase1\":[");
+
+	LIST_FOREACH(iph1, &ph1tree, chain) {
+		char *remote_str = saddr2str(iph1->remote);
+		char *local_str = saddr2str(iph1->local);
+		char *initiator_spi = racoon_malloc(17);
+		char *responder_spi = racoon_malloc(17);
+		if (initiator_spi) {
+			for (int i = 0; i < 8; i++)
+				snprintf(initiator_spi + i * 2, 3, "%02x", iph1->index.i_ck[i]);
+		} else {
+			initiator_spi = racoon_strdup("?");
+		}
+		if (responder_spi) {
+			for (int i = 0; i < 8; i++)
+				snprintf(responder_spi + i * 2, 3, "%02x", iph1->index.r_ck[i]);
+		} else {
+			responder_spi = racoon_strdup("?");
+		}
+		char *created_str = format_time(iph1->created);
+		const char *auth_method_str = "unknown";
+		const char *enc_alg = "unknown";
+		const char *hash_alg = "unknown";
+		const char *dh_group_str = "unknown";
+		const char *pfs_group_str = "none";
+		char *lifetime_time_str = "0";
+		char *lifetime_bytes_str = "0";
+		const char *xauth_state_str = "none";
+		const char *xauth_method_str = "none";
+		char *mode_cfg_addr = NULL;
+		char *mode_cfg_dns = NULL;
+		char *mode_cfg_domain = NULL;
+		char *mode_cfg_pfs = NULL;
+
+		if (!first_ph1)
+			json_append(&json, &json_len, &json_pos, ",");
+		first_ph1 = 0;
+
+		if (iph1->approval) {
+			auth_method_str = auth_method_to_str(iph1->approval->authmethod);
+			enc_alg = s_attr_isakmp_enc(iph1->approval->enctype);
+			hash_alg = s_attr_isakmp_hash(iph1->approval->hashtype);
+			dh_group_str = s_attr_isakmp_group(iph1->approval->dh_group);
+			if (asprintf(&lifetime_time_str, "%lu", (unsigned long)iph1->approval->lifetime) < 0)
+				lifetime_time_str = racoon_strdup("0");
+			if (iph1->approval->lifebyte) {
+				if (asprintf(&lifetime_bytes_str, "%lu", (unsigned long)iph1->approval->lifebyte) < 0)
+					lifetime_bytes_str = racoon_strdup("0");
+			}
+		}
+
+#ifdef ENABLE_HYBRID
+		if (iph1->mode_cfg) {
+			mode_cfg_addr = saddr_to_cidr((struct sockaddr *)&iph1->mode_cfg->addr4);
+			if (iph1->mode_cfg->dns4_index > 0) {
+				char dns_buf[NI_MAXHOST];
+				getnameinfo((struct sockaddr *)&iph1->mode_cfg->dns4[0], sizeof(struct in_addr),
+					    dns_buf, sizeof(dns_buf), NULL, 0, NI_NUMERICHOST);
+				mode_cfg_dns = racoon_strdup(dns_buf);
+			}
+			if (iph1->mode_cfg->default_domain[0])
+				mode_cfg_domain = racoon_strdup(iph1->mode_cfg->default_domain);
+			if (iph1->mode_cfg->xauth.status != XAUTHST_NOTYET) {
+				xauth_state_str = xauth_state_to_str(iph1->mode_cfg->xauth.status);
+				xauth_method_str = xauth_method_to_str(iph1->mode_cfg->xauth.authtype);
+			}
+		}
+#endif
+
+		json_append(&json, &json_len, &json_pos, "{");
+		json_append(&json, &json_len, &json_pos, "\"state\":\"%s\",", ph1_state_to_str(iph1->status));
+		json_append(&json, &json_len, &json_pos, "\"initiator_spi\":\"%s\",", initiator_spi);
+		json_append(&json, &json_len, &json_pos, "\"responder_spi\":\"%s\",", responder_spi);
+		json_append(&json, &json_len, &json_pos, "\"remote\":\"%s\",", remote_str);
+		json_append(&json, &json_len, &json_pos, "\"local\":\"%s\",", local_str);
+		json_append(&json, &json_len, &json_pos, "\"version\":%d,", iph1->version);
+		json_append(&json, &json_len, &json_pos, "\"etype\":%d,", iph1->etype);
+		json_append(&json, &json_len, &json_pos, "\"side\":%d,", iph1->side);
+		json_append(&json, &json_len, &json_pos, "\"created\":\"%s\",", created_str);
+		json_append(&json, &json_len, &json_pos, "\"auth_method\":\"%s\",", auth_method_str);
+		json_append(&json, &json_len, &json_pos, "\"encryption_algorithm\":\"%s\",", enc_alg);
+		json_append(&json, &json_len, &json_pos, "\"hash_algorithm\":\"%s\",", hash_alg);
+		json_append(&json, &json_len, &json_pos, "\"dh_group\":\"%s\",", dh_group_str);
+		json_append(&json, &json_len, &json_pos, "\"pfs_group\":\"%s\",", pfs_group_str);
+		json_append(&json, &json_len, &json_pos, "\"lifetime_time\":%s,", lifetime_time_str);
+		json_append(&json, &json_len, &json_pos, "\"lifetime_bytes\":%s,", lifetime_bytes_str);
+		json_append(&json, &json_len, &json_pos, "\"xauth_state\":\"%s\",", xauth_state_str);
+		json_append(&json, &json_len, &json_pos, "\"xauth_method\":\"%s\",", xauth_method_str);
+		json_append(&json, &json_len, &json_pos, "\"mode_cfg_address\":\"%s\",", mode_cfg_addr);
+		json_append(&json, &json_len, &json_pos, "\"mode_cfg_dns\":\"%s\",", mode_cfg_dns);
+		json_append(&json, &json_len, &json_pos, "\"mode_cfg_domain\":\"%s\",", mode_cfg_domain);
+		json_append(&json, &json_len, &json_pos, "\"mode_cfg_pfs_group\":\"%s\"", mode_cfg_pfs);
+		json_append(&json, &json_len, &json_pos, "}");
+
+		racoon_free(remote_str);
+		racoon_free(local_str);
+		racoon_free(initiator_spi);
+		racoon_free(responder_spi);
+		racoon_free(created_str);
+		if (lifetime_time_str != (char *)"0")
+			racoon_free(lifetime_time_str);
+		if (lifetime_bytes_str != (char *)"0")
+			racoon_free(lifetime_bytes_str);
+		racoon_free(mode_cfg_addr);
+		racoon_free(mode_cfg_dns);
+		racoon_free(mode_cfg_domain);
+		racoon_free(mode_cfg_pfs);
+	}
+
+	json_append(&json, &json_len, &json_pos, "],\"phase2\":[");
+
+	LIST_FOREACH(iph2, &ph2tree, chain) {
+		struct ph1handle *parent_iph1 = iph2->ph1;
+		char *remote_str = saddr2str(iph2->dst);
+		char *local_str = saddr2str(iph2->src);
+		char *protocol_str = "unknown";
+		char *enc_alg = "none";
+		char *auth_alg = "none";
+		char *comp_alg = "none";
+		char *pfs_group_str = "none";
+		char *lifetime_time_str = "0";
+		char *lifetime_bytes_str = "0";
+		char *selector_src = "0.0.0.0/0";
+		char *selector_dst = "0.0.0.0/0";
+		char *selector_sport = "0";
+		char *selector_dport = "0";
+		char *selector_proto = "0";
+		char *spi_in = NULL;
+		char *spi_out = NULL;
+
+		if (!first_ph2)
+			json_append(&json, &json_len, &json_pos, ",");
+		first_ph2 = 0;
+
+		if (iph2->approval && iph2->approval->head) {
+			struct saproto *proto = iph2->approval->head;
+			switch (proto->proto_id) {
+			case IPSECDOI_PROTO_IPSEC_ESP:
+				protocol_str = "esp";
+				break;
+			case IPSECDOI_PROTO_IPSEC_AH:
+				protocol_str = "ah";
+				break;
+			case IPSECDOI_PROTO_IPCOMP:
+				protocol_str = "ipcomp";
+				break;
+			}
+			spi_in = mask_spi(proto->spi);
+			spi_out = mask_spi(proto->spi_p);
+
+			for (struct satrns *trns = proto->head; trns; trns = trns->next) {
+				switch (proto->proto_id) {
+				case IPSECDOI_PROTO_IPSEC_ESP:
+					switch (trns->trns_id) {
+					case IPSECDOI_ESP_DES_IV64:
+					case IPSECDOI_ESP_DES:
+					case IPSECDOI_ESP_3DES:
+					case IPSECDOI_ESP_RC5:
+					case IPSECDOI_ESP_IDEA:
+					case IPSECDOI_ESP_CAST:
+					case IPSECDOI_ESP_BLOWFISH:
+					case IPSECDOI_ESP_3IDEA:
+					case IPSECDOI_ESP_DES_IV32:
+					case IPSECDOI_ESP_RC4:
+					case IPSECDOI_ESP_NULL:
+					case IPSECDOI_ESP_AES:
+					case IPSECDOI_ESP_CAMELLIA:
+					case IPSECDOI_ESP_TWOFISH:
+						enc_alg = s_ipsecdoi_trns_esp(trns->trns_id);
+						break;
+					}
+					if (trns->authtype != IPSECDOI_ATTR_AUTH_NONE) {
+						auth_alg = s_ipsecdoi_auth(trns->authtype);
+					}
+					break;
+				case IPSECDOI_PROTO_IPSEC_AH:
+					switch (trns->trns_id) {
+					case IPSECDOI_AH_MD5:
+					case IPSECDOI_AH_SHA:
+					case IPSECDOI_AH_DES:
+					case IPSECDOI_AH_SHA256:
+					case IPSECDOI_AH_SHA384:
+					case IPSECDOI_AH_SHA512:
+						enc_alg = s_ipsecdoi_trns_ah(trns->trns_id);
+						break;
+					}
+					break;
+				case IPSECDOI_PROTO_IPCOMP:
+					switch (trns->trns_id) {
+					case IPSECDOI_IPCOMP_OUI:
+					case IPSECDOI_IPCOMP_DEFLATE:
+					case IPSECDOI_IPCOMP_LZS:
+						comp_alg = s_ipsecdoi_trns_ipcomp(trns->trns_id);
+						break;
+					}
+					break;
+				}
+			}
+		}
+
+		if (iph2->approval) {
+			if (iph2->approval->pfs_group)
+				pfs_group_str = s_attr_isakmp_group(iph2->approval->pfs_group);
+			if (iph2->approval->lifetime) {
+				if (asprintf(&lifetime_time_str, "%lu", (unsigned long)iph2->approval->lifetime) < 0)
+					lifetime_time_str = racoon_strdup("0");
+			}
+			if (iph2->approval->lifebyte) {
+				if (asprintf(&lifetime_bytes_str, "%lu", (unsigned long)iph2->approval->lifebyte) < 0)
+					lifetime_bytes_str = racoon_strdup("0");
+			}
+		}
+
+		selector_src = saddr_to_cidr(iph2->src);
+		selector_dst = saddr_to_cidr(iph2->dst);
+		if (iph2->sa_src) {
+			struct sockaddr_in *sin = (struct sockaddr_in *)iph2->sa_src;
+			if (sin->sin_family == AF_INET) {
+				if (asprintf(&selector_sport, "%d", ntohs(sin->sin_port)) < 0)
+					selector_sport = racoon_strdup("0");
+			}
+		}
+		if (iph2->sa_dst) {
+			struct sockaddr_in *sin = (struct sockaddr_in *)iph2->sa_dst;
+			if (sin->sin_family == AF_INET) {
+				if (asprintf(&selector_dport, "%d", ntohs(sin->sin_port)) < 0)
+					selector_dport = racoon_strdup("0");
+			}
+		}
+		if (iph2->id) {
+			struct ipsecdoi_id_b *id_b = (struct ipsecdoi_id_b *)iph2->id->v;
+			if (id_b) {
+				if (asprintf(&selector_proto, "%d", id_b->proto_id) < 0)
+					selector_proto = racoon_strdup("0");
+			}
+		}
+
+		if (!spi_in)
+			spi_in = racoon_strdup("0");
+		if (!spi_out)
+			spi_out = racoon_strdup("0");
+
+		json_append(&json, &json_len, &json_pos, "{");
+		json_append(&json, &json_len, &json_pos, "\"state\":\"%s\",", ph2_state_to_str(iph2->status));
+		json_append(&json, &json_len, &json_pos, "\"spi_in\":\"%s\",", spi_in);
+		json_append(&json, &json_len, &json_pos, "\"spi_out\":\"%s\",", spi_out);
+		json_append(&json, &json_len, &json_pos, "\"protocol\":\"%s\",", protocol_str);
+		json_append(&json, &json_len, &json_pos, "\"encryption_algorithm\":\"%s\",", enc_alg);
+		json_append(&json, &json_len, &json_pos, "\"auth_algorithm\":\"%s\",", auth_alg);
+		json_append(&json, &json_len, &json_pos, "\"comp_algorithm\":\"%s\",", comp_alg);
+		json_append(&json, &json_len, &json_pos, "\"pfs_group\":\"%s\",", pfs_group_str);
+		json_append(&json, &json_len, &json_pos, "\"lifetime_time\":%s,", lifetime_time_str);
+		json_append(&json, &json_len, &json_pos, "\"lifetime_bytes\":%s,", lifetime_bytes_str);
+		json_append(&json, &json_len, &json_pos, "\"selector\":{");
+		json_append(&json, &json_len, &json_pos, "\"src\":\"%s\",", selector_src);
+		json_append(&json, &json_len, &json_pos, "\"dst\":\"%s\",", selector_dst);
+		json_append(&json, &json_len, &json_pos, "\"sport\":%s,", selector_sport);
+		json_append(&json, &json_len, &json_pos, "\"dport\":%s,", selector_dport);
+		json_append(&json, &json_len, &json_pos, "\"proto\":%s", selector_proto);
+		json_append(&json, &json_len, &json_pos, "}");
+		if (parent_iph1) {
+			char *parent_initiator_spi = racoon_malloc(17);
+			char *parent_responder_spi = racoon_malloc(17);
+			if (parent_initiator_spi) {
+				for (int i = 0; i < 8; i++)
+					snprintf(parent_initiator_spi + i * 2, 3, "%02x", parent_iph1->index.i_ck[i]);
+			} else {
+				parent_initiator_spi = racoon_strdup("?");
+			}
+			if (parent_responder_spi) {
+				for (int i = 0; i < 8; i++)
+					snprintf(parent_responder_spi + i * 2, 3, "%02x", parent_iph1->index.r_ck[i]);
+			} else {
+				parent_responder_spi = racoon_strdup("?");
+			}
+			json_append(&json, &json_len, &json_pos, ",\"parent_ike_sa\":{\"initiator_spi\":\"%s\",\"responder_spi\":\"%s\"}",
+				    parent_initiator_spi, parent_responder_spi);
+			racoon_free(parent_initiator_spi);
+			racoon_free(parent_responder_spi);
+		}
+		json_append(&json, &json_len, &json_pos, "}");
+
+		racoon_free(remote_str);
+		racoon_free(local_str);
+		racoon_free(spi_in);
+		racoon_free(spi_out);
+		racoon_free(selector_src);
+		racoon_free(selector_dst);
+		if (selector_sport != (char *)"0")
+			racoon_free(selector_sport);
+		if (selector_dport != (char *)"0")
+			racoon_free(selector_dport);
+		if (selector_proto != (char *)"0")
+			racoon_free(selector_proto);
+		if (lifetime_time_str != (char *)"0")
+			racoon_free(lifetime_time_str);
+		if (lifetime_bytes_str != (char *)"0")
+			racoon_free(lifetime_bytes_str);
+	}
+
+json_append(&json, &json_len, &json_pos, "]}");
+
+json[json_pos] = '\0';
+
+*out = vmalloc(strlen(json) + 1);
+	if (*out != NULL) {
+		memcpy((*out)->v, json, strlen(json) + 1);
+	}
+	racoon_free(json);
 }
 
 /*

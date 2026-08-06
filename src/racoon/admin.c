@@ -389,6 +389,12 @@ admin_process(int so2, char *combuf)
 		break;
 	}
 
+	case ADMIN_STATUS:
+		status_dump(&buf);
+		if (buf == NULL)
+			l_ac_errno = ENOMEM;
+		break;
+
 	case ADMIN_FLUSH_SA:
 		switch (com->ac_proto) {
 		case ADMIN_PROTO_ISAKMP:

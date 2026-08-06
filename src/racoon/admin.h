@@ -77,6 +77,7 @@ struct admin_com {
  */
 #define ADMIN_SHOW_SA		0x0101
 #define ADMIN_FLUSH_SA		0x0102
+#define ADMIN_STATUS		0x0103
 
 /*
  * The admin_com_indexes follows, see below.

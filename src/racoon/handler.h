@@ -543,5 +543,6 @@ extern int exclude_cfg_addr __P((const struct sockaddr *));
 #endif
 
 extern int revalidate_ph12(void);
+extern void status_dump(vchar_t **);
 
 #endif /* _HANDLER_H */
