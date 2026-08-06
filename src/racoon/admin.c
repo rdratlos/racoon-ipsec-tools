@@ -288,6 +288,16 @@ static int admin_ph1_delete_sa(struct ph1handle *iph1, void *arg)
 
 /*
  * main child's process.
+ *
+ * Adding a case here for a new ADMIN_* command? Every symbol any case in
+ * this switch references must resolve at link time in the admin_test_*
+ * binaries (test/) -- this is one function containing every case, so
+ * -ffunction-sections/--gc-sections cannot discard the ones a given test
+ * never drives at runtime. A case that calls something not already
+ * stubbed in test/admin_test_stubs.c breaks the link for every test that
+ * uses it (test_admin_init, test_admin_handler, ...) with an "undefined
+ * reference" error that never mentions admin_test_stubs.c by name. See
+ * doc/dev/adding-racoonctl-admin-commands.md before you add the case.
  */
 static int
 admin_process(int so2, char *combuf)

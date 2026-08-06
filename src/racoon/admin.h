@@ -41,6 +41,13 @@ extern uid_t adminsock_owner;
 extern gid_t adminsock_group;
 extern mode_t adminsock_mode;
 
+/*
+ * Adding a new ADMIN_* command? See
+ * doc/dev/adding-racoonctl-admin-commands.md -- allocating the constant
+ * below is step 1 of 6; the other five are easy to miss and fail in
+ * places that don't point back here.
+ */
+
 /* command for administration. */
 /* NOTE: host byte order. */
 struct admin_com {

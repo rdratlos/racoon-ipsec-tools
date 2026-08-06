@@ -16,6 +16,12 @@
  * exist purely to satisfy the linker; getph1()/evt_subscribe()/
  * isakmp_info_send_d1()/purge_remote() are the ones that case actually
  * calls, so those are "smart" stubs the test controls and asserts against.
+ *
+ * Adding a new ADMIN_* case to admin_process()? If it calls anything not
+ * already stubbed below, add a stub here (same call-counter pattern) and
+ * a dispatch test to test_admin_process_dispatch.c, or every admin_test_*
+ * binary fails to link with an "undefined reference" error that gives no
+ * hint this file is the fix. See doc/dev/adding-racoonctl-admin-commands.md.
  */
 
 #ifdef HAVE_CONFIG_H

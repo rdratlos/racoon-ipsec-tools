@@ -1461,6 +1461,13 @@ fixed_addr(char *addr, char *port, int len)
 	return _addr_buf_;
 }
 
+/*
+ * Adding a new ADMIN_* command that returns data? It needs its own case
+ * below to print the reply. There is no default handler for reply data --
+ * an ac_cmd this switch doesn't recognize falls into "default: IGNORE"
+ * and the reply is silently discarded (exit 0, no output, no error). See
+ * doc/dev/adding-racoonctl-admin-commands.md.
+ */
 static int
 handle_recv(vchar_t *combuf)
 {
