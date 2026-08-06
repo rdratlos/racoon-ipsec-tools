@@ -80,9 +80,7 @@ struct isakmp_cfg_config isakmp_cfg_config;
 #endif
 
 void
-privsep_priv_test_lcconf_init(certdir, scriptdir)
-	const char *certdir;
-	const char *scriptdir;
+privsep_priv_test_lcconf_init(const char *certdir, const char *scriptdir)
 {
 	/*
 	 * Free any strings a previous call left behind first: several tests
@@ -115,8 +113,7 @@ privsep_priv_test_lcconf_init(certdir, scriptdir)
  * dependency in this stub.
  */
 vchar_t *
-eay_get_pkcs1privkey(path)
-	char *path;
+eay_get_pkcs1privkey(char *path)
 {
 	static const char key_bytes[] = "stub-pkcs1-private-key";
 	vchar_t *key;
@@ -134,9 +131,7 @@ eay_get_pkcs1privkey(path)
 
 /* Same canned-success/"FAIL" contract as eay_get_pkcs1privkey() above. */
 vchar_t *
-getpsk(str, len)
-	const char *str;
-	const int len;
+getpsk(const char *str, const int len)
 {
 	static const char psk_bytes[] = "stub-psk-secret!";
 	vchar_t *psk;
@@ -166,11 +161,7 @@ int privsep_priv_test_script_exec_last_name = -1;
 int privsep_priv_test_script_exec_last_wait = -1;
 
 int
-script_exec(script, name, envp, wait_for_exit)
-	char *script;
-	int name;
-	char *const envp[];
-	int wait_for_exit;
+script_exec(char *script, int name, char *const envp[], int wait_for_exit)
 {
 	privsep_priv_test_script_exec_calls++;
 	strncpy(privsep_priv_test_script_exec_last_script, script,
@@ -193,8 +184,7 @@ script_exec(script, name, envp, wait_for_exit)
  * sockmisc.c's ever changes.
  */
 u_int16_t
-extract_port(addr)
-	const struct sockaddr *addr;
+extract_port(const struct sockaddr *addr)
 {
 	u_int16_t port = 0;
 
@@ -222,26 +212,19 @@ extract_port(addr)
  */
 #ifdef ENABLE_HYBRID
 char *
-saddr2str(addr)
-	const struct sockaddr *addr;
+saddr2str(const struct sockaddr *addr)
 {
 	return "";
 }
 
 int
-isakmp_cfg_accounting_system(port, raddr, usr, inout)
-	int port;
-	struct sockaddr *raddr;
-	char *usr;
-	int inout;
+isakmp_cfg_accounting_system(int port, struct sockaddr *raddr, char *usr, int inout)
 {
 	return 0;
 }
 
 int
-xauth_login_system(usr, pwd)
-	char *usr;
-	char *pwd;
+xauth_login_system(char *usr, char *pwd)
 {
 	return 0;
 }
@@ -256,33 +239,25 @@ xauth_login_system(usr, pwd)
  */
 #ifdef HAVE_LIBPAM
 int
-isakmp_cfg_resize_pool(pool_size)
-	int pool_size;
+isakmp_cfg_resize_pool(int pool_size)
 {
 	return 0;
 }
 
 int
-isakmp_cfg_accounting_pam(port, inout)
-	int port;
-	int inout;
+isakmp_cfg_accounting_pam(int port, int inout)
 {
 	return 0;
 }
 
 int
-xauth_login_pam(port, raddr, usr, pwd)
-	int port;
-	struct sockaddr *raddr;
-	char *usr;
-	char *pwd;
+xauth_login_pam(int port, struct sockaddr *raddr, char *usr, char *pwd)
 {
 	return 0;
 }
 
 void
-cleanup_pam(port)
-	int port;
+cleanup_pam(int port)
 {
 }
 #endif /* HAVE_LIBPAM */

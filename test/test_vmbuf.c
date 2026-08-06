@@ -29,7 +29,7 @@
 #define TEST_START(name) printf("\n[TEST] %s ... ", name); fflush(stdout)
 
 /* Test vmalloc with normal size */
-int test_vmalloc_basic()
+int test_vmalloc_basic(void)
 {
     vchar_t *v;
 
@@ -49,7 +49,7 @@ int test_vmalloc_basic()
 }
 
 /* Test vmalloc with size 0 */
-int test_vmalloc_zero_size()
+int test_vmalloc_zero_size(void)
 {
     vchar_t *v;
 
@@ -66,7 +66,7 @@ int test_vmalloc_zero_size()
 }
 
 /* Test vmalloc and write/read data */
-int test_vmalloc_write_read()
+int test_vmalloc_write_read(void)
 {
     vchar_t *v;
     const uint8_t pattern[] = { 0xDE, 0xAD, 0xBE, 0xEF };
@@ -87,7 +87,7 @@ int test_vmalloc_write_read()
 }
 
 /* Test vrealloc growing */
-int test_vrealloc_grow()
+int test_vrealloc_grow(void)
 {
     vchar_t *v;
 
@@ -111,7 +111,7 @@ int test_vrealloc_grow()
 }
 
 /* Test vrealloc shrinking */
-int test_vrealloc_shrink()
+int test_vrealloc_shrink(void)
 {
     vchar_t *v;
 
@@ -135,7 +135,7 @@ int test_vrealloc_shrink()
 }
 
 /* Test vrealloc with NULL pointer (should behave like vmalloc) */
-int test_vrealloc_null_ptr()
+int test_vrealloc_null_ptr(void)
 {
     vchar_t *v;
 
@@ -152,7 +152,7 @@ int test_vrealloc_null_ptr()
 }
 
 /* Test vrealloc from zero-length to nonzero */
-int test_vrealloc_zero_to_nonzero()
+int test_vrealloc_zero_to_nonzero(void)
 {
     vchar_t *v;
 
@@ -172,7 +172,7 @@ int test_vrealloc_zero_to_nonzero()
 }
 
 /* Test vdup */
-int test_vdup_basic()
+int test_vdup_basic(void)
 {
     vchar_t *orig, *copy;
     const uint8_t data[] = { 0x11, 0x22, 0x33, 0x44, 0x55 };
@@ -203,7 +203,7 @@ int test_vdup_basic()
 }
 
 /* Test vdup with zero-length buffer */
-int test_vdup_zero_length()
+int test_vdup_zero_length(void)
 {
     vchar_t *orig, *copy;
 
@@ -224,7 +224,7 @@ int test_vdup_zero_length()
 }
 
 /* Test vdup with NULL -> should return NULL */
-int test_vdup_null()
+int test_vdup_null(void)
 {
     vchar_t *copy;
 
@@ -239,7 +239,7 @@ int test_vdup_null()
 }
 
 /* Test vfree with NULL -> should not crash */
-int test_vfree_null()
+int test_vfree_null(void)
 {
     TEST_START("vfree NULL");
 
@@ -249,7 +249,7 @@ int test_vfree_null()
 }
 
 /* Test vrealloc same size */
-int test_vrealloc_same_size()
+int test_vrealloc_same_size(void)
 {
     vchar_t *v;
 

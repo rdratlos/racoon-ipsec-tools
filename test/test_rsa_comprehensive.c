@@ -88,7 +88,7 @@ rsa_to_eayrsa(RSA *rsa)
  * PRIORITY 1: CRITICAL TEXTBOOK RSA TESTS
  * ============================================================================ */
 
-int test_rsa_textbook_verify_recover()
+int test_rsa_textbook_verify_recover(void)
 {
 	EVP_PKEY_CTX *ctx = NULL;
 	EVP_PKEY *pkey = NULL;
@@ -154,7 +154,7 @@ int test_rsa_textbook_verify_recover()
 	return ret;
 }
 
-int test_rsa_padding_verification()
+int test_rsa_padding_verification(void)
 {
 	EVP_PKEY_CTX *ctx = NULL;
 	EVP_PKEY *pkey = NULL;
@@ -232,7 +232,7 @@ int test_rsa_padding_verification()
 	return ret;
 }
 
-int test_rsa_to_evp_pkey_conversion()
+int test_rsa_to_evp_pkey_conversion(void)
 {
 	EVP_PKEY_CTX *ctx = NULL;
 	EVP_PKEY *pkey = NULL, *pkey2 = NULL;
@@ -314,7 +314,7 @@ int test_rsa_to_evp_pkey_conversion()
 	return ret;
 }
 
-int test_rsa_signature_tampering()
+int test_rsa_signature_tampering(void)
 {
 	EVP_PKEY_CTX *ctx = NULL;
 	EVP_PKEY *pkey = NULL;
@@ -389,7 +389,7 @@ int test_rsa_signature_tampering()
 	return ret;
 }
 
-int test_rsa_data_tampering()
+int test_rsa_data_tampering(void)
 {
 	EVP_PKEY_CTX *ctx = NULL;
 	EVP_PKEY *pkey = NULL;
@@ -469,7 +469,7 @@ int test_rsa_data_tampering()
 	return ret;
 }
 
-int test_rsa_wrong_key()
+int test_rsa_wrong_key(void)
 {
 	EVP_PKEY_CTX *ctx1 = NULL, *ctx2 = NULL;
 	EVP_PKEY *pkey1 = NULL, *pkey2 = NULL;
@@ -556,7 +556,7 @@ int test_rsa_wrong_key()
  * PRIORITY 2: KEY FORMAT CONVERSION TESTS
  * ============================================================================ */
 
-int test_rsa_key_extraction()
+int test_rsa_key_extraction(void)
 {
 	EVP_PKEY_CTX *ctx = NULL;
 	EVP_PKEY *pkey = NULL;
@@ -619,7 +619,7 @@ int test_rsa_key_extraction()
  * PRIORITY 3: RSA SIGN/VERIFY WITH eay_rsa_sign/eay_rsa_verify
  * ============================================================================ */
 
-int test_rsa_sign_verify()
+int test_rsa_sign_verify(void)
 {
 	EVP_PKEY_CTX *ctx = NULL;
 	EVP_PKEY *pkey = NULL;
@@ -684,7 +684,7 @@ int test_rsa_sign_verify()
  * PRIORITY 3: RSA SIGN/VERIFY WITH eay_pkey_sign/eay_pkey_verify
  * ============================================================================ */
 
-int test_pkey_sign_verify()
+int test_pkey_sign_verify(void)
 {
 	EVP_PKEY_CTX *ctx = NULL;
 	EVP_PKEY *pkey = NULL;
@@ -746,7 +746,7 @@ int test_pkey_sign_verify()
  *
  * The test constructs this buffer explicitly from the RSA key components.
  */
-int test_rsa_bignum_conversion()
+int test_rsa_bignum_conversion(void)
 {
 	EVP_PKEY_CTX *ctx = NULL;
 	EVP_PKEY *pkey = NULL;
@@ -933,7 +933,7 @@ int test_rsa_bignum_conversion()
  * PRIORITY 2: MULTIPLE KEY SIZES
  * ============================================================================ */
 
-int test_rsa_various_key_sizes()
+int test_rsa_various_key_sizes(void)
 {
 	int key_sizes[] = {1024, 2048, 3072, 4096};
 	int i;
@@ -1031,7 +1031,7 @@ cleanup_iteration:
  * PRIORITY 3: EDGE CASES AND STRESS TESTS
  * ============================================================================ */
 
-int test_rsa_empty_data()
+int test_rsa_empty_data(void)
 {
 	EVP_PKEY_CTX *ctx = NULL;
 	EVP_PKEY *pkey = NULL;
@@ -1091,7 +1091,7 @@ int test_rsa_empty_data()
 	return ret;
 }
 
-int test_rsa_maximum_data_size()
+int test_rsa_maximum_data_size(void)
 {
 	EVP_PKEY_CTX *ctx = NULL;
 	EVP_PKEY *pkey = NULL;
@@ -1165,7 +1165,7 @@ int test_rsa_maximum_data_size()
 	return ret;
 }
 
-int test_rsa_stress_repeated_operations()
+int test_rsa_stress_repeated_operations(void)
 {
 	EVP_PKEY_CTX *ctx = NULL;
 	EVP_PKEY *pkey = NULL;
@@ -1961,7 +1961,7 @@ int test_ossl_param_bld_free_clears_priv_key()
  * TEST GROUP 2: compat_RSA_new_from_params()
  * ============================================================================ */
 
-int test_compat_rsa_new_from_params_missing_n()
+int test_compat_rsa_new_from_params_missing_n(void)
 {
 	RSA *rsa = NULL;
 	RSA *result = NULL;
@@ -1997,7 +1997,7 @@ int test_compat_rsa_new_from_params_missing_n()
 	return ret;
 }
 
-int test_compat_rsa_new_from_params_public_only()
+int test_compat_rsa_new_from_params_public_only(void)
 {
 	RSA *rsa = NULL;
 	RSA *result = NULL;
@@ -2042,7 +2042,7 @@ int test_compat_rsa_new_from_params_public_only()
 	return ret;
 }
 
-int test_compat_rsa_new_from_params_full_private()
+int test_compat_rsa_new_from_params_full_private(void)
 {
 	RSA *rsa = NULL;
 	RSA *result = NULL;
@@ -2099,7 +2099,7 @@ int test_compat_rsa_new_from_params_full_private()
  * With valid CRT params this should now succeed end-to-end without
  * any double-free (verifiable under valgrind/ASan).
  */
-int test_compat_rsa_new_from_params_crt_params_double_free()
+int test_compat_rsa_new_from_params_crt_params_double_free(void)
 {
 	RSA *rsa = NULL;
 	RSA *result = NULL;
@@ -2147,7 +2147,7 @@ int test_compat_rsa_new_from_params_crt_params_double_free()
  * TEST GROUP 3: compat_RSA_dup() and compat_RSA_has_private()
  * ============================================================================ */
 
-int test_compat_rsa_dup_public()
+int test_compat_rsa_dup_public(void)
 {
 	RSA *rsa = NULL;
 	RSA *pub = NULL;
@@ -2236,7 +2236,7 @@ int test_compat_rsa_dup_public()
 	return ret;
 }
 
-int test_compat_rsa_dup_private()
+int test_compat_rsa_dup_private(void)
 {
 	RSA *rsa = NULL;
 	RSA *dup = NULL;
@@ -2310,7 +2310,7 @@ int test_compat_rsa_dup_private()
 	return ret;
 }
 
-int test_compat_rsa_dup_null()
+int test_compat_rsa_dup_null(void)
 {
 	RSA *dup = NULL;
 	int ret = -1;
@@ -2330,7 +2330,7 @@ int test_compat_rsa_dup_null()
 	return ret;
 }
 
-int test_compat_rsa_print_fp()
+int test_compat_rsa_print_fp(void)
 {
 	RSA *rsa = NULL;
 	FILE *fp = NULL;
@@ -2371,7 +2371,7 @@ int test_compat_rsa_print_fp()
 	return ret;
 }
 
-int test_compat_rsa_print_fp_null_args()
+int test_compat_rsa_print_fp_null_args(void)
 {
 	RSA *rsa = NULL;
 	FILE *fp = NULL;
@@ -2414,7 +2414,7 @@ int test_compat_rsa_print_fp_null_args()
  * TEST GROUP 4: rsa_key_dup() and rsa_key_free() (rsalist.c)
  * ============================================================================ */
 
-int test_rsa_key_dup_and_free()
+int test_rsa_key_dup_and_free(void)
 {
 	RSA *rsa = NULL;
 	const BIGNUM *n_o = NULL, *e_o = NULL;
@@ -2470,7 +2470,7 @@ int test_rsa_key_dup_and_free()
 	return ret;
 }
 
-int test_rsa_key_dup_null_rsa()
+int test_rsa_key_dup_null_rsa(void)
 {
 	struct rsa_key *orig = NULL;
 	struct rsa_key *dup = NULL;
@@ -2507,7 +2507,7 @@ int test_rsa_key_dup_null_rsa()
  * TEST GROUP 5: Multi-key parser regression (H1 fix regression test)
  * ============================================================================ */
 
-int test_multikey_parser_no_crash()
+int test_multikey_parser_no_crash(void)
 {
 	RSA *rsa1 = NULL, *rsa2 = NULL;
 	char *n1_hex = NULL, *e1_hex = NULL;

@@ -152,7 +152,7 @@ hex_prime_to_vchar(const char *hex_with_spaces)
  * TEST 1: DH Key Generation for All MODP Groups
  * ============================================================================ */
 
-int test_dh_key_generation_all_groups()
+int test_dh_key_generation_all_groups(void)
 {
 	int num_groups = sizeof(modp_groups) / sizeof(modp_groups[0]);
 	int i, failed = 0;
@@ -251,7 +251,7 @@ int test_dh_key_generation_all_groups()
  * TEST 2: DH Shared Secret for All MODP Groups
  * ============================================================================ */
 
-int test_dh_shared_secret_all_groups()
+int test_dh_shared_secret_all_groups(void)
 {
 	int num_groups = sizeof(modp_groups) / sizeof(modp_groups[0]);
 	int i, failed = 0;
@@ -378,7 +378,7 @@ cleanup:
  * TEST 3: DH with Generator g=5 for All Groups
  * ============================================================================ */
 
-int test_dh_generator_5_all_groups()
+int test_dh_generator_5_all_groups(void)
 {
 	int num_groups = sizeof(modp_groups) / sizeof(modp_groups[0]);
 	int i, failed = 0;
@@ -454,7 +454,7 @@ int test_dh_generator_5_all_groups()
  * TEST 4: DH Generators Produce Different Keys
  * ============================================================================ */
 
-int test_dh_generators_produce_different_keys()
+int test_dh_generators_produce_different_keys(void)
 {
 	vchar_t *prime = NULL;
 	vchar_t *pub_g2 = NULL, *priv_g2 = NULL;
@@ -515,7 +515,7 @@ int test_dh_generators_produce_different_keys()
  * TEST 5: DH Cross-Group Incompatibility
  * ============================================================================ */
 
-int test_dh_cross_group_incompatibility()
+int test_dh_cross_group_incompatibility(void)
 {
 	vchar_t *prime1024 = NULL, *prime2048 = NULL;
 	vchar_t *pub1 = NULL, *priv1 = NULL;
@@ -603,7 +603,7 @@ int test_dh_cross_group_incompatibility()
  * TEST 6: DH Memory Leak Detection
  * ============================================================================ */
 
-int test_dh_memory_leak_detection()
+int test_dh_memory_leak_detection(void)
 {
 	vchar_t *prime = NULL;
 	vchar_t *pub = NULL, *priv = NULL;
@@ -654,7 +654,7 @@ int test_dh_memory_leak_detection()
  * TEST 7: DH Performance Comparison Across Groups
  * ============================================================================ */
 
-int test_dh_performance_comparison()
+int test_dh_performance_comparison(void)
 {
 	TEST_START("DH Performance Comparison");
 	printf("\n");

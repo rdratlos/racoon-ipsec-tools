@@ -117,7 +117,7 @@ out:
  * TEST: Blowfish CBC (always available, legacy in OpenSSL 3.0)
  * ============================================================================ */
 
-int test_blowfish_shim()
+int test_blowfish_shim(void)
 {
 	vchar_t *data = NULL, *key = NULL, *iv = NULL;
 	int ret = -1;
@@ -153,7 +153,7 @@ int test_blowfish_shim()
  * TEST: CAST5 CBC (always available, legacy in OpenSSL 3.0)
  * ============================================================================ */
 
-int test_cast5_shim()
+int test_cast5_shim(void)
 {
 	vchar_t *data = NULL, *key = NULL, *iv = NULL;
 	int ret = -1;
@@ -268,7 +268,7 @@ int test_rc5_shim()
  * ============================================================================ */
 
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
-int test_legacy_provider_loaded()
+int test_legacy_provider_loaded(void)
 {
 	int ret = -1;
 
@@ -304,7 +304,7 @@ int test_legacy_provider_loaded()
 	return ret;
 }
 
-int test_legacy_cipher_error_logging()
+int test_legacy_cipher_error_logging(void)
 {
 	int ret = -1;
 
@@ -367,7 +367,7 @@ int test_legacy_cipher_error_logging()
  * TEST: evp_crypt with multiple block sizes
  * ============================================================================ */
 
-int test_evp_crypt_various_sizes()
+int test_evp_crypt_various_sizes(void)
 {
 	int sizes[] = {8, 16, 24, 32, 48, 64, 96, 128};
 	int num_sizes = sizeof(sizes) / sizeof(sizes[0]);
@@ -436,7 +436,7 @@ int test_evp_crypt_various_sizes()
  * TEST: evp_crypt error handling with invalid data
  * ============================================================================ */
 
-int test_evp_crypt_invalid_data()
+int test_evp_crypt_invalid_data(void)
 {
 	vchar_t *key = NULL, *iv = NULL;
 	int ret = -1;
@@ -478,7 +478,7 @@ int test_evp_crypt_invalid_data()
  * TEST: DES weak key detection
  * ============================================================================ */
 
-int test_des_weakkey()
+int test_des_weakkey(void)
 {
 	int ret = -1;
 
@@ -520,7 +520,7 @@ out:
  * TEST: 3DES weak key detection
  * ============================================================================ */
 
-int test_3des_weakkey()
+int test_3des_weakkey(void)
 {
 	int ret = -1;
 
@@ -590,7 +590,7 @@ out:
  * TEST: DES/3DES encrypt/decrypt round-trip
  * ============================================================================ */
 
-int test_des_roundtrip()
+int test_des_roundtrip(void)
 {
 	vchar_t *data = NULL, *key = NULL, *iv = NULL;
 	int ret = -1;
@@ -622,7 +622,7 @@ int test_des_roundtrip()
 	return ret;
 }
 
-int test_3des_roundtrip()
+int test_3des_roundtrip(void)
 {
 	vchar_t *data = NULL, *key = NULL, *iv = NULL;
 	int ret = -1;

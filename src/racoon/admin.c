@@ -139,9 +139,7 @@ mkdir_p(const char *path, mode_t mode)
  * drive mkdir_p() itself directly against a throwaway temp directory.
  */
 int
-mkdir_p_unittest(path, mode)
-	const char *path;
-	mode_t mode;
+mkdir_p_unittest(const char *path, mode_t mode)
 {
 	return mkdir_p(path, mode);
 }
@@ -834,9 +832,7 @@ out:
  * a plain socketpair standing in for the admin socket connection.
  */
 int
-admin_process_unittest(so2, combuf)
-	int so2;
-	char *combuf;
+admin_process_unittest(int so2, char *combuf)
 {
 	return admin_process(so2, combuf);
 }

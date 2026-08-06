@@ -94,9 +94,7 @@ getnewci(int qtype, int keytag, int algorithm, int flags, int certlen, unsigned 
  * itself directly, independent of DNS packet construction.
  */
 struct certinfo *
-getnewci_unittest(qtype, keytag, algorithm, flags, certlen, cert)
-	int qtype, keytag, algorithm, flags, certlen;
-	unsigned char *cert;
+getnewci_unittest(int qtype, int keytag, int algorithm, int flags, int certlen, unsigned char *cert)
 {
 	return getnewci(qtype, keytag, algorithm, flags, certlen, cert);
 }
@@ -271,10 +269,7 @@ end:
  * of intercepting res_query()/res_init().
  */
 int
-parse_cert_answer_unittest(answer, anslen, res)
-	unsigned char *answer;
-	int anslen;
-	struct certinfo **res;
+parse_cert_answer_unittest(unsigned char *answer, int anslen, struct certinfo **res)
 {
 	return parse_cert_answer(answer, anslen, res);
 }
