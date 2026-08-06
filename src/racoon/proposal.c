@@ -77,7 +77,7 @@ static uint g_nextreqid = 1;
  * modules for ipsec sa spec
  */
 struct saprop *
-newsaprop()
+newsaprop(void)
 {
 	struct saprop *new;
 
@@ -89,7 +89,7 @@ newsaprop()
 }
 
 struct saproto *
-newsaproto()
+newsaproto(void)
 {
 	struct saproto *new;
 
@@ -102,9 +102,7 @@ newsaproto()
 
 /* set saprop to last part of the prop tree */
 void
-inssaprop(head, new)
-	struct saprop **head;
-	struct saprop *new;
+inssaprop(struct saprop **head, struct saprop *new)
 {
 	struct saprop *p;
 
@@ -122,9 +120,7 @@ inssaprop(head, new)
 
 /* set saproto to the end of the proto tree in saprop */
 void
-inssaproto(pp, new)
-	struct saprop *pp;
-	struct saproto *new;
+inssaproto(struct saprop *pp, struct saproto *new)
 {
 	struct saproto *p;
 
@@ -140,9 +136,7 @@ inssaproto(pp, new)
 
 /* set saproto to the top of the proto tree in saprop */
 void
-inssaprotorev(pp, new)
-      struct saprop *pp;
-      struct saproto *new;
+inssaprotorev(struct saprop *pp, struct saproto *new)
 {
       new->next = pp->head;
       pp->head = new;
@@ -151,7 +145,7 @@ inssaprotorev(pp, new)
 }
 
 struct satrns *
-newsatrns()
+newsatrns(void)
 {
 	struct satrns *new;
 
@@ -164,9 +158,7 @@ newsatrns()
 
 /* set saproto to last part of the proto tree in saprop */
 void
-inssatrns(pr, new)
-	struct saproto *pr;
-	struct satrns *new;
+inssatrns(struct saproto *pr, struct satrns *new)
 {
 	struct satrns *tr;
 
@@ -191,10 +183,7 @@ inssatrns(pr, new)
  * XXX cannot understand the comment!
  */
 struct saprop *
-cmpsaprop_alloc(ph1, pp1, pp2, side)
-	struct ph1handle *ph1;
-	const struct saprop *pp1, *pp2;
-	int side;
+cmpsaprop_alloc(struct ph1handle *ph1, const struct saprop *pp1, const struct saprop *pp2, int side)
 {
 	struct saprop *newpp = NULL;
 	struct saproto *pr1, *pr2, *newpr = NULL;
@@ -559,8 +548,7 @@ err:
 
 /* take a single match between saprop.  returns 0 if pp1 equals to pp2. */
 int
-cmpsaprop(pp1, pp2)
-	const struct saprop *pp1, *pp2;
+cmpsaprop(const struct saprop *pp1, const struct saprop *pp2)
 {
 	if (pp1->pfs_group != pp2->pfs_group) {
 		plog(LLV_WARNING, LOCATION, NULL,
@@ -591,10 +579,7 @@ cmpsaprop(pp1, pp2)
  * tr2: my satrns
  */
 int
-cmpsatrns(proto_id, tr1, tr2, check_level)
-	int proto_id;
-	const struct satrns *tr1, *tr2;
-	int check_level;
+cmpsatrns(int proto_id, const struct satrns *tr1, const struct satrns *tr2, int check_level)
 {
 	if (tr1->trns_id != tr2->trns_id) {
 		plog(LLV_WARNING, LOCATION, NULL,
@@ -664,9 +649,7 @@ cmpsatrns(proto_id, tr1, tr2, check_level)
 }
 
 int
-set_satrnsbysainfo(pr, sainfo)
-	struct saproto *pr;
-	struct sainfo *sainfo;
+set_satrnsbysainfo(struct saproto *pr, struct sainfo *sainfo)
 {
 	struct sainfoalg *a, *b;
 	struct satrns *newtr;
@@ -770,8 +753,7 @@ err:
 }
 
 struct saprop *
-aproppair2saprop(p0)
-	struct prop_pair *p0;
+aproppair2saprop(struct prop_pair *p0)
 {
 	struct prop_pair *p, *t;
 	struct saprop *newpp;
@@ -878,8 +860,7 @@ err:
 }
 
 void
-flushsaprop(head)
-	struct saprop *head;
+flushsaprop(struct saprop *head)
 {
 	struct saprop *p, *save;
 
@@ -893,8 +874,7 @@ flushsaprop(head)
 }
 
 void
-flushsaproto(head)
-	struct saproto *head;
+flushsaproto(struct saproto *head)
 {
 	struct saproto *p, *save;
 
@@ -910,8 +890,7 @@ flushsaproto(head)
 }
 
 void
-flushsatrns(head)
-	struct satrns *head;
+flushsatrns(struct satrns *head)
 {
 	struct satrns *p, *save;
 
@@ -927,9 +906,7 @@ flushsatrns(head)
  * print multiple proposals
  */
 void
-printsaprop(pri, pp)
-	const int pri;
-	const struct saprop *pp;
+printsaprop(const int pri, const struct saprop *pp)
 {
 	const struct saprop *p;
 
@@ -949,9 +926,7 @@ printsaprop(pri, pp)
  * print one proposal.
  */
 void
-printsaprop0(pri, pp)
-	int pri;
-	const struct saprop *pp;
+printsaprop0(int pri, const struct saprop *pp)
 {
 	const struct saproto *p;
 
@@ -966,9 +941,7 @@ printsaprop0(pri, pp)
 }
 
 void
-printsaproto(pri, pr)
-	const int pri;
-	const struct saproto *pr;
+printsaproto(const int pri, const struct saproto *pr)
 {
 	struct satrns *tr;
 
@@ -993,10 +966,7 @@ printsaproto(pri, pr)
 }
 
 void
-printsatrns(pri, proto_id, tr)
-	const int pri;
-	const int proto_id;
-	const struct satrns *tr;
+printsatrns(const int pri, const int proto_id, const struct satrns *tr)
 {
 	if (tr == NULL)
 		return;
@@ -1029,10 +999,7 @@ printsatrns(pri, proto_id, tr)
 }
 
 void
-print_proppair0(pri, p, level)
-	int pri; 
-	struct prop_pair *p;
-	int level;
+print_proppair0(int pri, struct prop_pair *p, int level)
 {
 	char spc[21];
 
@@ -1051,17 +1018,13 @@ print_proppair0(pri, p, level)
 }
 
 void
-print_proppair(pri, p)
-	int pri;
-	struct prop_pair *p;
+print_proppair(int pri, struct prop_pair *p)
 {
 	print_proppair0(pri, p, 1);
 }
 
 int
-set_proposal_from_policy(iph2, sp_main, sp_sub)
-	struct ph2handle *iph2;
-	struct secpolicy *sp_main, *sp_sub;
+set_proposal_from_policy(struct ph2handle *iph2, struct secpolicy *sp_main, struct secpolicy *sp_sub)
 {
 	struct saprop *newpp;
 	struct ipsecrequest *req;
@@ -1198,8 +1161,7 @@ err:
  * passed by peer.
  */
 int
-set_proposal_from_proposal(iph2)
-	struct ph2handle *iph2;
+set_proposal_from_proposal(struct ph2handle *iph2)
 {
         struct saprop *newpp = NULL, *pp0, *pp_peer = NULL;
 	struct saproto *newpr = NULL, *pr;

@@ -116,7 +116,7 @@ hex_prime_to_vchar(const char *hex_with_spaces)
  * (corrupting the guard bytes beyond the buffer) or crash.  After the
  * fix, eay_dh_compute() should detect the mismatch and return -1.
  */
-int test_dh_undersized_buffer_rejected()
+int test_dh_undersized_buffer_rejected(void)
 {
 	vchar_t *prime = NULL;
 	vchar_t *pub1 = NULL, *priv1 = NULL;
@@ -197,7 +197,7 @@ int test_dh_undersized_buffer_rejected()
  *
  * Edge case: pass a buffer with l == 0.
  */
-int test_dh_zero_length_buffer_rejected()
+int test_dh_zero_length_buffer_rejected(void)
 {
 	vchar_t *prime = NULL;
 	vchar_t *pub1 = NULL, *priv1 = NULL;
@@ -255,7 +255,7 @@ int test_dh_zero_length_buffer_rejected()
  * Verify that the fix does not break the normal path: a buffer of exactly
  * prime->l bytes must still work correctly.
  */
-int test_dh_exact_buffer_succeeds()
+int test_dh_exact_buffer_succeeds(void)
 {
 	vchar_t *prime = NULL;
 	vchar_t *pub1 = NULL, *priv1 = NULL;

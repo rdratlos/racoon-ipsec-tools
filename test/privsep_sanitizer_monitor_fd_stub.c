@@ -43,11 +43,7 @@
  */
 
 int
-monitor_fd(fd, callback, ctx, priority)
-	int fd;
-	int (*callback)(void *, int);
-	void *ctx;
-	int priority;
+monitor_fd(int fd, int (*callback)(void *, int), void *ctx, int priority)
 {
 	return 0;
 }

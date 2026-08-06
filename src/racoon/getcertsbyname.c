@@ -62,9 +62,7 @@ static struct certinfo *getnewci __P((int, int, int, int, int,
 			unsigned char *));
 
 static struct certinfo *
-getnewci(qtype, keytag, algorithm, flags, certlen, cert)
-	int qtype, keytag, algorithm, flags, certlen;
-	unsigned char *cert;
+getnewci(int qtype, int keytag, int algorithm, int flags, int certlen, unsigned char *cert)
 {
 	struct certinfo *res;
 
@@ -96,17 +94,14 @@ getnewci(qtype, keytag, algorithm, flags, certlen, cert)
  * itself directly, independent of DNS packet construction.
  */
 struct certinfo *
-getnewci_unittest(qtype, keytag, algorithm, flags, certlen, cert)
-	int qtype, keytag, algorithm, flags, certlen;
-	unsigned char *cert;
+getnewci_unittest(int qtype, int keytag, int algorithm, int flags, int certlen, unsigned char *cert)
 {
 	return getnewci(qtype, keytag, algorithm, flags, certlen, cert);
 }
 #endif /* ENABLE_UNITTEST */
 
 void
-freecertinfo(ci)
-	struct certinfo *ci;
+freecertinfo(struct certinfo *ci)
 {
 	struct certinfo *next;
 
@@ -145,10 +140,7 @@ freecertinfo(ci)
  * chown() short-circuiting before the logic under test could run).
  */
 static int
-parse_cert_answer(answer, anslen, res)
-	unsigned char *answer;
-	int anslen;
-	struct certinfo **res;
+parse_cert_answer(unsigned char *answer, int anslen, struct certinfo **res)
 {
 	HEADER *hp;
 	int qdcount, ancount, rdlength, len;
@@ -277,10 +269,7 @@ end:
  * of intercepting res_query()/res_init().
  */
 int
-parse_cert_answer_unittest(answer, anslen, res)
-	unsigned char *answer;
-	int anslen;
-	struct certinfo **res;
+parse_cert_answer_unittest(unsigned char *answer, int anslen, struct certinfo **res)
 {
 	return parse_cert_answer(answer, anslen, res);
 }
@@ -290,9 +279,7 @@ parse_cert_answer_unittest(answer, anslen, res)
  * get CERT RR by FQDN and create certinfo structure chain.
  */
 int
-getcertsbyname(name, res)
-	char *name;
-	struct certinfo **res;
+getcertsbyname(char *name, struct certinfo **res)
 {
 	unsigned char *answer = NULL, *p;
 	int buflen, anslen;
@@ -347,9 +334,7 @@ end:
 
 #ifdef DNSSEC_DEBUG
 int
-b64encode(p, len)
-	char *p;
-	int len;
+b64encode(char *p, int len)
 {
 	static const char b64t[] =
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -381,9 +366,7 @@ b64encode(p, len)
 }
 
 int
-main(ac, av)
-	int ac;
-	char **av;
+main(int ac, char **av)
 {
 	struct certinfo *res, *p;
 	int i;

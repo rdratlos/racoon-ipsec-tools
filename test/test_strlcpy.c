@@ -41,7 +41,7 @@
  * strlcpy basic: copy fits exactly (dstsize == strlen(src) + 1).
  * dst must contain the full string, return value must be strlen(src).
  */
-int test_strlcpy_exact_fit()
+int test_strlcpy_exact_fit(void)
 {
     char dst[6];
     size_t r;
@@ -66,7 +66,7 @@ int test_strlcpy_exact_fit()
 /*
  * strlcpy: src shorter than dst — extra bytes must stay untouched.
  */
-int test_strlcpy_short_src()
+int test_strlcpy_short_src(void)
 {
     char dst[16];
     size_t r;
@@ -96,7 +96,7 @@ int test_strlcpy_short_src()
  * dst must contain the first (dstsize-1) bytes, null-terminated.
  * Return value must be strlen(src) (full length, NOT truncated length).
  */
-int test_strlcpy_truncate_one()
+int test_strlcpy_truncate_one(void)
 {
     char dst[5];
     size_t r;
@@ -124,7 +124,7 @@ int test_strlcpy_truncate_one()
 /*
  * strlcpy: aggressive truncation — dstsize much smaller than src.
  */
-int test_strlcpy_heavy_truncate()
+int test_strlcpy_heavy_truncate(void)
 {
     char dst[3];
     size_t r;
@@ -149,7 +149,7 @@ int test_strlcpy_heavy_truncate()
 /*
  * strlcpy: dstsize == 1 — only the null terminator fits.
  */
-int test_strlcpy_one_byte()
+int test_strlcpy_one_byte(void)
 {
     char dst[1];
     size_t r;
@@ -174,7 +174,7 @@ int test_strlcpy_one_byte()
 /*
  * strlcpy: dstsize == 0 — nothing can be written.
  */
-int test_strlcpy_zero_size()
+int test_strlcpy_zero_size(void)
 {
     char dst[8];
     size_t r;
@@ -199,7 +199,7 @@ int test_strlcpy_zero_size()
 /*
  * strlcpy: empty source string.
  */
-int test_strlcpy_empty_src()
+int test_strlcpy_empty_src(void)
 {
     char dst[8];
     size_t r;
@@ -227,7 +227,7 @@ int test_strlcpy_empty_src()
 /*
  * strlcpy: empty source with zero-size dst.
  */
-int test_strlcpy_empty_src_zero_dst()
+int test_strlcpy_empty_src_zero_dst(void)
 {
     char dst[4];
     size_t r;
@@ -249,7 +249,7 @@ int test_strlcpy_empty_src_zero_dst()
 /*
  * strlcpy: single-char source, fits exactly.
  */
-int test_strlcpy_single_char()
+int test_strlcpy_single_char(void)
 {
     char dst[2];
     size_t r;
@@ -274,7 +274,7 @@ int test_strlcpy_single_char()
 /*
  * strlcpy: single-char source, truncated to zero data bytes.
  */
-int test_strlcpy_single_char_truncated()
+int test_strlcpy_single_char_truncated(void)
 {
     char dst[1];
     size_t r;
@@ -300,7 +300,7 @@ int test_strlcpy_single_char_truncated()
  * strlcpy: long string at boundary — verify truncation detection
  * via return value.
  */
-int test_strlcpy_return_value_detection()
+int test_strlcpy_return_value_detection(void)
 {
     char dst[4];
     size_t r;
@@ -329,7 +329,7 @@ int test_strlcpy_return_value_detection()
 /*
  * strlcat basic: dst + src fit exactly within dstsize.
  */
-int test_strlcat_exact_fit()
+int test_strlcat_exact_fit(void)
 {
     char dst[7] = "foo";
     size_t r;
@@ -353,7 +353,7 @@ int test_strlcat_exact_fit()
  * strlcat: plenty of room left over — extra bytes beyond the new
  * terminator must stay untouched.
  */
-int test_strlcat_short_src()
+int test_strlcat_short_src(void)
 {
     char dst[16];
     size_t r;
@@ -382,7 +382,7 @@ int test_strlcat_short_src()
  * strlcat: truncation — dstsize is one less than the combined length + 1.
  * Return value must be the full desired length, not the truncated length.
  */
-int test_strlcat_truncate_one()
+int test_strlcat_truncate_one(void)
 {
     char dst[5] = "hel";
     size_t r;
@@ -412,7 +412,7 @@ int test_strlcat_truncate_one()
  * implementation must still return the correct desired length and must
  * not write past dst[dstsize-1].
  */
-int test_strlcat_dst_already_full()
+int test_strlcat_dst_already_full(void)
 {
     char dst[4];
     size_t r;
@@ -436,7 +436,7 @@ int test_strlcat_dst_already_full()
 /*
  * strlcat: empty src appended to a non-empty dst is a no-op.
  */
-int test_strlcat_empty_src()
+int test_strlcat_empty_src(void)
 {
     char dst[8] = "abc";
     size_t r;
@@ -459,7 +459,7 @@ int test_strlcat_empty_src()
 /*
  * strlcat: appending to an empty dst behaves like strlcpy.
  */
-int test_strlcat_empty_dst()
+int test_strlcat_empty_dst(void)
 {
     char dst[8] = "";
     size_t r;
@@ -483,7 +483,7 @@ int test_strlcat_empty_dst()
  * strlcat: dstsize == 0 must not touch dst at all, even though dst is
  * not (and need not be) NUL-terminated within bounds.
  */
-int test_strlcat_zero_size()
+int test_strlcat_zero_size(void)
 {
     char dst[4];
     size_t r;

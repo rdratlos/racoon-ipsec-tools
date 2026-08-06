@@ -85,8 +85,7 @@ struct myaddr {
 static LIST_HEAD(_myaddr_list_, myaddr) configured, opened;
 
 static void
-myaddr_delete(my)
-	struct myaddr *my;
+myaddr_delete(struct myaddr *my)
 {
 	if (my->fd != -1)
 		isakmp_close(my->fd);
@@ -95,8 +94,7 @@ myaddr_delete(my)
 }
 
 static int
-myaddr_configured(addr)
-	struct sockaddr *addr;
+myaddr_configured(struct sockaddr *addr)
 {
 	struct myaddr *cfg;
 
@@ -112,9 +110,7 @@ myaddr_configured(addr)
 }
 
 static int
-myaddr_open(addr, udp_encap)
-	struct sockaddr *addr;
-	int udp_encap;
+myaddr_open(struct sockaddr *addr, int udp_encap)
 {
 	struct myaddr *my;
 
@@ -140,8 +136,7 @@ myaddr_open(addr, udp_encap)
 }
 
 static int
-myaddr_open_all_configured(addr)
-	struct sockaddr *addr;
+myaddr_open_all_configured(struct sockaddr *addr)
 {
 	/* create all configured, not already opened addresses */
 	struct myaddr *cfg, *my;
@@ -182,8 +177,7 @@ myaddr_open_all_configured(addr)
 }
 
 static void
-myaddr_close_all_open(addr)
-	struct sockaddr *addr;
+myaddr_close_all_open(struct sockaddr *addr)
 {
 	/* delete all matching open sockets */
 	struct myaddr *my, *next;
@@ -199,8 +193,7 @@ myaddr_close_all_open(addr)
 }
 
 static void
-myaddr_flush_list(list)
-	struct _myaddr_list_ *list;
+myaddr_flush_list(struct _myaddr_list_ *list)
 {
 	struct myaddr *my, *next;
 
@@ -211,15 +204,13 @@ myaddr_flush_list(list)
 }
 
 void
-myaddr_flush()
+myaddr_flush(void)
 {
 	myaddr_flush_list(&configured);
 }
 
 int
-myaddr_listen(addr, udp_encap)
-	struct sockaddr *addr;
-	int udp_encap;
+myaddr_listen(struct sockaddr *addr, int udp_encap)
 {
 	struct myaddr *my;
 
@@ -242,7 +233,7 @@ myaddr_listen(addr, udp_encap)
 }
 
 void
-myaddr_sync()
+myaddr_sync(void)
 {
 	struct myaddr *my, *next;
 
@@ -260,8 +251,7 @@ myaddr_sync()
 }
 
 int
-myaddr_getfd(addr)
-        struct sockaddr *addr;
+myaddr_getfd(struct sockaddr *addr)
 {
 	struct myaddr *my;
 
@@ -274,8 +264,7 @@ myaddr_getfd(addr)
 }
 
 int
-myaddr_getsport(addr)
-	struct sockaddr *addr;
+myaddr_getsport(struct sockaddr *addr)
 {
 	struct myaddr *my;
 	int port = 0, wport;
@@ -299,14 +288,14 @@ myaddr_getsport(addr)
 }
 
 void
-myaddr_init_lists()
+myaddr_init_lists(void)
 {
 	LIST_INIT(&configured);
 	LIST_INIT(&opened);
 }
 
 int
-myaddr_init()
+myaddr_init(void)
 {
         if (!lcconf->strict_address) {
 		lcconf->rtsock = kernel_open_socket();
@@ -326,7 +315,7 @@ myaddr_init()
 }
 
 void
-myaddr_close()
+myaddr_close(void)
 {
 	myaddr_flush_list(&configured);
 	myaddr_flush_list(&opened);
@@ -373,10 +362,7 @@ netlink_add_rtattr_l(struct nlmsghdr *n, int maxlen, int type,
 }
 
 static int
-netlink_enumerate(fd, family, type)
-	int fd;
-	int family;
-	int type;
+netlink_enumerate(int fd, int family, int type)
 {
 	struct {
 		struct nlmsghdr nlh;
@@ -597,9 +583,7 @@ netlink_process(struct nlmsghdr *h)
 }
 
 static int
-kernel_receive(ctx, fd)
-	void *ctx;
-	int fd;
+kernel_receive(void *ctx, int fd)
 {
 	struct sockaddr_nl nladdr;
 	struct iovec iov;
@@ -638,7 +622,7 @@ kernel_receive(ctx, fd)
 }
 
 static int
-netlink_open_socket()
+netlink_open_socket(void)
 {
 	int fd;
 
@@ -658,7 +642,7 @@ netlink_open_socket()
 }
 
 static int
-kernel_open_socket()
+kernel_open_socket(void)
 {
 	struct sockaddr_nl nl;
 	int fd;
@@ -704,7 +688,7 @@ kernel_open_socket()
 }
 
 static void
-kernel_sync()
+kernel_sync(void)
 {
 	int fd = lcconf->rtsock;
 
@@ -734,10 +718,7 @@ kernel_sync()
 #define SAROUNDUP(X)   ROUNDUP(((struct sockaddr *)(X))->sa_len)
 
 static size_t
-parse_address(start, end, dest)
-	caddr_t start;
-	caddr_t end;
-	struct sockaddr_storage *dest;
+parse_address(caddr_t start, caddr_t end, struct sockaddr_storage *dest)
 {
 	int len;
 
@@ -755,11 +736,7 @@ parse_address(start, end, dest)
 }
 
 static void
-parse_addresses(start, end, flags, addr)
-	caddr_t start;
-	caddr_t end;
-	int flags;
-	struct sockaddr_storage *addr;
+parse_addresses(caddr_t start, caddr_t end, int flags, struct sockaddr_storage *addr)
 {
 	memset(addr, 0, sizeof(*addr));
 	if (flags & RTA_DST)
@@ -781,8 +758,7 @@ parse_addresses(start, end, flags, addr)
 }
 
 static void
-kernel_handle_message(msg)
-	caddr_t msg;
+kernel_handle_message(caddr_t msg)
 {
 	struct rt_msghdr *rtm = (struct rt_msghdr *) msg;
 	struct ifa_msghdr *ifa = (struct ifa_msghdr *) msg;
@@ -790,12 +766,12 @@ kernel_handle_message(msg)
 
 	switch (rtm->rtm_type) {
 	case RTM_NEWADDR:
-		parse_addresses(ifa + 1, msg + ifa->ifam_msglen,
+		parse_addresses((caddr_t)(ifa + 1), msg + ifa->ifam_msglen,
 				ifa->ifam_addrs, &addr);
 		myaddr_open_all_configured((struct sockaddr *) &addr);
 		break;
 	case RTM_DELADDR:
-		parse_addresses(ifa + 1, msg + ifa->ifam_msglen,
+		parse_addresses((caddr_t)(ifa + 1), msg + ifa->ifam_msglen,
 				ifa->ifam_addrs, &addr);
 		myaddr_close_all_open((struct sockaddr *) &addr);
 		break;
@@ -825,9 +801,7 @@ kernel_handle_message(msg)
 }
 
 static int
-kernel_receive(ctx, fd)
-	void *ctx;
-	int fd;
+kernel_receive(void *ctx, int fd)
 {
 	char buf[16*1024];
 	struct rt_msghdr *rtm = (struct rt_msghdr *) buf;
@@ -853,7 +827,7 @@ kernel_receive(ctx, fd)
 }
 
 static int
-kernel_open_socket()
+kernel_open_socket(void)
 {
 	int fd;
 
@@ -873,7 +847,7 @@ kernel_open_socket()
 }
 
 static void
-kernel_sync()
+kernel_sync(void)
 {
 	caddr_t ref, buf, end;
 	size_t bufsiz;

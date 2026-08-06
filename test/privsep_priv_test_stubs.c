@@ -17,16 +17,27 @@
  * counterparts privsep_priv()'s PRIVSEP_ACCOUNTING_PAM/
  * PRIVSEP_XAUTH_LOGIN_PAM/PRIVSEP_CLEANUP_PAM cases pull in:
  * isakmp_cfg_resize_pool()/isakmp_cfg_accounting_pam()/cleanup_pam()
- * (isakmp_cfg.c) and xauth_login_pam() (isakmp_xauth.c). None of these
- * six commands are exercised by any test using this file (they are
- * outside the runbook's own six-command scope, doc/dev/
- * v0.9.1-hardening-spec.md §2.2 explains why), but privsep_priv()'s switch
- * still references them at compile time, so the symbols must resolve at
- * link time regardless -- and whether HAVE_LIBPAM is defined depends on
- * what's installed on the build host, not on anything this file controls,
- * so the PAM stubs must be present whenever ENABLE_HYBRID is (matching
- * privsep.c's own #ifdef HAVE_LIBPAM nesting inside #ifdef ENABLE_HYBRID),
- * not just when the author's own build happened to have libpam-dev.
+ * (isakmp_cfg.c) and xauth_login_pam() (isakmp_xauth.c). These six were
+ * originally outside the runbook's own six-*other*-command scope
+ * (doc/dev/v0.9.1-hardening-spec.md §2.2) and, at the time, not exercised
+ * by any test using this file -- privsep_priv()'s switch still referenced
+ * them at compile time regardless, so the symbols had to resolve at link
+ * time either way. test_privsep_hybrid_client_wrappers.c now exercises
+ * all six for real (added after that runbook's scope was written; this
+ * comment previously went stale and said otherwise). Whether HAVE_LIBPAM
+ * is defined depends on what's installed on the build host, not on
+ * anything this file controls, so the PAM stubs must be present whenever
+ * ENABLE_HYBRID is (matching privsep.c's own #ifdef HAVE_LIBPAM nesting
+ * inside #ifdef ENABLE_HYBRID), not just when the author's own build
+ * happened to have libpam-dev.
+ *
+ * isakmp_cfg_accounting_system()/xauth_login_pam() additionally validate
+ * the raddr they receive (family, address, and sysdep_sa_len()-implied
+ * length) rather than ignoring it -- see the file comment on each below.
+ * This is the privileged-side half of issue #131's cross-check: the only
+ * way to prove a wire-serialized struct sockaddr survived the trip
+ * through the real privsep_priv() dispatch loop intact, not just that
+ * *some* response came back.
  *
  * Shared by all test_privsep_priv_*.c binaries, the same way
  * rsalist_test_stubs.c is shared across the tests that pull in
@@ -80,9 +91,7 @@ struct isakmp_cfg_config isakmp_cfg_config;
 #endif
 
 void
-privsep_priv_test_lcconf_init(certdir, scriptdir)
-	const char *certdir;
-	const char *scriptdir;
+privsep_priv_test_lcconf_init(const char *certdir, const char *scriptdir)
 {
 	/*
 	 * Free any strings a previous call left behind first: several tests
@@ -115,8 +124,7 @@ privsep_priv_test_lcconf_init(certdir, scriptdir)
  * dependency in this stub.
  */
 vchar_t *
-eay_get_pkcs1privkey(path)
-	char *path;
+eay_get_pkcs1privkey(char *path)
 {
 	static const char key_bytes[] = "stub-pkcs1-private-key";
 	vchar_t *key;
@@ -134,9 +142,7 @@ eay_get_pkcs1privkey(path)
 
 /* Same canned-success/"FAIL" contract as eay_get_pkcs1privkey() above. */
 vchar_t *
-getpsk(str, len)
-	const char *str;
-	const int len;
+getpsk(const char *str, const int len)
 {
 	static const char psk_bytes[] = "stub-psk-secret!";
 	vchar_t *psk;
@@ -166,11 +172,7 @@ int privsep_priv_test_script_exec_last_name = -1;
 int privsep_priv_test_script_exec_last_wait = -1;
 
 int
-script_exec(script, name, envp, wait_for_exit)
-	char *script;
-	int name;
-	char *const envp[];
-	int wait_for_exit;
+script_exec(char *script, int name, char *const envp[], int wait_for_exit)
 {
 	privsep_priv_test_script_exec_calls++;
 	strncpy(privsep_priv_test_script_exec_last_script, script,
@@ -193,8 +195,7 @@ script_exec(script, name, envp, wait_for_exit)
  * sockmisc.c's ever changes.
  */
 u_int16_t
-extract_port(addr)
-	const struct sockaddr *addr;
+extract_port(const struct sockaddr *addr)
 {
 	u_int16_t port = 0;
 
@@ -222,67 +223,93 @@ extract_port(addr)
  */
 #ifdef ENABLE_HYBRID
 char *
-saddr2str(addr)
-	const struct sockaddr *addr;
+saddr2str(const struct sockaddr *addr)
 {
 	return "";
 }
 
-int
-isakmp_cfg_accounting_system(port, raddr, usr, inout)
-	int port;
-	struct sockaddr *raddr;
-	char *usr;
-	int inout;
+/*
+ * The loopback IPv4 sockaddr every raddr-passing wire case in
+ * test_privsep_hybrid_client_wrappers.c constructs, mirrored here so
+ * isakmp_cfg_accounting_system()/xauth_login_pam() below can check what
+ * actually arrived on the privileged side of a real fork()/socketpair()
+ * round trip against it -- the privileged-side half of issue #131's
+ * cross-check. privsep.c's own client-side wrappers serialize raddr as
+ * exactly sysdep_sa_len(raddr) bytes; if either end's sysdep_sa_len()
+ * disagreed about that length, or the bytes were corrupted in transit,
+ * this comparison is what would actually notice -- a stub that ignores
+ * raddr entirely (as this one used to) cannot distinguish "the address
+ * round-tripped correctly" from "the call merely returned".
+ */
+static int
+raddr_matches_test_fixture(const struct sockaddr *raddr)
 {
+	const struct sockaddr_in *sin = (const struct sockaddr_in *)raddr;
+
+	if (raddr == NULL || sysdep_sa_len(raddr) != sizeof(*sin))
+		return 0;
+	if (sin->sin_family != AF_INET)
+		return 0;
+	if (sin->sin_addr.s_addr != htonl(INADDR_LOOPBACK))
+		return 0;
+	return 1;
+}
+
+/*
+ * Returns -1/EINVAL (not the port-range check's ERANGE, see isakmp_cfg.c's
+ * real isakmp_cfg_accounting_system()) when raddr didn't round-trip
+ * correctly, so a test can tell the two failure classes apart.
+ */
+int
+isakmp_cfg_accounting_system(int port, struct sockaddr *raddr, char *usr, int inout)
+{
+	if (!raddr_matches_test_fixture(raddr)) {
+		errno = EINVAL;
+		return -1;
+	}
 	return 0;
 }
 
 int
-xauth_login_system(usr, pwd)
-	char *usr;
-	char *pwd;
+xauth_login_system(char *usr, char *pwd)
 {
 	return 0;
 }
 
 /*
  * PRIVSEP_ACCOUNTING_PAM/PRIVSEP_XAUTH_LOGIN_PAM/PRIVSEP_CLEANUP_PAM
- * (privsep.c) link targets only, same "not exercised by any test using
- * this file" reasoning as the _system stubs above -- see the file
- * comment. Only compiled in when the build also has HAVE_LIBPAM, matching
+ * (privsep.c) link targets, now also exercised for real by
+ * test_privsep_hybrid_client_wrappers.c's PAM wire cases (see the file
+ * comment). Only compiled in when the build also has HAVE_LIBPAM, matching
  * privsep.c's own nesting of these three cases inside its own
  * #ifdef HAVE_LIBPAM (itself inside #ifdef ENABLE_HYBRID).
  */
 #ifdef HAVE_LIBPAM
 int
-isakmp_cfg_resize_pool(pool_size)
-	int pool_size;
+isakmp_cfg_resize_pool(int pool_size)
 {
 	return 0;
 }
 
 int
-isakmp_cfg_accounting_pam(port, inout)
-	int port;
-	int inout;
+isakmp_cfg_accounting_pam(int port, int inout)
 {
 	return 0;
 }
 
+/* Same raddr round-trip check as isakmp_cfg_accounting_system() above. */
 int
-xauth_login_pam(port, raddr, usr, pwd)
-	int port;
-	struct sockaddr *raddr;
-	char *usr;
-	char *pwd;
+xauth_login_pam(int port, struct sockaddr *raddr, char *usr, char *pwd)
 {
+	if (!raddr_matches_test_fixture(raddr)) {
+		errno = EINVAL;
+		return -1;
+	}
 	return 0;
 }
 
 void
-cleanup_pam(port)
-	int port;
+cleanup_pam(int port)
 {
 }
 #endif /* HAVE_LIBPAM */

@@ -152,7 +152,7 @@ fi
 AC_SUBST(COVERAGE_FLAGS)
 AM_CONDITIONAL([ENABLE_COVERAGE], [test "x$enable_coverage" = "xyes"])
 
-CFLAGS_ADD="$CFLAGS_ADD -Wall -Werror -Wno-unused"
+CFLAGS_ADD="$CFLAGS_ADD -Wall -Werror -Wno-unused -Wold-style-definition"
 
 case $host in
 *netbsd*)

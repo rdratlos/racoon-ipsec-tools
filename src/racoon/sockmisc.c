@@ -90,9 +90,7 @@ const int niflags = 0;
  *	1: not equal.
  */
 int
-cmpsaddr(addr1, addr2)
-	const struct sockaddr *addr1;
-	const struct sockaddr *addr2;
+cmpsaddr(const struct sockaddr *addr1, const struct sockaddr *addr2)
 {
 	caddr_t sa1, sa2;
 	u_short port1 = IPSEC_PORT_ANY;
@@ -148,8 +146,7 @@ cmpsaddr(addr1, addr2)
 
 /* get local address against the destination. */
 struct sockaddr *
-getlocaladdr(remote)
-	struct sockaddr *remote;
+getlocaladdr(struct sockaddr *remote)
 {
 	struct sockaddr *local;
 	u_int local_len = sizeof(struct sockaddr_storage);
@@ -199,15 +196,7 @@ getlocaladdr(remote)
  * setsockopt() have already performed on socket.
  */
 int
-recvfromto(s, buf, buflen, flags, from, fromlen, to, tolen)
-	int s;
-	void *buf;
-	size_t buflen;
-	int flags;
-	struct sockaddr *from;
-	socklen_t *fromlen;
-	struct sockaddr *to;
-	u_int *tolen;
+recvfromto(int s, void *buf, size_t buflen, int flags, struct sockaddr *from, socklen_t *fromlen, struct sockaddr *to, u_int *tolen)
 {
 	int otolen;
 	socklen_t slen;
@@ -341,12 +330,7 @@ recvfromto(s, buf, buflen, flags, from, fromlen, to, tolen)
 
 /* send packet, with fixing src/dst address pair. */
 int
-sendfromto(s, buf, buflen, src, dst, cnt)
-	int s, cnt;
-	const void *buf;
-	size_t buflen;
-	struct sockaddr *src;
-	struct sockaddr *dst;
+sendfromto(int s, const void *buf, size_t buflen, struct sockaddr *src, struct sockaddr *dst, int cnt)
 {
 	struct sockaddr_storage ss;
 	socklen_t slen;
@@ -598,8 +582,7 @@ sendfromto(s, buf, buflen, src, dst, cnt)
 }
 
 int
-setsockopt_bypass(so, family)
-	int so, family;
+setsockopt_bypass(int so, int family)
 {
 	int level;
 	char *buf;
@@ -662,8 +645,7 @@ setsockopt_bypass(so, family)
 }
 
 struct sockaddr *
-newsaddr(len)
-	int len;
+newsaddr(int len)
 {
 	struct sockaddr *new;
 
@@ -686,8 +668,7 @@ out:
 }
 
 struct sockaddr *
-dupsaddr(src)
-	struct sockaddr *src;
+dupsaddr(struct sockaddr *src)
 {
 	struct sockaddr *dst;
 
@@ -704,8 +685,7 @@ dupsaddr(src)
 }
 
 char *
-saddr2str(saddr)
-	const struct sockaddr *saddr;
+saddr2str(const struct sockaddr *saddr)
 {
 	static char buf[NI_MAXHOST + NI_MAXSERV + 10];
 	char addr[NI_MAXHOST], port[NI_MAXSERV];
@@ -724,8 +704,7 @@ saddr2str(saddr)
 }
 
 char *
-saddrwop2str(saddr)
-	const struct sockaddr *saddr;
+saddrwop2str(const struct sockaddr *saddr)
 {
 	static char buf[NI_MAXHOST + NI_MAXSERV + 10];
 	char addr[NI_MAXHOST];
@@ -778,10 +757,7 @@ naddrwop2str_fromto(const char *format, const struct netaddr *saddr,
 }
 
 char *
-saddr2str_fromto(format, saddr, daddr)
-	const char *format;
-	const struct sockaddr *saddr;
-	const struct sockaddr *daddr;
+saddr2str_fromto(const char *format, const struct sockaddr *saddr, const struct sockaddr *daddr)
 {
 	static char buf[2*(NI_MAXHOST + NI_MAXSERV + 10) + 100];
 	char *src, *dst;
@@ -800,9 +776,7 @@ saddr2str_fromto(format, saddr, daddr)
 }
 
 struct sockaddr *
-str2saddr(host, port)
-	char *host;
-	char *port;
+str2saddr(char *host, char *port)
 {
 	struct addrinfo hints, *res;
 	struct sockaddr *saddr;
@@ -855,10 +829,7 @@ str2saddr(host, port)
  * unrelated live SA with it (issue #105).
  */
 int
-mask_sockaddr(a, b, l)
-	struct sockaddr *a;
-	const struct sockaddr *b;
-	size_t l;
+mask_sockaddr(struct sockaddr *a, const struct sockaddr *b, size_t l)
 {
 	size_t i;
 	u_int8_t *p, alen;

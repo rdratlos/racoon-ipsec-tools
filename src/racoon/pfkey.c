@@ -203,9 +203,7 @@ static int addnewsp __P((caddr_t *, struct sockaddr *, struct sockaddr *));
  *	-1: fail
  */
 static int
-pfkey_handler(ctx, fd)
-	void *ctx;
-	int fd;
+pfkey_handler(void *ctx, int fd)
 {
 	struct sadb_msg *msg;
 	int len;
@@ -301,8 +299,7 @@ end:
  * dump SADB
  */
 vchar_t *
-pfkey_dump_sadb(satype)
-	int satype;
+pfkey_dump_sadb(int satype)
 {
 	int s;
 	vchar_t *buf = NULL;
@@ -389,8 +386,7 @@ done:
  * flush SADB
  */
 void
-pfkey_flush_sadb(proto)
-	u_int proto;
+pfkey_flush_sadb(u_int proto)
 {
 	int satype;
 
@@ -427,7 +423,7 @@ const int pfkey_nsatypes =
  * PF_KEY initialization
  */
 int
-pfkey_init()
+pfkey_init(void)
 {
 	int i, reg_fail;
 	int bufsiz;
@@ -499,7 +495,7 @@ pfkey_init()
 }
 
 int
-pfkey_reload()
+pfkey_reload(void)
 {
 	flushsp();
 
@@ -519,8 +515,7 @@ pfkey_reload()
 /* %%% for conversion */
 /* IPSECDOI_ATTR_AUTH -> SADB_AALG */
 static u_int
-ipsecdoi2pfkey_aalg(hashtype)
-	u_int hashtype;
+ipsecdoi2pfkey_aalg(u_int hashtype)
 {
 	switch (hashtype) {
 	case IPSECDOI_ATTR_AUTH_HMAC_MD5:
@@ -567,8 +562,7 @@ ipsecdoi2pfkey_aalg(hashtype)
 
 /* IPSECDOI_ESP -> SADB_EALG */
 static u_int
-ipsecdoi2pfkey_ealg(t_id)
-	u_int t_id;
+ipsecdoi2pfkey_ealg(u_int t_id)
 {
 	switch (t_id) {
 	case IPSECDOI_ESP_DES_IV64:		/* sa_flags |= SADB_X_EXT_OLD */
@@ -622,8 +616,7 @@ ipsecdoi2pfkey_ealg(t_id)
 
 /* IPCOMP -> SADB_CALG */
 static u_int
-ipsecdoi2pfkey_calg(t_id)
-	u_int t_id;
+ipsecdoi2pfkey_calg(u_int t_id)
 {
 	switch (t_id) {
 	case IPSECDOI_IPCOMP_OUI:
@@ -644,8 +637,7 @@ ipsecdoi2pfkey_calg(t_id)
 
 /* IPSECDOI_PROTO -> SADB_SATYPE */
 u_int
-ipsecdoi2pfkey_proto(proto)
-	u_int proto;
+ipsecdoi2pfkey_proto(u_int proto)
 {
 	switch (proto) {
 	case IPSECDOI_PROTO_IPSEC_AH:
@@ -664,8 +656,7 @@ ipsecdoi2pfkey_proto(proto)
 }
 
 static u_int
-ipsecdoi2pfkey_alg(algclass, type)
-	u_int algclass, type;
+ipsecdoi2pfkey_alg(u_int algclass, u_int type)
 {
 	switch (algclass) {
 	case IPSECDOI_ATTR_AUTH:
@@ -684,8 +675,7 @@ ipsecdoi2pfkey_alg(algclass, type)
 
 /* SADB_SATYPE -> IPSECDOI_PROTO */
 u_int
-pfkey2ipsecdoi_proto(satype)
-	u_int satype;
+pfkey2ipsecdoi_proto(u_int satype)
 {
 	switch (satype) {
 	case SADB_SATYPE_AH:
@@ -705,8 +695,7 @@ pfkey2ipsecdoi_proto(satype)
 
 /* IPSECDOI_ATTR_ENC_MODE -> IPSEC_MODE */
 u_int
-ipsecdoi2pfkey_mode(mode)
-	u_int mode;
+ipsecdoi2pfkey_mode(u_int mode)
 {
 	switch (mode) {
 	case IPSECDOI_ATTR_ENC_MODE_TUNNEL:
@@ -730,8 +719,7 @@ ipsecdoi2pfkey_mode(mode)
 
 /* IPSECDOI_ATTR_ENC_MODE -> IPSEC_MODE */
 u_int
-pfkey2ipsecdoi_mode(mode)
-	u_int mode;
+pfkey2ipsecdoi_mode(u_int mode)
 {
 	switch (mode) {
 	case IPSEC_MODE_TUNNEL:
@@ -749,8 +737,7 @@ pfkey2ipsecdoi_mode(mode)
 
 /* default key length for encryption algorithm */
 static u_int
-keylen_aalg(hashtype)
-	u_int hashtype;
+keylen_aalg(u_int hashtype)
 {
 	int res;
 
@@ -768,9 +755,7 @@ keylen_aalg(hashtype)
 
 /* default key length for encryption algorithm */
 static u_int
-keylen_ealg(enctype, encklen)
-	u_int enctype;
-	int encklen;
+keylen_ealg(u_int enctype, int encklen)
 {
 	int res;
 
@@ -784,8 +769,7 @@ keylen_ealg(enctype, encklen)
 }
 
 void
-pk_fixup_sa_addresses(mhp)
-	caddr_t *mhp;
+pk_fixup_sa_addresses(caddr_t *mhp)
 {
 	struct sockaddr *src, *dst;
 
@@ -807,16 +791,7 @@ pk_fixup_sa_addresses(mhp)
 }
 
 int
-pfkey_convertfromipsecdoi(proto_id, t_id, hashtype,
-		e_type, e_keylen, a_type, a_keylen, flags)
-	u_int proto_id;
-	u_int t_id;
-	u_int hashtype;
-	u_int *e_type;
-	u_int *e_keylen;
-	u_int *a_type;
-	u_int *a_keylen;
-	u_int *flags;
+pfkey_convertfromipsecdoi(u_int proto_id, u_int t_id, u_int hashtype, u_int *e_type, u_int *e_keylen, u_int *a_type, u_int *a_keylen, u_int *flags)
 {
 	*flags = 0;
 	switch (proto_id) {
@@ -895,8 +870,7 @@ pfkey_convertfromipsecdoi(proto_id, t_id, hashtype,
  * Because SPI is decided by responder.
  */
 int
-pk_sendgetspi(iph2)
-	struct ph2handle *iph2;
+pk_sendgetspi(struct ph2handle *iph2)
 {
 	struct sockaddr *src = NULL, *dst = NULL;
 	u_int satype, mode;
@@ -998,8 +972,7 @@ pk_sendgetspi(iph2)
  * receive GETSPI from kernel.
  */
 static int
-pk_recvgetspi(mhp)
-	caddr_t *mhp;
+pk_recvgetspi(caddr_t *mhp)
 {
 	struct sadb_msg *msg;
 	struct sadb_sa *sa;
@@ -1098,8 +1071,7 @@ pk_recvgetspi(mhp)
  * set inbound SA
  */
 int
-pk_sendupdate(iph2)
-	struct ph2handle *iph2;
+pk_sendupdate(struct ph2handle *iph2)
 {
 	struct saproto *pr;
 	struct pfkey_send_sa_args sa_args;
@@ -1251,8 +1223,7 @@ pk_sendupdate(iph2)
 }
 
 static int
-pk_recvupdate(mhp)
-	caddr_t *mhp;
+pk_recvupdate(caddr_t *mhp)
 {
 	struct sadb_msg *msg;
 	struct sadb_sa *sa;
@@ -1381,8 +1352,7 @@ pk_recvupdate(mhp)
  * set outbound SA
  */
 int
-pk_sendadd(iph2)
-	struct ph2handle *iph2;
+pk_sendadd(struct ph2handle *iph2)
 {
 	struct saproto *pr;
 	struct pfkey_send_sa_args sa_args;
@@ -1531,8 +1501,7 @@ pk_sendadd(iph2)
 }
 
 static int
-pk_recvadd(mhp)
-	caddr_t *mhp;
+pk_recvadd(caddr_t *mhp)
 {
 	struct sadb_msg *msg;
 	struct sadb_sa *sa;
@@ -1597,8 +1566,7 @@ pk_recvadd(mhp)
 }
 
 static int
-pk_recvexpire(mhp)
-	caddr_t *mhp;
+pk_recvexpire(caddr_t *mhp)
 {
 	struct sadb_msg *msg;
 	struct sadb_sa *sa;
@@ -1717,8 +1685,7 @@ pk_recvexpire(mhp)
 }
 
 static int
-pk_recvacquire(mhp)
-	caddr_t *mhp;
+pk_recvacquire(caddr_t *mhp)
 {
 	struct sadb_msg *msg;
 	struct sadb_x_policy *xpl;
@@ -1981,8 +1948,7 @@ pk_recvacquire(mhp)
 }
 
 static int
-pk_recvdelete(mhp)
-	caddr_t *mhp;
+pk_recvdelete(caddr_t *mhp)
 {
 	struct sadb_msg *msg;
 	struct sadb_sa *sa;
@@ -2051,8 +2017,7 @@ pk_recvdelete(mhp)
 }
 
 static int
-pk_recvflush(mhp)
-	caddr_t *mhp;
+pk_recvflush(caddr_t *mhp)
 {
 	/* ignore this message because of local test mode. */
 	if (f_local)
@@ -2071,10 +2036,7 @@ pk_recvflush(mhp)
 }
 
 static int
-getsadbpolicy(policy0, policylen0, type, iph2)
-	caddr_t *policy0;
-	int *policylen0, type;
-	struct ph2handle *iph2;
+getsadbpolicy(caddr_t *policy0, int *policylen0, int type, struct ph2handle *iph2)
 {
 	struct policyindex *spidx = (struct policyindex *)iph2->spidx_gen;
 	struct sockaddr *src = NULL, *dst = NULL;
@@ -2245,8 +2207,7 @@ err:
 }
 
 int
-pk_sendspdupdate2(iph2)
-	struct ph2handle *iph2;
+pk_sendspdupdate2(struct ph2handle *iph2)
 {
 	struct policyindex *spidx = (struct policyindex *)iph2->spidx_gen;
 	caddr_t policy = NULL;
@@ -2286,8 +2247,7 @@ end:
 }
 
 static int
-pk_recvspdupdate(mhp)
-	caddr_t *mhp;
+pk_recvspdupdate(caddr_t *mhp)
 {
 	struct sadb_address *saddr, *daddr;
 	struct sadb_x_policy *xpl;
@@ -2383,8 +2343,7 @@ pk_recvspdupdate(mhp)
  * this function has to be used by responder side.
  */
 int
-pk_sendspdadd2(iph2)
-	struct ph2handle *iph2;
+pk_sendspdadd2(struct ph2handle *iph2)
 {
 	struct policyindex *spidx = (struct policyindex *)iph2->spidx_gen;
 	caddr_t policy = NULL;
@@ -2424,8 +2383,7 @@ end:
 }
 
 static int
-pk_recvspdadd(mhp)
-	caddr_t *mhp;
+pk_recvspdadd(caddr_t *mhp)
 {
 	struct sadb_address *saddr, *daddr;
 	struct sadb_x_policy *xpl;
@@ -2522,8 +2480,7 @@ pk_recvspdadd(mhp)
  * this function has to be used by responder side.
  */
 int
-pk_sendspddelete(iph2)
-	struct ph2handle *iph2;
+pk_sendspddelete(struct ph2handle *iph2)
 {
 	struct policyindex *spidx = (struct policyindex *)iph2->spidx_gen;
 	caddr_t policy = NULL;
@@ -2558,8 +2515,7 @@ end:
 }
 
 static int
-pk_recvspddelete(mhp)
-	caddr_t *mhp;
+pk_recvspddelete(caddr_t *mhp)
 {
 	struct sadb_address *saddr, *daddr;
 	struct sadb_x_policy *xpl;
@@ -2634,8 +2590,7 @@ pk_recvspddelete(mhp)
 }
 
 static int
-pk_recvspdexpire(mhp)
-	caddr_t *mhp;
+pk_recvspdexpire(caddr_t *mhp)
 {
 	struct sadb_address *saddr, *daddr;
 	struct sadb_x_policy *xpl;
@@ -2710,8 +2665,7 @@ pk_recvspdexpire(mhp)
 }
 
 static int
-pk_recvspdget(mhp)
-	caddr_t *mhp;
+pk_recvspdget(caddr_t *mhp)
 {
 	/* sanity check */
 	if (mhp[0] == NULL) {
@@ -2724,8 +2678,7 @@ pk_recvspdget(mhp)
 }
 
 static int
-pk_recvspddump(mhp)
-	caddr_t *mhp;
+pk_recvspddump(caddr_t *mhp)
 {
 	struct sadb_msg *msg;
 	struct sadb_address *saddr, *daddr;
@@ -2824,8 +2777,7 @@ pk_recvspddump(mhp)
 }
 
 static int
-pk_recvspdflush(mhp)
-	caddr_t *mhp;
+pk_recvspdflush(caddr_t *mhp)
 {
 	/* sanity check */
 	if (mhp[0] == NULL) {
@@ -2880,9 +2832,7 @@ struct migrate_args {
  * -1 is returned on error. 0 if everything went right.
  */
 static int
-migrate_ph1_ike_addresses(iph1, arg)
-        struct ph1handle *iph1;
-        void *arg;
+migrate_ph1_ike_addresses(struct ph1handle *iph1, void *arg)
 {
 	struct migrate_args *ma = (struct migrate_args *) arg;
 	struct remoteconf *rmconf;
@@ -2978,9 +2928,7 @@ migrate_ph1_ike_addresses(iph1, arg)
  *       expected to be meaningful --arno
  */
 static int
-migrate_ph2_ike_addresses(iph2, arg)
-	struct ph2handle *iph2;
-	void *arg;
+migrate_ph2_ike_addresses(struct ph2handle *iph2, void *arg)
 {
 	struct migrate_args *ma = (struct migrate_args *) arg;
 	struct ph1handle *iph1;
@@ -3034,9 +2982,7 @@ migrate_ph2_ike_addresses(iph2, arg)
  * already started but are which not yet established.
  */
 static int
-migrate_ph2_sa_addresses(iph2, args)
-	struct ph2handle *iph2;
-	void *args;
+migrate_ph2_sa_addresses(struct ph2handle *iph2, void *args)
 {
 	struct migrate_args *ma = (struct migrate_args *) args;
 
@@ -3124,9 +3070,7 @@ migrate_ph2_sa_addresses(iph2, args)
  *       expected to be meaningful --arno
  */
 static int
-migrate_sp_ike_addresses(sp, local, remote)
-        struct secpolicy *sp;
-        struct sockaddr *local, *remote;
+migrate_sp_ike_addresses(struct secpolicy *sp, struct sockaddr *local, struct sockaddr *remote)
 {
 	if (sp == NULL || local == NULL || remote == NULL)
 		return -1;
@@ -3161,10 +3105,7 @@ migrate_sp_ike_addresses(sp, local, remote)
    are performed. For transport mode, structures are not modified, only
    the checks are done. -1 is returned on error. */
 static int
-migrate_ph2_one_isr(spid, isr_cur, xisr_old, xisr_new)
-        u_int32_t spid;
-        struct ipsecrequest *isr_cur;
-	struct sadb_x_ipsecrequest *xisr_old, *xisr_new;
+migrate_ph2_one_isr(u_int32_t spid, struct ipsecrequest *isr_cur, struct sadb_x_ipsecrequest *xisr_old, struct sadb_x_ipsecrequest *xisr_new)
 {
 	struct secasindex *saidx = &isr_cur->saidx;
 	struct sockaddr *osaddr, *odaddr, *nsaddr, *ndaddr;
@@ -3248,10 +3189,7 @@ migrate_ph2_one_isr(spid, isr_cur, xisr_old, xisr_new)
  * the corresponding ipsecrequest entry in the SP is updated. Associated
  * existing Phase 2 handle is also updated (if any) */
 static int
-migrate_sp_isr_list(sp, xisr_list, xisr_list_len)
-        struct secpolicy *sp;
-	struct sadb_x_ipsecrequest *xisr_list;
-	int xisr_list_len;
+migrate_sp_isr_list(struct secpolicy *sp, struct sadb_x_ipsecrequest *xisr_list, int xisr_list_len)
 {
 	struct sadb_x_ipsecrequest *xisr_new, *xisr_old = xisr_list;
 	int xisr_old_len, xisr_new_len;
@@ -3309,9 +3247,7 @@ migrate_sp_isr_list(sp, xisr_list, xisr_list_len)
  * parameters point to the new addresses (zero copy). -1 is
  * returned on error, meaning that addresses are not usable */
 static int
-parse_kmaddress(kmaddr, local, remote)
-        struct sadb_x_kmaddress *kmaddr;
-	struct sockaddr **local, **remote;
+parse_kmaddress(struct sadb_x_kmaddress *kmaddr, struct sockaddr **local, struct sockaddr **remote)
 {
 	int addrslen, local_len=0;
 	struct ph1handle *iph1;
@@ -3352,8 +3288,7 @@ parse_kmaddress(kmaddr, local, remote)
 
 /* Handler of PF_KEY MIGRATE message. Helpers are above */
 static int
-pk_recvmigrate(mhp)
-	caddr_t *mhp;
+pk_recvmigrate(caddr_t *mhp)
 {
 	struct sadb_address *saddr, *daddr;
 	struct sockaddr *old_saddr, *new_saddr;
@@ -3564,8 +3499,7 @@ pk_recvmigrate(mhp)
  * send error against acquire message to kernel.
  */
 int
-pk_sendeacquire(iph2)
-	struct ph2handle *iph2;
+pk_sendeacquire(struct ph2handle *iph2)
 {
 	struct sadb_msg *newmsg;
 	int len;
@@ -3602,8 +3536,7 @@ pk_sendeacquire(iph2)
  *	-1: ng
  */
 int
-pk_checkalg(class, calg, keylen)
-	int class, calg, keylen;
+pk_checkalg(int class, int calg, int keylen)
 {
 	int sup, error;
 	u_int alg;
@@ -3655,9 +3588,7 @@ pk_checkalg(class, calg, keylen)
  * - returns non-NULL on success
  */
 static struct sadb_msg *
-pk_recv(so, lenp)
-	int so;
-	int *lenp;
+pk_recv(int so, int *lenp)
 {
 	struct sadb_msg buf, *newmsg;
 	int reallen;
@@ -3710,15 +3641,13 @@ pk_recv(so, lenp)
 
 /* see handler.h */
 u_int32_t
-pk_getseq()
+pk_getseq(void)
 {
 	return eay_random();
 }
 
 static int
-addnewsp(mhp, local, remote)
-	caddr_t *mhp;
-	struct sockaddr *local, *remote;
+addnewsp(caddr_t *mhp, struct sockaddr *local, struct sockaddr *remote)
 {
 	struct secpolicy *new = NULL;
 	struct sadb_address *saddr, *daddr;
@@ -3947,11 +3876,7 @@ bad:
 
 /* proto/mode/src->dst spi */
 const char *
-sadbsecas2str(src, dst, proto, spi, mode)
-	struct sockaddr *src, *dst;
-	int proto;
-	u_int32_t spi;
-	int mode;
+sadbsecas2str(struct sockaddr *src, struct sockaddr *dst, int proto, u_int32_t spi, int mode)
 {
 	static char buf[256];
 	u_int doi_proto, doi_mode = 0;

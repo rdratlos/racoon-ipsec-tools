@@ -82,6 +82,25 @@ UndefinedBehaviorSanitizer on by default on the NetBSD job, and fixed a
 gap where the privilege-separation code and several wrapper-based test
 modules were invisible to coverage reporting.
 
+### K&R to ANSI C: the last old-style function definitions are gone
+
+The entire codebase — daemon, libraries, and test suite alike — now
+uses ANSI C prototypes exclusively. This matters beyond tidiness: GCC 15
+(shipping on Ubuntu 25.10 "Resolute" and newer) defaults to `-std=gnu23`,
+under which old-style (K&R) function definitions are no longer just a
+warning but a hard compile error. Every packaging path (Debian, Arch,
+and this project's own CI) that previously carried a
+`-Wno-old-style-definition` workaround to route around this had that
+workaround removed once it stopped being needed, and
+`-Wold-style-definition` is now enabled as a hard error by default so
+the codebase can't regress. Converting mechanically across roughly a
+thousand function definitions also surfaced a couple of genuine, if
+narrow, latent bugs — a mismatched pointer type in the admin-event
+broadcast path and another in the BSD routing-socket address parser
+used on NetBSD — both fixed as part of this pass. No configuration or
+behavior changes for anyone already building successfully; this
+primarily unblocks building on newer toolchains and distributions.
+
 ### Packaging: roadwarrior templates moved out of /usr/share/doc
 
 Some distributions configure their package manager to silently strip

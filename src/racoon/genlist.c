@@ -134,7 +134,7 @@ free_data(void *data)
 	printf ("removing %s\n", (char *)data);
 }
 
-int main()
+int main(void)
 {
 	struct conf *cf;
 	char *cp;

@@ -68,9 +68,7 @@
  * New group mode as responder
  */
 int
-isakmp_newgroup_r(iph1, msg)
-	struct ph1handle *iph1;
-	vchar_t *msg;
+isakmp_newgroup_r(struct ph1handle *iph1, vchar_t *msg)
 {
 #if 0
 	struct isakmp *isakmp = (struct isakmp *)msg->v;

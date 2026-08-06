@@ -310,9 +310,7 @@ handle_vendorid(struct ph1handle *iph1, struct isakmp_gen *gen)
 }
 
 static vchar_t * 
-vendorid_fixup(vendorid, vidhash)
-	int vendorid;		 
-	vchar_t *vidhash;
+vendorid_fixup(int vendorid, vchar_t *vidhash)
 {			   
 	switch(vendorid) {
 	case VENDORID_XAUTH: {	/* The vendor Id is truncated */

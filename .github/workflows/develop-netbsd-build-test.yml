@@ -108,7 +108,7 @@ jobs:
             # ------------------------------------------------------------------
             # Configure
             # ------------------------------------------------------------------
-            CFLAGS="-g -O2 -Wformat -Werror=format-security -Wno-old-style-definition ${SAN_CFLAGS}" \
+            CFLAGS="-g -O2 -Wformat -Werror=format-security ${SAN_CFLAGS}" \
             LDFLAGS="${SAN_LDFLAGS}" \
             ./configure --verbose \
               --prefix=/usr \

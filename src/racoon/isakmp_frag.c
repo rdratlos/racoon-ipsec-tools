@@ -79,9 +79,7 @@
 #include "strnames.h"
 
 int
-isakmp_sendfrags(iph1, buf) 
-	struct ph1handle *iph1;
-	vchar_t *buf;
+isakmp_sendfrags(struct ph1handle *iph1, vchar_t *buf)
 {
 	struct isakmp *hdr;
 	struct isakmp_frag *fraghdr;
@@ -163,8 +161,7 @@ isakmp_sendfrags(iph1, buf)
 }
 
 unsigned int 
-vendorid_frag_cap(gen)
-	struct isakmp_gen *gen;
+vendorid_frag_cap(struct isakmp_gen *gen)
 {
 	int *hp;
 
@@ -227,9 +224,7 @@ isakmp_frag_insert(struct ph1handle *iph1, struct isakmp_frag_item *item)
 }
 
 int 
-isakmp_frag_extract(iph1, msg)
-	struct ph1handle *iph1;
-	vchar_t *msg;
+isakmp_frag_extract(struct ph1handle *iph1, vchar_t *msg)
 {
 	struct isakmp *isakmp;
 	struct isakmp_frag *frag;
@@ -365,8 +360,7 @@ out:
 }
 
 vchar_t *
-isakmp_frag_reassembly(iph1)
-	struct ph1handle *iph1;
+isakmp_frag_reassembly(struct ph1handle *iph1)
 {
 	struct isakmp_frag_item *item;
 	size_t len = 0;
@@ -437,9 +431,7 @@ out:
 }
 
 vchar_t *
-isakmp_frag_addcap(buf, cap)
-	vchar_t *buf;
-	int cap;
+isakmp_frag_addcap(vchar_t *buf, int cap)
 {
 	int *capp;
 	size_t len;
