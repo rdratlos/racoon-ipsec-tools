@@ -186,6 +186,17 @@ dumpph1(void)
 	return NULL;
 }
 
+int admin_test_status_dump_calls = 0;
+int admin_test_status_dump_verbose = -1;
+
+void
+status_dump(vchar_t **out, int verbose)
+{
+	admin_test_status_dump_calls++;
+	admin_test_status_dump_verbose = verbose;
+	*out = NULL;
+}
+
 int admin_test_pfkey_dump_sadb_calls = 0;
 
 vchar_t *
