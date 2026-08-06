@@ -8,6 +8,7 @@ url="https://github.com/rdratlos/racoon-ipsec-tools"
 license=('BSD-3-Clause')
 depends=('openssl' 'libldap' 'linux-headers' 'pam' 'krb5')
 makedepends=('autoconf' 'automake' 'libtool' 'flex' 'bison' 'pkgconf')
+options=(debug)
 install=ipsec-tools.install
 # As Racoon is not on AUR build the debug symbol package, too
 options=(debug)
@@ -20,7 +21,7 @@ source=("$pkgname-$pkgver.tar.xz::https://github.com/rdratlos/racoon-ipsec-tools
         ipsec-tools.tmpfiles)
 sha256sums=('SKIP'
             '52f3c273e6c2e2cd0d9ee15e48ecdab07496af0b233fde0a59b6e69a02b25bee'
-            '0f3cca9ed12b9790f95f76985e5317c4319fc3954eb37d627109131235ef9579')
+            '4d350c44e28066b89c1faad341b1da6062fe63301116ba72c014119ccff772e5')
 
 build() {
   cd "racoon-ipsec-tools"
