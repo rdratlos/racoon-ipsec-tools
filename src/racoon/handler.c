@@ -493,6 +493,7 @@ void
 flushph1(void)
 {
 	struct ph1handle *p, *next;
+	struct ph2handle *p2, *next2;
 
 	for (p = LIST_FIRST(&ph1tree); p; p = next) {
 		next = LIST_NEXT(p, chain);
@@ -500,6 +501,23 @@ flushph1(void)
 		/* send delete information */
 		if (p->status >= PHASE1ST_ESTABLISHED)
 			isakmp_info_send_d1(p);
+
+		/*
+		 * Discard any phase2 handles still bound to this ph1
+		 * before freeing it below. delph1() does not touch
+		 * p->ph2tree, so without this a bound ph2handle's ->ph1
+		 * pointer is left dangling once p is freed, and any later
+		 * use of that ph2handle (e.g. purge_remote()'s remph2())
+		 * is a use-after-free.
+		 */
+		for (p2 = LIST_FIRST(&p->ph2tree); p2; p2 = next2) {
+			next2 = LIST_NEXT(p2, ph1bind);
+			if (p2->status == PHASE2ST_ESTABLISHED)
+				isakmp_info_send_d2(p2);
+			delete_spd(p2, 0);
+			remph2(p2);
+			delph2(p2);
+		}
 
 		remph1(p);
 		delph1(p);
@@ -843,6 +861,37 @@ initph2tree(void)
 {
 	LIST_INIT(&ph2tree);
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * ph1tree/ph2tree are static, so a regression test verifying that
+ * flushph1() leaves no ph2handle orphaned (bound to a freed ph1, and
+ * therefore still reachable with a dangling ->ph1 pointer -- see the
+ * comment in flushph1() itself) has no other way to confirm the tree is
+ * actually empty afterward.
+ */
+int
+ph1tree_count_unittest(void)
+{
+	struct ph1handle *p;
+	int cnt = 0;
+
+	LIST_FOREACH(p, &ph1tree, chain)
+		cnt++;
+	return cnt;
+}
+
+int
+ph2tree_count_unittest(void)
+{
+	struct ph2handle *p;
+	int cnt = 0;
+
+	LIST_FOREACH(p, &ph2tree, chain)
+		cnt++;
+	return cnt;
+}
+#endif /* ENABLE_UNITTEST */
 
 void
 flushph2(void)
