@@ -122,8 +122,7 @@ struct xauth_ldap_config xauth_ldap_config;
 #endif
 
 void 
-xauth_sendreq(iph1)
-	struct ph1handle *iph1;
+xauth_sendreq(struct ph1handle *iph1)
 {
 	vchar_t *buffer;
 	struct isakmp_pl_attr *attr;
@@ -188,10 +187,7 @@ xauth_sendreq(iph1)
 }
 
 int
-xauth_attr_reply(iph1, attr, id)
-	struct ph1handle *iph1;
-	struct isakmp_data *attr;
-	int id;
+xauth_attr_reply(struct ph1handle *iph1, struct isakmp_data *attr, int id)
 {
 	char **outlet = NULL;
 	size_t alen = 0;
@@ -359,8 +355,7 @@ skip_auth:
 }
 
 void 
-xauth_reply_stub(sc)
-	struct sched *sc;
+xauth_reply_stub(struct sched *sc)
 {
 	struct xauth_reply_arg *xra = container_of(sc, struct xauth_reply_arg, sc);
 	struct ph1handle *iph1;
@@ -375,11 +370,7 @@ xauth_reply_stub(sc)
 }
 
 int
-xauth_reply(iph1, port, id, res)
-	struct ph1handle *iph1;
-	int port;
-	int id;
-	int res;
+xauth_reply(struct ph1handle *iph1, int port, int id, int res)
 {
 	struct xauth_state *xst = &iph1->mode_cfg->xauth;
 	char *usr = xst->authdata.generic.usr;
@@ -413,10 +404,7 @@ xauth_reply(iph1, port, id, res)
 }
 
 void
-xauth_sendstatus(iph1, status, id)
-	struct ph1handle *iph1;
-	int status;
-	int id;
+xauth_sendstatus(struct ph1handle *iph1, int status, int id)
 {
 	vchar_t *buffer;
 	struct isakmp_pl_attr *attr;
@@ -1334,9 +1322,7 @@ ldap_group_end:
 #endif
 
 int
-xauth_login_system(usr, pwd)
-	char *usr;
-	char *pwd;
+xauth_login_system(char *usr, char *pwd)
 {
 	struct passwd *pw;
 	char *cryptpwd;
@@ -1371,9 +1357,7 @@ xauth_login_system(usr, pwd)
 }
 
 int
-xauth_group_system(usr, grp)
-	char * usr;
-	char * grp;
+xauth_group_system(char *usr, char *grp)
 {
 	struct group * gr;
 	char * member;
@@ -1399,8 +1383,7 @@ xauth_group_system(usr, grp)
 }
 
 int 
-xauth_check(iph1)
-	struct ph1handle *iph1;
+xauth_check(struct ph1handle *iph1)
 {
 	struct xauth_state *xst = &iph1->mode_cfg->xauth;
 
@@ -1443,10 +1426,7 @@ xauth_check(iph1)
 }
 
 int
-group_check(iph1, grp_list, grp_count)
-	struct ph1handle *iph1;
-	char **grp_list;
-	int grp_count;
+group_check(struct ph1handle *iph1, char **grp_list, int grp_count)
 {
 	int res = -1;
 	int grp_index = 0;
@@ -1517,9 +1497,7 @@ group_check(iph1, grp_list, grp_count)
 }
 
 vchar_t *
-isakmp_xauth_req(iph1, attr)
-	struct ph1handle *iph1;
-	struct isakmp_data *attr;
+isakmp_xauth_req(struct ph1handle *iph1, struct isakmp_data *attr)
 {
 	int type;
 	size_t dlen = 0;
@@ -1679,9 +1657,7 @@ out:
 }
 
 vchar_t *
-isakmp_xauth_set(iph1, attr)
-	struct ph1handle *iph1;
-	struct isakmp_data *attr;
+isakmp_xauth_set(struct ph1handle *iph1, struct isakmp_data *attr)
 {
 	int type;
 	vchar_t *buffer = NULL;
@@ -1780,8 +1756,7 @@ isakmp_xauth_set(iph1, attr)
 
 
 void 
-xauth_rmstate(xst)
-	struct xauth_state *xst;
+xauth_rmstate(struct xauth_state *xst)
 {
 	switch (xst->authtype) {
 	case XAUTH_TYPE_GENERIC:
@@ -1814,8 +1789,7 @@ xauth_rmstate(xst)
 }
 
 int
-xauth_rmconf_used(xauth_rmconf)
-	struct xauth_rmconf **xauth_rmconf;
+xauth_rmconf_used(struct xauth_rmconf **xauth_rmconf)
 {
 	if (*xauth_rmconf == NULL) {
 		*xauth_rmconf = racoon_malloc(sizeof(**xauth_rmconf));
@@ -1834,8 +1808,7 @@ xauth_rmconf_used(xauth_rmconf)
 }
 
 void 
-xauth_rmconf_delete(xauth_rmconf)
-	struct xauth_rmconf **xauth_rmconf;
+xauth_rmconf_delete(struct xauth_rmconf **xauth_rmconf)
 {
 	if (*xauth_rmconf != NULL) { 
 		if ((*xauth_rmconf)->login != NULL)
@@ -1851,8 +1824,7 @@ xauth_rmconf_delete(xauth_rmconf)
 }
 
 struct xauth_rmconf *
-xauth_rmconf_dup(xauth_rmconf)
-	struct xauth_rmconf *xauth_rmconf;
+xauth_rmconf_dup(struct xauth_rmconf *xauth_rmconf)
 {
 	struct xauth_rmconf *new;
 
