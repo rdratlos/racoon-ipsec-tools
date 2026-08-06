@@ -106,9 +106,7 @@ static int mkdir_p __P((const char *, mode_t));
  * Pre-existing components (EEXIST) are not an error.
  */
 static int
-mkdir_p(path, mode)
-	const char *path;
-	mode_t mode;
+mkdir_p(const char *path, mode_t mode)
 {
 	char buf[MAXPATHLEN];
 	char *p;
@@ -161,8 +159,7 @@ mkdir_p_unittest(path, mode)
  * only ever touches paths that look like dedicated socket locations.
  */
 int
-admin_check_sockpath(path)
-	const char *path;
+admin_check_sockpath(const char *path)
 {
 	const char *base;
 	size_t plen, blen;
@@ -195,9 +192,7 @@ admin_check_sockpath(path)
 }
 
 static int
-admin_handler(ctx, fd)
-	void *ctx;
-	int fd;
+admin_handler(void *ctx, int fd)
 {
 	int so2;
 	struct sockaddr_storage from;
@@ -297,9 +292,7 @@ static int admin_ph1_delete_sa(struct ph1handle *iph1, void *arg)
  * main child's process.
  */
 static int
-admin_process(so2, combuf)
-	int so2;
-	char *combuf;
+admin_process(int so2, char *combuf)
 {
 	struct admin_com *com = (struct admin_com *)combuf;
 	vchar_t *buf = NULL;
@@ -850,10 +843,7 @@ admin_process_unittest(so2, combuf)
 #endif /* ENABLE_UNITTEST */
 
 static int
-admin_reply(so, req, l_ac_errno, buf)
-	int so, l_ac_errno;
-	struct admin_com *req;
-	vchar_t *buf;
+admin_reply(int so, struct admin_com *req, int l_ac_errno, vchar_t *buf)
 {
 	int tlen;
 	struct admin_com *combuf;
@@ -900,8 +890,7 @@ admin_reply(so, req, l_ac_errno, buf)
 
 /* ADMIN_PROTO -> SADB_SATYPE */
 int
-admin2pfkey_proto(proto)
-	u_int proto;
+admin2pfkey_proto(u_int proto)
 {
 	switch (proto) {
 	case ADMIN_PROTO_IPSEC:
@@ -919,7 +908,7 @@ admin2pfkey_proto(proto)
 }
 
 int
-admin_init()
+admin_init(void)
 {
 	if (adminsock_path == NULL) {
 		lcconf->sock_admin = -1;
@@ -1076,7 +1065,7 @@ admin_init()
 }
 
 int
-admin_close()
+admin_close(void)
 {
 	if (lcconf->sock_admin != -1) {
 		unmonitor_fd(lcconf->sock_admin);
