@@ -366,6 +366,71 @@ optional field) bump minor only; breaking changes (rename/remove/retype an
 existing field) bump major. The RFC-0001 harness pins on major only, so it
 keeps working across minor bumps without a harness change.
 
+### D5 — Racoon operation mode (roadwarrior gateway vs. fixed peer)
+
+Raised as a review comment on issue #139, not in the original scoping prompt.
+Verified all three cited fields and both grammar-mapping claims in the
+addendum against source — every citation checks out (one harmless
+line-number drift, noted below):
+
+- **`rmconf->remote->sa_family == AF_UNSPEC`** — confirmed load-bearing at
+  `remoteconf.c:199-204` (`rmconf_match_type()`, comment literally says
+  `/* No match at all: unwanted anonymous */`), not just documented. Grammar:
+  `remote anonymous { … }` sets exactly this — `remote_index: ANONYMOUS ike_port
+  { ...->sa_family = AF_UNSPEC; }` (`cfparse.y:1840-1846`).
+- **`rmconf->passive`** ("never initiate", `remoteconf.h:117` — cited as `:113`
+  in the review comment, off by 4 lines in this checkout, immaterial) —
+  confirmed load-bearing at `isakmp.c:2164`, `pfkey.c:2859`, `pfkey.c:3027`
+  (exact line matches), and *also* in `rmconf_match_type()` right next to the
+  anonymous check (`remoteconf.c:207`). Grammar: `passive on|off;`
+  (`cfparse.y:2057`, `PASSIVE SWITCH`).
+- **`rmconf->gen_policy`** (`GENERATE_POLICY_NONE`=0/`REQUIRE`=1/`UNIQUE`=2,
+  `remoteconf.h:122-125`) — confirmed load-bearing at `isakmp_quick.c:2425`,
+  `isakmp_quick.c:2445`, `proposal.c:1237` (exact line matches).
+  **Addendum answered:** the grammar (`cfparse.y:2095-2096`,
+  `cftoken.l:350-352`) accepts *two* forms — `generate_policy on|off;` (the
+  boolean `SWITCH` token, `on`→`TRUE`=1, `off`→`FALSE`=0) **or**
+  `generate_policy require|unique;` (the `GENERATE_LEVEL` token,
+  `require`→`GENERATE_POLICY_REQUIRE`=1, `unique`→`GENERATE_POLICY_UNIQUE`=2).
+  Numerically, `on` and `require` produce the *identical* stored value (`1`) —
+  there is no `none` keyword, only `off`, which stores `0`. So the JSON string
+  values `"none"`/`"require"`/`"unique"` (matching the `#define` suffixes,
+  same convention as every other enum-to-string mapping in this schema) are a
+  clean, honest rendering, even though `"none"` isn't itself a literal
+  config keyword — `off` is.
+
+**On the recommendation to add a derived `client`/`gateway` role field:**
+agree with the review comment's own reasoning for declining it, and would
+apply it just as strongly here as it was applied to `pfs_group` (H-1) and
+`xauth.error`: racoon can positively assert "this Phase-1 accepts any peer"
+(the anonymous/passive/gen_policy combination above), but has no structural
+way to distinguish a fixed, non-anonymous peer that's a site-to-site gateway
+from one that's *this* racoon acting as a roadwarrior client dialing a known
+gateway — both produce an identical `struct remoteconf` shape. A two-value
+role enum would assert precision the source doesn't have.
+
+Recommend adding the three raw fields only:
+
+```json
+"remote_config": {
+  "anonymous": true,
+  "passive": true,
+  "generate_policy": "unique"
+}
+```
+
+**Recommend against** the optional `config_pattern_hint` convenience string
+the review comment offered as a "if you want" alternative — not because it's
+technically wrong, but because it's precisely the shape of field this
+document has twice already flagged as a mistake (H-1, `xauth.error`): a
+single label that *looks* like something racoon asserts, backed by a
+heuristic combination of unrelated fields, that someone six months from now
+will read as ground truth rather than a guess. The three raw fields already
+let any consumer compute the same heuristic client-side if they want it,
+without racoon vouching for it. Your call if you'd rather have it anyway —
+flagging the asymmetry (declined here, but offered as optional in the review
+comment) rather than silently picking one.
+
 ---
 
 ## 4. Findings
@@ -494,6 +559,15 @@ All four decision points closed. Status: **Approved — proceeding to Phase 3.**
    cause as `pfs_group`, surfaced during the freeze pass).
 4. **D4** — `schema_version` is `"major.minor"`; additive fields bump minor,
    breaking changes bump major; the RFC-0001 harness pins on major only.
+5. **D5** (added via issue #139 review comment) — `phase1[].remote_config`
+   (`anonymous`/`passive`/`generate_policy`, all three source-verified against
+   `remoteconf.c`/`isakmp.c`/`pfkey.c`/`isakmp_quick.c`/`proposal.c`) added to
+   the schema. A derived `client`/`gateway` role label was proposed and
+   declined — no struct-backed way to distinguish a fixed-peer site-to-site
+   config from a roadwarrior client's own config, both look identical. The
+   **JSON field set is now the mandatory interface**: `text` output must
+   present the same fields, differing only in layout — tightens the earlier,
+   looser "text and json may diverge stylistically" note.
 
 ### Frozen JSON schema v1
 
@@ -529,7 +603,12 @@ Reflects every ratified correction above (§3 has the reasoning for each).
         "split_include": ["10.0.1.0/24"]
       },
       "dpd": { "supported": true, "fails": 0 },
-      "natt": { "enabled": true }
+      "natt": { "enabled": true },
+      "remote_config": {
+        "anonymous": true,
+        "passive": true,
+        "generate_policy": "unique"
+      }
     }
   ],
   "phase2": [
@@ -572,10 +651,12 @@ matched/negotiated result), not `iph2->proposal` or local `sainfo` config — se
 the DH-group-vs-PFS-group discussion earlier in this review. `phase2[].pfs_group == 0`
 must render as PFS genuinely absent (e.g. omit the key or `null`), never as a
 bogus group number. `compression_algorithm` intentionally held back per D3
-pending a Phase 4 scope check.
+pending a Phase 4 scope check. `phase1[].remote_config` added per D5.
 
 **Phase 3 done:** [issue #139](https://github.com/rdratlos/racoon-ipsec-tools/issues/139)
 consolidates this schema, the D1–D4 rationale (including the §2.1 call-chain
 block verbatim), and the acceptance criteria (including H-4's `send()` loop fix
-and the live-test matrix). **⏸ Waiting for the go before any Phase 4 code**,
-on `feature/racoonctl-status` fresh off `develop`.
+and the live-test matrix). A review comment on the issue added D5
+(`remote_config`) and tightened the text/JSON relationship (§ D5 above,
+issue comment incorporated and replied to). **⏸ Waiting for the go before any
+Phase 4 code**, on `feature/racoonctl-status` fresh off `develop`.
