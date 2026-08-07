@@ -56,7 +56,7 @@ racoon_SOURCES = \
 	isakmp_ident.c isakmp_agg.c isakmp_base.c \
 	isakmp_quick.c isakmp_inf.c isakmp_newg.c \
 	gssapi.c dnssec.c getcertsbyname.c privsep.c \
-	pfkey.c admin.c evt.c ipsec_doi.c oakley.c grabmyaddr.c vendorid.c \
+	pfkey.c admin.c status.c evt.c ipsec_doi.c oakley.c grabmyaddr.c vendorid.c \
 	policy.c localconf.c remoteconf.c crypto_openssl.c algorithm.c \
 	openssl_compat.c eay_rsa.c proposal.c sainfo.c strnames.c \
 	plog.c logger.c schedule.c str2val.c \
