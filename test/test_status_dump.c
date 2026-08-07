@@ -270,6 +270,37 @@ test_json_escaping(void)
 	return 0;
 }
 
+static void
+setup_ph2_basic(struct ph2handle *iph2, struct saprop *approval,
+    struct saproto *proto, struct satrns *trns)
+{
+	memset(trns, 0, sizeof(*trns));
+	trns->trns_id = IPSECDOI_ESP_AES;
+	trns->authtype = IPSECDOI_ATTR_AUTH_HMAC_SHA2_256;
+
+	memset(proto, 0, sizeof(*proto));
+	proto->proto_id = IPSECDOI_PROTO_IPSEC_ESP;
+	proto->encmode = IPSECDOI_ATTR_ENC_MODE_TUNNEL;
+	proto->spi = htonl(0x12345678);
+	proto->spi_p = htonl(0x87654321);
+	proto->ok = 1;
+	proto->head = trns;
+	proto->reqid_in = 1;
+	proto->reqid_out = 2;
+
+	memset(approval, 0, sizeof(*approval));
+	approval->pfs_group = 14;
+	approval->lifetime = 3600;
+	approval->head = proto;
+
+	memset(iph2, 0, sizeof(*iph2));
+	iph2->status = PHASE2ST_ESTABLISHED;
+	iph2->msgid = 0x87654321;
+	iph2->src = (struct sockaddr *)&test_local_sin;
+	iph2->dst = (struct sockaddr *)&test_remote_sin;
+	iph2->approval = approval;
+}
+
 static int
 test_ph2_basic(void)
 {
@@ -279,38 +310,12 @@ test_ph2_basic(void)
 	struct satrns trns;
 	vchar_t *out = NULL;
 
-	TEST_START("populated ph2 (ESP/tunnel/AES/SHA256): SPI masked, "
+	TEST_START("populated ph2 (ESP/tunnel/AES/SHA256), JSON: SPI masked, "
 	    "selectors and proposal render, pfs_group from ->approval");
 
 	reset_queues();
 	make_addrs();
-
-	memset(&trns, 0, sizeof(trns));
-	trns.trns_id = IPSECDOI_ESP_AES;
-	trns.authtype = IPSECDOI_ATTR_AUTH_HMAC_SHA2_256;
-
-	memset(&proto, 0, sizeof(proto));
-	proto.proto_id = IPSECDOI_PROTO_IPSEC_ESP;
-	proto.encmode = IPSECDOI_ATTR_ENC_MODE_TUNNEL;
-	proto.spi = htonl(0x12345678);
-	proto.spi_p = htonl(0x87654321);
-	proto.ok = 1;
-	proto.head = &trns;
-	proto.reqid_in = 1;
-	proto.reqid_out = 2;
-
-	memset(&approval, 0, sizeof(approval));
-	approval.pfs_group = 14;
-	approval.lifetime = 3600;
-	approval.head = &proto;
-
-	memset(&iph2, 0, sizeof(iph2));
-	iph2.status = PHASE2ST_ESTABLISHED;
-	iph2.msgid = 0x87654321;
-	iph2.src = (struct sockaddr *)&test_local_sin;
-	iph2.dst = (struct sockaddr *)&test_remote_sin;
-	iph2.approval = &approval;
-
+	setup_ph2_basic(&iph2, &approval, &proto, &trns);
 	status_test_ph2_queue[0] = &iph2;
 	status_test_ph2_queue_len = 1;
 
@@ -342,6 +347,55 @@ test_ph2_basic(void)
 	return 0;
 }
 
+/*
+ * Bug 3 (issue #139 follow-up): with the -v CLI bug (fixed above), no
+ * manual test on either role ever actually reached this code path, so
+ * "the phase2 array should render" was unverified beyond static reading.
+ * No PF_KEY-capable kernel is available in this sandbox to drive a real
+ * negotiated SA end to end (racoon itself fails at pfkey_open() here), so
+ * this is the most direct verification available: the identical
+ * synthetic ph2handle setup driven through status_dump() with
+ * json_format=0, confirming the *text* renderer (not just JSON) produces
+ * real phase2 content -- not a substitute for the maintainer's own
+ * four-machine live-test pass, but real coverage of the render path a
+ * live SA would also go through.
+ */
+static int
+test_ph2_basic_text(void)
+{
+	struct ph2handle iph2;
+	struct saprop approval;
+	struct saproto proto;
+	struct satrns trns;
+	vchar_t *out = NULL;
+
+	TEST_START("populated ph2 (ESP/tunnel/AES/SHA256), text: phase2 "
+	    "section actually renders, not just JSON");
+
+	reset_queues();
+	make_addrs();
+	setup_ph2_basic(&iph2, &approval, &proto, &trns);
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 0);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL");
+	if (strstr((char *)out->v, "Phase 2:") == NULL)
+		TEST_FAIL("expected a \"Phase 2:\" section in text output");
+	if (strstr((char *)out->v, "protocol: ESP") == NULL)
+		TEST_FAIL("expected protocol ESP in text output");
+	if (strstr((char *)out->v, "in=0x1234**** out=0x8765****") == NULL)
+		TEST_FAIL("expected masked SPIs in text output");
+	if (strstr((char *)out->v, "pfs_group:      14") == NULL)
+		TEST_FAIL("expected pfs_group 14 in text output");
+
+	vfree(out);
+	TEST_PASS();
+	return 0;
+}
+
 int
 main(void)
 {
@@ -360,6 +414,8 @@ main(void)
 	if (test_json_escaping() != 0)
 		failed++;
 	if (test_ph2_basic() != 0)
+		failed++;
+	if (test_ph2_basic_text() != 0)
 		failed++;
 
 	printf("\n=== %s ===\n", failed == 0 ? "ALL TESTS PASSED" : "TESTS FAILED");
