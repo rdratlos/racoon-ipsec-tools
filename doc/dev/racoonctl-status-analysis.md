@@ -1,6 +1,6 @@
 # `racoonctl status` — Phase 1 Analysis &amp; Phase 2 Report
 
-**Status:** ⏸ awaiting review + decisions on D1–D4 before Phase 3 (issue).
+**Status:** D1–D4 ratified (§5). Phase 3 (issue) in progress; ⏸ before Phase 4 (code).
 **Branch:** `claude/racoonctl-status-rewrite` (based on `develop`, not the discarded
 `feature/racoonctl-status`/first-draft history).
 **Scope:** analysis + recommendations only. No code in this commit.
@@ -203,6 +203,34 @@ Reasoning:
   an inline comment at the extraction site in Phase 4, not just live in this
   report.
 
+**Ratified.** Approved as-is, plus a follow-up check requested on whether the
+admin socket's wire framing actually carries a large, variable-size reply
+cleanly (a `status` reply with several SAs' full XAuth/mode-config JSON is
+categorically bigger than anything `ph1dump`'s scalar array ever produced).
+Checked both directions:
+
+- **Client read side (`com_recv()`, `kmpstat.c:163-219`) is already correct**
+  for arbitrary sizes: it `MSG_PEEK`s the fixed-size header first, computes the
+  real length from `ac_len`/`ac_len_high` (handling `ADMIN_FLAG_LONG_REPLY`),
+  then loops — `while (l < rlen) { recv(...); l += len; p += len; }` — until the
+  full payload is in. No change needed here regardless of reply size.
+- **Server write side (`admin_reply()`, `admin.c:875`) is not.** It's a single
+  `tlen = send(so, retbuf, tlen, 0);` with the result only checked for `< 0`
+  (a hard error) — **a legitimate partial send (POSIX explicitly permits this
+  for `SOCK_STREAM`, confirmed `AF_UNIX`/`SOCK_STREAM` at `admin.c:982`) is
+  silently treated as success, and the unsent remainder of the buffer is never
+  retried.** Every existing admin command shares this code path and has this
+  latent bug already, but none of them produce a reply large enough to
+  plausibly trigger it in practice. `status` (verbose, multiple SAs, full JSON)
+  is the first command likely to exceed a single `send()` call's capacity on a
+  busy gateway — and a truncated send produces truncated, syntactically invalid
+  JSON on the wire, which directly breaks the "exactly one self-contained JSON
+  document per invocation" requirement. **Promoted to Finding H-4** (below);
+  fixing `admin_reply()` to loop on `send()` the same way `com_recv()` already
+  loops on `recv()` is a small, self-contained fix and should land as part of
+  this feature's Phase 4 work, not deferred — added to the issue's acceptance
+  criteria rather than blocking Phase 3.
+
 ### D2 — XAuth/LDAP last-error
 
 **Recommendation: do not add `last_error` to `struct ph1handle` for `status`.
@@ -235,6 +263,10 @@ the "one issue, no scatter" instruction, I'd rather flag it explicitly as a
 **separate, tightly-scoped follow-up** than fold it into this issue's frozen
 schema. Your call whether to file that follow-up now or later — it doesn't block
 `status`.
+
+**Ratified.** No `last_error` field; `status` stays scoped to live state. The
+`evt.c` optdata-enrichment follow-up is noted as future, out-of-scope work in
+the issue, not filed separately yet.
 
 ### D3 — JSON schema
 
@@ -282,6 +314,31 @@ the prompt asked for:
   block); NAT-T state (`natt_options`/`natt_flags`, RFC 3947/3948, `ENABLE_NATT`
   block). None of these block a first cut; listing them so the "frozen" schema is
   frozen on purpose, not by omission.
+- **Drop `phase1[].xauth.error` — same root cause as `pfs_group`, not raised
+  explicitly until now.** `XAUTHST_*` (`isakmp_xauth.h:104-106`) has exactly
+  three values: `NOTYET`, `REQSENT`, `OK` — no `FAILED` state. §2.1 explains why:
+  a failure doesn't transition `xauth.status`, it deletes the handle
+  synchronously instead. So there is no code path that ever leaves a live
+  `ph1handle` sitting with an "xauth failed" status for `status` to read — the
+  field would always read as whatever placeholder value was chosen (most likely
+  always `0`), never anything meaningful. Same fix as `pfs_group`: drop it
+  rather than ship a field that looks like a real signal but structurally never
+  fires.
+
+**Ratified, all four:**
+1. `schema_version` rename (top level) — done, avoids the collision with
+   `phase1[].version`.
+2. Drop `phase1[].proposal.pfs_group` — confirmed bug in the discarded draft.
+3. Keep `remote_id`/`local_id` over `my_identifier`/`peers_identifier` —
+   consistent with `struct ph1handle` and existing `show-sa` output.
+4. NAT-T and DPD **in** for v1 (both explicitly named as in-scope RFC concepts
+   in the original problem statement, and the marginal extraction cost is the
+   same pass either way). IPComp (`compression_algorithm`) is the one field of
+   the three explicitly allowed to slip to a follow-up if Phase 4 scope runs
+   long — noted as the one flexible item, not a hard commitment.
+
+Plus the `xauth.error` drop above, decided by the same reasoning as `pfs_group`
+without needing a separate round.
 
 ### D4 — Admin command
 
@@ -301,6 +358,11 @@ renderer always ship together. The only real skew risk is an **external JSON
 consumer** (the RFC-0001 harness) pinned to an old `schema_version` talking to a
 newer daemon; that's a contract-versioning policy question (additive-only minor
 bumps vs. breaking major bumps) worth one sentence in the frozen issue, not more.
+
+**Ratified.** `schema_version` is `"major.minor"`. Additive changes (new
+optional field) bump minor only; breaking changes (rename/remove/retype an
+existing field) bump major. The RFC-0001 harness pins on major only, so it
+keeps working across minor bumps without a harness change.
 
 ---
 
@@ -339,6 +401,22 @@ bumps vs. breaking major bumps) worth one sentence in the frozen issue, not more
   "no secrets in any output" requirement is already explicit in the prompt, this
   is the concrete field to name in a code comment at the point of use. *In scope:*
   Y (implementation guardrail).
+
+- **H-4 — `admin_reply()` (`admin.c:875`) does not loop on `send()`.** A single
+  `send(so, retbuf, tlen, 0)` call, return value only checked for `< 0`. POSIX
+  permits a partial write on a `SOCK_STREAM` socket (confirmed `AF_UNIX`/
+  `SOCK_STREAM`, `admin.c:982`) for any payload exceeding the kernel's per-call
+  transfer capacity; a partial send here is silently treated as success and the
+  unsent remainder is dropped. Pre-existing across every admin command, but
+  `status` is the first reply large enough (multiple SAs, full XAuth/mode-config
+  JSON, `-v` phase2 array) to plausibly hit it on a busy gateway — and a
+  truncated send produces truncated, invalid JSON, breaking the "one
+  self-contained JSON document per invocation" contract outright. The client
+  side (`com_recv()`, `kmpstat.c:200-213`) already loops correctly on `recv()`;
+  fixing `admin_reply()` to do the mirror-image loop on `send()` is small and
+  self-contained. *Remedy:* wrap the `send()` in a `while (sent < tlen)` loop.
+  *Effort:* small. *In scope:* Y — acceptance criterion for Phase 4, not a
+  Phase 3 blocker.
 
 ### Medium
 
@@ -396,19 +474,106 @@ bumps vs. breaking major bumps) worth one sentence in the frozen issue, not more
 
 ---
 
-## 5. Summary of what needs your decision
+## 5. Ratified decisions
 
-1. **D1** — server-side JSON + text rendering, format selected via `ac_proto`
-   (recommended) vs. some other split.
-2. **D2** — keep `status` scoped to live state only, no `last_error` field
-   (recommended); separately decide whether to file the `evt.c` optdata-enrichment
-   follow-up now, later, or not at all.
-3. **D3** — the four concrete schema corrections above (`schema_version` rename,
-   drop phase1 `pfs_group`, `remote_id`/`local_id` vs. `my_identifier`/
-   `peers_identifier`, NAT-T/DPD/IPComp in-or-out) — need explicit yes/no on each
-   before the schema is "frozen."
-4. **D4** — confirmed by D1's mechanism; only open sub-question is the
-   `schema_version` compatibility policy (additive-only minor vs. breaking major).
+All four decision points closed. Status: **Approved — proceeding to Phase 3.**
 
-Once you've ruled on these, Phase 3 opens the single consolidated issue with the
-frozen schema and this document's findings folded in.
+1. **D1** — server-side JSON + text rendering, format selected via `ac_proto`.
+   `admin_reply()`'s missing `send()` loop promoted to Finding H-4, added as a
+   Phase 4 acceptance criterion (not a Phase 3 blocker).
+2. **D2** — `status` stays scoped to live state only; no `last_error` field.
+   The `evt.c` optdata-enrichment mechanism that *would* actually serve the
+   headline use case is noted as explicit future/out-of-scope work in the issue,
+   not filed as its own issue yet.
+3. **D3** — `schema_version` rename, drop `phase1[].proposal.pfs_group`, keep
+   `remote_id`/`local_id`, NAT-T + DPD in for v1 (IPComp/`compression_algorithm`
+   may slip to a follow-up if Phase 4 scope runs long), and drop
+   `phase1[].xauth.error` (no backing `XAUTHST_FAILED` state exists — same root
+   cause as `pfs_group`, surfaced during the freeze pass).
+4. **D4** — `schema_version` is `"major.minor"`; additive fields bump minor,
+   breaking changes bump major; the RFC-0001 harness pins on major only.
+
+### Frozen JSON schema v1
+
+Reflects every ratified correction above (§3 has the reasoning for each).
+
+```json
+{
+  "schema_version": "1.0",
+  "timestamp": "2025-01-15T10:30:00Z",
+  "phase1": [
+    {
+      "index": "0x12345678",
+      "state": "ESTABLISHED",
+      "remote_id": "192.168.1.1",
+      "local_id": "10.0.0.1",
+      "version": "1.0",
+      "exchange_mode": "MAIN",
+      "proposal": {
+        "encryption_algorithm": "AES256",
+        "hash_algorithm": "SHA256",
+        "authentication_method": "PRE_SHARED_KEY",
+        "dh_group": 14,
+        "lifetime_time": 28800
+      },
+      "xauth": {
+        "state": "OK",
+        "auth_type": "GENERIC",
+        "username": "user1"
+      },
+      "mode_cfg": {
+        "addr4": "10.0.0.50",
+        "dns4": ["10.0.0.1"],
+        "split_include": ["10.0.1.0/24"]
+      },
+      "dpd": { "supported": true, "fails": 0 },
+      "natt": { "enabled": true }
+    }
+  ],
+  "phase2": [
+    {
+      "index": "0x87654321",
+      "state": "ESTABLISHED",
+      "spi_in": "0x1234****",
+      "spi_out": "0x8765****",
+      "protocol": "ESP",
+      "encmode": "TUNNEL",
+      "selectors": {
+        "src": "10.0.0.0/24",
+        "dst": "192.168.1.0/24",
+        "protocol": "any",
+        "src_port": "any",
+        "dst_port": "any"
+      },
+      "proposal": {
+        "encryption_algorithm": "AES256",
+        "authentication_algorithm": "HMAC_SHA2_256",
+        "pfs_group": 14,
+        "lifetime_time": 3600,
+        "lifetime_bytes": 0
+      },
+      "reqid_in": 1,
+      "reqid_out": 2,
+      "ok": true
+    }
+  ]
+}
+```
+
+Changes from the original skeleton, at a glance: `version` → `schema_version`
+(top level, renamed); `phase1[].version` now `"major.minor"` string, not a raw
+byte; `phase1[].proposal.pfs_group` removed; `phase1[].xauth.error` removed;
+`mode_cfg.flags`/`mode_cfg.pfs_group` removed (both were either raw internal
+bitmasks or the same non-per-SA global value `pfs_group` was, never verified as
+real per-SA data); `dpd`/`natt` blocks added (new, v1-in per D3); `phase2[].proposal.pfs_group` value must come from `iph2->approval` (the
+matched/negotiated result), not `iph2->proposal` or local `sainfo` config — see
+the DH-group-vs-PFS-group discussion earlier in this review. `phase2[].pfs_group == 0`
+must render as PFS genuinely absent (e.g. omit the key or `null`), never as a
+bogus group number. `compression_algorithm` intentionally held back per D3
+pending a Phase 4 scope check.
+
+Next: Phase 3 — opening the single consolidated GitHub issue with this schema,
+the D1–D4 rationale (including the §2.1 call-chain block verbatim, per your
+instruction), and the acceptance criteria (including H-4's `send()` loop fix
+and the live-test matrix). **Waiting for the ⏸ gate after that, before any
+Phase 4 code.**
