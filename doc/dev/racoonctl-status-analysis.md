@@ -37,35 +37,64 @@ resembling one. The only per-handle signal of trouble is the state enum itself
 
 More importantly, for the **specific headline scenario in the problem statement**
 (XAuth/LDAP rejection), the handle does not survive long enough to be polled even
-if such a field existed. Tracing the actual failure path:
+if such a field existed — and this is not a "the window is impractically short"
+argument, it is a "there is categorically no window" argument. Traced the exact
+call chain, one direct synchronous function call per arrow, no scheduler or
+event-loop round-trip anywhere in it:
 
-- `isakmp_xauth.c:1688-1694`: on `XAUTH_STATUS_OK` != true, it logs
-  `"Xauth authentication failed"` at `LLV_ERROR`, fires
-  `evt_phase1(iph1, EVT_PHASE1_XAUTH_FAILED, NULL)` — **`optdata` is `NULL`, no
-  reason text is attached to the event** — and sets
-  `iph1->mode_cfg->flags |= ISAKMP_CFG_DELETE_PH1`.
-- `isakmp_cfg.c:754-761`: the very next thing that happens (same call stack, after
-  sending the CFG ACK) is:
-  ```c
-  if (iph1->mode_cfg->flags & ISAKMP_CFG_DELETE_PH1) {
-          if (iph1->status == PHASE1ST_ESTABLISHED || iph1->status == PHASE1ST_DYING)
-                  isakmp_info_send_d1(iph1);
-          remph1(iph1);
-          delph1(iph1);
-          iph1 = NULL;
-  }
-  ```
-  The handle is unlinked and freed **synchronously, before the function that
-  detected the failure even returns.** There is no window in which an admin-socket
-  poll could observe it, with or without a `last_error` field.
+```
+session.c: select()/poll() → monitor_fd() dispatch
+  → isakmp_handler(ctx, so_isakmp)         isakmp.c:219   [fd-ready callback,
+                                                            registered via
+                                                            monitor_fd(), isakmp.c:1723]
+    → isakmp_main(msg, remote, local)       isakmp.c:410
+      → case ISAKMP_ETYPE_CFG:              isakmp.c:754-768
+        → isakmp_cfg_r(iph1, msg)           isakmp.c:768 → isakmp_cfg.c:139
+          → isakmp_cfg_attr_r(...)          isakmp_cfg.c:249 → isakmp_cfg.c:272
+            → case ISAKMP_CFG_SET:
+              → isakmp_cfg_set(iph1, attrpl)  isakmp_cfg.c:297 → isakmp_cfg.c:677
+                ├─ while (tlen > 0) { case XAUTH_STATUS:
+                │    → isakmp_xauth_set(iph1, attr)   isakmp_cfg.c:714 → isakmp_xauth.c:1644
+                │        on failure: evt_phase1(iph1, EVT_PHASE1_XAUTH_FAILED, NULL);
+                │                    iph1->mode_cfg->flags |= ISAKMP_CFG_DELETE_PH1;
+                │        (isakmp_xauth.c:1692/1694) — then returns normally to its caller
+                │  }
+                ├─ isakmp_cfg_send(...)                isakmp_cfg.c:752-753  (send CFG-ACK)
+                └─ if (flags & ISAKMP_CFG_DELETE_PH1)   isakmp_cfg.c:755-761
+                       remph1(iph1); delph1(iph1); iph1 = NULL;
+```
+
+Two things this chain establishes precisely, correcting an earlier looser
+description of the same finding:
+
+- The function that detects the failure and sets the flag, `isakmp_xauth_set()`
+  (`isakmp_xauth.c:1644`), **returns normally** — it does not delete anything
+  itself. It is the *caller*, `isakmp_cfg_set()` (`isakmp_cfg.c:677`), that checks
+  the flag ~40 lines later **in that same function invocation** and deletes the
+  handle. Not merely "same call stack" — same function, same activation record.
+- There is no `sched_new()`/timer indirection and no return to the event loop
+  anywhere between the flag being set (`isakmp_cfg.c:1694`) and the handle being
+  freed (`isakmp_cfg.c:759-760`). Both happen inside the one synchronous call
+  chain triggered by `isakmp_handler()`, the fd-ready callback for a single
+  inbound UDP packet.
+- **racoon is single-threaded** — `isakmp_handler()` is registered the same way
+  as every other socket callback (`monitor_fd()`, the mechanism `admin_handler()`
+  itself also uses for the admin socket), and `session.c`'s event loop dispatches
+  one ready fd at a time, strictly serially. There is structurally no way for
+  `admin_process()` (the future `status` handler) to run concurrently with, or
+  interleave into, this chain — not "the odds are low," but "the runtime has no
+  mechanism that could produce that interleaving." So even the most generous
+  reading of "window" — a hypothetical concurrent admin-socket read landing
+  between flag-set and delete — is not just rare, it is impossible in this
+  architecture.
 
 **Conclusion: a `last_error` field on `struct ph1handle` would not make the
-headline use case real.** It would only help for failure modes where the handle
-lingers (e.g. plain `EVT_PHASE1_AUTH_FAILED` from `isakmp_base.c`/`isakmp_agg.c`/
-`isakmp_ident.c`, which just `goto end` and return an error code to their caller —
-I did not trace how long that caller keeps the handle alive, but it is not deleted
-in the same call frame the way the XAuth path is). This materially reshapes D2 —
-see §3.
+headline use case real**, categorically, not as a matter of timing odds. It
+would only help for failure modes where the handle lingers (e.g. plain
+`EVT_PHASE1_AUTH_FAILED` from `isakmp_base.c`/`isakmp_agg.c`/`isakmp_ident.c`,
+which just `goto end` and return an error code to their caller — I did not trace
+how long that caller keeps the handle alive, but it is not deleted in the same
+call frame the way the XAuth path is). This materially reshapes D2 — see §3.
 
 **What does outlive a failed handle:** `evt.c` maintains a bounded ring buffer
 (`evtlist`, `EVTLIST_MAX` = 32, `evt.c:74-80`) of past events, independent of any
@@ -163,6 +192,16 @@ Reasoning:
   to by `ac_proto`. Neither renderer needs to be shared code with the other —
   keeping them separate avoids the previous draft's mistake of interleaving JSON
   string-building with the tree walk itself.
+- **Bonus from the §2.1 single-thread finding: the extraction pass needs no
+  locking.** `admin_process()` runs on the same single-threaded event loop as
+  `isakmp_handler()` (both dispatched via `monitor_fd()`, one fd at a time,
+  strictly serial). Nothing can mutate `ph1tree`/`ph2tree` or any handle
+  `status_dump()` is reading *while* it's reading it — a negotiation cannot
+  advance, and a handle cannot be freed, in the middle of a `status` call. Every
+  poll either sees a fully consistent snapshot of a handle, or that handle
+  simply isn't in the tree yet/anymore. See Finding M-4 — this needs to become
+  an inline comment at the extraction site in Phase 4, not just live in this
+  report.
 
 ### D2 — XAuth/LDAP last-error
 
@@ -171,9 +210,21 @@ Keep `status` strictly to currently-retained live SA state, matching the
 problem statement's own proposed scope boundary.**
 
 §2.1 shows a `ph1handle`-resident field would not serve the headline scenario —
-the handle is gone before it could be read. Adding one anyway would be dead
-weight that quietly fails to deliver what it's named for, exactly the kind of
-"aspirational field" Phase 5's own guidance warns against for the man page.
+not because the window is impractically short, but because there categorically
+is no window: `isakmp_xauth_set()` returns normally to `isakmp_cfg_set()`, and
+that same function, same activation record, deletes the handle before returning
+to *any* caller, with no scheduler round-trip in between and no possibility of
+`admin_process()` interleaving in a single-threaded event loop. Adding a
+`last_error` field anyway would be dead weight that quietly fails to deliver
+what it's named for, exactly the kind of "aspirational field" Phase 5's own
+guidance warns against for the man page.
+
+> **For the frozen issue:** carry the §2.1 call-chain block (the
+> `isakmp_handler()` → … → `delph1()` diagram with file:line references) into
+> this section's justification verbatim, or lightly trimmed. It's the actual
+> argument for why D2 isn't "keep it simple for now" but "this specific field
+> cannot work here" — worth being retrievable without redoing this trace six
+> months from now when someone asks "why didn't we just add `last_error`?".
 
 The mechanism that *would* work — populating `optdata` at the ~7 existing
 `evt_phase1()`/`evt_phase2()` call sites that currently pass `NULL`, and
@@ -311,6 +362,23 @@ bumps vs. breaking major bumps) worth one sentence in the frozen issue, not more
 - **M-3 — Man page target is `racoonctl.1`, not `racoonctl.8`** (§1 table).
   Trivial, but worth fixing in the Phase 3 issue text so Phase 5 doesn't chase
   the wrong filename. *In scope:* Y.
+
+- **M-4 — `status_dump()`'s `ph1tree`/`ph2tree` extraction pass needs no locking,
+  and this needs to be written down where the next reader will actually see it.**
+  §2.1's call-chain trace establishes racoon's event loop is strictly
+  single-threaded (`monitor_fd()`-dispatched, one fd at a time) — `admin_process()`
+  cannot run concurrently with, or interleave into, whatever is mutating a
+  `ph1handle`/`ph2handle` at the time of a `status` poll. This is a genuine
+  implementation simplification (no mutex, no copy-then-release-lock dance, no
+  "handle could vanish mid-read" defensive coding beyond the ordinary NULL/list
+  checks), but it's exactly the kind of non-obvious invariant that gets silently
+  "fixed" by someone who didn't do this trace and adds defensive locking that
+  isn't needed — or worse, doesn't add it in the one place it's genuinely
+  needed elsewhere. *Remedy:* a short comment at the top of `status_dump()`'s
+  extraction loop in Phase 4, stating the single-threaded-event-loop invariant
+  and pointing at this document (or the frozen issue) rather than re-deriving it.
+  *Effort:* one comment block. *In scope:* Y (implementation guardrail,
+  mandatory per your instruction, not optional like M-1/L-1).
 
 ### Low
 
