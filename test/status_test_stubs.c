@@ -90,7 +90,19 @@ saddr2str(const struct sockaddr *sa)
 char *
 ipsecdoi_id2str(const vchar_t *id)
 {
-	return ipsecdoi_id2str_result;
+	/* Real ipsecdoi_id2str() (ipsec_doi.c) always racoon_malloc()s a
+	 * fresh copy before returning -- its own static char buf[512] is
+	 * pure scratch space, fully consumed before the function returns.
+	 * The caller takes ownership of the returned pointer and is
+	 * expected to racoon_free() it exactly once. A stub that just
+	 * handed back a fixed literal (as this one used to) would let a
+	 * caller that racoon_free()s it crash outright (freeing a string
+	 * literal is undefined behavior) while masking a caller that
+	 * *doesn't* free it -- i.e. it could never have caught the
+	 * double-allocation leak this stub exists to guard against. Return
+	 * a fresh allocation each call, matching the real ownership
+	 * contract. */
+	return racoon_strdup(ipsecdoi_id2str_result);
 }
 
 struct secpolicy *

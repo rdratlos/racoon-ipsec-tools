@@ -20,7 +20,7 @@ assumptions are called out explicitly.
 | `admin.c`/`admin.h`: dispatch, `ADMIN_*`, `struct admin_com` | Confirmed as described. Command space: `0x01xx` = no-index/proto-bearing, `0x02xx` = indexed. `0x0103`/`0x0104` are free (matches the already-decided `ADMIN_STATUS`/`ADMIN_STATUS_VERBOSE`). |
 | `racoonctl.c`: subcommand parsing, `show-sa` | Confirmed. `cmdtab[]` (racoonctl.c:107) maps command strings to `f_*()` handlers; global `getopt(ac, av, "lds:")` (racoonctl.c:270) has no `-v`, so a per-subcommand `-v` (parsed inside `f_status()`'s own `getopt()`, same pattern `f_exchangesa()` already uses for `-u`/`-n`/`-w`) is conflict-free. |
 | `handler.h`: `struct ph1handle`, `struct ph2handle`, `PHASE1ST_*`/`PHASE2ST_*` | Confirmed, all present and spelled as expected (handler.h:93-105, :253-264, :120, :266). |
-| Identity helper `ipsecdoi_id2str()` | **Confirmed to exist** (`ipsec_doi.c:4235`, declared `ipsec_doi.h:232`) — **but see Finding H-2**, it is not safe to call the way the prompt implies. |
+| Identity helper `ipsecdoi_id2str()` | **Confirmed to exist** (`ipsec_doi.c:4235`, declared `ipsec_doi.h:232`) and confirmed to return an already caller-owned `racoon_malloc()`'d pointer, not a pointer into its internal scratch buffer — see Finding H-2 (**corrected** after this document's original guidance caused the opposite mistake in `status.c`). |
 | `struct isakmpsa`, reached via `iph1->approval` | Confirmed (`remoteconf.h:55`). **Does not have a `pfs_group` field** — see Finding H-1. |
 | `iph1->mode_cfg` → `struct isakmp_cfg_state`, XAuth substate | Confirmed (`isakmp_cfg.h:181`, nested `struct xauth_state xauth` at `isakmp_xauth.h:76`). **Carries a cleartext password field** — see Finding H-3. |
 | Man page location "`racoonctl.8`" (Phase 5) | **Off by one section**: the file is `src/racoon/racoonctl.1.in` → generates `racoonctl.1` (mdoc, section 1, confirmed `.Dt RACOONCTL 1`), not section 8. Trivial correction, noted for Phase 5. |
@@ -444,19 +444,37 @@ comment) rather than silently picking one.
   peers with different configs. *Remedy:* drop the field from phase1. *Effort:*
   none (it's a subtraction). *In scope:* Y.
 
-- **H-2 — `ipsecdoi_id2str()` returns a pointer into a `static char buf[512]`**
-  (`ipsec_doi.c:4241`), **not a heap allocation.** Not reentrant, not stable across
-  a second call. A `status_dump()`-style function that calls it once per SA in a
-  loop, or calls it twice for the same entry (once for `local_id`, once for
-  `remote_id`), will silently clobber the first string with the second before
-  either is copied out — this is a real, easy-to-hit landmine for whoever
-  implements Phase 4, and it's the kind of bug that only shows up with ≥2 active
-  SAs, so a single-tunnel smoke test won't catch it. *Remedy:* `strdup()` (or copy
-  into the JSON/text buffer) immediately after each call, before calling it
-  again for anything else. *Effort:* trivial, but must be called out in the issue
-  since it's exactly the shape of bug the review of the first draft was full of
-  (leaked/dangling short-lived pointers). *In scope:* Y (implementation guardrail,
-  not a design decision).
+- **H-2 — CORRECTED post-implementation, see below. Original text (struck
+  through, kept for the record):**
+  ~~`ipsecdoi_id2str()` returns a pointer into a `static char buf[512]`
+  (`ipsec_doi.c:4241`), not a heap allocation. Not reentrant, not stable
+  across a second call. ... *Remedy:* `strdup()` (or copy into the JSON/text
+  buffer) immediately after each call, before calling it again for anything
+  else.~~
+  **This was half right and half wrong, and the wrong half caused a real bug.**
+  `ipsecdoi_id2str()` does use `static char buf[BUFLEN]` (`ipsec_doi.c:4241`)
+  — but purely as scratch space while building the string. Before it
+  returns, it unconditionally allocates a fresh, exact-sized copy
+  (`ipsec_doi.c:4429-4435`: `ret = racoon_malloc(len+1); memcpy(ret, buf,
+  len); ret[len] = 0; return ret;`) and hands that back — **the caller
+  already owns a clean heap pointer, not a pointer into the static buffer.**
+  The reentrancy hazard is real for the function's *internal* construction
+  (and moot anyway per D2's single-threaded event-loop proof — nothing else
+  can run mid-construction), but it does not apply to the *returned* value
+  at all. `status.c`'s `collect_ph1()` followed this finding's original
+  remedy literally — `dupstr(ipsecdoi_id2str(...))`, i.e. an
+  already-heap-owned pointer wrapped in a second `racoon_strdup()` — which
+  is a double allocation: the `ipsecdoi_id2str()` result itself was never
+  referenced again and leaked on every `status` call that rendered an SA
+  with a non-address identity. Confirmed by Valgrind on a live gateway and
+  roadwarrior client (two loss records, growing linearly with the number of
+  `status` polls) and fixed by taking direct ownership of the return value
+  instead of wrapping it. *Corrected remedy:* only wrap a call in
+  `dupstr()`/`racoon_strdup()` after confirming the callee actually returns
+  a pointer into a shared/static buffer (e.g. `saddr2str()`, which genuinely
+  does) — check the callee's own source, don't assume from a `static`
+  keyword's mere presence in the function body. *In scope:* Y (the guidance
+  itself needed the fix, not just the code that followed it).
 
 - **H-3 — `struct xauth_state` (`isakmp_xauth.h:76-89`) holds the XAuth password
   in cleartext** (`authdata.generic.pwd`) **and the LDAP user DN**
