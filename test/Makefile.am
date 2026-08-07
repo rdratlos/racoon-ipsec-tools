@@ -1941,6 +1941,30 @@ test_admin_process_dispatch_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_admin_process_dispatch_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# test_status_dump covers status_dump() (status.c, ADMIN_STATUS/
+# ADMIN_STATUS_VERBOSE, racoonctl status) -- the JSON/text extraction and
+# rendering added alongside this test. status_test_stubs.c's enumph1()/
+# enumph2() stand-ins let each test hand status_dump() an exact list of
+# struct ph1handle/ph2handle pointers without a real ph1tree/ph2tree or
+# handler.c's dependency closure; s_attr_isakmp_enc() and friends
+# (strnames.o, RACOON_OBJS) are linked for real, since the enum-to-string
+# mappings are exactly what this test wants genuine coverage of.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_status_dump
+
+test_status_dump_SOURCES  = test_status_dump.c \
+	status_unittest_src.c \
+	status_test_stubs.c
+test_status_dump_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_status_dump_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_status_dump_LDADD    = $(RACOON_OBJS)
+test_status_dump_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # test_admin_establish_sa_psk covers ADMIN_ESTABLISH_SA_PSK specifically
 # (XAUTH id/password injection via the admin socket, despite the
 # command's name -- see the test's own header comment): wire-parsing
