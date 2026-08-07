@@ -393,6 +393,7 @@ f_getevt(int ac, char **av)
 	return make_request(ADMIN_SHOW_EVT, 0, 0);
 }
 
+static vchar_t *
 f_status(int ac, char **av)
 {
 	int verbose = 0;
