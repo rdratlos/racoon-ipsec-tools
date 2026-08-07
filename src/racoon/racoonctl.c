@@ -398,14 +398,50 @@ f_status(int ac, char **av)
 {
 	int verbose = 0;
 	int json_format = 0;
-	int ch;
 	int i;
 
-	/* --format=text|json: this file has no getopt_long() anywhere else,
-	 * so a small hand-scan for the one long option keeps that
-	 * consistent instead of introducing a new dependency. Consumed and
-	 * removed from av[] before getopt() runs. */
-	for (i = 0; i < ac; i++) {
+	/* get_combuf() (this file) does "ac--; av++;" past the subcommand
+	 * word before calling us, so av[0] here is already the first real
+	 * flag, not a conventional argv[0] program name. libc getopt(3)
+	 * always assumes index 0 is the program name and starts scanning at
+	 * index 1 -- calling it on this already-shifted vector silently
+	 * drops whatever flag lands at av[0] (e.g. a bare "status -v" has
+	 * nothing left for getopt() to see at all). This file has no other
+	 * getopt() call site except main()'s own top-level loop, which
+	 * parses real argv; every subcommand handler parses its own options
+	 * by hand-scanning av[] instead, precisely to avoid this. Do the
+	 * same here for -v/-f, in the same pass that already hand-scans
+	 * --format=. */
+	/* i is only advanced in the loop's own increment, at the bottom, on
+	 * a non-match -- on a match, the matched token(s) are memmove()'d
+	 * out and the loop "continue"s without advancing i, so it
+	 * re-examines whatever just shifted into this position. (An
+	 * earlier version of this loop tried to track the shift with
+	 * `i--`/the for-loop's own i++, which only cancels out correctly
+	 * when exactly one token is removed *and* it was the last one in
+	 * av[] -- "-v -f json" removes "-v" first with two tokens still
+	 * behind it, landing on the wrong index and leaving "-f json"
+	 * unscanned. Caught by the regression test below.) */
+	for (i = 0; i < ac; ) {
+		if (strcmp(av[i], "-v") == 0) {
+			verbose = 1;
+			memmove(&av[i], &av[i + 1], (ac - i - 1) * sizeof(*av));
+			ac--;
+			continue;
+		}
+		if (strcmp(av[i], "-f") == 0) {
+			if (i + 1 >= ac)
+				errx(1, "usage: status [-v] [-f text|json] [--format=text|json]");
+			if (strcmp(av[i + 1], "json") == 0)
+				json_format = 1;
+			else if (strcmp(av[i + 1], "text") == 0)
+				json_format = 0;
+			else
+				errx(1, "usage: status [-v] [-f text|json] [--format=text|json]");
+			memmove(&av[i], &av[i + 2], (ac - i - 2) * sizeof(*av));
+			ac -= 2;
+			continue;
+		}
 		if (strncmp(av[i], "--format=", 9) == 0) {
 			if (strcmp(av[i] + 9, "json") == 0)
 				json_format = 1;
@@ -413,35 +449,18 @@ f_status(int ac, char **av)
 				json_format = 0;
 			else
 				errx(1, "usage: status [-v] [-f text|json] [--format=text|json]");
-			for (; i < ac - 1; i++)
-				av[i] = av[i + 1];
+			memmove(&av[i], &av[i + 1], (ac - i - 1) * sizeof(*av));
 			ac--;
-			i--;
+			continue;
 		}
+		i++;
 	}
 
-	while ((ch = getopt(ac, av, "vf:")) != -1) {
-		switch (ch) {
-		case 'v':
-			verbose = 1;
-			break;
-		case 'f':
-			if (strcmp(optarg, "json") == 0)
-				json_format = 1;
-			else if (strcmp(optarg, "text") == 0)
-				json_format = 0;
-			else
-				errx(1, "usage: status [-v] [-f text|json] [--format=text|json]");
-			break;
-		default:
+	if (ac >= 1) {
+		if (av[0][0] == '-')
 			errx(1, "usage: status [-v] [-f text|json] [--format=text|json]");
-		}
-	}
-	ac -= optind;
-	av += optind;
-
-	if (ac >= 1)
 		errx(1, "too many arguments");
+	}
 
 	return make_request(verbose ? ADMIN_STATUS_VERBOSE : ADMIN_STATUS,
 	    json_format ? ADMIN_STATUS_FORMAT_JSON : ADMIN_STATUS_FORMAT_TEXT, 0);
@@ -1666,6 +1685,12 @@ vchar_t *
 f_getevt_unittest(int ac, char **av)
 {
 	return f_getevt(ac, av);
+}
+
+vchar_t *
+f_status_unittest(int ac, char **av)
+{
+	return f_status(ac, av);
 }
 
 vchar_t *
