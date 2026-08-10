@@ -25,8 +25,10 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/param.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <resolv.h>
 
 #include "vmbuf.h"
 #include "handler.h"
@@ -35,7 +37,17 @@
 #include "isakmp.h"
 #include "oakley.h"
 #include "ipsec_doi.h"
+#include "policy.h"
 #include "status.h"
+
+#ifdef ENABLE_HYBRID
+#include "isakmp_cfg.h"
+#include "isakmp_xauth.h"
+#include "isakmp_unity.h"
+#endif
+#ifdef ENABLE_NATT
+#include "nattraversal.h"
+#endif
 
 extern struct ph1handle *status_test_ph1_queue[];
 extern int status_test_ph1_queue_len;
@@ -43,6 +55,7 @@ extern struct ph2handle *status_test_ph2_queue[];
 extern int status_test_ph2_queue_len;
 extern char *saddr2str_result;
 extern char *ipsecdoi_id2str_result;
+extern struct secpolicy *getspbyspid_result;
 
 extern const char *ph1_state_name_unittest(int state);
 extern const char *ph2_state_name_unittest(int state);
@@ -58,6 +71,7 @@ reset_queues(void)
 	status_test_ph2_queue_len = 0;
 	saddr2str_result = "198.51.100.1[500]";
 	ipsecdoi_id2str_result = "198.51.100.1";
+	getspbyspid_result = NULL;
 }
 
 /* Every '{' must be matched by a later '}', and the buffer must contain
@@ -385,6 +399,196 @@ test_json_escaping(void)
 	return 0;
 }
 
+/*
+ * status.c coverage closure (found via `sudo make coverage` on Ubuntu
+ * Noble): every existing test above only ever builds an established
+ * phase1 handle via test_ph1_remote_config_anonymous_gateway(), which
+ * never sets iph1->approval -- so collect_ph1()'s entire proposal
+ * population (encryption/hash/auth/dh_group/lifetime) and both
+ * renderers' proposal blocks were never exercised, and neither was
+ * xauth/mode_cfg/dpd/natt rendering (every existing fixture leaves all
+ * four "not present"). setup_ph1_full() builds one handle with all of
+ * it populated; test_ph1_full_json()/test_ph1_full_text() drive it
+ * through both renderers.
+ */
+#ifdef ENABLE_HYBRID
+static struct isakmp_cfg_state test_cfg;
+static struct xauth_state *test_xauth_ptr;
+#endif
+#ifdef ENABLE_NATT
+static struct ph1natt_options test_natt_options;
+#endif
+
+static void
+setup_ph1_full(struct ph1handle *iph1, struct remoteconf *rmconf,
+    struct isakmpsa *approval)
+{
+	memset(rmconf, 0, sizeof(*rmconf));
+	rmconf->remote = (struct sockaddr *)&test_remote_sin;
+#ifdef ENABLE_DPD
+	rmconf->dpd = 1;
+#endif
+
+	memset(approval, 0, sizeof(*approval));
+	approval->enctype = OAKLEY_ATTR_ENC_ALG_AES;
+	approval->hashtype = OAKLEY_ATTR_HASH_ALG_SHA2_256;
+	approval->authmethod = OAKLEY_ATTR_AUTH_METHOD_PSKEY;
+	approval->dh_group = OAKLEY_ATTR_GRP_DESC_MODP2048;
+	approval->lifetime = 28800;
+
+	memset(iph1, 0, sizeof(*iph1));
+	iph1->status = PHASE1ST_ESTABLISHED;
+	iph1->remote = (struct sockaddr *)&test_remote_sin;
+	iph1->local = (struct sockaddr *)&test_local_sin;
+	iph1->version = 0x10;
+	iph1->etype = ISAKMP_ETYPE_IDENT;
+	iph1->rmconf = rmconf;
+	iph1->approval = approval;
+
+#ifdef ENABLE_HYBRID
+	memset(&test_cfg, 0, sizeof(test_cfg));
+	test_cfg.xauth.status = XAUTHST_OK;
+	test_cfg.xauth.authtype = XAUTH_TYPE_GENERIC;
+	test_cfg.xauth.authdata.generic.usr = "alice";
+	test_cfg.flags = ISAKMP_CFG_GOT_ADDR4 | ISAKMP_CFG_GOT_DNS4 |
+	    ISAKMP_CFG_GOT_SPLIT_INCLUDE;
+	inet_pton(AF_INET, "192.168.66.23", &test_cfg.addr4);
+	inet_pton(AF_INET, "10.66.0.6", &test_cfg.dns4[0]);
+	test_cfg.dns4_index = 1;
+	/* status_test_stubs.c's splitnet_list_2str() ignores the actual
+	 * list contents and returns a fixed string whenever list != NULL --
+	 * any non-NULL value here is enough to reach that branch. */
+	test_cfg.split_include = (struct unity_netentry *)&test_cfg;
+	iph1->mode_cfg = &test_cfg;
+#endif
+#ifdef ENABLE_DPD
+	iph1->dpd_support = 1;
+	iph1->dpd_fails = 2;
+#endif
+#ifdef ENABLE_NATT
+	memset(&test_natt_options, 0, sizeof(test_natt_options));
+	iph1->natt_options = &test_natt_options;
+#endif
+}
+
+static int
+test_ph1_full_json(void)
+{
+	struct ph1handle iph1;
+	struct remoteconf rmconf;
+	struct isakmpsa approval;
+	vchar_t *out = NULL;
+
+	TEST_START("populated ph1 (proposal+xauth+mode_cfg+dpd+natt), JSON: "
+	    "all five blocks render, not just remote_config");
+
+	reset_queues();
+	make_addrs();
+	setup_ph1_full(&iph1, &rmconf, &approval);
+
+	status_test_ph1_queue[0] = &iph1;
+	status_test_ph1_queue_len = 1;
+
+	status_dump(&out, 0, 1);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL");
+	if (!braces_balanced((char *)out->v, out->l))
+		TEST_FAIL("unbalanced braces in JSON output");
+	if (strstr((char *)out->v, "\"encryption_algorithm\":\"AES-CBC\"") == NULL)
+		TEST_FAIL("expected phase1 proposal encryption_algorithm AES-CBC");
+	if (strstr((char *)out->v, "\"hash_algorithm\":\"SHA256\"") == NULL)
+		TEST_FAIL("expected phase1 proposal hash_algorithm SHA256");
+	if (strstr((char *)out->v,
+	    "\"authentication_method\":\"pre-shared key\"") == NULL)
+		TEST_FAIL("expected phase1 proposal authentication_method \"pre-shared key\"");
+	/* s_attr_isakmp_group() (strnames.c) is keyed on OAKLEY_ATTR_GRP_TYPE_*
+	 * (MODP/ECP/EC2N), not the GRP_DESC_* group number racoon actually
+	 * stores in ->dh_group -- in real production output this always
+	 * falls through to num2str()'s plain decimal string (confirmed
+	 * against the live capture in issue #139: "dh_group":"15"), not a
+	 * named string. Asserting that here locks in the real behavior
+	 * instead of an assumption. */
+	if (strstr((char *)out->v, "\"dh_group\":\"14\"") == NULL)
+		TEST_FAIL("expected phase1 proposal dh_group \"14\" (num2str() fallback)");
+	if (strstr((char *)out->v, "\"lifetime_time\":28800") == NULL)
+		TEST_FAIL("expected phase1 proposal lifetime_time 28800");
+#ifdef ENABLE_HYBRID
+	if (strstr((char *)out->v, "\"xauth\":{\"state\":\"ok\","
+	    "\"auth_type\":\"generic\",\"username\":\"alice\"}") == NULL)
+		TEST_FAIL("expected a populated xauth block");
+	if (strstr((char *)out->v, "\"addr4\":\"192.168.66.23\"") == NULL)
+		TEST_FAIL("expected mode_cfg addr4");
+	if (strstr((char *)out->v, "\"dns4\":[\"10.66.0.6\"]") == NULL)
+		TEST_FAIL("expected mode_cfg dns4");
+	if (strstr((char *)out->v,
+	    "\"split_include\":[\"10.0.1.0/24\",\"10.0.2.0/24\"]") == NULL)
+		TEST_FAIL("expected mode_cfg split_include, split into two entries");
+#endif
+#ifdef ENABLE_DPD
+	if (strstr((char *)out->v, "\"dpd\":{\"supported\":true,\"fails\":2}") == NULL)
+		TEST_FAIL("expected a populated dpd block");
+#endif
+#ifdef ENABLE_NATT
+	if (strstr((char *)out->v, "\"natt\":{\"enabled\":true}") == NULL)
+		TEST_FAIL("expected a populated natt block");
+#endif
+
+	vfree(out);
+	TEST_PASS();
+	return 0;
+}
+
+static int
+test_ph1_full_text(void)
+{
+	struct ph1handle iph1;
+	struct remoteconf rmconf;
+	struct isakmpsa approval;
+	vchar_t *out = NULL;
+
+	TEST_START("populated ph1 (proposal+xauth+mode_cfg+dpd+natt), text: "
+	    "text_render_ph1() actually renders, not just JSON");
+
+	reset_queues();
+	make_addrs();
+	setup_ph1_full(&iph1, &rmconf, &approval);
+
+	status_test_ph1_queue[0] = &iph1;
+	status_test_ph1_queue_len = 1;
+
+	status_dump(&out, 0, 0);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL");
+	if (strstr((char *)out->v, "Phase 1:") == NULL)
+		TEST_FAIL("expected a \"Phase 1:\" section in text output");
+	if (strstr((char *)out->v, "encryption:     AES-CBC  hash: SHA256  "
+	    "auth: pre-shared key  dh: 14") == NULL)
+		TEST_FAIL("expected the proposal line with encryption/hash/auth/dh");
+#ifdef ENABLE_HYBRID
+	if (strstr((char *)out->v,
+	    "xauth:          state=ok auth_type=generic username=alice") == NULL)
+		TEST_FAIL("expected the xauth line");
+	if (strstr((char *)out->v, "mode_cfg addr4: 192.168.66.23") == NULL)
+		TEST_FAIL("expected the mode_cfg addr4 line");
+	if (strstr((char *)out->v, "split_include:  10.0.1.0/24 10.0.2.0/24") == NULL)
+		TEST_FAIL("expected the split_include line");
+#endif
+#ifdef ENABLE_DPD
+	if (strstr((char *)out->v, "dpd:            supported=yes fails=2") == NULL)
+		TEST_FAIL("expected the dpd line");
+#endif
+#ifdef ENABLE_NATT
+	if (strstr((char *)out->v, "natt:           enabled=yes") == NULL)
+		TEST_FAIL("expected the natt line");
+#endif
+
+	vfree(out);
+	TEST_PASS();
+	return 0;
+}
+
 static void
 setup_ph2_basic(struct ph2handle *iph2, struct saprop *approval,
     struct saproto *proto, struct satrns *trns)
@@ -599,6 +803,183 @@ test_ph2_effective_group_fallback(void)
 	return 0;
 }
 
+/*
+ * More status.c coverage closure: setup_ph2_basic() always builds an ESP
+ * proposal, so collect_ph2()'s AH and IPCOMP branches (and json_render_ph2's
+ * compression_algorithm key) were never reached by any existing test.
+ */
+static int
+test_ph2_ah(void)
+{
+	struct ph2handle iph2;
+	struct saprop approval;
+	struct saproto proto;
+	struct satrns trns;
+	vchar_t *out = NULL;
+
+	TEST_START("populated ph2 (AH), JSON: protocol AH, encryption_algorithm "
+	    "from s_ipsecdoi_trns_ah(), no authentication_algorithm");
+
+	reset_queues();
+	make_addrs();
+	setup_ph2_basic(&iph2, &approval, &proto, &trns);
+	proto.proto_id = IPSECDOI_PROTO_IPSEC_AH;
+	trns.trns_id = IPSECDOI_AH_SHA256;
+
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 1);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL");
+	if (!braces_balanced((char *)out->v, out->l))
+		TEST_FAIL("unbalanced braces in JSON output");
+	if (strstr((char *)out->v, "\"protocol\":\"AH\"") == NULL)
+		TEST_FAIL("expected protocol AH");
+	if (strstr((char *)out->v, "\"encryption_algorithm\":\"SHA256\"") == NULL)
+		TEST_FAIL("expected encryption_algorithm SHA256 from s_ipsecdoi_trns_ah() "
+		    "(AH has no separate cipher -- this field carries its auth algorithm)");
+	if (strstr((char *)out->v, "\"authentication_algorithm\":null") == NULL)
+		TEST_FAIL("expected authentication_algorithm null -- the AH branch never sets it");
+
+	vfree(out);
+	TEST_PASS();
+	return 0;
+}
+
+static int
+test_ph2_ipcomp(void)
+{
+	struct ph2handle iph2;
+	struct saprop approval;
+	struct saproto proto;
+	struct satrns trns;
+	vchar_t *out = NULL;
+
+	TEST_START("populated ph2 (IPCOMP), JSON: protocol IPCOMP, "
+	    "compression_algorithm from s_ipsecdoi_trns_ipcomp()");
+
+	reset_queues();
+	make_addrs();
+	setup_ph2_basic(&iph2, &approval, &proto, &trns);
+	proto.proto_id = IPSECDOI_PROTO_IPCOMP;
+	trns.trns_id = IPSECDOI_IPCOMP_DEFLATE;
+
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 1);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL");
+	if (!braces_balanced((char *)out->v, out->l))
+		TEST_FAIL("unbalanced braces in JSON output");
+	if (strstr((char *)out->v, "\"protocol\":\"IPCOMP\"") == NULL)
+		TEST_FAIL("expected protocol IPCOMP");
+	if (strstr((char *)out->v, "\"compression_algorithm\":\"DEFLATE\"") == NULL)
+		TEST_FAIL("expected compression_algorithm DEFLATE from s_ipsecdoi_trns_ipcomp()");
+
+	vfree(out);
+	TEST_PASS();
+	return 0;
+}
+
+/*
+ * selector_proto_port() (status.c) was only ever exercised through its
+ * iph2->id == NULL fallback (every "any" case above) -- no existing test
+ * sets a real ID payload. getspbyspid() (stubbed, status_test_stubs.c)
+ * always returned NULL, so the real-prefix branch of sockaddr_to_cidr()
+ * (via a matched struct secpolicy's spidx.prefs/prefd) was unreached too.
+ */
+static int
+test_ph2_selectors_real_values(void)
+{
+	struct ph2handle iph2;
+	struct saprop approval;
+	struct saproto proto;
+	struct satrns trns;
+	struct secpolicy fake_sp;
+	struct ipsecdoi_id_b *idb;
+	vchar_t *id_src = NULL, *id_dst = NULL;
+	vchar_t *out = NULL;
+
+	TEST_START("ph2 selectors reflect a real proto/port (iph2->id/id_p) and "
+	    "a real prefix length (getspbyspid() SP found), not defaults");
+
+	reset_queues();
+	make_addrs();
+	setup_ph2_basic(&iph2, &approval, &proto, &trns);
+
+	iph2.spid = 42;
+	memset(&fake_sp, 0, sizeof(fake_sp));
+	fake_sp.spidx.prefs = 24;
+	fake_sp.spidx.prefd = 16;
+	getspbyspid_result = &fake_sp;
+
+	id_src = vmalloc(sizeof(struct ipsecdoi_id_b));
+	if (id_src == NULL)
+		TEST_FAIL("vmalloc() failed for iph2->id");
+	idb = (struct ipsecdoi_id_b *)id_src->v;
+	idb->type = IPSECDOI_ID_IPV4_ADDR;
+	idb->proto_id = IPPROTO_TCP;
+	idb->port = htons(1234);
+	iph2.id = id_src;
+
+	id_dst = vmalloc(sizeof(struct ipsecdoi_id_b));
+	if (id_dst == NULL) {
+		vfree(id_src);
+		TEST_FAIL("vmalloc() failed for iph2->id_p");
+	}
+	idb = (struct ipsecdoi_id_b *)id_dst->v;
+	idb->type = IPSECDOI_ID_IPV4_ADDR;
+	idb->port = htons(443);
+	iph2.id_p = id_dst;
+
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 1);
+
+	if (out == NULL) {
+		vfree(id_src);
+		vfree(id_dst);
+		TEST_FAIL("status_dump() returned NULL");
+	}
+	if (!braces_balanced((char *)out->v, out->l)) {
+		vfree(id_src);
+		vfree(id_dst);
+		vfree(out);
+		TEST_FAIL("unbalanced braces in JSON output");
+	}
+	if (strstr((char *)out->v, "\"src\":\"203.0.113.1/24\"") == NULL) {
+		vfree(id_src); vfree(id_dst); vfree(out);
+		TEST_FAIL("expected the real /24 prefix from getspbyspid(), not a /32 default");
+	}
+	if (strstr((char *)out->v, "\"dst\":\"198.51.100.1/16\"") == NULL) {
+		vfree(id_src); vfree(id_dst); vfree(out);
+		TEST_FAIL("expected the real /16 prefix from getspbyspid()");
+	}
+	if (strstr((char *)out->v, "\"protocol\":6") == NULL) {
+		vfree(id_src); vfree(id_dst); vfree(out);
+		TEST_FAIL("expected the real selector protocol (IPPROTO_TCP=6), not \"any\"");
+	}
+	if (strstr((char *)out->v, "\"src_port\":1234") == NULL) {
+		vfree(id_src); vfree(id_dst); vfree(out);
+		TEST_FAIL("expected the real src_port from iph2->id, not \"any\"");
+	}
+	if (strstr((char *)out->v, "\"dst_port\":443") == NULL) {
+		vfree(id_src); vfree(id_dst); vfree(out);
+		TEST_FAIL("expected the real dst_port from iph2->id_p, not \"any\"");
+	}
+
+	vfree(id_src);
+	vfree(id_dst);
+	vfree(out);
+	TEST_PASS();
+	return 0;
+}
+
 int
 main(void)
 {
@@ -620,11 +1001,21 @@ main(void)
 		failed++;
 	if (test_json_escaping() != 0)
 		failed++;
+	if (test_ph1_full_json() != 0)
+		failed++;
+	if (test_ph1_full_text() != 0)
+		failed++;
 	if (test_ph2_basic() != 0)
 		failed++;
 	if (test_ph2_basic_text() != 0)
 		failed++;
 	if (test_ph2_effective_group_fallback() != 0)
+		failed++;
+	if (test_ph2_ah() != 0)
+		failed++;
+	if (test_ph2_ipcomp() != 0)
+		failed++;
+	if (test_ph2_selectors_real_values() != 0)
 		failed++;
 
 	printf("\n=== %s ===\n", failed == 0 ? "ALL TESTS PASSED" : "TESTS FAILED");

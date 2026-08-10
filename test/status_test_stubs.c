@@ -105,10 +105,16 @@ ipsecdoi_id2str(const vchar_t *id)
 	return racoon_strdup(ipsecdoi_id2str_result);
 }
 
+/* NULL (the default) reproduces the "no SP found, host fallback" path
+ * every existing test exercises; a test that wants the real-prefix path
+ * (sockaddr_to_cidr() given an actual prefs/prefd instead of defaulting
+ * to /32) points this at its own struct secpolicy fixture instead. */
+struct secpolicy *getspbyspid_result = NULL;
+
 struct secpolicy *
 getspbyspid(u_int32_t spid)
 {
-	return NULL;
+	return getspbyspid_result;
 }
 
 #ifdef ENABLE_HYBRID
