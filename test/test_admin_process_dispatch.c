@@ -67,6 +67,9 @@ extern int admin_test_signal_handler_calls;
 extern int admin_test_sched_dump_calls;
 extern int admin_test_evt_dump_calls;
 extern int admin_test_dumpph1_calls;
+extern int admin_test_status_dump_calls;
+extern int admin_test_status_dump_verbose;
+extern int admin_test_status_dump_json;
 extern int admin_test_pfkey_dump_sadb_calls;
 extern int admin_test_flushph1_calls;
 extern int admin_test_pfkey_flush_sadb_calls;
@@ -101,6 +104,9 @@ reset_all_stub_state(void)
 	admin_test_sched_dump_calls = 0;
 	admin_test_evt_dump_calls = 0;
 	admin_test_dumpph1_calls = 0;
+	admin_test_status_dump_calls = 0;
+	admin_test_status_dump_verbose = -1;
+	admin_test_status_dump_json = -1;
 	admin_test_pfkey_dump_sadb_calls = 0;
 	admin_test_flushph1_calls = 0;
 	admin_test_pfkey_flush_sadb_calls = 0;
@@ -282,6 +288,58 @@ test_show_sa_internal_unsupported(void)
 		TEST_FAIL("reply ac_errno was not ENOTSUP");
 	if (admin_test_dumpph1_calls != 0 || admin_test_pfkey_dump_sadb_calls != 0)
 		TEST_FAIL("a dump function was called for an unsupported proto");
+
+	TEST_PASS();
+	return 0;
+}
+
+static int
+test_status(void)
+{
+	struct admin_com req;
+
+	TEST_START("ADMIN_STATUS calls status_dump(verbose=0), reports ENOMEM on NULL");
+
+	reset_all_stub_state();
+	memset(&req, 0, sizeof(req));
+	req.ac_len = sizeof(req);
+	req.ac_cmd = ADMIN_STATUS;
+	req.ac_proto = ADMIN_STATUS_FORMAT_JSON;
+
+	if (dispatch_and_get_reply_errno(&req, sizeof(req), NULL) != ENOMEM)
+		TEST_FAIL("reply ac_errno was not ENOMEM");
+	if (admin_test_status_dump_calls != 1)
+		TEST_FAIL("status_dump() was not called exactly once");
+	if (admin_test_status_dump_verbose != 0)
+		TEST_FAIL("status_dump() was not called with verbose=0");
+	if (admin_test_status_dump_json != ADMIN_STATUS_FORMAT_JSON)
+		TEST_FAIL("status_dump() was not called with the request's ac_proto format");
+
+	TEST_PASS();
+	return 0;
+}
+
+static int
+test_status_verbose(void)
+{
+	struct admin_com req;
+
+	TEST_START("ADMIN_STATUS_VERBOSE calls status_dump(verbose=1), reports ENOMEM on NULL");
+
+	reset_all_stub_state();
+	memset(&req, 0, sizeof(req));
+	req.ac_len = sizeof(req);
+	req.ac_cmd = ADMIN_STATUS_VERBOSE;
+	req.ac_proto = ADMIN_STATUS_FORMAT_TEXT;
+
+	if (dispatch_and_get_reply_errno(&req, sizeof(req), NULL) != ENOMEM)
+		TEST_FAIL("reply ac_errno was not ENOMEM");
+	if (admin_test_status_dump_calls != 1)
+		TEST_FAIL("status_dump() was not called exactly once");
+	if (admin_test_status_dump_verbose != 1)
+		TEST_FAIL("status_dump() was not called with verbose=1");
+	if (admin_test_status_dump_json != ADMIN_STATUS_FORMAT_TEXT)
+		TEST_FAIL("status_dump() was not called with the request's ac_proto format");
 
 	TEST_PASS();
 	return 0;
@@ -545,6 +603,10 @@ main(void)
 	if (test_show_sa_ah() != 0)
 		failed++;
 	if (test_show_sa_internal_unsupported() != 0)
+		failed++;
+	if (test_status() != 0)
+		failed++;
+	if (test_status_verbose() != 0)
 		failed++;
 	if (test_get_sa_cert_non_isakmp_rejected() != 0)
 		failed++;
