@@ -740,3 +740,34 @@ and the live-test matrix). A review comment on the issue added D5
 (`remote_config`) and tightened the text/JSON relationship (§ D5 above,
 issue comment incorporated and replied to). **⏸ Waiting for the go before any
 Phase 4 code**, on `feature/racoonctl-status` fresh off `develop`.
+
+## 6. Sign-off (issues #139, #140)
+
+**✔ Closed.** Both issues are fully live-verified, not just unit-tested:
+
+- **Live platform matrix:** gateway, Ubuntu Bionic (i386), Arch Linux, and
+  Ubuntu Noble roadwarrior clients — `-v`/`-f json` parsing (Bug 1),
+  `ipsecdoi_id2str()` leak fix (Bug 2, live pre/post Valgrind capture on the
+  gateway), the `pfs_group` null/nonzero render split (Bug 3, both branches
+  seen live), and D6's `phase1_index`/`effective_group` addition (issue
+  #140, both PFS branches) all confirmed against real hardware, cross-checked
+  against each platform's own `setkey -DN` output where applicable — not
+  simulated or asserted from this sandbox alone (which has no PF_KEY-capable
+  kernel and cannot run a live daemon; see the repeated sandbox-limitation
+  notes throughout this document).
+- **`make check`:** 77/77 passing, including every `status`/`racoonctl`
+  suite added or touched across both issues.
+- **`check-valgrind`:** clean (0 errors, 0 leaks) across the full
+  `check_PROGRAMS` suite, reproduced independently during review on top of
+  the maintainer's own live gateway run — both `test_status_dump` and
+  `test_racoonctl_status_cli` included, the latter covering the isolated
+  `-v` case specifically (the exact case Bug 1's `getopt()` defect had
+  silently broken).
+- **`make distcheck`:** green, both build passes, `# FAIL: 0` / `# ERROR: 0`.
+
+No further `status.c` changes are in scope from this point — the feature
+arc these two issues opened is closed. The one new artifact to come out of
+closing them is `share/schema/racoonctl-status.schema.json` (D6 already
+documented above; the schema file itself, its provenance-annotation
+convention, and its CI wiring are tracked as their own deliverable, not
+re-litigated here).

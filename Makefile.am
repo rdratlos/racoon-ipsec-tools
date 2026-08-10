@@ -61,7 +61,7 @@ SUBDIRS = src docs/examples $(MAYBE_SYSTEMD_DIR) test misc/kate @RPM@
 # instead would break that.
 DIST_SUBDIRS = src docs/examples systemd test misc/kate @RPM@
 
-EXTRA_DIST = bootstrap README.md NEWS.md depcomp docs/history/ChangeLog docs/history/ChangeLog.old docs/history/NEWS packaging/arch etc/racoon/hooks.conf.sample doc/admin/split-dns.html
+EXTRA_DIST = bootstrap README.md NEWS.md depcomp docs/history/ChangeLog docs/history/ChangeLog.old docs/history/NEWS packaging/arch etc/racoon/hooks.conf.sample doc/admin/split-dns.html share/schema/racoonctl-status.schema.json tools/schema_cross_check.py
 
 MAINTAINERCLEANFILES = docs/history/ChangeLog
 
