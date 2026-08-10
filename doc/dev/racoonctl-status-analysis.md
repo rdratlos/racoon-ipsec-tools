@@ -522,6 +522,68 @@ without a separate null branch for a field required to always be a number).
 
 ---
 
+### D7 — Phase 2 algorithm-name completeness (`AES-CBC`, `hmac-sha1`)
+
+Found during live sign-off of #139/#140 and deliberately kept out of #140's
+scope (its "Scope boundary" names this gap and defers it). Comparing
+`racoonctl status -v -f json` against `setkey -DN` for the same established
+SA (iOS roadwarrior, gateway side): the kernel reported `E: aes-cbc` with a
+32-byte key and `A: hmac-sha1` with a 20-byte one, while `status` rendered
+`"AES"` and `"hmac-sha"`.
+
+The two phases render their proposals through different name tables, so the
+same document described the same cipher family two ways:
+
+| Field | Render source | Value |
+|---|---|---|
+| `phase1[].proposal.encryption_algorithm` | `s_attr_isakmp_enc()`, `name_attr_isakmp_enc[]` | `AES-CBC` |
+| `phase2[].proposal.encryption_algorithm` | `s_ipsecdoi_trns_esp()`, `name_ipsecdoi_trns_esp[]` | `AES` |
+
+**Direction chosen — derive in `status.c`, don't retarget the tables.**
+Both alternatives were checked against source first:
+
+- *Sibling table with fuller names?* No. `algorithm.c`'s `ipsec_encdef[]` /
+  `ipsec_hmacdef[]` hold **config-grammar keywords** (`"aes"`, `"sha1"`),
+  not display names; they carry no mode either, are file-static, and
+  several entries are `#ifdef`'d out depending on the OpenSSL build. Not a
+  usable substitute.
+- *Fix `strnames.c` in place?* Rejected. Those tables are also the render
+  path for racoon's `-dddd` proposal logging and are pinned by
+  `test/test_strnames.c`, so editing them changes unrelated output for
+  every existing consumer — a much wider blast radius than this fix earns.
+
+**Mode is derivable from the transform ID alone**, so no key material or
+key length is consulted: `crypto_openssl.c` implements exactly one mode per
+cipher (`EVP_aes_{128,192,256}_cbc()`, `EVP_camellia_*_cbc()`,
+`EVP_des_ede3_cbc()`, `EVP_bf_cbc()`, `EVP_cast5_cbc()`, `EVP_idea_cbc()`),
+and the tree has **no CTR or GCM support at all**. `esp_trns_is_cbc()`
+(`status.c`) enumerates the CBC transform IDs; `IPSECDOI_ESP_NULL` (not a
+cipher) and `IPSECDOI_ESP_RC4` (a stream cipher) are excluded, as is an
+unrecognized ID falling through to `num2str()`.
+
+For authentication the gap was a **single truncated table entry**:
+`name_attr_ipsec_auth[]` already names the variant for every SHA-2 entry
+(`hmac-sha256`/`-sha384`/`-sha512`) and only renders
+`IPSECDOI_ATTR_AUTH_HMAC_SHA1` as `hmac-sha`. `esp_auth_alg_name()`
+restores that one entry to the table's own convention and defers to
+`s_ipsecdoi_auth()` for everything else.
+
+**No `schema_version` bump.** Both fields keep their type (string) and
+their meaning ("the negotiated encryption/authentication algorithm"); only
+the value's precision improves. Per D4 the bump ladder covers additive
+fields (minor) and rename/remove/retype (major) — a content-quality fix in
+an existing field is neither. A consumer matching on the old exact strings
+would notice, but no such consumer can have been correct: `"AES"` never
+distinguished a mode racoon could actually negotiate two of.
+
+The schema's `x-source-render` citations for both fields were repointed at
+`status.c`'s new helpers, keeping `tools/schema_cross_check.py` green. Each
+citation stays a **single** `path:line (identifier)` pair — the checker's
+regex only validates the first one in the string, so a second appended
+citation would be unverified prose free to drift.
+
+---
+
 ## 4. Findings
 
 ### High

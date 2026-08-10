@@ -848,6 +848,177 @@ test_ph2_ah(void)
 	return 0;
 }
 
+/*
+ * Phase 2 algorithm-name completeness.
+ *
+ * The gap this pins down was found by comparing a live established SA's
+ * `racoonctl status -v -f json` against `setkey -DN` for the same SA (iOS
+ * roadwarrior, gateway side): the kernel reported `E: aes-cbc` with a
+ * 32-byte key and `A: hmac-sha1` with a 20-byte one, while status
+ * rendered a bare "AES" and a truncated "hmac-sha" -- losing the cipher
+ * mode and the hash variant that phase1's own proposal fields
+ * ("AES-CBC", via a different name table) already carried.
+ *
+ * setup_ph2_basic() negotiates SHA-2, whose strnames.c entry was never
+ * truncated, so it could not have caught this; these cases assert the
+ * exact rendered strings for the SHA-1 shape the live SA actually used.
+ */
+static int
+test_ph2_alg_names_cbc_and_sha1(void)
+{
+	struct ph2handle iph2;
+	struct saprop approval;
+	struct saproto proto;
+	struct satrns trns;
+	vchar_t *out = NULL;
+
+	TEST_START("ph2 ESP AES/HMAC-SHA1: encryption_algorithm carries the "
+	    "CBC mode and authentication_algorithm the SHA-1 variant");
+
+	reset_queues();
+	make_addrs();
+	setup_ph2_basic(&iph2, &approval, &proto, &trns);
+	/* Exactly what the live SA negotiated: AES-CBC + HMAC-SHA1. */
+	trns.trns_id = IPSECDOI_ESP_AES;
+	trns.authtype = IPSECDOI_ATTR_AUTH_HMAC_SHA1;
+
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 1);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL");
+	if (!braces_balanced((char *)out->v, out->l))
+		TEST_FAIL("unbalanced braces in JSON output");
+	/* The pre-fix output was "AES" -- assert the whole quoted value so a
+	 * regression to the bare family name fails here rather than passing
+	 * on a substring match. */
+	if (strstr((char *)out->v, "\"encryption_algorithm\":\"AES-CBC\"") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected encryption_algorithm \"AES-CBC\", not a bare \"AES\"");
+	}
+	if (strstr((char *)out->v, "\"authentication_algorithm\":\"hmac-sha1\"") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected authentication_algorithm \"hmac-sha1\", not a truncated \"hmac-sha\"");
+	}
+
+	vfree(out);
+	out = NULL;
+
+	/* Same SA through the text renderer -- issue #139 requires text to
+	 * present the same field set as JSON, so the fix has to reach both. */
+	reset_queues();
+	make_addrs();
+	setup_ph2_basic(&iph2, &approval, &proto, &trns);
+	trns.trns_id = IPSECDOI_ESP_AES;
+	trns.authtype = IPSECDOI_ATTR_AUTH_HMAC_SHA1;
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 0);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL (text)");
+	if (strstr((char *)out->v, "encryption:     AES-CBC  auth: hmac-sha1") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected the text proposal line to carry AES-CBC and hmac-sha1");
+	}
+
+	vfree(out);
+	TEST_PASS();
+	return 0;
+}
+
+/*
+ * The two directions the SHA-1/CBC fix must NOT overreach in:
+ *
+ *  - SHA-2 auth names already carried their variant in strnames.c and
+ *    must still come straight from it, unmodified.
+ *  - IPSECDOI_ESP_NULL is not a CBC transform (it is not a cipher at
+ *    all), so it must not acquire a "-CBC" suffix. Same for RC4, the
+ *    table's only stream cipher.
+ */
+static int
+test_ph2_alg_names_no_overreach(void)
+{
+	struct ph2handle iph2;
+	struct saprop approval;
+	struct saproto proto;
+	struct satrns trns;
+	vchar_t *out = NULL;
+
+	TEST_START("ph2 alg names: 3DES-CBC/hmac-sha256 unchanged from "
+	    "strnames.c, and ESP_NULL/RC4 gain no bogus CBC suffix");
+
+	reset_queues();
+	make_addrs();
+	setup_ph2_basic(&iph2, &approval, &proto, &trns);
+	trns.trns_id = IPSECDOI_ESP_3DES;
+	trns.authtype = IPSECDOI_ATTR_AUTH_HMAC_SHA2_256;
+
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 1);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL");
+	if (strstr((char *)out->v, "\"encryption_algorithm\":\"3DES-CBC\"") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected encryption_algorithm \"3DES-CBC\"");
+	}
+	if (strstr((char *)out->v, "\"authentication_algorithm\":\"hmac-sha256\"") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected authentication_algorithm \"hmac-sha256\" straight "
+		    "from strnames.c, untouched by the SHA-1 special case");
+	}
+
+	vfree(out);
+	out = NULL;
+
+	reset_queues();
+	make_addrs();
+	setup_ph2_basic(&iph2, &approval, &proto, &trns);
+	trns.trns_id = IPSECDOI_ESP_NULL;
+	trns.authtype = IPSECDOI_ATTR_AUTH_HMAC_SHA1;
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 1);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL (ESP_NULL)");
+	if (strstr((char *)out->v, "\"encryption_algorithm\":\"NULL\"") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected encryption_algorithm \"NULL\" -- ESP_NULL has no cipher mode");
+	}
+
+	vfree(out);
+	out = NULL;
+
+	reset_queues();
+	make_addrs();
+	setup_ph2_basic(&iph2, &approval, &proto, &trns);
+	trns.trns_id = IPSECDOI_ESP_RC4;
+	trns.authtype = IPSECDOI_ATTR_AUTH_HMAC_SHA1;
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 1);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL (RC4)");
+	if (strstr((char *)out->v, "\"encryption_algorithm\":\"RC4\"") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected encryption_algorithm \"RC4\" -- a stream cipher, not CBC");
+	}
+
+	vfree(out);
+	TEST_PASS();
+	return 0;
+}
+
 static int
 test_ph2_ipcomp(void)
 {
@@ -1012,6 +1183,10 @@ main(void)
 	if (test_ph2_effective_group_fallback() != 0)
 		failed++;
 	if (test_ph2_ah() != 0)
+		failed++;
+	if (test_ph2_alg_names_cbc_and_sha1() != 0)
+		failed++;
+	if (test_ph2_alg_names_no_overreach() != 0)
 		failed++;
 	if (test_ph2_ipcomp() != 0)
 		failed++;
