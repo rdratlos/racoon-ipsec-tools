@@ -1997,6 +1997,37 @@ test_admin_handler_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_admin_handler_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# test_handler_flushph1 drives flushph1() (handler.c) directly against real
+# newph1()/insph1()/newph2()/insph2()/bindph12() fixtures -- all already
+# exported, so no wrapper-TU/ENABLE_UNITTEST accessor is needed to reach
+# them, only the two new tree-size accessors (ph1tree_count_unittest(),
+# ph2tree_count_unittest()) to observe that flushph1() actually empties
+# both trees. Links handler_ffs.o (handler.c built with
+# -ffunction-sections/-fdata-sections; see src/racoon/Makefile.am) so
+# -Wl,--gc-sections discards every handler.c function this test doesn't
+# call, keeping handler_flushph1_test_stubs.c's stub surface to just what
+# flushph1()'s own call graph needs. Same AddressSanitizer/--gc-sections
+# incompatibility as test_algorithm et al. (see configure.ac), hence
+# !SANITIZER_BUILD.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_handler_flushph1
+
+test_handler_flushph1_SOURCES  = test_handler_flushph1.c \
+	handler_flushph1_test_stubs.c
+test_handler_flushph1_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_handler_flushph1_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_handler_flushph1_LDADD    = $(top_builddir)/src/racoon/handler_ffs.o \
+	$(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_handler_flushph1_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # test_admin_close covers admin_close() -- pre-dates the v0.9.1 churn but
 # had no coverage at all until now. Already exported, so no
 # ENABLE_UNITTEST accessor needed; shares admin_test_stubs.c's real

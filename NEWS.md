@@ -303,6 +303,16 @@ on building cleanly against current OpenSSL releases and toolchains.
   calls allocated `strlen(x)` bytes without room for a NUL terminator,
   causing `strlen()` in `xauth_group_ldap()` to read one byte past the
   end of the allocated block (Valgrind: invalid read of size 1).
+- Fixed a use-after-free in `flushph1()` (`ADMIN_FLUSH_SA`/ISAKMP):
+  it freed every Phase 1 handle without first discarding the Phase 2
+  handles still bound to it, leaving any such Phase 2 handle in the
+  tree with a `->ph1` pointer dangling into freed memory. The next
+  thing to touch it — `purge_remote()`'s `remph2()`, or a later
+  `flushph2()` — dereferenced that pointer (Valgrind: invalid
+  write/read, reported on a live roadwarrior client via
+  `racoonctl delete-sa`/`flush-sa`). `flushph1()` now discards bound
+  Phase 2 handles the same way `isakmp_ph1delete()` already did,
+  sending delete notifications for any that were established.
 
 ### Documentation
 

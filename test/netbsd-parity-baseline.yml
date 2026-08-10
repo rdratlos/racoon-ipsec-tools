@@ -32,6 +32,16 @@
 #   (confirmed present in both of develop-netbsd-full-check.yml's first
 #   live NetBSD runs, §11.6).
 #
+#   test_handler_flushph1 was added later (flushph1() use-after-free fix,
+#   reported via valgrind on a real roadwarrior client) and matches the
+#   same `!SANITIZER_BUILD` condition as the rest of this list. It has
+#   only been confirmed here in this sandbox (build + check + check-
+#   valgrind, all clean) -- not yet against a real NetBSD run the way
+#   the original 33 were -- but is tracked here on the same basis: it
+#   uses the identical -ffunction-sections/--gc-sections isolation
+#   technique as test_algorithm/test_admin_handler, both of which are
+#   already NetBSD-confirmed in this list.
+#
 #   A binary appearing in test/ that is NOT in this list is not an
 #   error -- check-netbsd-parity.sh only warns about it (new coverage
 #   should never be penalized). A binary in this list NOT appearing in
@@ -60,6 +70,7 @@ must_build:
   - test_algorithm
   - test_getcertsbyname_dnssec
   - test_getcertsbyname_helpers
+  - test_handler_flushph1
   - test_ipsec_doi_sa
   - test_kmpstat_com_recv
   - test_monitor_fd_cold_start
