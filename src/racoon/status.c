@@ -172,10 +172,19 @@ json_string(struct outbuf *ob, const char *s)
 		case '\r': ob_puts(ob, "\\r"); break;
 		case '\t': ob_puts(ob, "\\t"); break;
 		default:
-			if (*p < 0x20)
+			if (*p < 0x20) {
 				ob_printf(ob, "\\u%04x", *p);
-			else
-				ob_reserve(ob, 1), ob->buf[ob->pos++] = (char)*p, ob->buf[ob->pos] = '\0';
+			} else {
+				/* ob_reserve() sets ob->buf to NULL on
+				 * allocation failure, same as every other
+				 * ob_*() helper -- guard it here too instead
+				 * of writing through it unconditionally. */
+				ob_reserve(ob, 1);
+				if (ob->buf == NULL)
+					return;
+				ob->buf[ob->pos++] = (char)*p;
+				ob->buf[ob->pos] = '\0';
+			}
 			break;
 		}
 	}
@@ -889,6 +898,14 @@ collect_snapshot(int verbose)
 			fctx.cap = snap->ph1_count;
 			fctx.i = 0;
 			enumph1(NULL, fill_ph1_cb, &fctx);
+		} else {
+			/* Found via audit, not observed live: on allocation
+			 * failure here, ph1_count must not be left nonzero
+			 * with ph1 still NULL -- every reader below (both
+			 * renderers, free_snapshot()) indexes snap->ph1[i]
+			 * for i < ph1_count unconditionally, which would
+			 * dereference NULL. */
+			snap->ph1_count = 0;
 		}
 	}
 
@@ -904,6 +921,8 @@ collect_snapshot(int verbose)
 				fctx.cap = snap->ph2_count;
 				fctx.i = 0;
 				enumph2(NULL, fill_ph2_cb, &fctx);
+			} else {
+				snap->ph2_count = 0;
 			}
 		}
 	}
