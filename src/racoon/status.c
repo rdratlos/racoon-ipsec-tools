@@ -352,6 +352,9 @@ struct status_ph1 {
 
 struct status_ph2 {
 	char *index;
+	char *phase1_index;	/* parent phase1's cookie-pair string (D6,
+				 * issue #140); NULL if iph2->ph1 is
+				 * momentarily unbound (see collect_ph2()) */
 	const char *state;	/* literal */
 	char *spi_in;
 	char *spi_out;
@@ -367,6 +370,13 @@ struct status_ph2 {
 	char *auth_alg;
 	char *comp_alg;		/* NULL = none negotiated */
 	int pfs_group;		/* 0 = PFS not negotiated */
+	int effective_group;	/* D6 (issue #140): pfs_group when PFS was
+				 * negotiated, else the parent phase1's
+				 * dh_group -- per RFC 2409 SS5.5, that's the
+				 * DH secret actually backing this tunnel's
+				 * key entropy when there's no PFS exchange
+				 * of its own. 0 = indeterminate (only
+				 * possible when phase1_index is also NULL) */
 	unsigned long lifetime_time;
 	unsigned long lifetime_bytes;
 	int reqid_in;
@@ -426,6 +436,7 @@ free_snapshot(struct status_snapshot *snap)
 		struct status_ph2 *p = &snap->ph2[i];
 
 		racoon_free(p->index);
+		racoon_free(p->phase1_index);
 		racoon_free(p->spi_in);
 		racoon_free(p->spi_out);
 		racoon_free(p->encmode);
@@ -812,6 +823,22 @@ collect_ph2(struct ph2handle *iph2, struct status_ph2 *p)
 
 	p->reqid_in = (proto != NULL) ? proto->reqid_in : 0;
 	p->reqid_out = (proto != NULL) ? proto->reqid_out : 0;
+
+	/* D6 (issue #140): iph2->ph1 is a direct back-pointer (handler.h),
+	 * set by bindph12() and cleared by unbindph12() -- the latter is
+	 * called from initph2() and during phase2 teardown, so iph2->ph1
+	 * can genuinely be NULL for a phase2 handle that's still briefly
+	 * enumerable. Render both fields as "indeterminate" in that window
+	 * rather than dereferencing a NULL parent. */
+	if (iph2->ph1 != NULL) {
+		p->phase1_index = cookie_pair_hex(&iph2->ph1->index);
+		p->effective_group = (p->pfs_group != 0) ? p->pfs_group :
+		    (iph2->ph1->approval != NULL ?
+		    iph2->ph1->approval->dh_group : 0);
+	} else {
+		p->phase1_index = NULL;
+		p->effective_group = p->pfs_group;
+	}
 }
 
 /*
@@ -1028,6 +1055,7 @@ json_render_ph2(struct outbuf *ob, struct status_ph2 *p)
 
 	ob_puts(ob, "{");
 	json_key(ob, &first, "index"); json_string(ob, p->index);
+	json_key(ob, &first, "phase1_index"); json_string(ob, p->phase1_index);
 	json_key(ob, &first, "state"); json_string(ob, p->state);
 	json_key(ob, &first, "spi_in"); json_string(ob, p->spi_in);
 	json_key(ob, &first, "spi_out"); json_string(ob, p->spi_out);
@@ -1066,6 +1094,13 @@ json_render_ph2(struct outbuf *ob, struct status_ph2 *p)
 			ob_printf(ob, ",\"pfs_group\":%d", p->pfs_group);
 		else
 			ob_puts(ob, ",\"pfs_group\":null");
+		/* D6 (issue #140): always a JSON number, never null/string --
+		 * unlike pfs_group, this field must have one consistent type
+		 * across both branches (see the issue's type-consistency
+		 * rule). 0 is not a valid real DH group id, so it doubles as
+		 * the "indeterminate" marker for the rare unbound iph2->ph1
+		 * case without needing a separate null branch here. */
+		ob_printf(ob, ",\"effective_group\":%d", p->effective_group);
 		ob_printf(ob, ",\"lifetime_time\":%lu", p->lifetime_time);
 		ob_printf(ob, ",\"lifetime_bytes\":%lu", p->lifetime_bytes);
 		ob_puts(ob, "}");
@@ -1082,7 +1117,7 @@ render_json(struct status_snapshot *snap, struct outbuf *ob)
 {
 	int i;
 
-	ob_puts(ob, "{\"schema_version\":\"1.0\",\"timestamp\":");
+	ob_puts(ob, "{\"schema_version\":\"1.1\",\"timestamp\":");
 	json_string(ob, snap->timestamp);
 
 	ob_puts(ob, ",\"phase1\":[");
@@ -1165,6 +1200,8 @@ static void
 text_render_ph2(struct outbuf *ob, struct status_ph2 *p)
 {
 	ob_printf(ob, "Phase 2: %s\n", p->index);
+	ob_printf(ob, "  phase1:         %s\n",
+	    p->phase1_index != NULL ? p->phase1_index : "(unbound)");
 	ob_printf(ob, "  state:          %s  protocol: %s  mode: %s\n",
 	    p->state, p->protocol, p->encmode);
 	ob_printf(ob, "  spi:            in=%s out=%s\n", p->spi_in, p->spi_out);
@@ -1181,6 +1218,7 @@ text_render_ph2(struct outbuf *ob, struct status_ph2 *p)
 			ob_printf(ob, "  pfs_group:      %d\n", p->pfs_group);
 		else
 			ob_puts(ob, "  pfs_group:      (none)\n");
+		ob_printf(ob, "  effective_group: %d\n", p->effective_group);
 		ob_printf(ob, "  lifetime:       %lus / %lu bytes\n",
 		    p->lifetime_time, p->lifetime_bytes);
 	}
