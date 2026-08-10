@@ -153,10 +153,24 @@ make_addrs(void)
 {
 	memset(&test_remote_sin, 0, sizeof(test_remote_sin));
 	test_remote_sin.sin_family = AF_INET;
+#ifndef __linux__
+	/* sysdep_sa_len() (libipsec/libpfkey.h) returns sizeof(struct
+	 * sockaddr_in) on Linux regardless of sin_len, but sa->sa_len
+	 * verbatim everywhere else (NetBSD and other 4.4BSD-derived
+	 * libcs). collect_ph2()'s sockaddr_to_cidr() passes that length
+	 * straight into getnameinfo() -- left at 0 by memset(), the call
+	 * fails there and silently falls back to "?" instead of a real
+	 * CIDR string, same convention used everywhere else a sockaddr_in
+	 * is hand-built in this codebase (e.g. sockmisc.c, isakmp.c). */
+	test_remote_sin.sin_len = sizeof(test_remote_sin);
+#endif
 	inet_pton(AF_INET, "198.51.100.1", &test_remote_sin.sin_addr);
 
 	memset(&test_local_sin, 0, sizeof(test_local_sin));
 	test_local_sin.sin_family = AF_INET;
+#ifndef __linux__
+	test_local_sin.sin_len = sizeof(test_local_sin);
+#endif
 	inet_pton(AF_INET, "203.0.113.1", &test_local_sin.sin_addr);
 }
 
