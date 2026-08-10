@@ -659,10 +659,20 @@ collect_ph1(struct ph1handle *iph1, struct status_ph1 *p)
 	p->index = cookie_pair_hex(&iph1->index);
 	p->state = ph1_state_name(iph1->status);
 
+	/* ipsecdoi_id2str() (ipsec_doi.c) uses its own static char buf[512]
+	 * only as scratch space while building the string; before it
+	 * returns, it always racoon_malloc()s a fresh, exact-sized copy and
+	 * returns that -- the caller already owns a clean heap pointer, not
+	 * a pointer into the static buffer. dupstr()-wrapping it here was a
+	 * double allocation: the ipsecdoi_id2str() result itself was never
+	 * referenced again and leaked on every call. saddr2str() (the
+	 * fallback for an unset id/id_p) is the one that actually returns a
+	 * pointer into its own static buffer and genuinely needs dupstr().
+	 * See doc/dev/racoonctl-status-analysis.md's corrected H-2. */
 	p->remote_id = iph1->id_p != NULL ?
-	    dupstr(ipsecdoi_id2str(iph1->id_p)) : dupstr(saddr2str(iph1->remote));
+	    ipsecdoi_id2str(iph1->id_p) : dupstr(saddr2str(iph1->remote));
 	p->local_id = iph1->id != NULL ?
-	    dupstr(ipsecdoi_id2str(iph1->id)) : dupstr(saddr2str(iph1->local));
+	    ipsecdoi_id2str(iph1->id) : dupstr(saddr2str(iph1->local));
 
 	if (asprintf(&p->version, "%d.%d", (iph1->version >> 4) & 0xf,
 	    iph1->version & 0xf) < 0)
