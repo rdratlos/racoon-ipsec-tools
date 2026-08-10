@@ -92,7 +92,7 @@ test_empty_tree_json_nonverbose(void)
 		TEST_FAIL("status_dump() returned NULL");
 	if (!braces_balanced((char *)out->v, out->l))
 		TEST_FAIL("unbalanced braces in JSON output");
-	if (strstr((char *)out->v, "\"schema_version\":\"1.0\"") == NULL)
+	if (strstr((char *)out->v, "\"schema_version\":\"1.1\"") == NULL)
 		TEST_FAIL("missing schema_version");
 	if (strstr((char *)out->v, "\"phase1\":[]") == NULL)
 		TEST_FAIL("expected an empty phase1 array");
@@ -341,6 +341,15 @@ test_ph2_basic(void)
 		TEST_FAIL("expected pfs_group 14 from iph2->approval");
 	if (strstr((char *)out->v, "\"ok\":true") == NULL)
 		TEST_FAIL("expected ok:true from proto->ok");
+	/* setup_ph2_basic() never sets iph2->ph1, so it's NULL here (D6,
+	 * issue #140): phase1_index must render null, and effective_group
+	 * must equal pfs_group (14) rather than 0, since PFS *was*
+	 * negotiated -- only an unbound handle with no PFS is genuinely
+	 * indeterminate. */
+	if (strstr((char *)out->v, "\"phase1_index\":null") == NULL)
+		TEST_FAIL("expected phase1_index null for an unbound ph2 handle");
+	if (strstr((char *)out->v, "\"effective_group\":14") == NULL)
+		TEST_FAIL("expected effective_group 14 (== pfs_group, PFS was negotiated)");
 
 	vfree(out);
 	TEST_PASS();
@@ -390,6 +399,85 @@ test_ph2_basic_text(void)
 		TEST_FAIL("expected masked SPIs in text output");
 	if (strstr((char *)out->v, "pfs_group:      14") == NULL)
 		TEST_FAIL("expected pfs_group 14 in text output");
+	if (strstr((char *)out->v, "phase1:         (unbound)") == NULL)
+		TEST_FAIL("expected phase1: (unbound) for an unbound ph2 handle");
+	if (strstr((char *)out->v, "effective_group: 14") == NULL)
+		TEST_FAIL("expected effective_group 14 in text output");
+
+	vfree(out);
+	TEST_PASS();
+	return 0;
+}
+
+/*
+ * D6 (issue #140): the fallback branch -- iph2 *is* bound to a real ph1,
+ * but PFS was not negotiated at the phase2 level (approval->pfs_group ==
+ * 0). effective_group must fall back to the parent phase1's dh_group
+ * (per RFC 2409 SS5.5, that's what actually backs this tunnel's key
+ * entropy without a PFS exchange of its own), and phase1_index must join
+ * to the parent's own cookie-pair string byte-for-byte.
+ */
+static int
+test_ph2_effective_group_fallback(void)
+{
+	struct ph1handle iph1;
+	struct isakmpsa ph1_approval;
+	struct ph2handle iph2;
+	struct saprop approval;
+	struct saproto proto;
+	struct satrns trns;
+	vchar_t *out = NULL;
+	char expected_phase1_index[64];
+	int i;
+
+	TEST_START("ph2 bound to ph1, no PFS: phase1_index joins to the "
+	    "parent, effective_group falls back to phase1's dh_group");
+
+	reset_queues();
+	make_addrs();
+
+	memset(&iph1, 0, sizeof(iph1));
+	iph1.status = PHASE1ST_ESTABLISHED;
+	iph1.remote = (struct sockaddr *)&test_remote_sin;
+	iph1.local = (struct sockaddr *)&test_local_sin;
+	for (i = 0; i < 8; i++) {
+		iph1.index.i_ck[i] = (u_char)(0x10 + i);
+		iph1.index.r_ck[i] = (u_char)(0x20 + i);
+	}
+
+	memset(&ph1_approval, 0, sizeof(ph1_approval));
+	ph1_approval.dh_group = 14;
+	iph1.approval = &ph1_approval;
+
+	snprintf(expected_phase1_index, sizeof(expected_phase1_index),
+	    "\"phase1_index\":\"0x%02x%02x%02x%02x%02x%02x%02x%02x"
+	    "%02x%02x%02x%02x%02x%02x%02x%02x\"",
+	    iph1.index.i_ck[0], iph1.index.i_ck[1], iph1.index.i_ck[2],
+	    iph1.index.i_ck[3], iph1.index.i_ck[4], iph1.index.i_ck[5],
+	    iph1.index.i_ck[6], iph1.index.i_ck[7],
+	    iph1.index.r_ck[0], iph1.index.r_ck[1], iph1.index.r_ck[2],
+	    iph1.index.r_ck[3], iph1.index.r_ck[4], iph1.index.r_ck[5],
+	    iph1.index.r_ck[6], iph1.index.r_ck[7]);
+
+	setup_ph2_basic(&iph2, &approval, &proto, &trns);
+	approval.pfs_group = 0;	/* no PFS negotiated at phase2 */
+	iph2.ph1 = &iph1;
+
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 1);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL");
+	if (!braces_balanced((char *)out->v, out->l))
+		TEST_FAIL("unbalanced braces in JSON output");
+	if (strstr((char *)out->v, expected_phase1_index) == NULL)
+		TEST_FAIL("phase1_index did not match the parent ph1's cookie pair");
+	if (strstr((char *)out->v, "\"pfs_group\":null") == NULL)
+		TEST_FAIL("expected pfs_group null (no PFS negotiated)");
+	if (strstr((char *)out->v, "\"effective_group\":14") == NULL)
+		TEST_FAIL("expected effective_group to fall back to phase1's dh_group (14)");
 
 	vfree(out);
 	TEST_PASS();
@@ -416,6 +504,8 @@ main(void)
 	if (test_ph2_basic() != 0)
 		failed++;
 	if (test_ph2_basic_text() != 0)
+		failed++;
+	if (test_ph2_effective_group_fallback() != 0)
 		failed++;
 
 	printf("\n=== %s ===\n", failed == 0 ? "ALL TESTS PASSED" : "TESTS FAILED");
