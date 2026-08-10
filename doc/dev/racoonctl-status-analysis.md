@@ -356,15 +356,42 @@ schema it may not expect, and vice versa. Recommend `schema_version` (D3) be
 checked by nothing at parse time (JSON is meant to be consumed by external
 tooling, not racoonctl itself) but that `racoonctl`'s own `text` renderer — which
 under D1 is also server-side — needs no version check either, since server and
-renderer always ship together. The only real skew risk is an **external JSON
-consumer** (the RFC-0001 harness) pinned to an old `schema_version` talking to a
-newer daemon; that's a contract-versioning policy question (additive-only minor
-bumps vs. breaking major bumps) worth one sentence in the frozen issue, not more.
+renderer always ship together. The only real skew risk is a **future external
+JSON consumer** pinned to an old `schema_version` talking to a newer daemon —
+a concrete candidate would be the external Paws gateway discussed later in
+this doc, or a future itlab Verification-layer check validating
+`racoonctl status` output against `share/schema/`; neither exists today (see
+the corrected RFC-0001 note below), so this is a design goal to keep the
+contract compatible with, not an enforced integration; that's a
+contract-versioning policy question (additive-only minor bumps vs. breaking
+major bumps) worth one sentence in the frozen issue, not more.
 
 **Ratified.** `schema_version` is `"major.minor"`. Additive changes (new
 optional field) bump minor only; breaking changes (rename/remove/retype an
-existing field) bump major. The RFC-0001 harness pins on major only, so it
-keeps working across minor bumps without a harness change.
+existing field) bump major. Any future JSON consumer needs only
+major-version awareness to stay compatible across minor bumps — no consumer
+enforcing this exists today; see the corrected RFC-0001 note immediately
+below.
+
+**Correction (added during #140's PR pass):** the two paragraphs above
+originally named "the RFC-0001 harness" as an existing consumer that pinned
+to `schema_version`'s major component. That was never correct — an
+unverified assumption introduced during scoping and never checked against
+the actual document. The real RFC-0001
+(`docs/rfcs/0001-incus-integration-testing-framework.md`, `main` branch) is
+an Incus-based network-topology integration framework ("itlab") covering
+IKE negotiation, PF_KEY/XFRM, package lifecycle, and DNS-hook coverage — it
+has no relationship to JSON schema validation of `racoonctl status` output
+and no such harness exists. The honest connection is RFC-0001 §8
+("Extension Points"), which lists a **Verification backend** — "how
+outcomes are asserted against observations" — as a stable extension point
+for future itlab scenarios: schema validation of `racoonctl status` JSON
+(`share/schema/racoonctl-status.schema.json`, issue #140) is a plausible
+*future* Verification-layer assertion inside an itlab scenario, not
+something that exists today. Formally adding it as one of RFC-0001's
+extension points is a separate, `main`-branch effort, not part of this
+work. This mirrors how Finding H-2 elsewhere in this document records its
+own correction in place rather than silently rewriting the earlier text.
 
 ### D5 — Racoon operation mode (roadwarrior gateway vs. fixed peer)
 
@@ -638,7 +665,9 @@ All four decision points closed. Status: **Approved — proceeding to Phase 3.**
    `phase1[].xauth.error` (no backing `XAUTHST_FAILED` state exists — same root
    cause as `pfs_group`, surfaced during the freeze pass).
 4. **D4** — `schema_version` is `"major.minor"`; additive fields bump minor,
-   breaking changes bump major; the RFC-0001 harness pins on major only.
+   breaking changes bump major; any future JSON consumer needs only
+   major-version awareness to stay compatible across minor bumps (see the
+   corrected RFC-0001 note under D4 above — no such consumer exists today).
 5. **D5** (added via issue #139 review comment) — `phase1[].remote_config`
    (`anonymous`/`passive`/`generate_policy`, all three source-verified against
    `remoteconf.c`/`isakmp.c`/`pfkey.c`/`isakmp_quick.c`/`proposal.c`) added to
