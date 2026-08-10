@@ -1308,3 +1308,27 @@ status_dump(vchar_t **out, int verbose, int json_format)
 	}
 	ob_free(&ob);
 }
+
+#ifdef ENABLE_UNITTEST
+/*
+ * Thin -DENABLE_UNITTEST accessors for status.c's static functions --
+ * same pattern as racoonctl.c's own f_status_unittest()/get_combuf_unittest()
+ * and handler.c's ph1tree_count_unittest(): no production behavior change,
+ * just visibility for test_status_dump.c to call ph1_state_name()/
+ * ph2_state_name() directly with every PHASE1ST_/PHASE2ST_ value
+ * (including an out-of-range one, for the default: "unknown" branch)
+ * without needing a ph1handle/ph2handle fixture -- both functions are
+ * pure (int in, const char * out, no side effects).
+ */
+const char *
+ph1_state_name_unittest(int state)
+{
+	return ph1_state_name(state);
+}
+
+const char *
+ph2_state_name_unittest(int state)
+{
+	return ph2_state_name(state);
+}
+#endif /* ENABLE_UNITTEST */

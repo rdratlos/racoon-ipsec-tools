@@ -44,6 +44,9 @@ extern int status_test_ph2_queue_len;
 extern char *saddr2str_result;
 extern char *ipsecdoi_id2str_result;
 
+extern const char *ph1_state_name_unittest(int state);
+extern const char *ph2_state_name_unittest(int state);
+
 #define TEST_PASS() do { printf("\xe2\x9c\x93 PASS\n"); } while (0)
 #define TEST_FAIL(msg) do { printf("\xe2\x9c\x97 FAIL: %s\n", msg); return -1; } while (0)
 #define TEST_START(name) do { printf("\n[TEST] %s ... ", name); fflush(stdout); } while (0)
@@ -76,6 +79,104 @@ braces_balanced(const char *s, size_t len)
 			return 0;
 	}
 	return depth == 0;
+}
+
+/*
+ * Exhaustive coverage for ph1_state_name()/ph2_state_name() (status.c) --
+ * unrelated to the broader status.c/handler.c coverage work in progress
+ * elsewhere in the project; found and closed as a small, self-contained
+ * gap on its own. Every other test in this file only ever constructs a
+ * PHASE1ST_ESTABLISHED/PHASE2ST_ESTABLISHED handle, so every other switch
+ * case (and the default branch) showed zero hits in gcov. Both functions
+ * are pure (int in, const char * out, no side effects), so this needs no
+ * ph1handle/ph2handle fixture -- just the ENABLE_UNITTEST accessors
+ * calling straight through to them.
+ *
+ * The out-of-range value (9999, not a real PHASE1ST_ or PHASE2ST_ member)
+ * covers the default: "unknown" branch specifically -- that branch is the
+ * actual defense against a future state constant added to handler.h that
+ * status.c hasn't been updated to name, so it earns its own assertion
+ * rather than being covered incidentally by whichever real state a test
+ * happens to construct.
+ */
+struct state_name_case {
+	int state;
+	const char *expect;
+};
+
+static int
+test_ph1_state_name_exhaustive(void)
+{
+	static const struct state_name_case cases[] = {
+		{ PHASE1ST_SPAWN,		"spawn" },
+		{ PHASE1ST_START,		"start" },
+		{ PHASE1ST_MSG1RECEIVED,	"msg1received" },
+		{ PHASE1ST_MSG1SENT,		"msg1sent" },
+		{ PHASE1ST_MSG2RECEIVED,	"msg2received" },
+		{ PHASE1ST_MSG2SENT,		"msg2sent" },
+		{ PHASE1ST_MSG3RECEIVED,	"msg3received" },
+		{ PHASE1ST_MSG3SENT,		"msg3sent" },
+		{ PHASE1ST_MSG4RECEIVED,	"msg4received" },
+		{ PHASE1ST_ESTABLISHED,	"established" },
+		{ PHASE1ST_DYING,		"dying" },
+		{ PHASE1ST_EXPIRED,		"expired" },
+		{ 9999,				"unknown" },
+	};
+	size_t i;
+
+	TEST_START("ph1_state_name() maps every PHASE1ST_* constant, "
+	    "plus an out-of-range value to \"unknown\"");
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		const char *got = ph1_state_name_unittest(cases[i].state);
+
+		if (got == NULL || strcmp(got, cases[i].expect) != 0) {
+			printf("(state=%d expected \"%s\" got \"%s\") ",
+			    cases[i].state, cases[i].expect,
+			    got != NULL ? got : "(null)");
+			TEST_FAIL("ph1_state_name() mismatch");
+		}
+	}
+
+	TEST_PASS();
+	return 0;
+}
+
+static int
+test_ph2_state_name_exhaustive(void)
+{
+	static const struct state_name_case cases[] = {
+		{ PHASE2ST_SPAWN,		"spawn" },
+		{ PHASE2ST_START,		"start" },
+		{ PHASE2ST_STATUS2,		"status2" },
+		{ PHASE2ST_GETSPISENT,		"getspisent" },
+		{ PHASE2ST_GETSPIDONE,		"getspidone" },
+		{ PHASE2ST_MSG1SENT,		"msg1sent" },
+		{ PHASE2ST_STATUS6,		"status6" },
+		{ PHASE2ST_COMMIT,		"commit" },
+		{ PHASE2ST_ADDSA,		"addsa" },
+		{ PHASE2ST_ESTABLISHED,	"established" },
+		{ PHASE2ST_EXPIRED,		"expired" },
+		{ 9999,				"unknown" },
+	};
+	size_t i;
+
+	TEST_START("ph2_state_name() maps every PHASE2ST_* constant, "
+	    "plus an out-of-range value to \"unknown\"");
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		const char *got = ph2_state_name_unittest(cases[i].state);
+
+		if (got == NULL || strcmp(got, cases[i].expect) != 0) {
+			printf("(state=%d expected \"%s\" got \"%s\") ",
+			    cases[i].state, cases[i].expect,
+			    got != NULL ? got : "(null)");
+			TEST_FAIL("ph2_state_name() mismatch");
+		}
+	}
+
+	TEST_PASS();
+	return 0;
 }
 
 static int
@@ -505,6 +606,10 @@ main(void)
 
 	printf("\n=== status_dump() coverage test ===\n");
 
+	if (test_ph1_state_name_exhaustive() != 0)
+		failed++;
+	if (test_ph2_state_name_exhaustive() != 0)
+		failed++;
 	if (test_empty_tree_json_nonverbose() != 0)
 		failed++;
 	if (test_empty_tree_json_verbose() != 0)
