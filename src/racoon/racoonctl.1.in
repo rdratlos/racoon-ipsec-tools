@@ -276,6 +276,30 @@ SPIs are shown masked
 .Pq e.g. Li 0x1234**** ,
 never in full.
 .Pp
+Each
+.Ic phase2
+entry carries
+.Ic phase1_index ,
+the parent Phase 1's
+.Ic index
+string, letting a consumer join the two arrays.
+Its
+.Ic proposal
+also carries
+.Ic effective_group :
+when PFS was negotiated this equals
+.Ic pfs_group ;
+otherwise it falls back to the parent Phase 1's
+.Ic dh_group ,
+since per RFC 2409 \(sc5.5 that is the Diffie-Hellman group actually
+securing this tunnel's key material when Quick Mode itself performed no
+PFS exchange \(em a
+.Ic pfs_group
+of
+.Ic null
+does not mean no group protects the tunnel, only that none was
+renegotiated at the Phase 2 level.
+.Pp
 .Ic status
 is read-only: unlike every other command above, it never establishes,
 tears down, or reloads anything.
@@ -291,7 +315,7 @@ Example
 output for one established Phase 1 SA with one Phase 2 SA:
 .Bd -literal -offset indent
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "timestamp": "2026-01-15T10:30:00Z",
   "phase1": [
     {
@@ -318,6 +342,7 @@ output for one established Phase 1 SA with one Phase 2 SA:
   "phase2": [
     {
       "index": "0x87654321",
+      "phase1_index": "0x1122334455667788...",
       "state": "established",
       "spi_in": "0x1234****",
       "spi_out": "0x8765****",
@@ -334,6 +359,7 @@ output for one established Phase 1 SA with one Phase 2 SA:
         "encryption_algorithm": "AES256",
         "authentication_algorithm": "hmac-sha256",
         "pfs_group": 14,
+        "effective_group": 14,
         "lifetime_time": 3600,
         "lifetime_bytes": 0
       },

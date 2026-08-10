@@ -431,6 +431,68 @@ without racoon vouching for it. Your call if you'd rather have it anyway —
 flagging the asymmetry (declined here, but offered as optional in the review
 comment) rather than silently picking one.
 
+### D6 — Phase1↔Phase2 association + `effective_group` (issue #140)
+
+Raised during live sign-off of issue #139 (a BSI TR-02102 compliance
+question): `phase2[].proposal.pfs_group` correctly renders `null` when no
+PFS was negotiated, but per RFC 2409 §5.5 that doesn't mean "no DH group
+protects this tunnel" — without a PFS exchange of its own, Phase 2 KEYMAT is
+`prf(SKEYID_d, protocol | SPI | Ni_b | Nr_b)`, and `SKEYID_d` is derived from
+the *parent Phase 1's* DH exchange. So the group actually backing the
+tunnel's key entropy, when `pfs_group` is `null`, is the parent Phase 1's
+`dh_group` — and the frozen v1.0 schema gave no way to find that parent from
+a `phase2[]` entry.
+
+**Ratified, additive (schema_version 1.0 → 1.1):**
+
+```json
+{
+  "phase2": [
+    {
+      "phase1_index": "0xb16602f936e48393bff00320f00f8cf0",
+      "proposal": {
+        "pfs_group": null,
+        "effective_group": 14
+      }
+    }
+  ]
+}
+```
+
+- `phase2[].phase1_index` — the parent Phase 1's cookie-pair string, same
+  format as `phase1[].index` (both produced by `cookie_pair_hex()`,
+  `status.c`), letting a consumer join the two arrays. Sourced from
+  `iph2->ph1` (`struct ph2handle`, `handler.h`), a direct back-pointer set by
+  `bindph12()`.
+- `phase2[].proposal.effective_group` — equals `pfs_group` when PFS was
+  negotiated, otherwise the parent Phase 1's `dh_group`; a single field a
+  compliance checker can read without knowing the RFC 2409 fallback rule.
+
+**Type-consistency rule (the actual reason this needed a decision, not just
+an addition):** `phase1[].proposal.dh_group` is a **string** — populated via
+`dupstr(s_attr_isakmp_group(iph1->approval->dh_group))`, a name-table
+lookup, same convention as `enc_alg`/`hash_alg`/`auth_method`.
+`phase2[].proposal.pfs_group` is a **number** (or `null`) — the raw
+`iph2->approval->pfs_group` int. `effective_group` bridges both sources, and
+naively inheriting whichever type its source happened to have would produce
+a field whose JSON type depends on tunnel state (string when falling back to
+Phase 1, number when equal to `pfs_group`) — worse than the gap this issue
+closes. **Resolved by defining `effective_group`'s own type from scratch:
+always a JSON number.** The fallback path reads `iph1->approval->dh_group`
+directly (already an `int` in `struct isakmpsa`, `remoteconf.h`) rather than
+parsing back out of the already-stringified `dh_group` field — no string
+round-trip, and `phase1[].proposal.dh_group`'s existing string type is left
+untouched (retyping it would be a breaking, major-bump change and is out of
+scope here).
+
+**Edge case, verified not hypothetical:** `iph2->ph1` can genuinely be
+`NULL` — `unbindph12()` (`handler.c`) clears it, and is called from
+`initph2()` and during phase2 teardown, both of which can run while the
+`ph2handle` is still briefly enumerable. `collect_ph2()` guards this: when
+`iph2->ph1` is `NULL`, `phase1_index` renders `null` and `effective_group`
+renders `0` (not a valid real DH group id, so it doubles as "indeterminate"
+without a separate null branch for a field required to always be a number).
+
 ---
 
 ## 4. Findings
