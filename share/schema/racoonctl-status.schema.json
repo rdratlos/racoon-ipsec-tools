@@ -231,13 +231,15 @@
           "properties": {
             "encryption_algorithm": {
               "type": "string",
+              "description": "Includes the cipher mode, e.g. \"AES-CBC\" rather than a bare \"AES\". strnames.c's s_ipsecdoi_trns_esp() renders only the cipher family; status.c appends the mode, which is a property of the transform ID (racoon implements CBC and nothing else -- no CTR, no GCM). IPSECDOI_ESP_NULL and IPSECDOI_ESP_RC4 are genuinely modeless and keep their bare names, as does an unrecognized transform ID falling through to num2str(). Kept a plain string of unchanged meaning -- only the value's precision improved, so no schema_version bump (D4).",
               "x-source-config": "src/racoon/cftoken.l:309 (encryption_algorithm, S_SAINFS)",
-              "x-source-render": "src/racoon/strnames.c:468 (s_ipsecdoi_trns_esp)"
+              "x-source-render": "src/racoon/status.c:791 (esp_enc_alg_name)"
             },
             "authentication_algorithm": {
               "type": "string",
+              "description": "Includes the hash variant, e.g. \"hmac-sha1\" rather than a bare \"hmac-sha\". strnames.c's name_attr_ipsec_auth[] already names the variant for every SHA-2 entry (\"hmac-sha256\"/\"-sha384\"/\"-sha512\") and only truncates the SHA-1 one; status.c restores that single entry to the table's own convention and defers to s_ipsecdoi_auth() for all other values. null when the ESP transform negotiated no authentication (IPSECDOI_ATTR_AUTH_NONE), and absent entirely on an AH SA.",
               "x-source-config": "src/racoon/cftoken.l:310 (authentication_algorithm, S_SAINFS)",
-              "x-source-render": "src/racoon/strnames.c:572 (s_ipsecdoi_auth)"
+              "x-source-render": "src/racoon/status.c:820 (esp_auth_alg_name)"
             },
             "compression_algorithm": {
               "type": "string",
