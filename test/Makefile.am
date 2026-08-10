@@ -2076,6 +2076,41 @@ test_handler_flushph1_LDADD    = $(top_builddir)/src/racoon/handler_ffs.o \
 test_handler_flushph1_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# test_handler_enum drives enumph1()/enumph2() (handler.c) directly --
+# coverage analysis found status.c's/admin.c's/pfkey.c's call sites to both
+# functions covered while the real function bodies in handler.c showed
+# zero coverage: every existing test that reaches either one goes through
+# a hand-written stand-in (status_test_stubs.c, admin_test_stubs.c), never
+# the real loop. That real loop carries a use-after-free fix (precompute
+# "next" before calling enum_func(), since enum_func() can free the
+# current entry) confirmed live via valgrind on a delete-sa/flush-sa run
+# (see enumph1()'s own header comment in handler.c) -- never regression
+# tested against the real function until now. Links handler_ffs.o (same as
+# test_handler_flushph1 above) plus sockmisc_ffs.o for a real cmpsaddr(),
+# since this test also wants enumph1()/enumph2()'s selector-filtering path
+# exercised for real, not stubbed around. Same
+# AddressSanitizer/--gc-sections incompatibility as the other
+# wrapped-static-function tests, hence !SANITIZER_BUILD.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_handler_enum
+
+test_handler_enum_SOURCES  = test_handler_enum.c \
+	handler_enum_test_stubs.c
+test_handler_enum_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_handler_enum_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_handler_enum_LDADD    = $(top_builddir)/src/racoon/handler_ffs.o \
+	$(top_builddir)/src/racoon/sockmisc_ffs.o \
+	$(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_handler_enum_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # test_admin_close covers admin_close() -- pre-dates the v0.9.1 churn but
 # had no coverage at all until now. Already exported, so no
 # ENABLE_UNITTEST accessor needed; shares admin_test_stubs.c's real

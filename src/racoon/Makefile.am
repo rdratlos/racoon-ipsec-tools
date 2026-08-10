@@ -211,7 +211,7 @@ crypto_openssl_test.o: crypto_openssl.c
 crypto_openssl_unittest.o: crypto_openssl.c
 	$(COMPILE) -o crypto_openssl_unittest.o -c $(srcdir)/crypto_openssl.c
 
-all-local: crypto_openssl_unittest.o handler_ffs.o racoon.8 racoon.conf.5 plainrsa-gen.8 racoonctl.1
+all-local: crypto_openssl_unittest.o handler_ffs.o sockmisc_ffs.o racoon.8 racoon.conf.5 plainrsa-gen.8 racoonctl.1
 
 misc_noplog.o: misc.c
 	$(COMPILE) -DNOUSE_PLOG -o misc_noplog.o -c $(srcdir)/misc.c
@@ -223,6 +223,14 @@ misc_noplog.o: misc.c
 # crypto_openssl_unittest.o already use for their own test/ consumers.
 handler_ffs.o: handler.c
 	$(COMPILE) -DENABLE_UNITTEST -ffunction-sections -fdata-sections -o handler_ffs.o -c $(srcdir)/handler.c
+
+# Same technique as handler_ffs.o above, for test/test_handler_enum.c: a
+# real cmpsaddr() (sockmisc.c) is needed to exercise enumph1()/enumph2()'s
+# selector-filtering path for real rather than stubbing the address-match
+# logic itself, without pulling in the rest of sockmisc.c's dependency
+# surface that a plain (non-sectioned) sockmisc.o link would require.
+sockmisc_ffs.o: sockmisc.c
+	$(COMPILE) -ffunction-sections -fdata-sections -o sockmisc_ffs.o -c $(srcdir)/sockmisc.c
 
 # missing/*.c
 strdup.o:	$(srcdir)/missing/strdup.c
