@@ -300,6 +300,26 @@ of
 does not mean no group protects the tunnel, only that none was
 renegotiated at the Phase 2 level.
 .Pp
+A
+.Ic phase2
+entry's
+.Ic proposal.encryption_algorithm
+names the cipher mode along with the cipher
+.Pq e.g. Li AES-CBC , not Li AES ,
+and its
+.Ic proposal.authentication_algorithm
+names the hash variant
+.Pq e.g. Li hmac-sha1 , not Li hmac-sha .
+CBC is the only cipher mode
+.Xr racoon 8
+implements, so the mode follows from the negotiated transform alone.
+.Ic AH
+SAs and the
+.Ic NULL
+and
+.Ic RC4
+ESP transforms carry no cipher mode and are named without a suffix.
+.Pp
 .Ic status
 is read-only: unlike every other command above, it never establishes,
 tears down, or reloads anything.
@@ -326,10 +346,10 @@ output for one established Phase 1 SA with one Phase 2 SA:
       "version": "1.0",
       "exchange_mode": "MAIN",
       "proposal": {
-        "encryption_algorithm": "AES256",
+        "encryption_algorithm": "AES-CBC",
         "hash_algorithm": "SHA256",
         "authentication_method": "pre-shared key",
-        "dh_group": "2048-bit MODP group",
+        "dh_group": "14",
         "lifetime_time": 28800
       },
       "remote_config": {
@@ -347,7 +367,7 @@ output for one established Phase 1 SA with one Phase 2 SA:
       "spi_in": "0x1234****",
       "spi_out": "0x8765****",
       "protocol": "ESP",
-      "encmode": "tunnel",
+      "encmode": "Tunnel",
       "selectors": {
         "src": "203.0.113.1/32",
         "dst": "198.51.100.1/32",
@@ -356,8 +376,8 @@ output for one established Phase 1 SA with one Phase 2 SA:
         "dst_port": "any"
       },
       "proposal": {
-        "encryption_algorithm": "AES256",
-        "authentication_algorithm": "hmac-sha256",
+        "encryption_algorithm": "AES-CBC",
+        "authentication_algorithm": "hmac-sha1",
         "pfs_group": 14,
         "effective_group": 14,
         "lifetime_time": 3600,
