@@ -324,6 +324,30 @@ test_racoonctl_logoutusr_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 endif
 
+# Test: f_status() (racoonctl.c, "racoonctl status") CLI parsing -- the
+# get_combuf() av[]-shift/getopt() bug where "-v" as the sole argument was
+# silently dropped (see test_racoonctl_status_cli.c's own header comment).
+# f_status() is not ENABLE_HYBRID-gated, unlike test_racoonctl_logoutusr
+# above; same wrapper/link approach otherwise (racoonctl_unittest_src.c,
+# vmbuf.o + misc_noplog.o only, no COMMON_LDADD -- see that test's own
+# comment for why).
+if !SANITIZER_BUILD
+check_PROGRAMS += test_racoonctl_status_cli
+
+test_racoonctl_status_cli_SOURCES  = test_racoonctl_status_cli.c \
+	racoonctl_unittest_src.c \
+	racoonctl_unittest_stubs.c
+test_racoonctl_status_cli_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_racoonctl_status_cli_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_racoonctl_status_cli_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_racoonctl_status_cli_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Test: get_comindex() address-form grammar (racoonctl.c, issue #119) --
 # the "addr/prefix[port]" branch stripped ']' by searching *pref (already
 # truncated to just the prefix digits, so it can never contain ']')
