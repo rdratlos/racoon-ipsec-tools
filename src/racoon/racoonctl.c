@@ -100,6 +100,7 @@ static vchar_t *f_exchangesa __P((int, char **));
 static vchar_t *f_vpnc __P((int, char **));
 static vchar_t *f_vpnd __P((int, char **));
 static vchar_t *f_getevt __P((int, char **));
+static vchar_t *f_status __P((int, char **));
 #ifdef ENABLE_HYBRID
 static vchar_t *f_logoutusr __P((int, char **));
 #endif
@@ -128,6 +129,8 @@ struct cmd_tag {
 	{ f_vpnd,	"vd" },
 	{ f_getevt,	"show-event" },
 	{ f_getevt,	"se" },
+	{ f_status,	"status" },
+	{ f_status,	"st" },
 #ifdef ENABLE_HYBRID
 	{ f_logoutusr,	"logout-user" },
 	{ f_logoutusr,	"lu" },
@@ -218,6 +221,7 @@ usage(void)
 "  %s [opts] vpn-disconnect vpn_gateway\n"
 "  %s [opts] show-event\n"
 "  %s [opts] logout-user login\n"
+"  %s [opts] status [-v] [-f text|json] [--format=text|json]\n"
 "\n"
 "General options:\n"
 "  -d		Debug: hexdump admin messages before sending\n"
@@ -235,7 +239,7 @@ usage(void)
 "    <ul_proto>: \"icmp\", \"tcp\", \"udp\", \"gre\" or \"any\"\n"
 "\n",
 		pname, pname, pname, pname, pname, pname, pname, pname, pname, pname,
-		ADMINSOCK_PATH);
+		pname, ADMINSOCK_PATH);
 }
 
 /*
@@ -387,6 +391,60 @@ f_getevt(int ac, char **av)
 		errx(1, "too many arguments");
 
 	return make_request(ADMIN_SHOW_EVT, 0, 0);
+}
+
+static vchar_t *
+f_status(int ac, char **av)
+{
+	int verbose = 0;
+	int json_format = 0;
+	int ch;
+	int i;
+
+	/* --format=text|json: this file has no getopt_long() anywhere else,
+	 * so a small hand-scan for the one long option keeps that
+	 * consistent instead of introducing a new dependency. Consumed and
+	 * removed from av[] before getopt() runs. */
+	for (i = 0; i < ac; i++) {
+		if (strncmp(av[i], "--format=", 9) == 0) {
+			if (strcmp(av[i] + 9, "json") == 0)
+				json_format = 1;
+			else if (strcmp(av[i] + 9, "text") == 0)
+				json_format = 0;
+			else
+				errx(1, "usage: status [-v] [-f text|json] [--format=text|json]");
+			for (; i < ac - 1; i++)
+				av[i] = av[i + 1];
+			ac--;
+			i--;
+		}
+	}
+
+	while ((ch = getopt(ac, av, "vf:")) != -1) {
+		switch (ch) {
+		case 'v':
+			verbose = 1;
+			break;
+		case 'f':
+			if (strcmp(optarg, "json") == 0)
+				json_format = 1;
+			else if (strcmp(optarg, "text") == 0)
+				json_format = 0;
+			else
+				errx(1, "usage: status [-v] [-f text|json] [--format=text|json]");
+			break;
+		default:
+			errx(1, "usage: status [-v] [-f text|json] [--format=text|json]");
+		}
+	}
+	ac -= optind;
+	av += optind;
+
+	if (ac >= 1)
+		errx(1, "too many arguments");
+
+	return make_request(verbose ? ADMIN_STATUS_VERBOSE : ADMIN_STATUS,
+	    json_format ? ADMIN_STATUS_FORMAT_JSON : ADMIN_STATUS_FORMAT_TEXT, 0);
 }
 
 static vchar_t *
@@ -1558,6 +1616,12 @@ handle_recv(vchar_t *combuf)
 		}
 
 	    }
+		break;
+
+	case ADMIN_STATUS:
+	case ADMIN_STATUS_VERBOSE:
+		fwrite(buf, len, 1, stdout);
+		printf("\n");
 		break;
 
 	default:
