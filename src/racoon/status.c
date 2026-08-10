@@ -730,6 +730,100 @@ ph2_protocol_name(int proto_id)
 	}
 }
 
+/*
+ * Phase 2 algorithm names: strnames.c's IPsec-DOI transform tables render
+ * a bare cipher/hash family name, which loses information phase1's own
+ * proposal fields carry -- the two sat side by side in one document
+ * describing the same cipher family differently ("AES" vs "AES-CBC").
+ * Both helpers below reconstruct the missing part from the transform ID
+ * alone, which is sufficient: no key material or key length is consulted,
+ * and no schema field changes type or meaning -- only the value's
+ * precision improves.
+ *
+ * Deliberately derived here rather than by editing strnames.c: those
+ * tables are also the render path for racoon's -dddd proposal logging and
+ * are pinned by test/test_strnames.c, so retargeting them would change
+ * unrelated output for every existing consumer. algorithm.c's
+ * ipsec_encdef[]/ipsec_hmacdef[] were checked as the "sibling table"
+ * alternative and rejected: they hold config-grammar keywords ("aes",
+ * "sha1"), not display names, carry no mode either, are file-static, and
+ * several entries are #ifdef'd out depending on the OpenSSL build.
+ */
+
+/*
+ * Every ESP transform racoon can actually negotiate is a CBC-mode block
+ * cipher: crypto_openssl.c implements exactly one mode per cipher
+ * (EVP_aes_{128,192,256}_cbc(), EVP_camellia_*_cbc(), EVP_des_ede3_cbc(),
+ * EVP_bf_cbc(), EVP_cast5_cbc(), EVP_idea_cbc(), EVP_des_cbc()), and the
+ * tree has no CTR or GCM support at all -- so the mode is a property of
+ * the transform ID, not something that has to be guessed from key length.
+ *
+ * The two exceptions are genuinely not CBC and keep their bare names:
+ * IPSECDOI_ESP_NULL (no encryption, hence no mode) and IPSECDOI_ESP_RC4
+ * (a stream cipher). An unrecognized transform ID falls through to
+ * s_ipsecdoi_trns_esp()'s num2str() fallback and must not be labelled
+ * either way, so it is not listed here.
+ */
+static int
+esp_trns_is_cbc(int trns_id)
+{
+	switch (trns_id) {
+	case IPSECDOI_ESP_DES_IV64:
+	case IPSECDOI_ESP_DES:
+	case IPSECDOI_ESP_3DES:
+	case IPSECDOI_ESP_RC5:
+	case IPSECDOI_ESP_IDEA:
+	case IPSECDOI_ESP_CAST:
+	case IPSECDOI_ESP_BLOWFISH:
+	case IPSECDOI_ESP_3IDEA:
+	case IPSECDOI_ESP_DES_IV32:
+	case IPSECDOI_ESP_AES:
+	case IPSECDOI_ESP_TWOFISH:
+	case IPSECDOI_ESP_CAMELLIA:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+/* Returns an owned string, like the dupstr() call it replaces. */
+static char *
+esp_enc_alg_name(int trns_id)
+{
+	char *result;
+	const char *base;
+
+	base = s_ipsecdoi_trns_esp(trns_id);
+	if (base == NULL)
+		return NULL;
+
+	if (!esp_trns_is_cbc(trns_id))
+		return dupstr(base);
+
+	/* base points into strnames.c's table (or its static num2str()
+	 * buffer) -- consumed immediately here, never stored. */
+	if (asprintf(&result, "%s-CBC", base) < 0)
+		return dupstr(base);
+	return result;
+}
+
+/*
+ * strnames.c's name_attr_ipsec_auth[] renders
+ * IPSECDOI_ATTR_AUTH_HMAC_SHA1 as "hmac-sha", dropping the variant digit
+ * that its own SHA-2 entries do carry ("hmac-sha256"/"-sha384"/
+ * "-sha512"). That lone truncated entry is the whole gap: every other
+ * value in the table already names its variant, so this reproduces the
+ * table's own established convention for the one entry that breaks it,
+ * and defers to strnames.c for all the rest.
+ */
+static char *
+esp_auth_alg_name(int authtype)
+{
+	if (authtype == IPSECDOI_ATTR_AUTH_HMAC_SHA1)
+		return racoon_strdup("hmac-sha1");
+	return dupstr(s_ipsecdoi_auth(authtype));
+}
+
 /* iph2->id/id_p carry the wire selector's own port/proto fields
  * (struct ipsecdoi_id_b) -- a more reliable source for the negotiated
  * selector than reinterpreting iph2->sa_src/sa_dst as sockaddr_in, which
@@ -802,9 +896,9 @@ collect_ph2(struct ph2handle *iph2, struct status_ph2 *p)
 			for (trns = proto->head; trns != NULL; trns = trns->next) {
 				switch (proto->proto_id) {
 				case IPSECDOI_PROTO_IPSEC_ESP:
-					p->enc_alg = dupstr(s_ipsecdoi_trns_esp(trns->trns_id));
+					p->enc_alg = esp_enc_alg_name(trns->trns_id);
 					if (trns->authtype != IPSECDOI_ATTR_AUTH_NONE)
-						p->auth_alg = dupstr(s_ipsecdoi_auth(trns->authtype));
+						p->auth_alg = esp_auth_alg_name(trns->authtype);
 					break;
 				case IPSECDOI_PROTO_IPSEC_AH:
 					p->enc_alg = dupstr(s_ipsecdoi_trns_ah(trns->trns_id));
