@@ -1,6 +1,8 @@
 # `racoonctl status` — Phase 1 Analysis &amp; Phase 2 Report
 
-**Status:** D1–D4 ratified (§5). Phase 3 (issue) in progress; ⏸ before Phase 4 (code).
+**Status:** D1–D4 ratified (§5). Phase 3 done — consolidated issue:
+[rdratlos/racoon-ipsec-tools#139](https://github.com/rdratlos/racoon-ipsec-tools/issues/139).
+⏸ before Phase 4 (code).
 **Branch:** `claude/racoonctl-status-rewrite` (based on `develop`, not the discarded
 `feature/racoonctl-status`/first-draft history).
 **Scope:** analysis + recommendations only. No code in this commit.
@@ -572,8 +574,8 @@ must render as PFS genuinely absent (e.g. omit the key or `null`), never as a
 bogus group number. `compression_algorithm` intentionally held back per D3
 pending a Phase 4 scope check.
 
-Next: Phase 3 — opening the single consolidated GitHub issue with this schema,
-the D1–D4 rationale (including the §2.1 call-chain block verbatim, per your
-instruction), and the acceptance criteria (including H-4's `send()` loop fix
-and the live-test matrix). **Waiting for the ⏸ gate after that, before any
-Phase 4 code.**
+**Phase 3 done:** [issue #139](https://github.com/rdratlos/racoon-ipsec-tools/issues/139)
+consolidates this schema, the D1–D4 rationale (including the §2.1 call-chain
+block verbatim), and the acceptance criteria (including H-4's `send()` loop fix
+and the live-test matrix). **⏸ Waiting for the go before any Phase 4 code**,
+on `feature/racoonctl-status` fresh off `develop`.
