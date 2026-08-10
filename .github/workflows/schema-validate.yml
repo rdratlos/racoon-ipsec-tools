@@ -1,0 +1,71 @@
+# Validates share/schema/racoonctl-status.schema.json (issue #140): that
+# the file is itself well-formed JSON Schema Draft 2020-12, and that its
+# x-source-config/x-source-render provenance annotations still point at
+# real, current source (tools/schema_cross_check.py) rather than having
+# drifted after a later edit to cftoken.l/strnames.c/status.c.
+#
+# Deliberately two separate jobs, matching the two separate failure modes:
+# a malformed schema edit fails on its own, independent of whether any
+# cited source file changed in the same push/PR.
+
+name: racoonctl status schema
+
+on:
+  push:
+    paths:
+      - 'share/schema/**'
+      - 'src/racoon/cftoken.l'
+      - 'src/racoon/strnames.c'
+      - 'src/racoon/status.c'
+      - 'tools/schema_cross_check.py'
+      - '.github/workflows/schema-validate.yml'
+  pull_request:
+    paths:
+      - 'share/schema/**'
+      - 'src/racoon/cftoken.l'
+      - 'src/racoon/strnames.c'
+      - 'src/racoon/status.c'
+      - 'tools/schema_cross_check.py'
+      - '.github/workflows/schema-validate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  meta-validate:
+    name: Schema is valid Draft 2020-12
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jsonschema
+        run: pip install --quiet jsonschema
+
+      - name: Check share/schema/racoonctl-status.schema.json is itself a valid schema
+        run: |
+          python3 - <<'EOF'
+          import json
+          import sys
+          from jsonschema import Draft202012Validator
+
+          path = "share/schema/racoonctl-status.schema.json"
+          with open(path) as f:
+              schema = json.load(f)
+
+          try:
+              Draft202012Validator.check_schema(schema)
+          except Exception as e:
+              print(f"::error file={path}::not a valid Draft 2020-12 schema: {e}")
+              sys.exit(1)
+
+          print(f"{path}: valid Draft 2020-12 JSON Schema.")
+          EOF
+
+  cross-check:
+    name: Provenance annotations match cited source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: tools/schema_cross_check.py
+        run: python3 tools/schema_cross_check.py

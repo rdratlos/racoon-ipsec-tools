@@ -83,6 +83,7 @@
 #include "policy.h"
 #include "admin.h"
 #include "admin_var.h"
+#include "status.h"
 #include "isakmp_inf.h"
 #ifdef ENABLE_HYBRID
 #include "isakmp_cfg.h"
@@ -288,6 +289,15 @@ static int admin_ph1_delete_sa(struct ph1handle *iph1, void *arg)
 
 /*
  * main child's process.
+ *
+ * ADMIN_STATUS/ADMIN_STATUS_VERBOSE call status_dump() (status.c), whose
+ * ph1tree/ph2tree extraction pass runs without any locking: admin_process()
+ * and the ISAKMP negotiation state machine (isakmp_handler() and everything
+ * it calls) both run on this daemon's single-threaded monitor_fd() event
+ * loop, one ready fd at a time, so nothing can mutate a handle while this
+ * function is reading it. See doc/dev/racoonctl-status-analysis.md's D2
+ * call-chain trace (also reproduced in issue #139) for the full argument --
+ * do not add locking here on the assumption it might be needed.
  */
 static int
 admin_process(int so2, char *combuf)
@@ -388,6 +398,18 @@ admin_process(int so2, char *combuf)
 		}
 		break;
 	}
+
+	case ADMIN_STATUS:
+		status_dump(&buf, 0, com->ac_proto == ADMIN_STATUS_FORMAT_JSON);
+		if (buf == NULL)
+			l_ac_errno = ENOMEM;
+		break;
+
+	case ADMIN_STATUS_VERBOSE:
+		status_dump(&buf, 1, com->ac_proto == ADMIN_STATUS_FORMAT_JSON);
+		if (buf == NULL)
+			l_ac_errno = ENOMEM;
+		break;
 
 	case ADMIN_FLUSH_SA:
 		switch (com->ac_proto) {
@@ -842,6 +864,8 @@ static int
 admin_reply(int so, struct admin_com *req, int l_ac_errno, vchar_t *buf)
 {
 	int tlen;
+	size_t sent;
+	ssize_t n;
 	struct admin_com *combuf;
 	char *retbuf = NULL;
 
@@ -872,14 +896,31 @@ admin_reply(int so, struct admin_com *req, int l_ac_errno, vchar_t *buf)
 	if (buf != NULL)
 		memcpy(retbuf + sizeof(*combuf), buf->v, buf->l);
 
-	tlen = send(so, retbuf, tlen, 0);
-	racoon_free(retbuf);
-	if (tlen < 0) {
-		plog(LLV_ERROR, LOCATION, NULL,
-			"failed to send admin command: %s\n",
-			strerror(errno));
-		return -1;
+	/* A single send() may legally return fewer bytes than requested on
+	 * this SOCK_STREAM socket (admin_init(), AF_UNIX/SOCK_STREAM) once
+	 * the reply exceeds the kernel's per-call transfer capacity -- no
+	 * existing admin reply was ever big enough to hit this in practice,
+	 * but ADMIN_STATUS/ADMIN_STATUS_VERBOSE's JSON replies (status.c)
+	 * can be, and a silently truncated send here means truncated,
+	 * invalid JSON on the wire. Loop until the whole reply is written,
+	 * mirroring com_recv()'s existing recv() loop on the client side
+	 * (kmpstat.c). See doc/dev/racoonctl-status-analysis.md Finding H-4
+	 * / issue #139. */
+	for (sent = 0; sent < (size_t)tlen; sent += (size_t)n) {
+		n = send(so, retbuf + sent, (size_t)tlen - sent, 0);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			plog(LLV_ERROR, LOCATION, NULL,
+				"failed to send admin command: %s\n",
+				strerror(errno));
+			racoon_free(retbuf);
+			return -1;
+		}
+		if (n == 0)
+			break;
 	}
+	racoon_free(retbuf);
 
 	return 0;
 }
