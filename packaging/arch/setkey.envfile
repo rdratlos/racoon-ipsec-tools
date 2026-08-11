@@ -1,2 +1,0 @@
-# Set to "no" to skip loading /etc/ipsec-tools.conf and /etc/ipsec-tools.d/*.conf on boot
-RUN_SETKEY=yes
