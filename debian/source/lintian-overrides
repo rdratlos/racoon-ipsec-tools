@@ -19,3 +19,15 @@ ipsec-tools source: absolute-symbolic-link-target-in-source /usr/sbin/unbound [t
 # reflowed instead of overridden -- see the source-is-missing check's
 # own "very-long-line-length-in-source-file" note.
 ipsec-tools source: source-is-missing [docs/admin-guide/racoon-admin-guide.html]
+
+# Bionic's lintian (2.5.81ubuntu1, frozen pre-release in Apr 2018) predates
+# debhelper's debhelper-compat virtual package (added in debhelper 11.1.6,
+# Aug 2018), so it can't parse the modern
+# "Build-Depends: debhelper-compat (= 11)" compat declaration and falls
+# back to assuming no compat is set at all. The build itself is correct --
+# Bionic's debhelper is 11.1.6ubuntu2 and applies compat 11 properly, and
+# lintian on Ubuntu Noble and beyond recognizes the syntax cleanly.
+ipsec-tools source: debhelper-compat-file-is-missing
+ipsec-tools source: package-uses-deprecated-debhelper-compat-version 1
+ipsec-tools source: package-uses-debhelper-but-lacks-build-depends
+ipsec-tools source: missing-build-dependency debhelper
