@@ -584,6 +584,80 @@ citation would be unverified prose free to drift.
 
 ---
 
+### D8 — Post-merge defect sweep (issue #143 F1–F4)
+
+Four correctness defects found by reviewing the whole `1dc9149..9594445` arc
+after it merged; none had been caught by the live four-machine test passes.
+Recorded here because two of them changed a documented contract and the
+reasons should not have to be re-derived.
+
+**F1 — `admin_reply()` lost the entire reply on `EINTR`.** The `send()` loop
+added for Finding H-4 used `sent += (size_t)n` as a `for` loop's increment
+expression, and retried `EINTR` with `continue` — which *runs* that
+increment, applying `sent += (size_t)-1`. From `sent == 0` the counter
+wrapped to `SIZE_MAX`, the loop test failed at once, and the function
+returned `0` for success having written nothing. Rewritten as a `while` loop
+that advances `sent` only after a transfer. The `n == 0` case now returns an
+error too: silently `break`ing out reported success on a short write, the
+exact failure the loop exists to prevent. Signal handlers are installed
+without `SA_RESTART` (`session.c`), so `EINTR` here is a real path.
+
+**F2 — text renderer omitted numeric selector proto/ports.** The non-`any`
+branch of three ternaries yielded `""`, so a real selector rendered as
+`proto= sport= dport=`. This violated D5/#139's mandatory-interface rule
+directly (text may differ from JSON in layout only, never in what data is
+shown), and it was invisible to the tests because every text fixture used the
+all-`any` path. Fixed via `selector_field_str()`.
+
+**F3 — `dpd` block was gated on `ENABLE_HYBRID`.** `collect_dpd()` was
+defined *and* called inside `#ifdef ENABLE_HYBRID`, though DPD (RFC 3706) has
+no hybrid dependency and `--enable-hybrid`/`--enable-dpd` are independent
+`configure` options. A `--disable-hybrid --enable-dpd` build ran DPD but
+never emitted the schema-documented block. Moved out to sit beside
+`collect_natt()`, which already had the right shape (defined unconditionally,
+body guarded by its own `#ifdef`). **Generalizable rule: a collector's
+`#ifdef` guard belongs on its own feature, in its own body — never inherited
+from the block it happens to be declared in.**
+
+**F4 — SPI placeholder contradicted the published schema, and the fix is a
+minor bump (1.1 → 1.2).** `collect_ph2()` pre-seeded `spi_in`/`spi_out` with
+`"0x00000000****"` — 8 hex digits where `mask_spi()` and the schema pattern
+`^(0x[0-9a-f]{4}\*\*\*\*|\?)$` both specify 4. That placeholder is what
+actually rendered for any Phase 2 handle enumerated before its proposal was
+approved (`PHASE2ST_START`, `PHASE2ST_GETSPISENT`, …), so a `status -v -f
+json` taken during any in-flight negotiation emitted a document failing the
+project's own schema.
+
+Two fixes were possible and the choice was deliberate, not incidental:
+padding the placeholder to 4 digits would have kept the type stable but kept
+*asserting an all-zero SPI that was never on the wire*. Rendering `null`
+instead says "not negotiated yet" honestly. Chosen: `null`, with the schema
+type widened to `["string", "null"]`.
+
+**Why that is a minor bump under D4, not major:** D4 reserves major for
+rename/remove/**retype** of an existing field. Widening a type *union* is
+additive — every document valid under 1.1 remains valid under 1.2, because
+the string branch is unchanged and only a new permitted value was added. The
+direction of the change is what matters: narrowing a union would break
+existing consumers and would be major. Consumers that assumed `spi_in` was
+always a string need a `// "pending"`-style fallback, which is the normal
+cost of a minor bump and why the version moved at all rather than the fix
+shipping silently. The RFC-0001 harness pins on major and is unaffected.
+
+Note also that JSON Schema applies `pattern` only to string instances, so
+keeping the pattern alongside the widened type constrains the string branch
+and ignores `null` — the intended reading, and the reason the pattern did not
+need loosening.
+
+**Not fixed, deliberately** — the same review's two low-severity findings
+(#143 L1, an unreachable-today leak-by-construction in the transform loop,
+and L2, AH's authentication algorithm being reported in
+`encryption_algorithm`) remain open. L2 in particular is a *field-meaning*
+change for AH SAs and would be a **major** bump under D4, which is why it is
+a standalone decision rather than something folded into this sweep.
+
+---
+
 ## 4. Findings
 
 ### High
@@ -862,3 +936,138 @@ closing them is `share/schema/racoonctl-status.schema.json` (D6 already
 documented above; the schema file itself, its provenance-annotation
 convention, and its CI wiring are tracked as their own deliverable, not
 re-litigated here).
+
+---
+
+## 7. Working with the JSON output (`jq` recipes)
+
+Every command below was run against **real** `status_dump()` output captured
+from the render path (schema_version 1.2), not hand-written examples.
+
+`racoonctl status` needs read access to the admin socket, so these normally
+run as root; `-v` is required for any `phase2[]` query, since a non-verbose
+reply omits the key entirely (D3).
+
+### Validity gate
+
+The one to reach for first, and the one worth putting in a CI or monitoring
+job. `jq -e` exits non-zero on malformed input, so this fails loudly on a
+truncated or corrupted reply rather than printing something that merely looks
+odd:
+
+```sh
+racoonctl status -v -f json | jq -e . > /dev/null \
+    && echo "status output is valid JSON" \
+    || echo "status output is NOT valid JSON" >&2
+```
+
+This is exactly the check that would have caught the `admin_reply()`
+truncation class of bug (Finding H-4, and issue #143 F1's `EINTR`
+regression) from the outside, without reading any C.
+
+To read it as a human, pipe it through unfiltered:
+
+```sh
+racoonctl status -v -f json | jq .
+```
+
+### Validating against the published schema
+
+`jq` checks syntax, not conformance. For the real thing, validate the
+document against `share/schema/racoonctl-status.schema.json` — this is what
+catches a field whose *shape* drifted from the contract (issue #143 F4 was
+precisely that: an 8-hex-digit SPI placeholder against a 4-digit pattern):
+
+```sh
+# pipx install check-jsonschema, or pip install check-jsonschema
+racoonctl status -v -f json > /tmp/status.json
+check-jsonschema --schemafile share/schema/racoonctl-status.schema.json \
+    /tmp/status.json
+```
+
+Equivalent with the `jsonschema` Python module, if that is what is already
+installed:
+
+```sh
+racoonctl status -v -f json \
+  | python3 -c 'import json,sys,jsonschema; \
+      jsonschema.validate(json.load(sys.stdin), \
+        json.load(open("share/schema/racoonctl-status.schema.json"))); \
+      print("conforms")'
+```
+
+### One line per Phase 2 SA
+
+`// "pending"` supplies the fallback for a `null` SPI — a Phase 2 handle
+enumerated before its proposal was approved (issue #143 F4):
+
+```sh
+racoonctl status -v -f json | jq -r '
+  .phase2[]?
+  | [ .index, .protocol, .encmode,
+      .proposal.encryption_algorithm,
+      .proposal.authentication_algorithm,
+      (.spi_in // "pending") ]
+  | @tsv'
+```
+
+```
+0x87654321	ESP	Tunnel	AES-CBC	hmac-sha256	0x1234****
+```
+
+### BSI TR-02102 minimum-group audit
+
+The motivating query behind D6. Reads `effective_group`, **not**
+`pfs_group`: a `null` `pfs_group` does not mean the tunnel is unprotected, it
+means the parent Phase 1's group is what backs its key material (RFC 2409
+§5.5). Prints nothing when every SA is compliant, so it composes into a
+cron/monitoring check:
+
+```sh
+racoonctl status -v -f json | jq -r '
+  .phase2[]?
+  | select(.proposal.effective_group < 14)
+  | "WEAK \(.index) group=\(.proposal.effective_group)"'
+```
+
+```
+WEAK 0x11112222 group=2
+```
+
+### Joining Phase 2 back to its parent Phase 1
+
+What `phase1_index` (D6) exists for. `// "unbound"` covers the window where
+`iph2->ph1` is momentarily `NULL` and `phase1_index` renders `null`:
+
+```sh
+racoonctl status -v -f json | jq -r '
+  . as $d
+  | $d.phase2[]?
+  | . as $p2
+  | "\($p2.index) -> \(($d.phase1[]?
+        | select(.index == $p2.phase1_index)
+        | .index) // "unbound")"'
+```
+
+```
+0x87654321 -> 0xaabb
+0x11112222 -> 0xaabb
+```
+
+### Phase 2 SAs still negotiating
+
+SAs that have no SPIs yet — useful for spotting a Quick Mode that is stuck
+rather than established:
+
+```sh
+racoonctl status -v -f json | jq -r '
+  .phase2[]? | select(.spi_in == null) | "\(.index) \(.state)"'
+```
+
+```
+0x11112222 getspisent
+```
+
+Note this is a schema_version 1.2 idiom. Under 1.1 the same handle rendered
+a bogus `"0x00000000****"` string, so `select(.spi_in == null)` matched
+nothing and there was no reliable way to ask this question.

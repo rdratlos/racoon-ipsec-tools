@@ -275,6 +275,16 @@ major.
 SPIs are shown masked
 .Pq e.g. Li 0x1234**** ,
 never in full.
+A Phase 2 SA that has not yet had a proposal approved has no SPIs to
+report: in that case
+.Ic spi_in
+and
+.Ic spi_out
+render as
+.Ic null
+in JSON, and as
+.Li (pending)
+in text.
 .Pp
 Each
 .Ic phase2
@@ -335,7 +345,7 @@ Example
 output for one established Phase 1 SA with one Phase 2 SA:
 .Bd -literal -offset indent
 {
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "timestamp": "2026-01-15T10:30:00Z",
   "phase1": [
     {

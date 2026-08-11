@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/rdratlos/racoon-ipsec-tools/develop/share/schema/racoonctl-status.schema.json",
   "title": "racoonctl status JSON output",
-  "description": "Wire format produced by `racoonctl status -f json` (see racoonctl(1) and doc/dev/racoonctl-status-analysis.md, issues #139/#140). Describes the current schema_version 1.1 only -- per the project's own additive-minor/breaking-major policy (D4), this file is updated in place on future minor bumps rather than kept per-version; a breaking (major) change gets a new file instead. Field inventory and types verified directly against src/racoon/status.c's json_render_ph1()/json_render_ph2(), not against the analysis doc, to catch any drift between what was decided and what actually ships.",
+  "description": "Wire format produced by `racoonctl status -f json` (see racoonctl(1) and doc/dev/racoonctl-status-analysis.md, issues #139/#140/#143). Describes the current schema_version 1.2 only -- per the project's own additive-minor/breaking-major policy (D4), this file is updated in place on future minor bumps rather than kept per-version; a breaking (major) change gets a new file instead. Field inventory and types verified directly against src/racoon/status.c's json_render_ph1()/json_render_ph2(), not against the analysis doc, to catch any drift between what was decided and what actually ships.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "timestamp", "phase1"],
   "properties": {
     "schema_version": {
-      "const": "1.1",
-      "description": "\"major.minor\" (D4). Additive changes bump minor only; this file is scoped to exactly 1.1's field set."
+      "const": "1.2",
+      "description": "\"major.minor\" (D4). Additive changes bump minor only; this file is scoped to exactly 1.2's field set. 1.1 -> 1.2 widened phase2[].spi_in/spi_out from string to string-or-null (issue #143 F4)."
     },
     "timestamp": {
       "type": "string",
@@ -172,12 +172,13 @@
           "description": "status.c ph2_state_name() -- closed set, same verification basis as phase1[].state."
         },
         "spi_in": {
-          "type": "string",
+          "type": ["string", "null"],
           "pattern": "^(0x[0-9a-f]{4}\\*\\*\\*\\*|\\?)$",
-          "description": "Top 16 bits of the real SPI, rest masked (status.c mask_spi()) -- never the full SPI, by design. The \\? alternative is asprintf()'s own OOM fallback (status.c), included for honesty about the actual wire contract rather than only describing the common case."
+          "description": "Top 16 bits of the real SPI, rest masked (status.c mask_spi()) -- never the full SPI, by design. The \\? alternative is asprintf()'s own OOM fallback (status.c), included for honesty about the actual wire contract rather than only describing the common case. null when no approved proposal has supplied the SPIs yet -- a phase2 handle is enumerable in states before that (PHASE2ST_START, PHASE2ST_GETSPISENT, ...), and 1.1 rendered a bogus 8-hex-digit \"0x00000000****\" there that failed this very pattern (issue #143 F4). Note JSON Schema applies \"pattern\" only to strings, so it constrains the string branch and ignores null, which is the intended reading.",
+          "x-source-render": "src/racoon/status.c:231 (mask_spi)"
         },
         "spi_out": {
-          "type": "string",
+          "type": ["string", "null"],
           "pattern": "^(0x[0-9a-f]{4}\\*\\*\\*\\*|\\?)$"
         },
         "protocol": {
@@ -233,13 +234,13 @@
               "type": "string",
               "description": "Includes the cipher mode, e.g. \"AES-CBC\" rather than a bare \"AES\". strnames.c's s_ipsecdoi_trns_esp() renders only the cipher family; status.c appends the mode, which is a property of the transform ID (racoon implements CBC and nothing else -- no CTR, no GCM). IPSECDOI_ESP_NULL and IPSECDOI_ESP_RC4 are genuinely modeless and keep their bare names, as does an unrecognized transform ID falling through to num2str(). Kept a plain string of unchanged meaning -- only the value's precision improved, so no schema_version bump (D4).",
               "x-source-config": "src/racoon/cftoken.l:309 (encryption_algorithm, S_SAINFS)",
-              "x-source-render": "src/racoon/status.c:791 (esp_enc_alg_name)"
+              "x-source-render": "src/racoon/status.c:801 (esp_enc_alg_name)"
             },
             "authentication_algorithm": {
               "type": "string",
               "description": "Includes the hash variant, e.g. \"hmac-sha1\" rather than a bare \"hmac-sha\". strnames.c's name_attr_ipsec_auth[] already names the variant for every SHA-2 entry (\"hmac-sha256\"/\"-sha384\"/\"-sha512\") and only truncates the SHA-1 one; status.c restores that single entry to the table's own convention and defers to s_ipsecdoi_auth() for all other values. null when the ESP transform negotiated no authentication (IPSECDOI_ATTR_AUTH_NONE), and absent entirely on an AH SA.",
               "x-source-config": "src/racoon/cftoken.l:310 (authentication_algorithm, S_SAINFS)",
-              "x-source-render": "src/racoon/status.c:820 (esp_auth_alg_name)"
+              "x-source-render": "src/racoon/status.c:830 (esp_auth_alg_name)"
             },
             "compression_algorithm": {
               "type": "string",
