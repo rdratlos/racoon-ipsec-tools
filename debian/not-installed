@@ -31,27 +31,15 @@ usr/share/doc/ipsec-tools/examples/racoon.conf.sample-inherit
 usr/share/doc/ipsec-tools/examples/racoon.conf.sample-natt
 usr/share/doc/ipsec-tools/examples/racoon.conf.sample-plainrsa
 
-# systemd/Makefile.am's `make install` also installs /etc/default/
-# {racoon,setkey} of its own (see configure.ac's --with-environmentdir).
-# racoon.service/setkey.service do NOT need an entry here any more --
-# debian/racoon.install and debian/ipsec-tools.install now claim
-# usr/lib/systemd/system/{racoon,setkey}.service straight out of
-# debian/tmp instead of debian/rules carrying its own forked copies;
-# verified live (dpkg-buildpackage -us -uc -b) that dh_installsystemd
-# finds and processes them there exactly as it would a local
-# debian/<pkg>.service file, generating the same enable/disable
-# maintainer-script logic.
-#
-# /etc/default/racoon got the same treatment as of the racoon.service
-# unification above: debian/racoon.install now claims it straight out of
-# debian/tmp too (a real shipped conffile, dh_installdeb's usual
-# automatic /etc/ detection -- same as etc/racoon/racoon.conf already
-# gets, no explicit debian/racoon.conffiles needed), and
-# debian/racoon.postinst no longer generates it. /etc/default/setkey
-# could not get the same treatment yet: it still comes from
-# debian/ipsec-tools.setkey.default via override_dh_installinit, which
-# disagrees with systemd/setkey.envfile's RUN_SETKEY default (commented
-# out/inactive here vs. active there) -- reconciling that content, not
-# just the install mechanism, needs its own decision and is left to a
-# follow-up.
-etc/default/setkey
+# systemd/Makefile.am's `make install` also installs
+# /etc/default/{racoon,setkey} of its own (see configure.ac's
+# --with-environmentdir) -- both are now claimed straight out of
+# debian/tmp, the same way as usr/lib/systemd/system/{racoon,setkey}.service
+# above: debian/racoon.install and debian/ipsec-tools.install list them
+# directly, letting dh_installdeb's usual automatic /etc/ conffile
+# detection pick them up (no explicit debian/<pkg>.conffiles needed --
+# same as etc/racoon/racoon.conf already gets). racoon.postinst no
+# longer generates /etc/default/racoon, and debian/ipsec-tools.setkey.default
+# + its override_dh_installinit pickup are gone in favour of
+# systemd/setkey.envfile, so nothing under /etc/default/ belongs in this
+# file any more.

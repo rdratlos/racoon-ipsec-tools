@@ -3,3 +3,10 @@ usr/lib/ipsec-tools/libipsec.so.0.0.1
 usr/sbin/setkey
 usr/share/man/man8/setkey.8
 usr/lib/systemd/system/setkey.service
+# EnvironmentFile= for setkey.service above (systemd/setkey.envfile,
+# installed generically by `make install` via configure's
+# --with-environmentdir, default /etc/default) -- same mechanism as
+# racoon's own etc/default/racoon in debian/racoon.install, replacing
+# the old debian/ipsec-tools.setkey.default + override_dh_installinit
+# pickup.
+etc/default/setkey
