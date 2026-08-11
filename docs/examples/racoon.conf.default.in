@@ -90,10 +90,19 @@
 # active. It is deliberately NOT enabled here: privsep {} requires a
 # pre-existing "racoon" system user/group and both "path certificate" and
 # "path script" to be set, none of which this near-zero-footprint default
-# should assume in advance. See racoon-admin-guide.html §8.5 for the
-# preconditions, the ownership this file's own directory
-# (@RACOON_SYSCONFDIR@) needs once you enable it, and how to tell the
-# resulting privileged/unprivileged processes apart in your logs.
+# should assume in advance -- this file is also what a plain, unpackaged
+# `./configure && make install` renders, and that has no user-creation
+# mechanism of its own to satisfy those preconditions. See
+# racoon-admin-guide.html §8.5 for the preconditions, the ownership this
+# file's own directory (@RACOON_SYSCONFDIR@) needs once you enable it,
+# and how to tell the resulting privileged/unprivileged processes apart
+# in your logs.
+#
+# Debian packaging does NOT install this rendered file at all (it ships
+# its own separate debian/racoon.conf instead, installed over this one) --
+# precisely because its postinst always creates the "racoon" account and
+# the ownership privsep needs, satisfying every precondition above
+# unconditionally, so its own default has privsep active out of the box.
 #
 # ---------------------------------------------------------------------------
 # Reference
