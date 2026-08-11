@@ -6,8 +6,10 @@ This release closes a hardening phase that ran for about five weeks after
 `0.9.0`: a security/availability fix for IKE fragmentation, a privilege-
 separation hardening pass, a large expansion of unit-test coverage, and
 the split-DNS roadwarrior hooks reaching production maturity through a
-live field test and two external reviews. Full technical detail for
-everything below lives in `doc/dev/v0.9.1-hardening-spec.md`.
+live field test and two external reviews. It also adds the one genuinely
+new user-facing capability of the cycle, `racoonctl status`. Full
+technical detail for everything below lives in
+`doc/dev/v0.9.1-hardening-spec.md`.
 
 ### Security fix: IKE fragment reassembly regression (CVE-2016-10396 follow-up)
 
@@ -62,6 +64,41 @@ all during shutdown. Also fixed: unreliable foreground log output under
 systemd, a harmless but noisy warning logged during every phase 2
 negotiation, and a case where `racoonctl vpn-disconnect` could exit
 non-zero with no explanation.
+
+### New command: `racoonctl status`
+
+Until now racoon's diagnostics were all-or-nothing: either a tunnel came up,
+or you turned on `-dddd` and read packet traces. There was no way to ask,
+at a glance, what the daemon currently believes about its own Security
+Associations.
+
+`racoonctl status` (short form `st`) answers that. It reports the live
+Phase 1 SAs — state, peer and local identities, negotiated algorithms,
+XAuth and mode-config state, DPD and NAT-T status, and which `remote` block
+governs each one — and with `-v` the Phase 2 SAs as well, including
+selectors, encapsulation mode, lifetimes and the negotiated PFS group.
+`-f json` (or `--format=json`) emits the same information as a single
+self-contained JSON document for scripting and monitoring; `jq` recipes,
+including a BSI TR-02102 minimum-DH-group audit, are in
+`doc/dev/racoonctl-status-analysis.md`.
+
+The command is strictly read-only — it never establishes, tears down or
+reloads anything — and deliberately reports no secrets: XAuth passwords and
+LDAP bind DNs are never read by it, and SPIs are masked. `show-sa` output
+is unchanged.
+
+Two notes for anyone scripting against the JSON. Each Phase 2 entry carries
+`phase1_index`, joining it to its parent Phase 1, and `effective_group`:
+when Quick Mode negotiated no PFS of its own, RFC 2409 §5.5 means the group
+actually protecting that tunnel's key material is the parent Phase 1's, and
+`effective_group` reports it directly so a compliance check does not have
+to know the fallback rule. And the document carries a `schema_version`
+(currently `2.0`, `"major.minor"`): additive changes bump the minor version
+only, so pinning on the major version is enough to stay compatible. The
+schema ships as `share/schema/racoonctl-status.schema.json` and is
+validated in CI against the code that produces it.
+
+See `racoonctl(1)` for the full field reference and a worked example.
 
 ### Unit test coverage
 
@@ -125,6 +162,31 @@ referencing the old
 `/usr/share/doc/racoon/examples/roadwarrior/` path, update it to
 `/usr/share/racoon/templates/roadwarrior/` (or your distribution's
 equivalent).
+
+### Packaging: privilege separation now active out of the box
+
+The Debian and Arch packages now ship `racoon.conf` with `privsep {}`
+active by default, closing the gap behind the "Privilege separation
+hardening" claim above: both packages' own account-provisioning
+mechanisms (Debian's postinst, Arch's sysusers.d/tmpfiles.d hooks)
+already created the `racoon` system user and the ownership privsep
+needs unconditionally, so there was no remaining reason for the shipped
+config to leave it off. A from-source `make install` still ships
+inert, on purpose — creating system accounts is a packaging concern,
+never a build system's; see README.md's new "Privilege Separation for
+From-Source Installs" section for the manual equivalent.
+
+Also cleaned up while auditing the packaging: the stale, unheaded
+`docs/examples/roadwarrior/client/phase1-*.sh` example hooks are gone
+(the real, maintained hooks at `/etc/racoon/scripts/` were always what
+the roadwarrior templates actually used); `/etc/default/racoon` and
+`/etc/default/setkey` are now real shipped conffiles instead of
+postinst-generated or per-distro-forked, matching Arch's
+`/etc/conf.d/` equivalents; and several `lintian` warnings from the
+Debian source package (an obsolete `pkg-config` build-dependency, a
+stale `debian/watch` left over from before this repo became the
+upstream source itself, and a couple of over-long documentation lines)
+are fixed.
 
 ## 0.9.0
 

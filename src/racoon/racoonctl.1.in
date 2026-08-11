@@ -249,6 +249,173 @@ Only available when
 .Xr racoon 8
 was built with Hybrid auth support
 .Pq Fl -enable-hybrid .
+.It Ic status Oo Fl v Oc Oo Fl f Ic text | json Oc Oo Fl -format Ns = Ns Ic text | json Oc
+Read-only runtime introspection: the current Phase 1 SAs (and, with
+.Fl v ,
+Phase 2 SAs too) as
+.Xr racoon 8
+holds them right now \(em negotiated algorithms, identities, XAuth and
+mode-config state, DPD/NAT-T status, and (per SA) the
+.Ic remote
+block configuration that governs it
+.Pq Ic anonymous , passive , generate_policy .
+.Pp
+.Fl f Ic json
+(or
+.Fl -format Ns = Ns Ic json )
+selects the machine-readable JSON rendering instead of the default
+human-readable text; both present the same fields; text differs only in
+layout.
+The JSON rendering carries a top-level
+.Ic schema_version
+field
+.Pq Dq major.minor :
+additive changes bump the minor version only, breaking changes bump
+major.
+SPIs are shown masked
+.Pq e.g. Li 0x1234**** ,
+never in full.
+A Phase 2 SA that has not yet had a proposal approved has no SPIs to
+report: in that case
+.Ic spi_in
+and
+.Ic spi_out
+render as
+.Ic null
+in JSON, and as
+.Li (pending)
+in text.
+.Pp
+Each
+.Ic phase2
+entry carries
+.Ic phase1_index ,
+the parent Phase 1's
+.Ic index
+string, letting a consumer join the two arrays.
+Its
+.Ic proposal
+also carries
+.Ic effective_group :
+when PFS was negotiated this equals
+.Ic pfs_group ;
+otherwise it falls back to the parent Phase 1's
+.Ic dh_group ,
+since per RFC 2409 \(sc5.5 that is the Diffie-Hellman group actually
+securing this tunnel's key material when Quick Mode itself performed no
+PFS exchange \(em a
+.Ic pfs_group
+of
+.Ic null
+does not mean no group protects the tunnel, only that none was
+renegotiated at the Phase 2 level.
+.Pp
+A
+.Ic phase2
+entry's
+.Ic proposal.encryption_algorithm
+names the cipher mode along with the cipher
+.Pq e.g. Li AES-CBC , not Li AES ,
+and its
+.Ic proposal.authentication_algorithm
+names the hash variant
+.Pq e.g. Li hmac-sha1 , not Li hmac-sha .
+CBC is the only cipher mode
+.Xr racoon 8
+implements, so the mode follows from the negotiated transform alone.
+The
+.Ic NULL
+and
+.Ic RC4
+ESP transforms carry no cipher mode and are named without a suffix.
+.Pp
+On an
+.Ic AH
+SA the transform is reported as
+.Ic proposal.authentication_algorithm ,
+and
+.Ic proposal.encryption_algorithm
+is
+.Ic null :
+AH provides integrity only and encrypts nothing, so it has no cipher to
+report.
+.Ic proposal.authentication_algorithm
+is likewise
+.Ic null
+for an ESP SA negotiated with no integrity algorithm.
+In text output both render as
+.Li (none) .
+.Pp
+.Ic status
+is read-only: unlike every other command above, it never establishes,
+tears down, or reloads anything.
+It does not, and structurally cannot, explain
+.Em why
+a past negotiation failed \(em by the time a Phase 1 handle would show
+a failure, racoon has already deleted it (see
+.Ic show-event
+for the corresponding, but reason-less, event notification instead).
+.Pp
+Example
+.Pq Fl v Fl f Ic json
+output for one established Phase 1 SA with one Phase 2 SA:
+.Bd -literal -offset indent
+{
+  "schema_version": "2.0",
+  "timestamp": "2026-01-15T10:30:00Z",
+  "phase1": [
+    {
+      "index": "0x1122334455667788...",
+      "state": "established",
+      "remote_id": "198.51.100.1",
+      "local_id": "203.0.113.1",
+      "version": "1.0",
+      "exchange_mode": "MAIN",
+      "proposal": {
+        "encryption_algorithm": "AES-CBC",
+        "hash_algorithm": "SHA256",
+        "authentication_method": "pre-shared key",
+        "dh_group": "14",
+        "lifetime_time": 28800
+      },
+      "remote_config": {
+        "anonymous": true,
+        "passive": true,
+        "generate_policy": "unique"
+      }
+    }
+  ],
+  "phase2": [
+    {
+      "index": "0x87654321",
+      "phase1_index": "0x1122334455667788...",
+      "state": "established",
+      "spi_in": "0x1234****",
+      "spi_out": "0x8765****",
+      "protocol": "ESP",
+      "encmode": "Tunnel",
+      "selectors": {
+        "src": "203.0.113.1/32",
+        "dst": "198.51.100.1/32",
+        "protocol": "any",
+        "src_port": "any",
+        "dst_port": "any"
+      },
+      "proposal": {
+        "encryption_algorithm": "AES-CBC",
+        "authentication_algorithm": "hmac-sha1",
+        "pfs_group": 14,
+        "effective_group": 14,
+        "lifetime_time": 3600,
+        "lifetime_bytes": 0
+      },
+      "reqid_in": 1,
+      "reqid_out": 2,
+      "ok": true
+    }
+  ]
+}
+.Ed
 .El
 .Pp
 Command shortcuts are available:
@@ -275,6 +442,8 @@ Command shortcuts are available:
 .Ic show-event
 .It Ic lu
 .Ic logout-user
+.It Ic st
+.Ic status
 .El
 .\"
 .Ss Parameter specifications

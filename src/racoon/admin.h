@@ -77,6 +77,15 @@ struct admin_com {
  */
 #define ADMIN_SHOW_SA		0x0101
 #define ADMIN_FLUSH_SA		0x0102
+/*
+ * Runtime introspection (racoonctl status). ac_proto selects the reply
+ * format: 0 = text, 1 = json (ADMIN_STATUS_FORMAT_TEXT/_JSON below) --
+ * not a third wire verb, see issue #139 (D1).
+ */
+#define ADMIN_STATUS		0x0103
+#define ADMIN_STATUS_VERBOSE	0x0104
+#define ADMIN_STATUS_FORMAT_TEXT	0
+#define ADMIN_STATUS_FORMAT_JSON	1
 
 /*
  * The admin_com_indexes follows, see below.

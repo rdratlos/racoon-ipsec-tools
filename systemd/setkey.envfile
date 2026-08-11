@@ -1,2 +1,15 @@
-# Set to "no" to skip loading /etc/ipsec-tools.conf and /etc/ipsec-tools.d/*.conf on boot
+# Defaults for setkey systemd service
+# sourced by setkey.service
+# installed at /etc/default/setkey by the maintainer scripts
+
+#
+# This is a POSIX shell fragment
+#
+
+# Set to "no" to skip loading /etc/ipsec-tools.conf and /etc/ipsec-tools.d/*.conf
+# on boot. Purely gates the static policies setkey.service loads at boot --
+# setkey.service's own ExecStart still exits 0 either way (Type=oneshot,
+# RemainAfterExit=yes), so racoon.service's Requires=setkey.service is
+# always satisfied regardless of this setting; racoon's own dynamically
+# IKE-negotiated SAs/SPDs are entirely unaffected by it.
 RUN_SETKEY=yes

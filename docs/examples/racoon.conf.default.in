@@ -31,12 +31,12 @@
 #     X.509 certificate + XAuth username/password authentication, Mode
 #     Config for a dynamically assigned address, DNS, and split routing.
 #     This is the common case if you were handed a certificate and a
-#     gateway address by a VPN administrator.  Pairs with
-#     roadwarrior/client/phase1-up.sh and phase1-down.sh (historical,
-#     minimal reference hooks -- for a maintained split-DNS and routing
-#     hook set see racoon-hook-lib.sh(8) / racoon-dns-detect(8) and
-#     @RACOON_SYSCONFDIR@/scripts, installed unconditionally by this
-#     package as a real component, not a template).
+#     gateway address by a VPN administrator.  Its "path script" already
+#     points at @RACOON_SYSCONFDIR@/scripts, where the maintained
+#     split-DNS and routing hook set (phase1-up.sh, phase1-down.sh,
+#     racoon-hook-lib.sh; see racoon-hook-lib.sh(8) / racoon-dns-detect(8))
+#     is installed unconditionally by this package as a real component --
+#     nothing to copy from this template directory for those.
 #
 #   roadwarrior/server/racoon.conf
 #     Running the VPN gateway side of the same roadwarrior setup: address
@@ -90,10 +90,25 @@
 # active. It is deliberately NOT enabled here: privsep {} requires a
 # pre-existing "racoon" system user/group and both "path certificate" and
 # "path script" to be set, none of which this near-zero-footprint default
-# should assume in advance. See racoon-admin-guide.html §8.5 for the
-# preconditions, the ownership this file's own directory
-# (@RACOON_SYSCONFDIR@) needs once you enable it, and how to tell the
-# resulting privileged/unprivileged processes apart in your logs.
+# should assume in advance -- this file is also what a plain, unpackaged
+# `./configure && make install` renders, and that has no user-creation
+# mechanism of its own to satisfy those preconditions. See
+# racoon-admin-guide.html §8.5 for the preconditions, the ownership this
+# file's own directory (@RACOON_SYSCONFDIR@) needs once you enable it,
+# and how to tell the resulting privileged/unprivileged processes apart
+# in your logs.
+#
+# Neither Debian nor Arch packaging installs this rendered file as-is
+# (debian/racoon.conf and packaging/arch/racoon.conf are each installed
+# over it instead) -- precisely because both packages' own maintainer
+# scripts / sysusers.d+tmpfiles.d hooks always create the "racoon"
+# account and the ownership privsep needs, satisfying every precondition
+# above unconditionally, so each package's own default has privsep
+# active out of the box. Deliberately NOT true for a plain, unpackaged
+# `./configure && make install`, or for any future packaging (e.g. RPM)
+# that hasn't added the same account-creation + override step yet --
+# see README.md's "Privilege Separation for From-Source Installs"
+# section for the manual equivalent.
 #
 # ---------------------------------------------------------------------------
 # Reference

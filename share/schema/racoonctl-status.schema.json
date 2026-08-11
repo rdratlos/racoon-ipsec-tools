@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/rdratlos/racoon-ipsec-tools/develop/share/schema/racoonctl-status.schema.json",
+  "title": "racoonctl status JSON output",
+  "description": "Wire format produced by `racoonctl status -f json` (see racoonctl(1) and doc/dev/racoonctl-status-analysis.md, issues #139/#140/#143). Describes the current schema_version 2.0 only -- this file is updated in place and always describes exactly the version the shipping daemon emits; superseded versions are recoverable from git history rather than kept as sibling files. (Through 1.2 this note said a major bump would get a new file instead. The 1.2 -> 2.0 bump did not: a second file would have to be kept in sync by hand, and nothing reads it by version -- tools/schema_cross_check.py and the CI job both validate this path unconditionally. Revisit if a consumer ever needs to validate against a pinned older version.) Field inventory and types verified directly against src/racoon/status.c's json_render_ph1()/json_render_ph2(), not against the analysis doc, to catch any drift between what was decided and what actually ships.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "timestamp", "phase1"],
+  "properties": {
+    "schema_version": {
+      "const": "2.0",
+      "description": "\"major.minor\" (D4). Additive changes bump minor only; breaking changes bump major and reset minor to 0. This file is scoped to exactly 2.0's field set. History: 1.0 -> 1.1 added phase2[].phase1_index and proposal.effective_group (issue #140, D6). 1.1 -> 1.2 widened phase2[].spi_in/spi_out from string to string-or-null (issue #143 F4) -- additive. 1.2 -> 2.0 moved an AH SA's transform name from proposal.encryption_algorithm to proposal.authentication_algorithm, leaving encryption_algorithm null for AH, and widened both to string-or-null (issue #143 L2). That is major, not minor: the widening is additive on its own, but the value's *relocation* between two fields is invisible to schema validation -- both fields accept string-or-null before and after, so an old-shape document still validates -- while silently changing what a consumer parsing encryption_algorithm reads back for AH SAs. D4's major criterion is about the stability of a field's content, not only the safety of its type union. Briefly shipped as 1.3; see D9 in doc/dev/racoonctl-status-analysis.md for the reversal and its reasoning."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+      "description": "UTC, strftime(\"%Y-%m-%dT%H:%M:%SZ\") (status.c format_timestamp())."
+    },
+    "phase1": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/phase1" }
+    },
+    "phase2": {
+      "type": "array",
+      "description": "Present only when the request used -v/--verbose (status.c render_json()); absent entirely, not an empty array, on a non-verbose request.",
+      "items": { "$ref": "#/$defs/phase2" }
+    }
+  },
+  "$defs": {
+    "phase1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "state", "remote_id", "local_id", "version", "exchange_mode"],
+      "properties": {
+        "index": {
+          "type": "string",
+          "description": "Cookie pair, \"0x\" + 32 hex digits (status.c cookie_pair_hex())."
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "spawn", "start", "msg1received", "msg1sent", "msg2received",
+            "msg2sent", "msg3received", "msg3sent", "msg4received",
+            "established", "dying", "expired", "unknown"
+          ],
+          "description": "status.c ph1_state_name() -- closed set, every case (including the default) returns a fixed literal, verified directly from the switch statement."
+        },
+        "remote_id": { "type": "string" },
+        "local_id": { "type": "string" },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d{1,2}\\.\\d{1,2}$",
+          "description": "ISAKMP major.minor decoded from the wire version byte's two nibbles (status.c collect_ph1())."
+        },
+        "exchange_mode": {
+          "type": "string",
+          "description": "\"MAIN\"/\"AGGRESSIVE\"/\"BASE\" for the three known exchange types (status.c exchange_mode_name()); any other exchange type falls back to strnames.c's s_isakmp_etype(), an open name-table lookup -- not a closed enum, deliberately not hardcoded here (see the schema's top-level description on x-source annotations vs. guessed enums)."
+        },
+        "proposal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["encryption_algorithm", "hash_algorithm", "authentication_method", "dh_group", "lifetime_time"],
+          "properties": {
+            "encryption_algorithm": {
+              "type": "string",
+              "x-source-config": "src/racoon/cftoken.l:388 (encryption_algorithm, S_RMTP)",
+              "x-source-render": "src/racoon/strnames.c:659 (s_attr_isakmp_enc)"
+            },
+            "hash_algorithm": {
+              "type": "string",
+              "x-source-config": "src/racoon/cftoken.l:390 (hash_algorithm, S_RMTP)",
+              "x-source-render": "src/racoon/strnames.c:678 (s_attr_isakmp_hash)"
+            },
+            "authentication_method": {
+              "type": "string",
+              "x-source-config": "src/racoon/cftoken.l:389 (authentication_method, S_RMTP)",
+              "x-source-render": "src/racoon/strnames.c:711 (s_oakley_attr_method)"
+            },
+            "dh_group": {
+              "type": "string",
+              "description": "Deliberately a JSON string, not integer, matching the actual wire render -- see the top-level description's note on not 'fixing' this to look more consistent than the wire format actually is. Compare phase2[].proposal.pfs_group/effective_group, which are genuinely integers.",
+              "x-source-config": "src/racoon/cftoken.l:391 (dh_group, S_RMTP)",
+              "x-source-render": "src/racoon/strnames.c:750 (s_attr_isakmp_group)"
+            },
+            "lifetime_time": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "xauth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "auth_type", "username"],
+          "properties": {
+            "state": { "type": "string", "enum": ["ok", "reqsent"] },
+            "auth_type": {
+              "type": "string",
+              "enum": ["generic", "chap", "otp", "skey", "unknown"]
+            },
+            "username": {
+              "type": ["string", "null"],
+              "description": "null if XAuth is in progress but no username has been received yet (status.c collect_xauth(): dupstr() of a possibly-NULL source pointer). Deliberately never the password (H-3, issue #139)."
+            }
+          }
+        },
+        "mode_cfg": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["addr4", "dns4", "split_include"],
+          "properties": {
+            "addr4": { "type": "string" },
+            "dns4": { "type": "array", "items": { "type": "string" } },
+            "split_include": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "dpd": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["supported", "fails"],
+          "properties": {
+            "supported": { "type": "boolean" },
+            "fails": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "natt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        },
+        "remote_config": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["anonymous", "passive", "generate_policy"],
+          "description": "D5, issue #139.",
+          "properties": {
+            "anonymous": { "type": "boolean" },
+            "passive": { "type": "boolean" },
+            "generate_policy": {
+              "type": "string",
+              "enum": ["none", "require", "unique"],
+              "description": "status.c generate_policy_name() -- closed set, default case also returns a fixed literal (\"none\")."
+            }
+          }
+        }
+      }
+    },
+    "phase2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index", "phase1_index", "state", "spi_in", "spi_out", "protocol",
+        "encmode", "selectors", "reqid_in", "reqid_out", "ok"
+      ],
+      "properties": {
+        "index": {
+          "type": "string",
+          "description": "\"0x\" + 8 hex digits (the phase2 msgid), status.c collect_ph2()."
+        },
+        "phase1_index": {
+          "type": ["string", "null"],
+          "description": "D6, issue #140: the parent phase1[].index, same cookie_pair_hex() format, letting a consumer join the two arrays. null only in the brief window where iph2->ph1 is unbound (unbindph12(), called from initph2() and during phase2 teardown) while the handle is still enumerable -- verified reachable, not hypothetical."
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "spawn", "start", "status2", "getspisent", "getspidone",
+            "msg1sent", "status6", "commit", "addsa", "established",
+            "expired", "unknown"
+          ],
+          "description": "status.c ph2_state_name() -- closed set, same verification basis as phase1[].state."
+        },
+        "spi_in": {
+          "type": ["string", "null"],
+          "pattern": "^(0x[0-9a-f]{4}\\*\\*\\*\\*|\\?)$",
+          "description": "Top 16 bits of the real SPI, rest masked (status.c mask_spi()) -- never the full SPI, by design. The \\? alternative is asprintf()'s own OOM fallback (status.c), included for honesty about the actual wire contract rather than only describing the common case. null when no approved proposal has supplied the SPIs yet -- a phase2 handle is enumerable in states before that (PHASE2ST_START, PHASE2ST_GETSPISENT, ...), and 1.1 rendered a bogus 8-hex-digit \"0x00000000****\" there that failed this very pattern (issue #143 F4). Note JSON Schema applies \"pattern\" only to strings, so it constrains the string branch and ignores null, which is the intended reading.",
+          "x-source-render": "src/racoon/status.c:231 (mask_spi)"
+        },
+        "spi_out": {
+          "type": ["string", "null"],
+          "pattern": "^(0x[0-9a-f]{4}\\*\\*\\*\\*|\\?)$"
+        },
+        "protocol": {
+          "type": "string",
+          "enum": ["ESP", "AH", "IPCOMP", "unknown"],
+          "description": "status.c ph2_protocol_name() -- closed set, default case returns a fixed literal."
+        },
+        "encmode": {
+          "type": "string",
+          "description": "strnames.c s_ipsecdoi_encmode() -- an open name-table lookup with a numeric-string fallback (num2str()) for any value not in its table, so deliberately not enumerated as a closed set here even though every value seen in practice is one of Any/Tunnel/Transport/UDP-Tunnel/UDP-Transport.",
+          "x-source-render": "src/racoon/strnames.c:552 (s_ipsecdoi_encmode)"
+        },
+        "selectors": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["src", "dst", "protocol", "src_port", "dst_port"],
+          "properties": {
+            "src": {
+              "type": "string",
+              "description": "CIDR, e.g. \"203.0.113.1/32\" (status.c sockaddr_to_cidr()); real negotiated prefix length from getspbyspid() when available, else host-width default."
+            },
+            "dst": { "type": "string" },
+            "protocol": {
+              "description": "The wire selector's proto_id (struct ipsecdoi_id_b), or the literal \"any\" when unset.",
+              "oneOf": [
+                { "type": "integer", "minimum": 0, "maximum": 255 },
+                { "const": "any" }
+              ]
+            },
+            "src_port": {
+              "oneOf": [
+                { "type": "integer", "minimum": 0, "maximum": 65535 },
+                { "const": "any" }
+              ]
+            },
+            "dst_port": {
+              "oneOf": [
+                { "type": "integer", "minimum": 0, "maximum": 65535 },
+                { "const": "any" }
+              ]
+            }
+          }
+        },
+        "proposal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "encryption_algorithm", "authentication_algorithm",
+            "pfs_group", "effective_group", "lifetime_time", "lifetime_bytes"
+          ],
+          "properties": {
+            "encryption_algorithm": {
+              "type": ["string", "null"],
+              "description": "The negotiated cipher, including its mode -- e.g. \"AES-CBC\" rather than a bare \"AES\". strnames.c's s_ipsecdoi_trns_esp() renders only the cipher family; status.c appends the mode, which is a property of the transform ID (racoon implements CBC and nothing else -- no CTR, no GCM). IPSECDOI_ESP_NULL and IPSECDOI_ESP_RC4 are genuinely modeless and keep their bare names, as does an unrecognized transform ID falling through to num2str(). null on an AH SA, which provides integrity only and has no cipher to report (issue #143 L2, schema 2.0); through 1.2 this field carried AH's *hash* name instead, which answered \"what cipher protects this SA\" with an algorithm that encrypts nothing.",
+              "x-source-config": "src/racoon/cftoken.l:309 (encryption_algorithm, S_SAINFS)",
+              "x-source-render": "src/racoon/status.c:801 (esp_enc_alg_name)"
+            },
+            "authentication_algorithm": {
+              "type": ["string", "null"],
+              "description": "The negotiated integrity algorithm. For ESP this includes the hash variant, e.g. \"hmac-sha1\" rather than a bare \"hmac-sha\": strnames.c's name_attr_ipsec_auth[] already names the variant for every SHA-2 entry (\"hmac-sha256\"/\"-sha384\"/\"-sha512\") and only truncates the SHA-1 one, so status.c restores that single entry to the table's own convention and defers to s_ipsecdoi_auth() for the rest. For an AH SA this carries the AH transform name from s_ipsecdoi_trns_ah() (issue #143 L2, schema 2.0). null when the ESP transform negotiated no authentication at all (IPSECDOI_ATTR_AUTH_NONE) -- note that case already rendered null through schema 1.2 while this field was declared a plain string, so an AH or null-auth SA emitted a document that failed this very schema; the widened type fixes that too.",
+              "x-source-config": "src/racoon/cftoken.l:310 (authentication_algorithm, S_SAINFS)",
+              "x-source-render": "src/racoon/status.c:830 (esp_auth_alg_name)"
+            },
+            "compression_algorithm": {
+              "type": "string",
+              "description": "Present only when negotiated (status.c: proto->proto_id == IPSECDOI_PROTO_IPCOMP), confirmed live and reachable, not a documented future gap.",
+              "x-source-config": "src/racoon/cftoken.l:311 (compression_algorithm, S_SAINFS)",
+              "x-source-render": "src/racoon/strnames.c:484 (s_ipsecdoi_trns_ipcomp)"
+            },
+            "pfs_group": {
+              "type": ["integer", "null"],
+              "description": "null when PFS was not negotiated at the phase2 level. A null here does not mean no DH group protects the tunnel -- see effective_group."
+            },
+            "effective_group": {
+              "type": "integer",
+              "description": "D6, issue #140: equals pfs_group when PFS was negotiated; otherwise the parent phase1's dh_group, per RFC 2409 SS5.5 (Phase 2 KEYMAT without a PFS exchange of its own is derived entirely from SKEYID_d, which comes from the parent Phase 1's DH exchange). Deliberately always a JSON number, never null or a string, in both branches -- see the type-consistency rule in doc/dev/racoonctl-status-analysis.md's D6 entry. 0 marks the rare case where the parent phase1 handle was unbound (see phase1_index) and no PFS was negotiated either, making the value genuinely indeterminate; 0 is not a valid real DH group id."
+            },
+            "lifetime_time": { "type": "integer", "minimum": 0 },
+            "lifetime_bytes": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "reqid_in": { "type": "integer", "minimum": 0 },
+        "reqid_out": { "type": "integer", "minimum": 0 },
+        "ok": { "type": "boolean" }
+      }
+    }
+  }
+}

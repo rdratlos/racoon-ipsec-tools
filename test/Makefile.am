@@ -324,6 +324,30 @@ test_racoonctl_logoutusr_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 endif
 
+# Test: f_status() (racoonctl.c, "racoonctl status") CLI parsing -- the
+# get_combuf() av[]-shift/getopt() bug where "-v" as the sole argument was
+# silently dropped (see test_racoonctl_status_cli.c's own header comment).
+# f_status() is not ENABLE_HYBRID-gated, unlike test_racoonctl_logoutusr
+# above; same wrapper/link approach otherwise (racoonctl_unittest_src.c,
+# vmbuf.o + misc_noplog.o only, no COMMON_LDADD -- see that test's own
+# comment for why).
+if !SANITIZER_BUILD
+check_PROGRAMS += test_racoonctl_status_cli
+
+test_racoonctl_status_cli_SOURCES  = test_racoonctl_status_cli.c \
+	racoonctl_unittest_src.c \
+	racoonctl_unittest_stubs.c
+test_racoonctl_status_cli_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_racoonctl_status_cli_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_racoonctl_status_cli_LDADD    = $(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_racoonctl_status_cli_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # Test: get_comindex() address-form grammar (racoonctl.c, issue #119) --
 # the "addr/prefix[port]" branch stripped ']' by searching *pref (already
 # truncated to just the prefix digits, so it can never contain ']')
@@ -1941,6 +1965,61 @@ test_admin_process_dispatch_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_admin_process_dispatch_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# test_admin_reply_send_loop covers admin_reply()'s send() loop (admin.c)
+# -- issue #143 F1, where an EINTR retry via a for loop's "continue" ran
+# the "sent += n" increment with n == -1 and walked the byte counter
+# backwards, so admin_reply() returned success having sent nothing.
+#
+# -Wl,--wrap=send is what makes this testable at all: no other test in the
+# suite can make send() return EINTR or a short write on demand, and
+# racing a real signal against a send() call would be nondeterministic.
+# The wrapper delegates to __real_send() unless a test explicitly arms an
+# injection, so the request path stays real -- same admin_process_unittest()
+# accessor and stub set as the two admin tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_admin_reply_send_loop
+
+test_admin_reply_send_loop_SOURCES  = test_admin_reply_send_loop.c \
+	admin_unittest_src.c \
+	admin_test_stubs.c
+test_admin_reply_send_loop_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_admin_reply_send_loop_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_admin_reply_send_loop_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_admin_reply_send_loop_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
+	-Wl,--wrap=send
+endif
+
+# test_status_dump covers status_dump() (status.c, ADMIN_STATUS/
+# ADMIN_STATUS_VERBOSE, racoonctl status) -- the JSON/text extraction and
+# rendering added alongside this test. status_test_stubs.c's enumph1()/
+# enumph2() stand-ins let each test hand status_dump() an exact list of
+# struct ph1handle/ph2handle pointers without a real ph1tree/ph2tree or
+# handler.c's dependency closure; s_attr_isakmp_enc() and friends
+# (strnames.o, RACOON_OBJS) are linked for real, since the enum-to-string
+# mappings are exactly what this test wants genuine coverage of.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_status_dump
+
+test_status_dump_SOURCES  = test_status_dump.c \
+	status_unittest_src.c \
+	status_test_stubs.c
+test_status_dump_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_status_dump_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_status_dump_LDADD    = $(RACOON_OBJS)
+test_status_dump_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
 # test_admin_establish_sa_psk covers ADMIN_ESTABLISH_SA_PSK specifically
 # (XAUTH id/password injection via the admin socket, despite the
 # command's name -- see the test's own header comment): wire-parsing
@@ -2026,6 +2105,41 @@ test_handler_flushph1_LDADD    = $(top_builddir)/src/racoon/handler_ffs.o \
 	$(top_builddir)/src/racoon/vmbuf.o \
 	$(top_builddir)/src/racoon/misc_noplog.o
 test_handler_flushph1_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
+endif
+
+# test_handler_enum drives enumph1()/enumph2() (handler.c) directly --
+# coverage analysis found status.c's/admin.c's/pfkey.c's call sites to both
+# functions covered while the real function bodies in handler.c showed
+# zero coverage: every existing test that reaches either one goes through
+# a hand-written stand-in (status_test_stubs.c, admin_test_stubs.c), never
+# the real loop. That real loop carries a use-after-free fix (precompute
+# "next" before calling enum_func(), since enum_func() can free the
+# current entry) confirmed live via valgrind on a delete-sa/flush-sa run
+# (see enumph1()'s own header comment in handler.c) -- never regression
+# tested against the real function until now. Links handler_ffs.o (same as
+# test_handler_flushph1 above) plus sockmisc_ffs.o for a real cmpsaddr(),
+# since this test also wants enumph1()/enumph2()'s selector-filtering path
+# exercised for real, not stubbed around. Same
+# AddressSanitizer/--gc-sections incompatibility as the other
+# wrapped-static-function tests, hence !SANITIZER_BUILD.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_handler_enum
+
+test_handler_enum_SOURCES  = test_handler_enum.c \
+	handler_enum_test_stubs.c
+test_handler_enum_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_handler_enum_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_handler_enum_LDADD    = $(top_builddir)/src/racoon/handler_ffs.o \
+	$(top_builddir)/src/racoon/sockmisc_ffs.o \
+	$(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_handler_enum_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
 # test_admin_close covers admin_close() -- pre-dates the v0.9.1 churn but

@@ -1,2 +1,0 @@
-# Set to "no" to disable loading ipsec.conf on startup
-# RUN_SETKEY=yes

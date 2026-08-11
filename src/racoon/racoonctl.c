@@ -100,6 +100,7 @@ static vchar_t *f_exchangesa __P((int, char **));
 static vchar_t *f_vpnc __P((int, char **));
 static vchar_t *f_vpnd __P((int, char **));
 static vchar_t *f_getevt __P((int, char **));
+static vchar_t *f_status __P((int, char **));
 #ifdef ENABLE_HYBRID
 static vchar_t *f_logoutusr __P((int, char **));
 #endif
@@ -128,6 +129,8 @@ struct cmd_tag {
 	{ f_vpnd,	"vd" },
 	{ f_getevt,	"show-event" },
 	{ f_getevt,	"se" },
+	{ f_status,	"status" },
+	{ f_status,	"st" },
 #ifdef ENABLE_HYBRID
 	{ f_logoutusr,	"logout-user" },
 	{ f_logoutusr,	"lu" },
@@ -218,6 +221,7 @@ usage(void)
 "  %s [opts] vpn-disconnect vpn_gateway\n"
 "  %s [opts] show-event\n"
 "  %s [opts] logout-user login\n"
+"  %s [opts] status [-v] [-f text|json] [--format=text|json]\n"
 "\n"
 "General options:\n"
 "  -d		Debug: hexdump admin messages before sending\n"
@@ -235,7 +239,7 @@ usage(void)
 "    <ul_proto>: \"icmp\", \"tcp\", \"udp\", \"gre\" or \"any\"\n"
 "\n",
 		pname, pname, pname, pname, pname, pname, pname, pname, pname, pname,
-		ADMINSOCK_PATH);
+		pname, ADMINSOCK_PATH);
 }
 
 /*
@@ -387,6 +391,79 @@ f_getevt(int ac, char **av)
 		errx(1, "too many arguments");
 
 	return make_request(ADMIN_SHOW_EVT, 0, 0);
+}
+
+static vchar_t *
+f_status(int ac, char **av)
+{
+	int verbose = 0;
+	int json_format = 0;
+	int i;
+
+	/* get_combuf() (this file) does "ac--; av++;" past the subcommand
+	 * word before calling us, so av[0] here is already the first real
+	 * flag, not a conventional argv[0] program name. libc getopt(3)
+	 * always assumes index 0 is the program name and starts scanning at
+	 * index 1 -- calling it on this already-shifted vector silently
+	 * drops whatever flag lands at av[0] (e.g. a bare "status -v" has
+	 * nothing left for getopt() to see at all). This file has no other
+	 * getopt() call site except main()'s own top-level loop, which
+	 * parses real argv; every subcommand handler parses its own options
+	 * by hand-scanning av[] instead, precisely to avoid this. Do the
+	 * same here for -v/-f, in the same pass that already hand-scans
+	 * --format=. */
+	/* i is only advanced in the loop's own increment, at the bottom, on
+	 * a non-match -- on a match, the matched token(s) are memmove()'d
+	 * out and the loop "continue"s without advancing i, so it
+	 * re-examines whatever just shifted into this position. (An
+	 * earlier version of this loop tried to track the shift with
+	 * `i--`/the for-loop's own i++, which only cancels out correctly
+	 * when exactly one token is removed *and* it was the last one in
+	 * av[] -- "-v -f json" removes "-v" first with two tokens still
+	 * behind it, landing on the wrong index and leaving "-f json"
+	 * unscanned. Caught by the regression test below.) */
+	for (i = 0; i < ac; ) {
+		if (strcmp(av[i], "-v") == 0) {
+			verbose = 1;
+			memmove(&av[i], &av[i + 1], (ac - i - 1) * sizeof(*av));
+			ac--;
+			continue;
+		}
+		if (strcmp(av[i], "-f") == 0) {
+			if (i + 1 >= ac)
+				errx(1, "usage: status [-v] [-f text|json] [--format=text|json]");
+			if (strcmp(av[i + 1], "json") == 0)
+				json_format = 1;
+			else if (strcmp(av[i + 1], "text") == 0)
+				json_format = 0;
+			else
+				errx(1, "usage: status [-v] [-f text|json] [--format=text|json]");
+			memmove(&av[i], &av[i + 2], (ac - i - 2) * sizeof(*av));
+			ac -= 2;
+			continue;
+		}
+		if (strncmp(av[i], "--format=", 9) == 0) {
+			if (strcmp(av[i] + 9, "json") == 0)
+				json_format = 1;
+			else if (strcmp(av[i] + 9, "text") == 0)
+				json_format = 0;
+			else
+				errx(1, "usage: status [-v] [-f text|json] [--format=text|json]");
+			memmove(&av[i], &av[i + 1], (ac - i - 1) * sizeof(*av));
+			ac--;
+			continue;
+		}
+		i++;
+	}
+
+	if (ac >= 1) {
+		if (av[0][0] == '-')
+			errx(1, "usage: status [-v] [-f text|json] [--format=text|json]");
+		errx(1, "too many arguments");
+	}
+
+	return make_request(verbose ? ADMIN_STATUS_VERBOSE : ADMIN_STATUS,
+	    json_format ? ADMIN_STATUS_FORMAT_JSON : ADMIN_STATUS_FORMAT_TEXT, 0);
 }
 
 static vchar_t *
@@ -1560,6 +1637,12 @@ handle_recv(vchar_t *combuf)
 	    }
 		break;
 
+	case ADMIN_STATUS:
+	case ADMIN_STATUS_VERBOSE:
+		fwrite(buf, len, 1, stdout);
+		printf("\n");
+		break;
+
 	default:
 		/* IGNORE */
 		break;
@@ -1602,6 +1685,12 @@ vchar_t *
 f_getevt_unittest(int ac, char **av)
 {
 	return f_getevt(ac, av);
+}
+
+vchar_t *
+f_status_unittest(int ac, char **av)
+{
+	return f_status(ac, av);
 }
 
 vchar_t *

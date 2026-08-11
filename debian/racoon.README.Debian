@@ -38,9 +38,10 @@ peers_identifier must be set to the DNS IDs specified in
 SubjectAltName, with verify_identifier and verify_cert enabled, and
 authentication_method set to rsasig.
 
-This package runs racoon with privilege separation active by default in
-both roadwarrior examples (see racoon-admin-guide.html §8.5) -- an
-unprivileged, peer-facing process does the actual IKE negotiation, and
+This package runs racoon with privilege separation active by default,
+including its own inert /etc/racoon/racoon.conf and both roadwarrior
+examples (see racoon-admin-guide.html §8.5) -- an unprivileged,
+peer-facing process does the actual IKE negotiation, and
 is assumed compromised if anything goes wrong. Certificates, the CA
 certificate, and the CRL are not secret, but this package's postinst
 still keeps /etc/racoon and /etc/racoon/certs at root:racoon 0750 (no

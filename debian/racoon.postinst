@@ -48,31 +48,14 @@ case "$1" in
     ;;
 esac
 
+# /etc/default/racoon is a real shipped conffile now (systemd/racoon.envfile,
+# via debian/racoon.install) -- it always exists post-install, nothing to
+# generate here. This cleans up a stale CONFIG_MODE= line for anyone
+# upgrading from before racoon-tool was deprecated (or from before this
+# file became a shipped conffile at all, when it was postinst-generated
+# with the same default content); a no-op on every install since.
 INITCONFFILE=/etc/default/racoon
-
-# We generate several files during the postinst, and we don't want
-#       them to be readable only by root.
-umask 022
-
-# Generate configuration file if it does not exist, using default values.
-[ -r "${INITCONFFILE}" ] || {
-        echo Generating ${INITCONFFILE}... >&2
-        cat >${INITCONFFILE} <<'EOFMAGICNUMBER1234'
-# Defaults for racoon systemd service
-# sourced by racoon.service
-# installed at /etc/default/racoon by the maintainer scripts
-
-#
-# This is a POSIX shell fragment
-#
-
-# Arguments to pass to racoon (e.g., "-d" for debug, "-f /etc/racoon/racoon.conf" for custom config)
-RACOON_ARGS=""
-EOFMAGICNUMBER1234
-}
-
-# Migrate CONFIG_MODE=racoon-tool to direct mode (no-op, tool still shipped).
-if grep -q '^CONFIG_MODE=' "$INITCONFFILE" 2>/dev/null; then
+if [ -f "$INITCONFFILE" ] && grep -q '^CONFIG_MODE=' "$INITCONFFILE" 2>/dev/null; then
         sed -i '/^CONFIG_MODE=/d' "$INITCONFFILE"
 fi
 

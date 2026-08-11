@@ -11,7 +11,7 @@ Build-Depends: bison,
                libpam0g-dev,
                libssl-dev (>= 1.1.0),
                linux-headers-generic,
-               pkg-config
+               pkgconf
 Standards-Version: 4.6.2
 Vcs-Git: https://github.com/rdratlos/racoon-ipsec-tools.git
 Vcs-Browser: https://github.com/rdratlos/racoon-ipsec-tools

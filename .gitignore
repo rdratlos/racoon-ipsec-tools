@@ -24,6 +24,17 @@ Makefile.in
 *.o
 *.lo
 
+# `make dist` / `make distcheck` output, left in the top of the build tree.
+# distcheck also unpacks the tarball into ./ipsec-tools-<version>/ and only
+# removes it on success -- a failed run deliberately leaves it behind for
+# inspection, so it must be ignored rather than committed by accident.
+# Version-agnostic on purpose: these must keep matching after the next
+# version bump without anyone remembering to edit this file.
+/ipsec-tools-*.tar.gz
+/ipsec-tools-*.tar.bz2
+/ipsec-tools-*.tar.xz
+/ipsec-tools-*/
+
 # Coverage artifacts (--enable-coverage + `cd test && make coverage`)
 *.gcno
 *.gcda
