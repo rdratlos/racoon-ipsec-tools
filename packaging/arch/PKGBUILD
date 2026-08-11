@@ -8,7 +8,6 @@ url="https://github.com/rdratlos/racoon-ipsec-tools"
 license=('BSD-3-Clause')
 depends=('openssl' 'libldap' 'linux-headers' 'pam' 'krb5')
 makedepends=('autoconf' 'automake' 'libtool' 'flex' 'bison' 'pkgconf')
-options=(debug)
 install=ipsec-tools.install
 # As Racoon is not on AUR build the debug symbol package, too
 options=(debug)
@@ -16,12 +15,24 @@ backup=('etc/racoon/racoon.conf'
         'etc/ipsec-tools.conf'
         'etc/conf.d/racoon'
         'etc/conf.d/setkey')
+# racoon.conf is a *local* source, deliberately not read from inside the
+# downloaded release tarball below: that tarball is dpkg-source's native
+# Debian source package (also published as this project's GitHub Release
+# asset), and debian/source/local-options excludes packaging/ from it --
+# it is Debian's own packaging metadata that has no business in a
+# from-scratch Debian source tree, and this project's release process
+# treats that tarball as frozen/checksum-signed once published, so
+# nothing in package() below may assume packaging/arch/* is present
+# inside it. ipsec-tools.sysusers/ipsec-tools.tmpfiles already followed
+# this same local-source pattern; racoon.conf now does too.
 source=("$pkgname-$pkgver.tar.xz::https://github.com/rdratlos/racoon-ipsec-tools/releases/download/v$pkgver/ipsec-tools_$pkgver.tar.xz"
         ipsec-tools.sysusers
-        ipsec-tools.tmpfiles)
+        ipsec-tools.tmpfiles
+        racoon.conf)
 sha256sums=('SKIP'
             '52f3c273e6c2e2cd0d9ee15e48ecdab07496af0b233fde0a59b6e69a02b25bee'
-            '4d350c44e28066b89c1faad341b1da6062fe63301116ba72c014119ccff772e5')
+            '4d350c44e28066b89c1faad341b1da6062fe63301116ba72c014119ccff772e5'
+            'b0ebdac6c76d6221139b91679ea06f6b1f20edc50dbefe03ecefbc0375ae637b')
 
 build() {
   cd "racoon-ipsec-tools"
@@ -56,10 +67,10 @@ check() {
 #     if that path doesn't already exist; irrelevant for a fresh package
 #     build (pkgdir always starts empty) but means a rebuild/reinstall
 #     never clobbers a config an admin has since edited. package() below
-#     overwrites this generic default with packaging/arch/racoon.conf,
-#     this package's own privsep-active starter config (same reasoning
-#     as debian/racoon.conf's own override -- see that install line's
-#     comment below for why).
+#     overwrites this generic default with this package's own local
+#     racoon.conf source (see source=() above), a privsep-active starter
+#     config (same reasoning as debian/racoon.conf's own override -- see
+#     that install line's comment below for why).
 #   - /etc/racoon/certs/, empty (X.509 is this project's primary
 #     authentication path).
 #   - /etc/racoon/hooks.conf.sample, alongside where hooks.conf itself
@@ -127,8 +138,9 @@ package() {
   # the root:racoon ownership privsep needs, unconditionally, so there is
   # no from-source-install uncertainty to defer to here the way the
   # generic upstream default (docs/examples/racoon.conf.default.in) has
-  # to leave open.
-  install -Dm600 packaging/arch/racoon.conf "$pkgdir/etc/racoon/racoon.conf"
+  # to leave open. Sourced from $srcdir, not the extracted tarball --
+  # see the source=() array's own comment above for why.
+  install -Dm600 "$srcdir/racoon.conf" "$pkgdir/etc/racoon/racoon.conf"
   install -Dm644 doc/admin/split-dns.html "$pkgdir/usr/share/doc/$pkgname/split-dns.html"
 
   # sysusers.d/tmpfiles.d: still Arch-specific (Debian creates the
