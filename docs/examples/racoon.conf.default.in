@@ -98,11 +98,17 @@
 # and how to tell the resulting privileged/unprivileged processes apart
 # in your logs.
 #
-# Debian packaging does NOT install this rendered file at all (it ships
-# its own separate debian/racoon.conf instead, installed over this one) --
-# precisely because its postinst always creates the "racoon" account and
-# the ownership privsep needs, satisfying every precondition above
-# unconditionally, so its own default has privsep active out of the box.
+# Neither Debian nor Arch packaging installs this rendered file as-is
+# (debian/racoon.conf and packaging/arch/racoon.conf are each installed
+# over it instead) -- precisely because both packages' own maintainer
+# scripts / sysusers.d+tmpfiles.d hooks always create the "racoon"
+# account and the ownership privsep needs, satisfying every precondition
+# above unconditionally, so each package's own default has privsep
+# active out of the box. Deliberately NOT true for a plain, unpackaged
+# `./configure && make install`, or for any future packaging (e.g. RPM)
+# that hasn't added the same account-creation + override step yet --
+# see README.md's "Privilege Separation for From-Source Installs"
+# section for the manual equivalent.
 #
 # ---------------------------------------------------------------------------
 # Reference

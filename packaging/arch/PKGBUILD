@@ -55,7 +55,11 @@ check() {
 #   - /etc/racoon/racoon.conf -- a role-agnostic, inert default, but only
 #     if that path doesn't already exist; irrelevant for a fresh package
 #     build (pkgdir always starts empty) but means a rebuild/reinstall
-#     never clobbers a config an admin has since edited.
+#     never clobbers a config an admin has since edited. package() below
+#     overwrites this generic default with packaging/arch/racoon.conf,
+#     this package's own privsep-active starter config (same reasoning
+#     as debian/racoon.conf's own override -- see that install line's
+#     comment below for why).
 #   - /etc/racoon/certs/, empty (X.509 is this project's primary
 #     authentication path).
 #   - /etc/racoon/hooks.conf.sample, alongside where hooks.conf itself
@@ -107,15 +111,24 @@ package() {
   fi
   rm -rf "$pkgdir/var/run"
 
-  # Arch-specific config, ported from debian/. racoon.conf and psk.txt
-  # are deliberately NOT installed here: `make install` above already
-  # installed a safe, role-agnostic racoon.conf (only if one wasn't
-  # already there), and there is no default psk.txt to ship at all --
-  # create one from usr/share/doc/ipsec-tools/examples/psk.txt.example
-  # if/when a remote block actually needs pre-shared-key or XAuth
-  # authentication.
+  # Arch-specific config, ported from debian/. psk.txt is deliberately
+  # NOT installed here: there is no default to ship at all -- create one
+  # from usr/share/doc/ipsec-tools/examples/psk.txt.example if/when a
+  # remote block actually needs pre-shared-key or XAuth authentication.
   install -dm755 "$pkgdir/etc/ipsec-tools.d"
   install -Dm644 debian/ipsec-tools.conf "$pkgdir/etc/ipsec-tools.conf"
+
+  # racoon.conf: `make install` above already placed the generic,
+  # role-agnostic default (only if the destdir didn't already have one,
+  # which it never does for a fresh package() run) -- overwrite it with
+  # this package's own privsep-active default instead, same reasoning as
+  # debian/racoon.conf's own override: ipsec-tools.sysusers +
+  # ipsec-tools.tmpfiles below always create the "racoon" system user and
+  # the root:racoon ownership privsep needs, unconditionally, so there is
+  # no from-source-install uncertainty to defer to here the way the
+  # generic upstream default (docs/examples/racoon.conf.default.in) has
+  # to leave open.
+  install -Dm600 packaging/arch/racoon.conf "$pkgdir/etc/racoon/racoon.conf"
   install -Dm644 doc/admin/split-dns.html "$pkgdir/usr/share/doc/$pkgname/split-dns.html"
 
   # sysusers.d/tmpfiles.d: still Arch-specific (Debian creates the

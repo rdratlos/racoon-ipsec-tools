@@ -119,6 +119,46 @@ LDAP support may be enabled with:
 
 See the Administrator's Guide for detailed build and deployment instructions.
 
+### Privilege Separation for From-Source Installs
+
+`make install` deliberately never creates system users or groups —
+account provisioning is a packaging concern (Debian's postinst, Arch's
+sysusers.d/tmpfiles.d hooks, and eventually RPM's equivalents each do
+this on install), not something a build system should do to your
+machine on `sudo make install`. This matches how other privilege-
+separating daemons handle it (e.g. OpenSSH's `sshd` privsep user,
+Postfix's `postfix` user) — the account is expected to already exist
+before the daemon starts, and creating it is left to the OS/packaging
+layer or a documented manual step, never to `make install` itself.
+
+Because of this, a plain `sudo make install` ships `/etc/racoon/racoon.conf`
+without a `privsep {}` block, so racoon runs entirely as root until you
+opt in by hand:
+
+```shell
+sudo groupadd --system racoon
+sudo useradd --system --no-create-home --home-dir /var/lib/racoon \
+    --shell /usr/sbin/nologin --gid racoon racoon
+sudo chown root:racoon /etc/racoon /etc/racoon/certs
+sudo chmod 0750 /etc/racoon /etc/racoon/certs
+```
+
+Then add to `/etc/racoon/racoon.conf`:
+
+```
+path script "/etc/racoon/scripts";
+
+privsep {
+    user "racoon";
+    group "racoon";
+}
+```
+
+The Debian and Arch packages ship this active by default, since their
+own packaging already guarantees the account and ownership exist. See
+the Administrator's Guide §8.5 for the full ownership table and threat
+model.
+
 ## Authentication Backends
 
 racoon currently supports:
