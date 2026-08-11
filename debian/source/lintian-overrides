@@ -1,0 +1,9 @@
+# The tests/hooks/fixtures/*/root/proc/<pid>/exe symlinks are test
+# fixtures that emulate real /proc/<pid>/exe entries for the DNS-backend
+# detection test suite (tests/hooks/test-survey-fixtures.sh) -- on a real
+# system /proc/<pid>/exe always resolves to an absolute path, so a
+# relative target here would misrepresent exactly what is being tested.
+ipsec-tools source: absolute-symbolic-link-target-in-source /usr/lib/systemd/systemd-resolved [tests/hooks/fixtures/11-resolved-stub-port53/root/proc/100/exe]
+ipsec-tools source: absolute-symbolic-link-target-in-source /usr/lib/systemd/systemd-resolved [tests/hooks/fixtures/13-resolved-plus-second-forwarder/root/proc/100/exe]
+ipsec-tools source: absolute-symbolic-link-target-in-source /usr/sbin/dnsmasq [tests/hooks/fixtures/12-dnsmasq-loopback-static-resolv/root/proc/200/exe]
+ipsec-tools source: absolute-symbolic-link-target-in-source /usr/sbin/unbound [tests/hooks/fixtures/13-resolved-plus-second-forwarder/root/proc/300/exe]
