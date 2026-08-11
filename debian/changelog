@@ -1,3 +1,9 @@
+ipsec-tools (1:0.9.1ubuntu1~noble1) noble; urgency=medium
+
+  * Rebuild for Ubuntu Noble.
+
+ -- Thomas Reim <reimth@etik.com>  Tue, 11 Aug 2026 15:45:13 +0000
+
 ipsec-tools (1:0.9.1) unstable; urgency=medium
 
   * New upstream release 0.9.1.
