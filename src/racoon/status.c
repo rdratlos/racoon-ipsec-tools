@@ -909,7 +909,22 @@ collect_ph2(struct ph2handle *iph2, struct status_ph2 *p)
 			p->spi_out = mask_spi(proto->spi_p);
 			p->ok = proto->ok;
 
-			for (trns = proto->head; trns != NULL; trns = trns->next) {
+			/* Issue #143 L1: this reads the single transform
+			 * directly instead of walking proto->head's list.
+			 * cmpsaprop_alloc() (proposal.c), which builds
+			 * iph2->approval, calls newsatrns()/inssatrns()
+			 * exactly once per matched saproto -- an approved
+			 * proposal carries one transform per protocol by
+			 * construction, so the list never had a second entry
+			 * to visit. The old loop nevertheless assigned over
+			 * p->enc_alg/auth_alg/comp_alg on each pass without
+			 * freeing the previous pointer, which would have
+			 * leaked the moment that invariant changed, and read
+			 * as though it handled a case it did not. Reading
+			 * ->head once says what the code actually means and
+			 * cannot leak. */
+			trns = proto->head;
+			if (trns != NULL) {
 				switch (proto->proto_id) {
 				case IPSECDOI_PROTO_IPSEC_ESP:
 					p->enc_alg = esp_enc_alg_name(trns->trns_id);
@@ -917,7 +932,18 @@ collect_ph2(struct ph2handle *iph2, struct status_ph2 *p)
 						p->auth_alg = esp_auth_alg_name(trns->authtype);
 					break;
 				case IPSECDOI_PROTO_IPSEC_AH:
-					p->enc_alg = dupstr(s_ipsecdoi_trns_ah(trns->trns_id));
+					/* Issue #143 L2: AH provides integrity
+					 * only and no encryption at all, so its
+					 * transform is an *authentication*
+					 * algorithm. Reporting it in
+					 * encryption_algorithm (as this did
+					 * through schema 1.2) told a consumer
+					 * asking "what cipher protects this SA"
+					 * that the answer was a hash name.
+					 * encryption_algorithm is left NULL --
+					 * rendered as JSON null -- which is the
+					 * honest answer for AH. */
+					p->auth_alg = dupstr(s_ipsecdoi_trns_ah(trns->trns_id));
 					break;
 				case IPSECDOI_PROTO_IPCOMP:
 					p->comp_alg = dupstr(s_ipsecdoi_trns_ipcomp(trns->trns_id));
@@ -1228,10 +1254,13 @@ render_json(struct status_snapshot *snap, struct outbuf *ob)
 	int i;
 
 	/* 1.2 (issue #143 F4): spi_in/spi_out widened from string to
-	 * string-or-null. Additive to the type union rather than a rename,
-	 * removal or retype of an existing value, so a minor bump under D4 --
-	 * the RFC-0001 harness pins on major and is unaffected. */
-	ob_puts(ob, "{\"schema_version\":\"1.2\",\"timestamp\":");
+	 * string-or-null.
+	 * 1.3 (issue #143 L2): an AH SA now reports its transform in
+	 * authentication_algorithm with encryption_algorithm null, instead of
+	 * the reverse. See D9 in doc/dev/racoonctl-status-analysis.md for why
+	 * this was versioned as a minor bump rather than a major one -- that
+	 * was a judgement call, and the counter-argument is recorded there. */
+	ob_puts(ob, "{\"schema_version\":\"1.3\",\"timestamp\":");
 	json_string(ob, snap->timestamp);
 
 	ob_puts(ob, ",\"phase1\":[");
@@ -1348,8 +1377,16 @@ text_render_ph2(struct outbuf *ob, struct status_ph2 *p)
 	    selector_field_str(p->sel_sport, sportbuf, sizeof(sportbuf)),
 	    selector_field_str(p->sel_dport, dportbuf, sizeof(dportbuf)));
 	if (p->has_proposal) {
+		/* Both algorithm fields are legitimately NULL: auth_alg for an
+		 * ESP transform negotiated with IPSECDOI_ATTR_AUTH_NONE, and
+		 * (since issue #143 L2) enc_alg for an AH SA, which has no
+		 * cipher. Passing NULL to a "%s" conversion is undefined
+		 * behaviour -- glibc happens to print "(null)", but this tree
+		 * also targets NetBSD, so substitute explicitly rather than
+		 * relying on that. JSON renders the same two cases as null. */
 		ob_printf(ob, "  encryption:     %s  auth: %s%s%s\n",
-		    p->enc_alg, p->auth_alg,
+		    p->enc_alg != NULL ? p->enc_alg : "(none)",
+		    p->auth_alg != NULL ? p->auth_alg : "(none)",
 		    p->comp_alg != NULL ? "  comp: " : "",
 		    p->comp_alg != NULL ? p->comp_alg : "");
 		if (p->pfs_group != 0)

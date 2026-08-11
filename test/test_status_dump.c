@@ -207,12 +207,13 @@ test_empty_tree_json_nonverbose(void)
 		TEST_FAIL("status_dump() returned NULL");
 	if (!braces_balanced((char *)out->v, out->l))
 		TEST_FAIL("unbalanced braces in JSON output");
-	/* 1.2 since issue #143 F4 widened spi_in/spi_out to string-or-null.
+	/* 1.3 since issue #143 L2 moved an AH SA's transform name into
+	 * authentication_algorithm (1.2 had widened spi_in/spi_out, F4).
 	 * Pinned to the exact version deliberately: share/schema/ declares
-	 * "const": "1.2", so a renderer bump that forgets the schema file (or
+	 * "const": "1.3", so a renderer bump that forgets the schema file (or
 	 * vice versa) has to fail somewhere, and this is the cheapest place. */
-	if (strstr((char *)out->v, "\"schema_version\":\"1.2\"") == NULL)
-		TEST_FAIL("missing or stale schema_version (expected 1.2)");
+	if (strstr((char *)out->v, "\"schema_version\":\"1.3\"") == NULL)
+		TEST_FAIL("missing or stale schema_version (expected 1.3)");
 	if (strstr((char *)out->v, "\"phase1\":[]") == NULL)
 		TEST_FAIL("expected an empty phase1 array");
 	if (strstr((char *)out->v, "\"phase2\"") != NULL)
@@ -821,8 +822,8 @@ test_ph2_ah(void)
 	struct satrns trns;
 	vchar_t *out = NULL;
 
-	TEST_START("populated ph2 (AH), JSON: protocol AH, encryption_algorithm "
-	    "from s_ipsecdoi_trns_ah(), no authentication_algorithm");
+	TEST_START("populated ph2 (AH), JSON: the AH transform is reported as "
+	    "authentication_algorithm, encryption_algorithm null (issue #143 L2)");
 
 	reset_queues();
 	make_addrs();
@@ -841,11 +842,65 @@ test_ph2_ah(void)
 		TEST_FAIL("unbalanced braces in JSON output");
 	if (strstr((char *)out->v, "\"protocol\":\"AH\"") == NULL)
 		TEST_FAIL("expected protocol AH");
-	if (strstr((char *)out->v, "\"encryption_algorithm\":\"SHA256\"") == NULL)
-		TEST_FAIL("expected encryption_algorithm SHA256 from s_ipsecdoi_trns_ah() "
-		    "(AH has no separate cipher -- this field carries its auth algorithm)");
-	if (strstr((char *)out->v, "\"authentication_algorithm\":null") == NULL)
-		TEST_FAIL("expected authentication_algorithm null -- the AH branch never sets it");
+	/* Through schema 1.2 these two assertions were the other way round:
+	 * the AH hash name sat in encryption_algorithm and
+	 * authentication_algorithm was null, so a consumer asking what cipher
+	 * protected an AH SA was handed a hash name. AH encrypts nothing. */
+	if (strstr((char *)out->v, "\"authentication_algorithm\":\"SHA256\"") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected authentication_algorithm SHA256 from s_ipsecdoi_trns_ah()");
+	}
+	if (strstr((char *)out->v, "\"encryption_algorithm\":null") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected encryption_algorithm null -- AH provides no encryption");
+	}
+
+	vfree(out);
+	TEST_PASS();
+	return 0;
+}
+
+/*
+ * Issue #143 L2, the other half: an ESP SA negotiated with no integrity
+ * algorithm (IPSECDOI_ATTR_AUTH_NONE) renders authentication_algorithm as
+ * null. That was already true through schema 1.2 while the schema declared
+ * the field a plain string, so such a document failed the project's own
+ * schema -- the same defect class as F4, in the field L2 is moving. Pinned
+ * here so the widened ["string", "null"] type keeps a test behind it.
+ */
+static int
+test_ph2_esp_null_auth_renders_null(void)
+{
+	struct ph2handle iph2;
+	struct saprop approval;
+	struct saproto proto;
+	struct satrns trns;
+	vchar_t *out = NULL;
+
+	TEST_START("ESP with IPSECDOI_ATTR_AUTH_NONE renders "
+	    "authentication_algorithm null, with the cipher still reported");
+
+	reset_queues();
+	make_addrs();
+	setup_ph2_basic(&iph2, &approval, &proto, &trns);
+	trns.trns_id = IPSECDOI_ESP_AES;
+	trns.authtype = IPSECDOI_ATTR_AUTH_NONE;
+
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 1);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL");
+	if (strstr((char *)out->v, "\"authentication_algorithm\":null") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected authentication_algorithm null for AUTH_NONE");
+	}
+	if (strstr((char *)out->v, "\"encryption_algorithm\":\"AES-CBC\"") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected the ESP cipher still reported alongside a null auth");
+	}
 
 	vfree(out);
 	TEST_PASS();
@@ -1385,6 +1440,8 @@ main(void)
 	if (test_ph2_effective_group_fallback() != 0)
 		failed++;
 	if (test_ph2_ah() != 0)
+		failed++;
+	if (test_ph2_esp_null_auth_renders_null() != 0)
 		failed++;
 	if (test_ph2_alg_names_cbc_and_sha1() != 0)
 		failed++;

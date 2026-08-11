@@ -658,6 +658,79 @@ a standalone decision rather than something folded into this sweep.
 
 ---
 
+### D9 — AH reports an authentication algorithm, not an encryption one (#143 L2), and L1
+
+Closes the two low-severity findings D8 deliberately left open, at the
+maintainer's request after the F1–F4 fixes were live-verified.
+
+**L1 — the transform loop.** `collect_ph2()` walked `proto->head`'s `satrns`
+list assigning over `p->enc_alg`/`auth_alg`/`comp_alg` on each pass without
+freeing the previous pointer. Unreachable today, and now verified why rather
+than assumed: `cmpsaprop_alloc()` (`proposal.c`), which builds
+`iph2->approval`, calls `newsatrns()`/`inssatrns()` exactly once per matched
+`saproto`, so an approved proposal carries one transform per protocol by
+construction. The loop is replaced by a single `proto->head` read — what the
+code always meant, and structurally incapable of leaking. (Note the old loop
+kept the *last* transform; reading `->head` keeps the first. Identical while
+the invariant holds, which is the point.)
+
+**L2 — AH's transform moved to `authentication_algorithm`.** AH provides
+integrity only and encrypts nothing, so reporting its transform name in
+`encryption_algorithm` answered "what cipher protects this SA" with a hash
+name. It now populates `authentication_algorithm`, and
+`encryption_algorithm` renders `null` for AH.
+
+**Two pre-existing defects surfaced while doing it, both fixed here:**
+
+1. `authentication_algorithm` was declared `"type": "string"` in the schema
+   but *already* rendered `null` — for AH SAs, and for any ESP transform
+   negotiated with `IPSECDOI_ATTR_AUTH_NONE`. Both cases therefore emitted a
+   document that failed the project's own schema, exactly the F4 defect class
+   in the very field L2 moves. Confirmed by validating a reproduction of the
+   1.2 AH rendering against the 1.2 schema: `None is not of type 'string'`.
+   Both algorithm fields are now `["string", "null"]`.
+2. The text renderer passed `p->enc_alg`/`p->auth_alg` straight to a `%s`
+   conversion. `auth_alg` was **already** `NULL` for AH and null-auth ESP
+   before this change, so text rendering of those SAs was undefined
+   behaviour. glibc prints `(null)` and hid it; this tree also targets
+   NetBSD. Both now substitute `(none)` explicitly.
+
+**Version: 1.3, a minor bump — and this one is a judgement call, recorded
+with its counter-argument rather than presented as obvious.**
+
+The argument for **major** is straightforward and was raised before the
+change: D4 reserves major for "rename/remove/retype an existing field", and
+for an AH SA a value moved out of `encryption_algorithm` (now `null`) into a
+different field. A consumer reading `encryption_algorithm` to inventory AH
+SAs sees a behavioural break, which is what major exists to signal.
+
+The argument for **minor**, which is what was chosen:
+
+- The schema-level change is purely a *widening* of two type unions, the
+  same additive direction as F4's 1.1 → 1.2. Every document that validated
+  under 1.2 still validates under 1.3.
+- No consumer can have been *correctly* depending on the old behaviour.
+  `encryption_algorithm` is documented as the negotiated cipher; AH has no
+  cipher. The old value was a defect, not a contract — and per (1) above, an
+  AH document did not even conform to the published schema, so there was no
+  valid 1.2 AH contract to break.
+- D4's own stated purpose for major is the RFC-0001 harness, which pins on
+  major. Forcing a harness change for a fix affecting only AH SAs would
+  spend the major bump on the least-used protocol path.
+
+This is the same reasoning that let #142's `AES` → `AES-CBC` precision fix
+ship without any bump, extended one step: there the field's value became
+more precise, here a value that was never a valid answer for that field
+moved to the field it actually answers. Anyone who disagrees should read the
+break as real and treat 1.3 as a major bump in effect — the substantive
+change is documented above either way, which matters more than the number.
+
+**AH SAs remain reported by `protocol: "AH"`**, so a consumer that wants to
+branch on protocol rather than sniff algorithm fields always could, and
+still can.
+
+---
+
 ## 4. Findings
 
 ### High
@@ -942,7 +1015,7 @@ re-litigated here).
 ## 7. Working with the JSON output (`jq` recipes)
 
 Every command below was run against **real** `status_dump()` output captured
-from the render path (schema_version 1.2), not hand-written examples.
+from the render path (schema_version 1.3), not hand-written examples.
 
 `racoonctl status` needs read access to the admin socket, so these normally
 run as root; `-v` is required for any `phase2[]` query, since a non-verbose
@@ -1068,6 +1141,6 @@ racoonctl status -v -f json | jq -r '
 0x11112222 getspisent
 ```
 
-Note this is a schema_version 1.2 idiom. Under 1.1 the same handle rendered
+Note this is a schema_version 1.2-and-later idiom. Under 1.1 the same handle rendered
 a bogus `"0x00000000****"` string, so `select(.spi_in == null)` matched
 nothing and there was no reliable way to ask this question.

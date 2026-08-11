@@ -8,8 +8,8 @@
   "required": ["schema_version", "timestamp", "phase1"],
   "properties": {
     "schema_version": {
-      "const": "1.2",
-      "description": "\"major.minor\" (D4). Additive changes bump minor only; this file is scoped to exactly 1.2's field set. 1.1 -> 1.2 widened phase2[].spi_in/spi_out from string to string-or-null (issue #143 F4)."
+      "const": "1.3",
+      "description": "\"major.minor\" (D4). Additive changes bump minor only; this file is scoped to exactly 1.3's field set. 1.1 -> 1.2 widened phase2[].spi_in/spi_out from string to string-or-null (issue #143 F4). 1.2 -> 1.3 moved an AH SA's transform name from proposal.encryption_algorithm to proposal.authentication_algorithm and widened both to string-or-null (issue #143 L2); see D9 in doc/dev/racoonctl-status-analysis.md for why this was versioned minor rather than major, including the argument for major."
     },
     "timestamp": {
       "type": "string",
@@ -231,14 +231,14 @@
           ],
           "properties": {
             "encryption_algorithm": {
-              "type": "string",
-              "description": "Includes the cipher mode, e.g. \"AES-CBC\" rather than a bare \"AES\". strnames.c's s_ipsecdoi_trns_esp() renders only the cipher family; status.c appends the mode, which is a property of the transform ID (racoon implements CBC and nothing else -- no CTR, no GCM). IPSECDOI_ESP_NULL and IPSECDOI_ESP_RC4 are genuinely modeless and keep their bare names, as does an unrecognized transform ID falling through to num2str(). Kept a plain string of unchanged meaning -- only the value's precision improved, so no schema_version bump (D4).",
+              "type": ["string", "null"],
+              "description": "The negotiated cipher, including its mode -- e.g. \"AES-CBC\" rather than a bare \"AES\". strnames.c's s_ipsecdoi_trns_esp() renders only the cipher family; status.c appends the mode, which is a property of the transform ID (racoon implements CBC and nothing else -- no CTR, no GCM). IPSECDOI_ESP_NULL and IPSECDOI_ESP_RC4 are genuinely modeless and keep their bare names, as does an unrecognized transform ID falling through to num2str(). null on an AH SA, which provides integrity only and has no cipher to report (issue #143 L2, schema 1.3); through 1.2 this field carried AH's *hash* name instead, which answered \"what cipher protects this SA\" with an algorithm that encrypts nothing.",
               "x-source-config": "src/racoon/cftoken.l:309 (encryption_algorithm, S_SAINFS)",
               "x-source-render": "src/racoon/status.c:801 (esp_enc_alg_name)"
             },
             "authentication_algorithm": {
-              "type": "string",
-              "description": "Includes the hash variant, e.g. \"hmac-sha1\" rather than a bare \"hmac-sha\". strnames.c's name_attr_ipsec_auth[] already names the variant for every SHA-2 entry (\"hmac-sha256\"/\"-sha384\"/\"-sha512\") and only truncates the SHA-1 one; status.c restores that single entry to the table's own convention and defers to s_ipsecdoi_auth() for all other values. null when the ESP transform negotiated no authentication (IPSECDOI_ATTR_AUTH_NONE), and absent entirely on an AH SA.",
+              "type": ["string", "null"],
+              "description": "The negotiated integrity algorithm. For ESP this includes the hash variant, e.g. \"hmac-sha1\" rather than a bare \"hmac-sha\": strnames.c's name_attr_ipsec_auth[] already names the variant for every SHA-2 entry (\"hmac-sha256\"/\"-sha384\"/\"-sha512\") and only truncates the SHA-1 one, so status.c restores that single entry to the table's own convention and defers to s_ipsecdoi_auth() for the rest. For an AH SA this carries the AH transform name from s_ipsecdoi_trns_ah() (issue #143 L2, schema 1.3). null when the ESP transform negotiated no authentication at all (IPSECDOI_ATTR_AUTH_NONE) -- note that case already rendered null through schema 1.2 while this field was declared a plain string, so an AH or null-auth SA emitted a document that failed this very schema; the widened type fixes that too.",
               "x-source-config": "src/racoon/cftoken.l:310 (authentication_algorithm, S_SAINFS)",
               "x-source-render": "src/racoon/status.c:830 (esp_auth_alg_name)"
             },
