@@ -56,17 +56,15 @@ signed the VPN gateway's certificate to /etc/racoon/certs/ca.crt
 (paths matching this example's own "path certificate" directive and
 its commented-out "remote" block).
 
-NOTE: client/phase1-up.sh and client/phase1-down.sh here are minimal,
-historical example hooks (they only log the Mode Config environment
-and stop). They are installed by `make install` as reference material
-alongside this README, but are not wired into any active racoon.conf
-and are not the functional hooks used by the example above. For a
-real, maintained split-DNS and routing hook set (DNS backend detection
-across systemd-resolved/NetworkManager/resolvconf/dnsmasq, route/SPD
-management, whitelist input validation, and a full test suite), use
-src/racoon/scripts/ instead, installed unconditionally to
-/etc/racoon/scripts/ as a real package component -- this is what
-client/racoon.conf's own "script" directives actually point at. See
+NOTE: client/racoon.conf's "path script" directive points at
+/etc/racoon/scripts, not at this templates directory. The real,
+maintained split-DNS and routing hook set (DNS backend detection across
+systemd-resolved/NetworkManager/resolvconf/dnsmasq, route/SPD
+management, whitelist input validation, and a full test suite) lives in
+src/racoon/scripts/ and is installed unconditionally to
+/etc/racoon/scripts/ as its own package component, independent of this
+example -- this is what client/racoon.conf's own "script" directives
+actually resolve against, so there is nothing to copy here. See
 doc/admin/split-dns.html for complete documentation.
 
 Once this is done, you can run racoon, and then you can start

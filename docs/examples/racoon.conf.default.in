@@ -31,12 +31,12 @@
 #     X.509 certificate + XAuth username/password authentication, Mode
 #     Config for a dynamically assigned address, DNS, and split routing.
 #     This is the common case if you were handed a certificate and a
-#     gateway address by a VPN administrator.  Pairs with
-#     roadwarrior/client/phase1-up.sh and phase1-down.sh (historical,
-#     minimal reference hooks -- for a maintained split-DNS and routing
-#     hook set see racoon-hook-lib.sh(8) / racoon-dns-detect(8) and
-#     @RACOON_SYSCONFDIR@/scripts, installed unconditionally by this
-#     package as a real component, not a template).
+#     gateway address by a VPN administrator.  Its "path script" already
+#     points at @RACOON_SYSCONFDIR@/scripts, where the maintained
+#     split-DNS and routing hook set (phase1-up.sh, phase1-down.sh,
+#     racoon-hook-lib.sh; see racoon-hook-lib.sh(8) / racoon-dns-detect(8))
+#     is installed unconditionally by this package as a real component --
+#     nothing to copy from this template directory for those.
 #
 #   roadwarrior/server/racoon.conf
 #     Running the VPN gateway side of the same roadwarrior setup: address

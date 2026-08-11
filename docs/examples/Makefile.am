@@ -66,15 +66,15 @@ roadwarriordir = $(templatesdir)/roadwarrior
 roadwarrior_DATA = roadwarrior/README
 
 roadwarriorclientdir = $(roadwarriordir)/client
+# No script hooks here: this template's own racoon.conf sets
+# `path script "/etc/racoon/scripts"` and its "remote" block's "script"
+# directives resolve against that -- i.e. it already points at the real,
+# maintained hook set (src/racoon/scripts/, installed unconditionally to
+# $(sysconfdir)/scripts by ../src/racoon/scripts/Makefile.am), not a copy
+# living alongside this file. Shipping a second copy of those scripts
+# here would just be the stale-duplicate problem this directory used to
+# have, again.
 roadwarriorclient_DATA = roadwarrior/client/racoon.conf
-# Historical, minimal reference hooks (see roadwarrior/README) --
-# installed alongside the racoon.conf they were written for, but never
-# wired into $(sysconfdir); the real, maintained hook set lives in
-# src/racoon/scripts/ and is installed unconditionally to
-# $(sysconfdir)/scripts, independent of this example.
-roadwarriorclient_SCRIPTS = \
-   roadwarrior/client/phase1-up.sh \
-   roadwarrior/client/phase1-down.sh
 
 roadwarriorserverdir = $(roadwarriordir)/server
 roadwarriorserver_DATA = roadwarrior/server/racoon.conf
@@ -85,8 +85,6 @@ EXTRA_DIST = \
    racoon.conf.sample-gssapi racoon.conf.sample-natt \
    racoon.conf.sample-inherit racoon.conf.sample-plainrsa \
    roadwarrior/README \
-   roadwarrior/client/phase1-down.sh \
-   roadwarrior/client/phase1-up.sh \
    roadwarrior/client/racoon.conf \
    roadwarrior/server/racoon.conf
 

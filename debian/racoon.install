@@ -12,8 +12,6 @@ etc/racoon/scripts/racoon-dns-detect
 # glob to avoid shipping a second, stale copy here.
 usr/share/racoon/templates/roadwarrior/README
 usr/share/racoon/templates/roadwarrior/client/racoon.conf
-usr/share/racoon/templates/roadwarrior/client/phase1-up.sh
-usr/share/racoon/templates/roadwarrior/client/phase1-down.sh
 usr/share/racoon/templates/roadwarrior/server/racoon.conf
 usr/include/libipsec/libpfkey.h
 usr/include/racoon/admin.h
