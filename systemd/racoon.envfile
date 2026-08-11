@@ -1,2 +1,10 @@
-# Arguments to pass to racoon (e.g. "-d" for debug, "-f /etc/racoon/racoon.conf" for a custom config)
+# Defaults for racoon systemd service
+# sourced by racoon.service
+# installed at /etc/default/racoon by the maintainer scripts
+
+#
+# This is a POSIX shell fragment
+#
+
+# Arguments to pass to racoon (e.g., "-d" for debug, "-f /etc/racoon/racoon.conf" for custom config)
 RACOON_ARGS=""
