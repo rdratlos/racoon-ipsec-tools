@@ -3,10 +3,19 @@
 # detection test suite (tests/hooks/test-survey-fixtures.sh) -- on a real
 # system /proc/<pid>/exe always resolves to an absolute path, so a
 # relative target here would misrepresent exactly what is being tested.
-ipsec-tools source: absolute-symbolic-link-target-in-source /usr/lib/systemd/systemd-resolved [tests/hooks/fixtures/11-resolved-stub-port53/root/proc/100/exe]
-ipsec-tools source: absolute-symbolic-link-target-in-source /usr/lib/systemd/systemd-resolved [tests/hooks/fixtures/13-resolved-plus-second-forwarder/root/proc/100/exe]
-ipsec-tools source: absolute-symbolic-link-target-in-source /usr/sbin/dnsmasq [tests/hooks/fixtures/12-dnsmasq-loopback-static-resolv/root/proc/200/exe]
-ipsec-tools source: absolute-symbolic-link-target-in-source /usr/sbin/unbound [tests/hooks/fixtures/13-resolved-plus-second-forwarder/root/proc/300/exe]
+#
+# Left unqualified (no per-file context) on purpose: lintian renders and
+# matches a pointed tag's context differently depending on its own
+# version -- e.g. Focal's lintian (2.62.x, pre-dating the
+# Lintian::Hint::Pointed rewrite) prints/matches "<path> -> <target>",
+# while current lintian (post-rewrite) prints/matches
+# "<target> [<path>]". A context string written for one format silently
+# fails to match under the other, so the warning survives on whichever
+# release ships the format the override wasn't written for. Since these
+# four fixture symlinks are the only source of this tag, dropping the
+# context suppresses all of them unconditionally on every lintian
+# version instead of chasing its context format per release.
+ipsec-tools source: absolute-symbolic-link-target-in-source
 
 # docs/admin-guide/racoon-admin-guide.html's inline <svg class="doc-logo">
 # (the racoon mascot illustration) has two <path> elements whose "d"
