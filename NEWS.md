@@ -1,6 +1,6 @@
 # NEWS
 
-## 0.9.1 (unreleased)
+## 0.9.1
 
 This release closes a hardening phase that ran for about five weeks after
 `0.9.0`: a security/availability fix for IKE fragmentation, a privilege-
