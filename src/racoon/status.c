@@ -1254,13 +1254,24 @@ render_json(struct status_snapshot *snap, struct outbuf *ob)
 	int i;
 
 	/* 1.2 (issue #143 F4): spi_in/spi_out widened from string to
-	 * string-or-null.
-	 * 1.3 (issue #143 L2): an AH SA now reports its transform in
+	 * string-or-null -- additive, so a minor bump.
+	 * 2.0 (issue #143 L2): an AH SA now reports its transform in
 	 * authentication_algorithm with encryption_algorithm null, instead of
-	 * the reverse. See D9 in doc/dev/racoonctl-status-analysis.md for why
-	 * this was versioned as a minor bump rather than a major one -- that
-	 * was a judgement call, and the counter-argument is recorded there. */
-	ob_puts(ob, "{\"schema_version\":\"1.3\",\"timestamp\":");
+	 * the reverse. A *major* bump: the type widening that came with it is
+	 * additive on its own, but a value relocating between two fields is
+	 * invisible to schema validation (both fields accept string-or-null
+	 * either way) while silently changing what a consumer parsing
+	 * encryption_algorithm reads back for that SA class. D4 reserves major
+	 * for exactly that. Shipped briefly as 1.3; see D9 in
+	 * doc/dev/racoonctl-status-analysis.md for the reversal.
+	 *
+	 * This string is not shared with the other three places that must
+	 * agree on it -- share/schema/racoonctl-status.schema.json's "const",
+	 * racoonctl.1.in's worked example, and test_status_dump.c's
+	 * assertion. The test pins the exact value, so a renderer bump that
+	 * forgets the schema file (or vice versa) fails there rather than
+	 * shipping a mismatch. */
+	ob_puts(ob, "{\"schema_version\":\"2.0\",\"timestamp\":");
 	json_string(ob, snap->timestamp);
 
 	ob_puts(ob, ",\"phase1\":[");

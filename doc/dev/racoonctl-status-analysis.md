@@ -1,11 +1,33 @@
 # `racoonctl status` — Phase 1 Analysis &amp; Phase 2 Report
 
-**Status:** D1–D4 ratified (§5). Phase 3 done — consolidated issue:
-[rdratlos/racoon-ipsec-tools#139](https://github.com/rdratlos/racoon-ipsec-tools/issues/139).
-⏸ before Phase 4 (code).
-**Branch:** `claude/racoonctl-status-rewrite` (based on `develop`, not the discarded
-`feature/racoonctl-status`/first-draft history).
-**Scope:** analysis + recommendations only. No code in this commit.
+**Status:** **Shipped.** All of D1–D9 are ratified (§3, §5); the feature is
+live-verified across the four-machine matrix (gateway plus Ubuntu Bionic
+i386, Arch Linux and Ubuntu Noble roadwarrior clients), cross-checked
+against `setkey -DN` where applicable.
+[#139](https://github.com/rdratlos/racoon-ipsec-tools/issues/139) and
+[#140](https://github.com/rdratlos/racoon-ipsec-tools/issues/140) are
+closed and merged to `develop`, as is
+[#142](https://github.com/rdratlos/racoon-ipsec-tools/pull/142);
+[#143](https://github.com/rdratlos/racoon-ipsec-tools/issues/143) (the
+post-merge defect sweep) is **still open**, its work in flight on the
+branch named below. JSON schema is at **2.0**
+(`share/schema/racoonctl-status.schema.json`). This document is now under
+normal post-release maintenance, not draft design work: new decisions are
+appended as further `D`-entries, and corrections are recorded in place
+beside the reasoning they supersede rather than rewritten over it.
+
+**Branch lineage:** `claude/racoonctl-status-rewrite` (the original
+implementation, based on `develop` — not the discarded
+`feature/racoonctl-status` first-draft history) →
+`claude/racoonctl-phase2-algorithm-names-guq86n` (#142, phase 2 algorithm
+naming) → `claude/racoonctl-status-defects-143` (#143, current). The first
+two were merged to `develop` and no longer exist as unmerged work; the
+third is the branch this revision is being written on, so a reader looking
+for it should expect it to be open rather than merged.
+
+**Scope:** originally analysis and recommendations only; it has since grown
+into the decision record for the whole feature, including the shipped
+implementation's rationale.
 
 ---
 
@@ -695,6 +717,35 @@ name. It now populates `authentication_algorithm`, and
    behaviour. glibc prints `(null)` and hid it; this tree also targets
    NetBSD. Both now substitute `(none)` explicitly.
 
+> **Corrected — the version is 2.0, not the 1.3 argued for below.** The
+> judgement call recorded in this subsection was revisited in review and
+> **reversed to a major bump**. The reasoning below is kept in place rather
+> than rewritten, the same way H-2's and the RFC-0001 reference corrections
+> are recorded elsewhere in this document, so the argument that was actually
+> made — and why it was insufficient — stays legible.
+>
+> **What the "minor" case got wrong:** it rested on "every 1.2 document still
+> validates under the new schema." That test is sound for a type widening
+> (F4's `spi_in`/`spi_out`) but it is the *wrong test for this change*.
+> Both `encryption_algorithm` and `authentication_algorithm` accept
+> `string`-or-`null` before and after, so schema validity is unaffected by
+> which of the two an AH SA's transform name lands in — validation cannot
+> see a value *relocating* between fields, only whether each field's type
+> is still legal. D4's major criterion is about the stability of a field's
+> **content**, not only the safety of its type union.
+>
+> **And the "no consumer could have been *correctly* depending on it"
+> argument** describes why the old placement was a defect. It does not
+> describe why upgrading past it is safe to ship quietly. A deployed
+> consumer parsing `encryption_algorithm` to inventory AH ciphers reads
+> different bytes after a `racoon` upgrade, with no config change on their
+> end to explain it. That is precisely the break a major bump exists to
+> announce.
+>
+> The type widening itself remains correct and remains additive on its own
+> merits — it simply is no longer what determines the version. F1–F4 and
+> the 1.1 → 1.2 bump are unaffected and stand as minor.
+
 **Version: 1.3, a minor bump — and this one is a judgement call, recorded
 with its counter-argument rather than presented as obvious.**
 
@@ -1015,7 +1066,7 @@ re-litigated here).
 ## 7. Working with the JSON output (`jq` recipes)
 
 Every command below was run against **real** `status_dump()` output captured
-from the render path (schema_version 1.3), not hand-written examples.
+from the render path (schema_version 2.0), not hand-written examples.
 
 `racoonctl status` needs read access to the admin socket, so these normally
 run as root; `-v` is required for any `phase2[]` query, since a non-verbose
