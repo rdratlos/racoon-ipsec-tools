@@ -938,6 +938,20 @@ All four decision points closed. Status: **Approved — proceeding to Phase 3.**
    present the same fields, differing only in layout — tightens the earlier,
    looser "text and json may diverge stylistically" note.
 
+   **`schema_version` is explicitly exempt from that rule**, and its absence
+   from `text` output is neither a violation nor a bug. The rule governs
+   *reported SA state* — every field describing a phase1/phase2 handle must
+   appear in both renderings. `schema_version` describes none: it is a
+   property of the **JSON encoding itself**, the versioned wire contract a
+   machine consumer needs in order to parse the document it is holding.
+   `text` is a human rendering with no wire contract to version, no consumer
+   parsing it against a schema, and nothing for the field to be true *of*.
+   Emitting it there would add a line that means nothing to the reader it is
+   printed for. (`timestamp`, by contrast, *is* reported state and does
+   appear in both — the header line of `render_text()`.) Recorded here rather
+   than left to inference because the omission looks like an oversight when
+   read against the rule above: it was checked and kept, not missed.
+
 ### Frozen JSON schema v1
 
 Reflects every ratified correction above (§3 has the reasoning for each).

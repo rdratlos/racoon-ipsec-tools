@@ -1418,6 +1418,15 @@ render_text(struct status_snapshot *snap, struct outbuf *ob)
 {
 	int i;
 
+	/* No schema_version line here, deliberately. D5's mandatory-interface
+	 * rule (text must present the same fields as JSON, differing only in
+	 * layout) governs reported SA state; schema_version is a property of
+	 * the JSON encoding -- the versioned wire contract a machine consumer
+	 * parses against -- not of any handle. Text has no such contract, so
+	 * there is nothing for the field to be true of. See the exemption
+	 * recorded under D5 in doc/dev/racoonctl-status-analysis.md before
+	 * filing this as a gap. timestamp below *is* reported state, which is
+	 * why it appears in both renderings. */
 	ob_printf(ob, "racoon status at %s\n\n", snap->timestamp);
 
 	if (snap->ph1_count == 0)
