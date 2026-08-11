@@ -163,6 +163,31 @@ referencing the old
 `/usr/share/racoon/templates/roadwarrior/` (or your distribution's
 equivalent).
 
+### Packaging: privilege separation now active out of the box
+
+The Debian and Arch packages now ship `racoon.conf` with `privsep {}`
+active by default, closing the gap behind the "Privilege separation
+hardening" claim above: both packages' own account-provisioning
+mechanisms (Debian's postinst, Arch's sysusers.d/tmpfiles.d hooks)
+already created the `racoon` system user and the ownership privsep
+needs unconditionally, so there was no remaining reason for the shipped
+config to leave it off. A from-source `make install` still ships
+inert, on purpose — creating system accounts is a packaging concern,
+never a build system's; see README.md's new "Privilege Separation for
+From-Source Installs" section for the manual equivalent.
+
+Also cleaned up while auditing the packaging: the stale, unheaded
+`docs/examples/roadwarrior/client/phase1-*.sh` example hooks are gone
+(the real, maintained hooks at `/etc/racoon/scripts/` were always what
+the roadwarrior templates actually used); `/etc/default/racoon` and
+`/etc/default/setkey` are now real shipped conffiles instead of
+postinst-generated or per-distro-forked, matching Arch's
+`/etc/conf.d/` equivalents; and several `lintian` warnings from the
+Debian source package (an obsolete `pkg-config` build-dependency, a
+stale `debian/watch` left over from before this repo became the
+upstream source itself, and a couple of over-long documentation lines)
+are fixed.
+
 ## 0.9.0
 
 Changes since `code-freeze/0.8.2+20140711-13`, the last upstream
