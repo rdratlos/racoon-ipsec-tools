@@ -1,8 +1,15 @@
+ipsec-tools (1:0.9.1ubuntu1~jammy1) jammy; urgency=medium
+
+  * Rebuild for Ubuntu Jammy.
+
+ -- Thomas Reim <reimth@etik.com>  Wed, 12 Aug 2026 00:22:47 +0200
+
 ipsec-tools (1:0.9.1) unstable; urgency=medium
 
   * New upstream release 0.9.1.
 
  -- Thomas Reim <reimth@etik.com>  Tue, 11 Aug 2026 10:33:27 +0200
+
 ipsec-tools (1:0.9.0ubuntu1~jammy1) jammy; urgency=medium
 
   * Rebuild for Ubuntu Jammy.
