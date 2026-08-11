@@ -207,8 +207,23 @@ test_empty_tree_json_nonverbose(void)
 		TEST_FAIL("status_dump() returned NULL");
 	if (!braces_balanced((char *)out->v, out->l))
 		TEST_FAIL("unbalanced braces in JSON output");
-	if (strstr((char *)out->v, "\"schema_version\":\"1.1\"") == NULL)
-		TEST_FAIL("missing schema_version");
+	/* Currently 2.0: issue #143 L2 moved an AH SA's transform name into
+	 * authentication_algorithm, a breaking relocation, hence major rather
+	 * than the 1.3 it briefly shipped as (D9). 1.2 had widened
+	 * spi_in/spi_out (F4), which was genuinely additive.
+	 *
+	 * Built from status.h's RACOONCTL_STATUS_SCHEMA_VERSION rather than a
+	 * second copy of the literal, so this assertion follows the renderer
+	 * automatically on a bump and there is no local value that can go
+	 * stale against it. Renaming or removing the macro breaks this
+	 * translation unit at compile time, which is the point: the test
+	 * cannot silently keep asserting an old version. The schema file's
+	 * "const" and racoonctl.1.in's example live outside C and are held to
+	 * the same macro by tools/schema_cross_check.py instead. */
+	if (strstr((char *)out->v,
+	    "\"schema_version\":\"" RACOONCTL_STATUS_SCHEMA_VERSION "\"") == NULL)
+		TEST_FAIL("missing or stale schema_version (expected "
+		    RACOONCTL_STATUS_SCHEMA_VERSION ")");
 	if (strstr((char *)out->v, "\"phase1\":[]") == NULL)
 		TEST_FAIL("expected an empty phase1 array");
 	if (strstr((char *)out->v, "\"phase2\"") != NULL)
@@ -817,8 +832,8 @@ test_ph2_ah(void)
 	struct satrns trns;
 	vchar_t *out = NULL;
 
-	TEST_START("populated ph2 (AH), JSON: protocol AH, encryption_algorithm "
-	    "from s_ipsecdoi_trns_ah(), no authentication_algorithm");
+	TEST_START("populated ph2 (AH), JSON: the AH transform is reported as "
+	    "authentication_algorithm, encryption_algorithm null (issue #143 L2)");
 
 	reset_queues();
 	make_addrs();
@@ -837,11 +852,65 @@ test_ph2_ah(void)
 		TEST_FAIL("unbalanced braces in JSON output");
 	if (strstr((char *)out->v, "\"protocol\":\"AH\"") == NULL)
 		TEST_FAIL("expected protocol AH");
-	if (strstr((char *)out->v, "\"encryption_algorithm\":\"SHA256\"") == NULL)
-		TEST_FAIL("expected encryption_algorithm SHA256 from s_ipsecdoi_trns_ah() "
-		    "(AH has no separate cipher -- this field carries its auth algorithm)");
-	if (strstr((char *)out->v, "\"authentication_algorithm\":null") == NULL)
-		TEST_FAIL("expected authentication_algorithm null -- the AH branch never sets it");
+	/* Through schema 1.2 these two assertions were the other way round:
+	 * the AH hash name sat in encryption_algorithm and
+	 * authentication_algorithm was null, so a consumer asking what cipher
+	 * protected an AH SA was handed a hash name. AH encrypts nothing. */
+	if (strstr((char *)out->v, "\"authentication_algorithm\":\"SHA256\"") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected authentication_algorithm SHA256 from s_ipsecdoi_trns_ah()");
+	}
+	if (strstr((char *)out->v, "\"encryption_algorithm\":null") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected encryption_algorithm null -- AH provides no encryption");
+	}
+
+	vfree(out);
+	TEST_PASS();
+	return 0;
+}
+
+/*
+ * Issue #143 L2, the other half: an ESP SA negotiated with no integrity
+ * algorithm (IPSECDOI_ATTR_AUTH_NONE) renders authentication_algorithm as
+ * null. That was already true through schema 1.2 while the schema declared
+ * the field a plain string, so such a document failed the project's own
+ * schema -- the same defect class as F4, in the field L2 is moving. Pinned
+ * here so the widened ["string", "null"] type keeps a test behind it.
+ */
+static int
+test_ph2_esp_null_auth_renders_null(void)
+{
+	struct ph2handle iph2;
+	struct saprop approval;
+	struct saproto proto;
+	struct satrns trns;
+	vchar_t *out = NULL;
+
+	TEST_START("ESP with IPSECDOI_ATTR_AUTH_NONE renders "
+	    "authentication_algorithm null, with the cipher still reported");
+
+	reset_queues();
+	make_addrs();
+	setup_ph2_basic(&iph2, &approval, &proto, &trns);
+	trns.trns_id = IPSECDOI_ESP_AES;
+	trns.authtype = IPSECDOI_ATTR_AUTH_NONE;
+
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 1);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL");
+	if (strstr((char *)out->v, "\"authentication_algorithm\":null") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected authentication_algorithm null for AUTH_NONE");
+	}
+	if (strstr((char *)out->v, "\"encryption_algorithm\":\"AES-CBC\"") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected the ESP cipher still reported alongside a null auth");
+	}
 
 	vfree(out);
 	TEST_PASS();
@@ -1151,6 +1220,204 @@ test_ph2_selectors_real_values(void)
 	return 0;
 }
 
+/*
+ * Issue #143 F2: text_render_ph2()'s selector line printed an empty string
+ * instead of the value on the non-"any" branch, so a real proto/port
+ * rendered as "proto= sport= dport=". Invisible to every pre-existing text
+ * test because they all used the all-"any" fixture, where the "any" branch
+ * is the one taken; the real-value path was only ever asserted in JSON.
+ */
+static int
+test_ph2_selectors_text_real_values(void)
+{
+	struct ph2handle iph2;
+	struct saprop approval;
+	struct saproto proto;
+	struct satrns trns;
+	struct ipsecdoi_id_b *idb;
+	vchar_t *id_src = NULL, *id_dst = NULL;
+	vchar_t *out = NULL;
+
+	TEST_START("ph2 selectors in TEXT carry the real proto/port numbers, "
+	    "not an empty string (issue #143 F2)");
+
+	reset_queues();
+	make_addrs();
+	setup_ph2_basic(&iph2, &approval, &proto, &trns);
+
+	id_src = vmalloc(sizeof(struct ipsecdoi_id_b));
+	if (id_src == NULL)
+		TEST_FAIL("vmalloc() failed for iph2->id");
+	idb = (struct ipsecdoi_id_b *)id_src->v;
+	idb->type = IPSECDOI_ID_IPV4_ADDR;
+	idb->proto_id = IPPROTO_TCP;
+	idb->port = htons(1234);
+	iph2.id = id_src;
+
+	id_dst = vmalloc(sizeof(struct ipsecdoi_id_b));
+	if (id_dst == NULL) {
+		vfree(id_src);
+		TEST_FAIL("vmalloc() failed for iph2->id_p");
+	}
+	idb = (struct ipsecdoi_id_b *)id_dst->v;
+	idb->type = IPSECDOI_ID_IPV4_ADDR;
+	idb->port = htons(443);
+	iph2.id_p = id_dst;
+
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 0);
+
+	if (out == NULL) {
+		vfree(id_src); vfree(id_dst);
+		TEST_FAIL("status_dump() returned NULL");
+	}
+	/* Asserts the whole field list in one substring: the pre-fix output
+	 * was "proto= sport= dport=", which no per-field presence check
+	 * would have caught. */
+	if (strstr((char *)out->v, "proto=6 sport=1234 dport=443") == NULL) {
+		vfree(id_src); vfree(id_dst); vfree(out);
+		TEST_FAIL("expected the real proto/sport/dport numbers in text output");
+	}
+
+	vfree(id_src);
+	vfree(id_dst);
+	vfree(out);
+	TEST_PASS();
+	return 0;
+}
+
+/*
+ * Issue #143 F4: a ph2handle with no approved proposal (PHASE2ST_START,
+ * PHASE2ST_GETSPISENT, ...) is enumerable, and used to render a bogus
+ * 8-hex-digit "0x00000000****" SPI -- which failed the project's own
+ * schema pattern, "^(0x[0-9a-f]{4}\*\*\*\*|\?)$". It now renders null in
+ * JSON and "(pending)" in text.
+ */
+static int
+test_ph2_pending_spi_renders_null(void)
+{
+	struct ph2handle iph2;
+	vchar_t *out = NULL;
+
+	TEST_START("ph2 without an approved proposal renders spi_in/spi_out "
+	    "as null (JSON) and (pending) (text), not a bogus 8-digit SPI");
+
+	reset_queues();
+	make_addrs();
+
+	/* Deliberately no approval: this is the mid-negotiation handle the
+	 * old placeholder misreported. */
+	memset(&iph2, 0, sizeof(iph2));
+	iph2.status = PHASE2ST_GETSPISENT;
+	iph2.msgid = 0x11112222;
+	iph2.src = (struct sockaddr *)&test_local_sin;
+	iph2.dst = (struct sockaddr *)&test_remote_sin;
+	iph2.approval = NULL;
+
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 1);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL");
+	if (!braces_balanced((char *)out->v, out->l))
+		TEST_FAIL("unbalanced braces in JSON output");
+	if (strstr((char *)out->v, "\"spi_in\":null") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected spi_in null for a ph2 with no approved proposal");
+	}
+	if (strstr((char *)out->v, "\"spi_out\":null") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected spi_out null for a ph2 with no approved proposal");
+	}
+	/* The exact string the schema pattern rejected -- assert it is gone,
+	 * not merely that null is present somewhere. */
+	if (strstr((char *)out->v, "0x00000000****") != NULL) {
+		vfree(out);
+		TEST_FAIL("the pre-fix 8-hex-digit SPI placeholder is still being emitted");
+	}
+	if (strstr((char *)out->v, "\"state\":\"getspisent\"") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected the handle to render in its mid-negotiation state");
+	}
+
+	vfree(out);
+	out = NULL;
+
+	reset_queues();
+	make_addrs();
+	status_test_ph2_queue[0] = &iph2;
+	status_test_ph2_queue_len = 1;
+
+	status_dump(&out, 1, 0);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL (text)");
+	if (strstr((char *)out->v, "spi:            in=(pending) out=(pending)") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected (pending) SPIs in text output");
+	}
+
+	vfree(out);
+	TEST_PASS();
+	return 0;
+}
+
+#ifdef ENABLE_DPD
+/*
+ * Issue #143 F3: collect_dpd() used to be defined *and* called inside
+ * #ifdef ENABLE_HYBRID, so a --disable-hybrid --enable-dpd build (both are
+ * independent configure options) ran DPD but never emitted the
+ * schema-documented dpd block. This test is guarded on ENABLE_DPD alone --
+ * deliberately *not* on ENABLE_HYBRID, so that under --disable-hybrid it
+ * still compiles and still demands the block, which is exactly the
+ * configuration the bug hid in.
+ */
+static int
+test_ph1_dpd_independent_of_hybrid(void)
+{
+	struct ph1handle iph1;
+	struct remoteconf rmconf;
+	vchar_t *out = NULL;
+
+	TEST_START("dpd block renders whenever ENABLE_DPD is on, independent "
+	    "of ENABLE_HYBRID (issue #143 F3)");
+
+	reset_queues();
+	make_addrs();
+
+	memset(&rmconf, 0, sizeof(rmconf));
+	rmconf.dpd = 1;
+
+	memset(&iph1, 0, sizeof(iph1));
+	iph1.status = PHASE1ST_ESTABLISHED;
+	iph1.remote = (struct sockaddr *)&test_remote_sin;
+	iph1.local = (struct sockaddr *)&test_local_sin;
+	iph1.rmconf = &rmconf;
+	iph1.dpd_support = 1;
+	iph1.dpd_fails = 3;
+
+	status_test_ph1_queue[0] = &iph1;
+	status_test_ph1_queue_len = 1;
+
+	status_dump(&out, 0, 1);
+
+	if (out == NULL)
+		TEST_FAIL("status_dump() returned NULL");
+	if (strstr((char *)out->v, "\"dpd\":{\"supported\":true,\"fails\":3}") == NULL) {
+		vfree(out);
+		TEST_FAIL("expected the dpd block with supported/fails populated");
+	}
+
+	vfree(out);
+	TEST_PASS();
+	return 0;
+}
+#endif /* ENABLE_DPD */
+
 int
 main(void)
 {
@@ -1184,6 +1451,8 @@ main(void)
 		failed++;
 	if (test_ph2_ah() != 0)
 		failed++;
+	if (test_ph2_esp_null_auth_renders_null() != 0)
+		failed++;
 	if (test_ph2_alg_names_cbc_and_sha1() != 0)
 		failed++;
 	if (test_ph2_alg_names_no_overreach() != 0)
@@ -1192,6 +1461,14 @@ main(void)
 		failed++;
 	if (test_ph2_selectors_real_values() != 0)
 		failed++;
+	if (test_ph2_selectors_text_real_values() != 0)
+		failed++;
+	if (test_ph2_pending_spi_renders_null() != 0)
+		failed++;
+#ifdef ENABLE_DPD
+	if (test_ph1_dpd_independent_of_hybrid() != 0)
+		failed++;
+#endif
 
 	printf("\n=== %s ===\n", failed == 0 ? "ALL TESTS PASSED" : "TESTS FAILED");
 

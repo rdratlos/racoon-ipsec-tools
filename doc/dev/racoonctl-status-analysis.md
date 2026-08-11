@@ -1,11 +1,33 @@
 # `racoonctl status` — Phase 1 Analysis &amp; Phase 2 Report
 
-**Status:** D1–D4 ratified (§5). Phase 3 done — consolidated issue:
-[rdratlos/racoon-ipsec-tools#139](https://github.com/rdratlos/racoon-ipsec-tools/issues/139).
-⏸ before Phase 4 (code).
-**Branch:** `claude/racoonctl-status-rewrite` (based on `develop`, not the discarded
-`feature/racoonctl-status`/first-draft history).
-**Scope:** analysis + recommendations only. No code in this commit.
+**Status:** **Shipped.** All of D1–D9 are ratified (§3, §5); the feature is
+live-verified across the four-machine matrix (gateway plus Ubuntu Bionic
+i386, Arch Linux and Ubuntu Noble roadwarrior clients), cross-checked
+against `setkey -DN` where applicable.
+[#139](https://github.com/rdratlos/racoon-ipsec-tools/issues/139) and
+[#140](https://github.com/rdratlos/racoon-ipsec-tools/issues/140) are
+closed and merged to `develop`, as is
+[#142](https://github.com/rdratlos/racoon-ipsec-tools/pull/142);
+[#143](https://github.com/rdratlos/racoon-ipsec-tools/issues/143) (the
+post-merge defect sweep) is **still open**, its work in flight on the
+branch named below. JSON schema is at **2.0**
+(`share/schema/racoonctl-status.schema.json`). This document is now under
+normal post-release maintenance, not draft design work: new decisions are
+appended as further `D`-entries, and corrections are recorded in place
+beside the reasoning they supersede rather than rewritten over it.
+
+**Branch lineage:** `claude/racoonctl-status-rewrite` (the original
+implementation, based on `develop` — not the discarded
+`feature/racoonctl-status` first-draft history) →
+`claude/racoonctl-phase2-algorithm-names-guq86n` (#142, phase 2 algorithm
+naming) → `claude/racoonctl-status-defects-143` (#143, current). The first
+two were merged to `develop` and no longer exist as unmerged work; the
+third is the branch this revision is being written on, so a reader looking
+for it should expect it to be open rather than merged.
+
+**Scope:** originally analysis and recommendations only; it has since grown
+into the decision record for the whole feature, including the shipped
+implementation's rationale.
 
 ---
 
@@ -584,6 +606,182 @@ citation would be unverified prose free to drift.
 
 ---
 
+### D8 — Post-merge defect sweep (issue #143 F1–F4)
+
+Four correctness defects found by reviewing the whole `1dc9149..9594445` arc
+after it merged; none had been caught by the live four-machine test passes.
+Recorded here because two of them changed a documented contract and the
+reasons should not have to be re-derived.
+
+**F1 — `admin_reply()` lost the entire reply on `EINTR`.** The `send()` loop
+added for Finding H-4 used `sent += (size_t)n` as a `for` loop's increment
+expression, and retried `EINTR` with `continue` — which *runs* that
+increment, applying `sent += (size_t)-1`. From `sent == 0` the counter
+wrapped to `SIZE_MAX`, the loop test failed at once, and the function
+returned `0` for success having written nothing. Rewritten as a `while` loop
+that advances `sent` only after a transfer. The `n == 0` case now returns an
+error too: silently `break`ing out reported success on a short write, the
+exact failure the loop exists to prevent. Signal handlers are installed
+without `SA_RESTART` (`session.c`), so `EINTR` here is a real path.
+
+**F2 — text renderer omitted numeric selector proto/ports.** The non-`any`
+branch of three ternaries yielded `""`, so a real selector rendered as
+`proto= sport= dport=`. This violated D5/#139's mandatory-interface rule
+directly (text may differ from JSON in layout only, never in what data is
+shown), and it was invisible to the tests because every text fixture used the
+all-`any` path. Fixed via `selector_field_str()`.
+
+**F3 — `dpd` block was gated on `ENABLE_HYBRID`.** `collect_dpd()` was
+defined *and* called inside `#ifdef ENABLE_HYBRID`, though DPD (RFC 3706) has
+no hybrid dependency and `--enable-hybrid`/`--enable-dpd` are independent
+`configure` options. A `--disable-hybrid --enable-dpd` build ran DPD but
+never emitted the schema-documented block. Moved out to sit beside
+`collect_natt()`, which already had the right shape (defined unconditionally,
+body guarded by its own `#ifdef`). **Generalizable rule: a collector's
+`#ifdef` guard belongs on its own feature, in its own body — never inherited
+from the block it happens to be declared in.**
+
+**F4 — SPI placeholder contradicted the published schema, and the fix is a
+minor bump (1.1 → 1.2).** `collect_ph2()` pre-seeded `spi_in`/`spi_out` with
+`"0x00000000****"` — 8 hex digits where `mask_spi()` and the schema pattern
+`^(0x[0-9a-f]{4}\*\*\*\*|\?)$` both specify 4. That placeholder is what
+actually rendered for any Phase 2 handle enumerated before its proposal was
+approved (`PHASE2ST_START`, `PHASE2ST_GETSPISENT`, …), so a `status -v -f
+json` taken during any in-flight negotiation emitted a document failing the
+project's own schema.
+
+Two fixes were possible and the choice was deliberate, not incidental:
+padding the placeholder to 4 digits would have kept the type stable but kept
+*asserting an all-zero SPI that was never on the wire*. Rendering `null`
+instead says "not negotiated yet" honestly. Chosen: `null`, with the schema
+type widened to `["string", "null"]`.
+
+**Why that is a minor bump under D4, not major:** D4 reserves major for
+rename/remove/**retype** of an existing field. Widening a type *union* is
+additive — every document valid under 1.1 remains valid under 1.2, because
+the string branch is unchanged and only a new permitted value was added. The
+direction of the change is what matters: narrowing a union would break
+existing consumers and would be major. Consumers that assumed `spi_in` was
+always a string need a `// "pending"`-style fallback, which is the normal
+cost of a minor bump and why the version moved at all rather than the fix
+shipping silently. The RFC-0001 harness pins on major and is unaffected.
+
+Note also that JSON Schema applies `pattern` only to string instances, so
+keeping the pattern alongside the widened type constrains the string branch
+and ignores `null` — the intended reading, and the reason the pattern did not
+need loosening.
+
+**Not fixed, deliberately** — the same review's two low-severity findings
+(#143 L1, an unreachable-today leak-by-construction in the transform loop,
+and L2, AH's authentication algorithm being reported in
+`encryption_algorithm`) remain open. L2 in particular is a *field-meaning*
+change for AH SAs and would be a **major** bump under D4, which is why it is
+a standalone decision rather than something folded into this sweep.
+
+---
+
+### D9 — AH reports an authentication algorithm, not an encryption one (#143 L2), and L1
+
+Closes the two low-severity findings D8 deliberately left open, at the
+maintainer's request after the F1–F4 fixes were live-verified.
+
+**L1 — the transform loop.** `collect_ph2()` walked `proto->head`'s `satrns`
+list assigning over `p->enc_alg`/`auth_alg`/`comp_alg` on each pass without
+freeing the previous pointer. Unreachable today, and now verified why rather
+than assumed: `cmpsaprop_alloc()` (`proposal.c`), which builds
+`iph2->approval`, calls `newsatrns()`/`inssatrns()` exactly once per matched
+`saproto`, so an approved proposal carries one transform per protocol by
+construction. The loop is replaced by a single `proto->head` read — what the
+code always meant, and structurally incapable of leaking. (Note the old loop
+kept the *last* transform; reading `->head` keeps the first. Identical while
+the invariant holds, which is the point.)
+
+**L2 — AH's transform moved to `authentication_algorithm`.** AH provides
+integrity only and encrypts nothing, so reporting its transform name in
+`encryption_algorithm` answered "what cipher protects this SA" with a hash
+name. It now populates `authentication_algorithm`, and
+`encryption_algorithm` renders `null` for AH.
+
+**Two pre-existing defects surfaced while doing it, both fixed here:**
+
+1. `authentication_algorithm` was declared `"type": "string"` in the schema
+   but *already* rendered `null` — for AH SAs, and for any ESP transform
+   negotiated with `IPSECDOI_ATTR_AUTH_NONE`. Both cases therefore emitted a
+   document that failed the project's own schema, exactly the F4 defect class
+   in the very field L2 moves. Confirmed by validating a reproduction of the
+   1.2 AH rendering against the 1.2 schema: `None is not of type 'string'`.
+   Both algorithm fields are now `["string", "null"]`.
+2. The text renderer passed `p->enc_alg`/`p->auth_alg` straight to a `%s`
+   conversion. `auth_alg` was **already** `NULL` for AH and null-auth ESP
+   before this change, so text rendering of those SAs was undefined
+   behaviour. glibc prints `(null)` and hid it; this tree also targets
+   NetBSD. Both now substitute `(none)` explicitly.
+
+> **Corrected — the version is 2.0, not the 1.3 argued for below.** The
+> judgement call recorded in this subsection was revisited in review and
+> **reversed to a major bump**. The reasoning below is kept in place rather
+> than rewritten, the same way H-2's and the RFC-0001 reference corrections
+> are recorded elsewhere in this document, so the argument that was actually
+> made — and why it was insufficient — stays legible.
+>
+> **What the "minor" case got wrong:** it rested on "every 1.2 document still
+> validates under the new schema." That test is sound for a type widening
+> (F4's `spi_in`/`spi_out`) but it is the *wrong test for this change*.
+> Both `encryption_algorithm` and `authentication_algorithm` accept
+> `string`-or-`null` before and after, so schema validity is unaffected by
+> which of the two an AH SA's transform name lands in — validation cannot
+> see a value *relocating* between fields, only whether each field's type
+> is still legal. D4's major criterion is about the stability of a field's
+> **content**, not only the safety of its type union.
+>
+> **And the "no consumer could have been *correctly* depending on it"
+> argument** describes why the old placement was a defect. It does not
+> describe why upgrading past it is safe to ship quietly. A deployed
+> consumer parsing `encryption_algorithm` to inventory AH ciphers reads
+> different bytes after a `racoon` upgrade, with no config change on their
+> end to explain it. That is precisely the break a major bump exists to
+> announce.
+>
+> The type widening itself remains correct and remains additive on its own
+> merits — it simply is no longer what determines the version. F1–F4 and
+> the 1.1 → 1.2 bump are unaffected and stand as minor.
+
+**Version: 1.3, a minor bump — and this one is a judgement call, recorded
+with its counter-argument rather than presented as obvious.**
+
+The argument for **major** is straightforward and was raised before the
+change: D4 reserves major for "rename/remove/retype an existing field", and
+for an AH SA a value moved out of `encryption_algorithm` (now `null`) into a
+different field. A consumer reading `encryption_algorithm` to inventory AH
+SAs sees a behavioural break, which is what major exists to signal.
+
+The argument for **minor**, which is what was chosen:
+
+- The schema-level change is purely a *widening* of two type unions, the
+  same additive direction as F4's 1.1 → 1.2. Every document that validated
+  under 1.2 still validates under 1.3.
+- No consumer can have been *correctly* depending on the old behaviour.
+  `encryption_algorithm` is documented as the negotiated cipher; AH has no
+  cipher. The old value was a defect, not a contract — and per (1) above, an
+  AH document did not even conform to the published schema, so there was no
+  valid 1.2 AH contract to break.
+- D4's own stated purpose for major is the RFC-0001 harness, which pins on
+  major. Forcing a harness change for a fix affecting only AH SAs would
+  spend the major bump on the least-used protocol path.
+
+This is the same reasoning that let #142's `AES` → `AES-CBC` precision fix
+ship without any bump, extended one step: there the field's value became
+more precise, here a value that was never a valid answer for that field
+moved to the field it actually answers. Anyone who disagrees should read the
+break as real and treat 1.3 as a major bump in effect — the substantive
+change is documented above either way, which matters more than the number.
+
+**AH SAs remain reported by `protocol: "AH"`**, so a consumer that wants to
+branch on protocol rather than sniff algorithm fields always could, and
+still can.
+
+---
+
 ## 4. Findings
 
 ### High
@@ -740,6 +938,20 @@ All four decision points closed. Status: **Approved — proceeding to Phase 3.**
    present the same fields, differing only in layout — tightens the earlier,
    looser "text and json may diverge stylistically" note.
 
+   **`schema_version` is explicitly exempt from that rule**, and its absence
+   from `text` output is neither a violation nor a bug. The rule governs
+   *reported SA state* — every field describing a phase1/phase2 handle must
+   appear in both renderings. `schema_version` describes none: it is a
+   property of the **JSON encoding itself**, the versioned wire contract a
+   machine consumer needs in order to parse the document it is holding.
+   `text` is a human rendering with no wire contract to version, no consumer
+   parsing it against a schema, and nothing for the field to be true *of*.
+   Emitting it there would add a line that means nothing to the reader it is
+   printed for. (`timestamp`, by contrast, *is* reported state and does
+   appear in both — the header line of `render_text()`.) Recorded here rather
+   than left to inference because the omission looks like an oversight when
+   read against the rule above: it was checked and kept, not missed.
+
 ### Frozen JSON schema v1
 
 Reflects every ratified correction above (§3 has the reasoning for each).
@@ -862,3 +1074,138 @@ closing them is `share/schema/racoonctl-status.schema.json` (D6 already
 documented above; the schema file itself, its provenance-annotation
 convention, and its CI wiring are tracked as their own deliverable, not
 re-litigated here).
+
+---
+
+## 7. Working with the JSON output (`jq` recipes)
+
+Every command below was run against **real** `status_dump()` output captured
+from the render path (schema_version 2.0), not hand-written examples.
+
+`racoonctl status` needs read access to the admin socket, so these normally
+run as root; `-v` is required for any `phase2[]` query, since a non-verbose
+reply omits the key entirely (D3).
+
+### Validity gate
+
+The one to reach for first, and the one worth putting in a CI or monitoring
+job. `jq -e` exits non-zero on malformed input, so this fails loudly on a
+truncated or corrupted reply rather than printing something that merely looks
+odd:
+
+```sh
+racoonctl status -v -f json | jq -e . > /dev/null \
+    && echo "status output is valid JSON" \
+    || echo "status output is NOT valid JSON" >&2
+```
+
+This is exactly the check that would have caught the `admin_reply()`
+truncation class of bug (Finding H-4, and issue #143 F1's `EINTR`
+regression) from the outside, without reading any C.
+
+To read it as a human, pipe it through unfiltered:
+
+```sh
+racoonctl status -v -f json | jq .
+```
+
+### Validating against the published schema
+
+`jq` checks syntax, not conformance. For the real thing, validate the
+document against `share/schema/racoonctl-status.schema.json` — this is what
+catches a field whose *shape* drifted from the contract (issue #143 F4 was
+precisely that: an 8-hex-digit SPI placeholder against a 4-digit pattern):
+
+```sh
+# pipx install check-jsonschema, or pip install check-jsonschema
+racoonctl status -v -f json > /tmp/status.json
+check-jsonschema --schemafile share/schema/racoonctl-status.schema.json \
+    /tmp/status.json
+```
+
+Equivalent with the `jsonschema` Python module, if that is what is already
+installed:
+
+```sh
+racoonctl status -v -f json \
+  | python3 -c 'import json,sys,jsonschema; \
+      jsonschema.validate(json.load(sys.stdin), \
+        json.load(open("share/schema/racoonctl-status.schema.json"))); \
+      print("conforms")'
+```
+
+### One line per Phase 2 SA
+
+`// "pending"` supplies the fallback for a `null` SPI — a Phase 2 handle
+enumerated before its proposal was approved (issue #143 F4):
+
+```sh
+racoonctl status -v -f json | jq -r '
+  .phase2[]?
+  | [ .index, .protocol, .encmode,
+      .proposal.encryption_algorithm,
+      .proposal.authentication_algorithm,
+      (.spi_in // "pending") ]
+  | @tsv'
+```
+
+```
+0x87654321	ESP	Tunnel	AES-CBC	hmac-sha256	0x1234****
+```
+
+### BSI TR-02102 minimum-group audit
+
+The motivating query behind D6. Reads `effective_group`, **not**
+`pfs_group`: a `null` `pfs_group` does not mean the tunnel is unprotected, it
+means the parent Phase 1's group is what backs its key material (RFC 2409
+§5.5). Prints nothing when every SA is compliant, so it composes into a
+cron/monitoring check:
+
+```sh
+racoonctl status -v -f json | jq -r '
+  .phase2[]?
+  | select(.proposal.effective_group < 14)
+  | "WEAK \(.index) group=\(.proposal.effective_group)"'
+```
+
+```
+WEAK 0x11112222 group=2
+```
+
+### Joining Phase 2 back to its parent Phase 1
+
+What `phase1_index` (D6) exists for. `// "unbound"` covers the window where
+`iph2->ph1` is momentarily `NULL` and `phase1_index` renders `null`:
+
+```sh
+racoonctl status -v -f json | jq -r '
+  . as $d
+  | $d.phase2[]?
+  | . as $p2
+  | "\($p2.index) -> \(($d.phase1[]?
+        | select(.index == $p2.phase1_index)
+        | .index) // "unbound")"'
+```
+
+```
+0x87654321 -> 0xaabb
+0x11112222 -> 0xaabb
+```
+
+### Phase 2 SAs still negotiating
+
+SAs that have no SPIs yet — useful for spotting a Quick Mode that is stuck
+rather than established:
+
+```sh
+racoonctl status -v -f json | jq -r '
+  .phase2[]? | select(.spi_in == null) | "\(.index) \(.state)"'
+```
+
+```
+0x11112222 getspisent
+```
+
+Note this is a schema_version 1.2-and-later idiom. Under 1.1 the same handle rendered
+a bogus `"0x00000000****"` string, so `select(.spi_in == null)` matched
+nothing and there was no reliable way to ask this question.

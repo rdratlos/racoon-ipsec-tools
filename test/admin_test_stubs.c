@@ -189,6 +189,12 @@ dumpph1(void)
 int admin_test_status_dump_calls = 0;
 int admin_test_status_dump_verbose = -1;
 int admin_test_status_dump_json = -1;
+/* NULL (the default) keeps the historical behaviour of handing back no
+ * reply body at all. A test that needs admin_reply() to actually put
+ * bytes on the wire -- e.g. to exercise its send() loop over a payload
+ * larger than the bare admin_com header (issue #143 F1) -- points this at
+ * a NUL-terminated string instead. */
+const char *admin_test_status_dump_payload = NULL;
 
 void
 status_dump(vchar_t **out, int verbose, int json_format)
@@ -196,6 +202,15 @@ status_dump(vchar_t **out, int verbose, int json_format)
 	admin_test_status_dump_calls++;
 	admin_test_status_dump_verbose = verbose;
 	admin_test_status_dump_json = json_format;
+
+	if (admin_test_status_dump_payload != NULL) {
+		size_t len = strlen(admin_test_status_dump_payload);
+
+		*out = vmalloc(len);
+		if (*out != NULL)
+			memcpy((*out)->v, admin_test_status_dump_payload, len);
+		return;
+	}
 	*out = NULL;
 }
 

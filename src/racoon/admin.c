@@ -905,20 +905,42 @@ admin_reply(int so, struct admin_com *req, int l_ac_errno, vchar_t *buf)
 	 * invalid JSON on the wire. Loop until the whole reply is written,
 	 * mirroring com_recv()'s existing recv() loop on the client side
 	 * (kmpstat.c). See doc/dev/racoonctl-status-analysis.md Finding H-4
-	 * / issue #139. */
-	for (sent = 0; sent < (size_t)tlen; sent += (size_t)n) {
+	 * / issue #139.
+	 *
+	 * Deliberately a while loop advancing "sent" only after a send() that
+	 * actually transferred bytes, not a for loop with "sent += n" as its
+	 * increment expression (issue #143 F1): "continue" runs a for loop's
+	 * increment, so retrying an EINTR that way applied "sent += (size_t)-1"
+	 * and walked the counter *backwards*. From sent == 0 -- an EINTR on the
+	 * very first send(), the likeliest case -- it wrapped to SIZE_MAX, the
+	 * loop test failed immediately, and this function returned 0 for
+	 * "success" having written nothing at all. racoon installs handlers for
+	 * SIGHUP/SIGINT/SIGTERM (session.c) without SA_RESTART, so EINTR on this
+	 * blocking send() is a real path, not a theoretical one. */
+	sent = 0;
+	while (sent < (size_t)tlen) {
 		n = send(so, retbuf + sent, (size_t)tlen - sent, 0);
 		if (n < 0) {
 			if (errno == EINTR)
-				continue;
+				continue;	/* retry, sent unchanged */
 			plog(LLV_ERROR, LOCATION, NULL,
 				"failed to send admin command: %s\n",
 				strerror(errno));
 			racoon_free(retbuf);
 			return -1;
 		}
-		if (n == 0)
-			break;
+		if (n == 0) {
+			/* Not a normal outcome for a non-zero-length send() on
+			 * a stream socket, and silently breaking out of the
+			 * loop here would report success on a short write --
+			 * the exact failure this loop exists to prevent. */
+			plog(LLV_ERROR, LOCATION, NULL,
+				"failed to send admin command: sent %zu of %d "
+				"bytes\n", sent, tlen);
+			racoon_free(retbuf);
+			return -1;
+		}
+		sent += (size_t)n;
 	}
 	racoon_free(retbuf);
 

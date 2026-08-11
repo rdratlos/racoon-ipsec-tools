@@ -631,6 +631,17 @@ collect_mode_cfg(struct ph1handle *iph1, struct status_mode_cfg *mc)
 	}
 }
 
+#endif /* ENABLE_HYBRID */
+
+/* Deliberately outside the ENABLE_HYBRID block above, guarded only by its
+ * own ENABLE_DPD (issue #143 F3): DPD is RFC 3706 dead peer detection with
+ * no dependency on hybrid auth, and --enable-hybrid/--enable-dpd are
+ * separate configure options (configure.ac). Defining *and* calling this
+ * inside the hybrid block meant a perfectly valid --disable-hybrid
+ * --enable-dpd build -- a site-to-site gateway with no XAuth/mode-config
+ * that still wants DPD -- ran DPD fine but never emitted the
+ * schema-documented "dpd" block in either output format. collect_natt()
+ * below is the shape this follows. */
 static void
 collect_dpd(struct ph1handle *iph1, struct status_dpd *dpd)
 {
@@ -643,7 +654,6 @@ collect_dpd(struct ph1handle *iph1, struct status_dpd *dpd)
 	dpd->fails = iph1->dpd_fails;
 #endif
 }
-#endif /* ENABLE_HYBRID */
 
 static void
 collect_natt(struct ph1handle *iph1, struct status_natt *natt)
@@ -713,8 +723,8 @@ collect_ph1(struct ph1handle *iph1, struct status_ph1 *p)
 #ifdef ENABLE_HYBRID
 	collect_xauth(iph1, &p->xauth);
 	collect_mode_cfg(iph1, &p->mode_cfg);
-	collect_dpd(iph1, &p->dpd);
 #endif
+	collect_dpd(iph1, &p->dpd);
 	collect_natt(iph1, &p->natt);
 	collect_remote_config(iph1, &p->remote_config);
 }
@@ -875,8 +885,16 @@ collect_ph2(struct ph2handle *iph2, struct status_ph2 *p)
 	selector_proto_port(iph2->id_p, NULL, &p->sel_dport);
 
 	p->protocol = "unknown";
-	p->spi_in = racoon_strdup("0x00000000****");
-	p->spi_out = racoon_strdup("0x00000000****");
+	/* Left NULL -- i.e. rendered as JSON null -- until an approved
+	 * proposal actually supplies the SPIs (issue #143 F4). The previous
+	 * "0x00000000****" placeholder was an 8-hex-digit string where
+	 * mask_spi() and the published schema both specify 4, so any phase2
+	 * handle enumerated before its proposal was approved (PHASE2ST_START,
+	 * PHASE2ST_GETSPISENT, ...) emitted a document that failed the
+	 * project's own schema. null says "not negotiated yet" honestly,
+	 * rather than claiming an all-zero SPI that was never on the wire. */
+	p->spi_in = NULL;
+	p->spi_out = NULL;
 
 	if (iph2->approval != NULL) {
 		p->has_proposal = 1;
@@ -887,13 +905,26 @@ collect_ph2(struct ph2handle *iph2, struct status_ph2 *p)
 		proto = iph2->approval->head;
 		if (proto != NULL) {
 			p->protocol = ph2_protocol_name(proto->proto_id);
-			racoon_free(p->spi_in);
-			racoon_free(p->spi_out);
 			p->spi_in = mask_spi(proto->spi);
 			p->spi_out = mask_spi(proto->spi_p);
 			p->ok = proto->ok;
 
-			for (trns = proto->head; trns != NULL; trns = trns->next) {
+			/* Issue #143 L1: this reads the single transform
+			 * directly instead of walking proto->head's list.
+			 * cmpsaprop_alloc() (proposal.c), which builds
+			 * iph2->approval, calls newsatrns()/inssatrns()
+			 * exactly once per matched saproto -- an approved
+			 * proposal carries one transform per protocol by
+			 * construction, so the list never had a second entry
+			 * to visit. The old loop nevertheless assigned over
+			 * p->enc_alg/auth_alg/comp_alg on each pass without
+			 * freeing the previous pointer, which would have
+			 * leaked the moment that invariant changed, and read
+			 * as though it handled a case it did not. Reading
+			 * ->head once says what the code actually means and
+			 * cannot leak. */
+			trns = proto->head;
+			if (trns != NULL) {
 				switch (proto->proto_id) {
 				case IPSECDOI_PROTO_IPSEC_ESP:
 					p->enc_alg = esp_enc_alg_name(trns->trns_id);
@@ -901,7 +932,18 @@ collect_ph2(struct ph2handle *iph2, struct status_ph2 *p)
 						p->auth_alg = esp_auth_alg_name(trns->authtype);
 					break;
 				case IPSECDOI_PROTO_IPSEC_AH:
-					p->enc_alg = dupstr(s_ipsecdoi_trns_ah(trns->trns_id));
+					/* Issue #143 L2: AH provides integrity
+					 * only and no encryption at all, so its
+					 * transform is an *authentication*
+					 * algorithm. Reporting it in
+					 * encryption_algorithm (as this did
+					 * through schema 1.2) told a consumer
+					 * asking "what cipher protects this SA"
+					 * that the answer was a hash name.
+					 * encryption_algorithm is left NULL --
+					 * rendered as JSON null -- which is the
+					 * honest answer for AH. */
+					p->auth_alg = dupstr(s_ipsecdoi_trns_ah(trns->trns_id));
 					break;
 				case IPSECDOI_PROTO_IPCOMP:
 					p->comp_alg = dupstr(s_ipsecdoi_trns_ipcomp(trns->trns_id));
@@ -1211,7 +1253,26 @@ render_json(struct status_snapshot *snap, struct outbuf *ob)
 {
 	int i;
 
-	ob_puts(ob, "{\"schema_version\":\"1.1\",\"timestamp\":");
+	/* 1.2 (issue #143 F4): spi_in/spi_out widened from string to
+	 * string-or-null -- additive, so a minor bump.
+	 * 2.0 (issue #143 L2): an AH SA now reports its transform in
+	 * authentication_algorithm with encryption_algorithm null, instead of
+	 * the reverse. A *major* bump: the type widening that came with it is
+	 * additive on its own, but a value relocating between two fields is
+	 * invisible to schema validation (both fields accept string-or-null
+	 * either way) while silently changing what a consumer parsing
+	 * encryption_algorithm reads back for that SA class. D4 reserves major
+	 * for exactly that. Shipped briefly as 1.3; see D9 in
+	 * doc/dev/racoonctl-status-analysis.md for the reversal.
+	 *
+	 * The value itself lives in status.h, which is the single C-side
+	 * source of truth: the wire string is built from it by literal
+	 * concatenation here, test_status_dump.c pins its assertion against
+	 * the same macro, and tools/schema_cross_check.py holds the schema
+	 * file and the man page to it. See that header for the whole
+	 * arrangement. */
+	ob_puts(ob, "{\"schema_version\":\"" RACOONCTL_STATUS_SCHEMA_VERSION
+	    "\",\"timestamp\":");
 	json_string(ob, snap->timestamp);
 
 	ob_puts(ob, ",\"phase1\":[");
@@ -1290,22 +1351,54 @@ text_render_ph1(struct outbuf *ob, struct status_ph1 *p)
 	}
 }
 
+/* A selector's proto/port renders as its number, or "any" when unset
+ * (< 0) -- mirroring json_render_ph2()'s own two branches. Writes into
+ * the caller's buffer and returns it, so one ob_printf() can carry all
+ * three fields. */
+static const char *
+selector_field_str(int v, char *buf, size_t buflen)
+{
+	if (v < 0)
+		return "any";
+	snprintf(buf, buflen, "%d", v);
+	return buf;
+}
+
 static void
 text_render_ph2(struct outbuf *ob, struct status_ph2 *p)
 {
+	char protobuf[16], sportbuf[16], dportbuf[16];
+
 	ob_printf(ob, "Phase 2: %s\n", p->index);
 	ob_printf(ob, "  phase1:         %s\n",
 	    p->phase1_index != NULL ? p->phase1_index : "(unbound)");
 	ob_printf(ob, "  state:          %s  protocol: %s  mode: %s\n",
 	    p->state, p->protocol, p->encmode);
-	ob_printf(ob, "  spi:            in=%s out=%s\n", p->spi_in, p->spi_out);
+	/* spi_in/spi_out are NULL until the proposal is approved (issue #143
+	 * F4) -- JSON renders that as null, text as "(pending)". */
+	ob_printf(ob, "  spi:            in=%s out=%s\n",
+	    p->spi_in != NULL ? p->spi_in : "(pending)",
+	    p->spi_out != NULL ? p->spi_out : "(pending)");
+	/* Issue #143 F2: the non-"any" branch used to yield an empty string,
+	 * so a selector with a real proto/port rendered as "proto= sport=
+	 * dport=" -- text silently omitting data JSON showed, which issue
+	 * #139's mandatory-interface rule forbids. */
 	ob_printf(ob, "  selector:       %s -> %s  proto=%s sport=%s dport=%s\n",
 	    p->sel_src, p->sel_dst,
-	    p->sel_proto < 0 ? "any" : "", p->sel_sport < 0 ? "any" : "",
-	    p->sel_dport < 0 ? "any" : "");
+	    selector_field_str(p->sel_proto, protobuf, sizeof(protobuf)),
+	    selector_field_str(p->sel_sport, sportbuf, sizeof(sportbuf)),
+	    selector_field_str(p->sel_dport, dportbuf, sizeof(dportbuf)));
 	if (p->has_proposal) {
+		/* Both algorithm fields are legitimately NULL: auth_alg for an
+		 * ESP transform negotiated with IPSECDOI_ATTR_AUTH_NONE, and
+		 * (since issue #143 L2) enc_alg for an AH SA, which has no
+		 * cipher. Passing NULL to a "%s" conversion is undefined
+		 * behaviour -- glibc happens to print "(null)", but this tree
+		 * also targets NetBSD, so substitute explicitly rather than
+		 * relying on that. JSON renders the same two cases as null. */
 		ob_printf(ob, "  encryption:     %s  auth: %s%s%s\n",
-		    p->enc_alg, p->auth_alg,
+		    p->enc_alg != NULL ? p->enc_alg : "(none)",
+		    p->auth_alg != NULL ? p->auth_alg : "(none)",
 		    p->comp_alg != NULL ? "  comp: " : "",
 		    p->comp_alg != NULL ? p->comp_alg : "");
 		if (p->pfs_group != 0)
@@ -1325,6 +1418,15 @@ render_text(struct status_snapshot *snap, struct outbuf *ob)
 {
 	int i;
 
+	/* No schema_version line here, deliberately. D5's mandatory-interface
+	 * rule (text must present the same fields as JSON, differing only in
+	 * layout) governs reported SA state; schema_version is a property of
+	 * the JSON encoding -- the versioned wire contract a machine consumer
+	 * parses against -- not of any handle. Text has no such contract, so
+	 * there is nothing for the field to be true of. See the exemption
+	 * recorded under D5 in doc/dev/racoonctl-status-analysis.md before
+	 * filing this as a gap. timestamp below *is* reported state, which is
+	 * why it appears in both renderings. */
 	ob_printf(ob, "racoon status at %s\n\n", snap->timestamp);
 
 	if (snap->ph1_count == 0)

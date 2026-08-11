@@ -275,6 +275,16 @@ major.
 SPIs are shown masked
 .Pq e.g. Li 0x1234**** ,
 never in full.
+A Phase 2 SA that has not yet had a proposal approved has no SPIs to
+report: in that case
+.Ic spi_in
+and
+.Ic spi_out
+render as
+.Ic null
+in JSON, and as
+.Li (pending)
+in text.
 .Pp
 Each
 .Ic phase2
@@ -313,12 +323,28 @@ names the hash variant
 CBC is the only cipher mode
 .Xr racoon 8
 implements, so the mode follows from the negotiated transform alone.
-.Ic AH
-SAs and the
+The
 .Ic NULL
 and
 .Ic RC4
 ESP transforms carry no cipher mode and are named without a suffix.
+.Pp
+On an
+.Ic AH
+SA the transform is reported as
+.Ic proposal.authentication_algorithm ,
+and
+.Ic proposal.encryption_algorithm
+is
+.Ic null :
+AH provides integrity only and encrypts nothing, so it has no cipher to
+report.
+.Ic proposal.authentication_algorithm
+is likewise
+.Ic null
+for an ESP SA negotiated with no integrity algorithm.
+In text output both render as
+.Li (none) .
 .Pp
 .Ic status
 is read-only: unlike every other command above, it never establishes,
@@ -335,7 +361,7 @@ Example
 output for one established Phase 1 SA with one Phase 2 SA:
 .Bd -literal -offset indent
 {
-  "schema_version": "1.1",
+  "schema_version": "2.0",
   "timestamp": "2026-01-15T10:30:00Z",
   "phase1": [
     {
