@@ -1965,6 +1965,37 @@ test_admin_process_dispatch_LDADD    = $(top_builddir)/src/racoon/plog.o \
 test_admin_process_dispatch_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections
 endif
 
+# test_admin_reply_send_loop covers admin_reply()'s send() loop (admin.c)
+# -- issue #143 F1, where an EINTR retry via a for loop's "continue" ran
+# the "sent += n" increment with n == -1 and walked the byte counter
+# backwards, so admin_reply() returned success having sent nothing.
+#
+# -Wl,--wrap=send is what makes this testable at all: no other test in the
+# suite can make send() return EINTR or a short write on demand, and
+# racing a real signal against a send() call would be nondeterministic.
+# The wrapper delegates to __real_send() unless a test explicitly arms an
+# injection, so the request path stays real -- same admin_process_unittest()
+# accessor and stub set as the two admin tests above.
+if !SANITIZER_BUILD
+check_PROGRAMS += test_admin_reply_send_loop
+
+test_admin_reply_send_loop_SOURCES  = test_admin_reply_send_loop.c \
+	admin_unittest_src.c \
+	admin_test_stubs.c
+test_admin_reply_send_loop_CPPFLAGS = $(AM_CPPFLAGS) \
+	-I$(top_srcdir)/src/libipsec \
+	-I$(top_srcdir)/src/include-glibc \
+	-I$(top_builddir)/src/include-glibc \
+	-DENABLE_UNITTEST
+test_admin_reply_send_loop_CFLAGS   = $(AM_CFLAGS) -ffunction-sections -fdata-sections
+test_admin_reply_send_loop_LDADD    = $(top_builddir)/src/racoon/plog.o \
+	$(top_builddir)/src/racoon/logger.o \
+	$(top_builddir)/src/racoon/vmbuf.o \
+	$(top_builddir)/src/racoon/misc_noplog.o
+test_admin_reply_send_loop_LDFLAGS  = $(AM_LDFLAGS) -Wl,--gc-sections \
+	-Wl,--wrap=send
+endif
+
 # test_status_dump covers status_dump() (status.c, ADMIN_STATUS/
 # ADMIN_STATUS_VERBOSE, racoonctl status) -- the JSON/text extraction and
 # rendering added alongside this test. status_test_stubs.c's enumph1()/
