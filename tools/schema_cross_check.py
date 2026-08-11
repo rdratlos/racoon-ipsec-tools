@@ -2,9 +2,28 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (C) 2024-2026 Thomas Reim and the racoon-ipsec-tools contributors
 
-"""Verify share/schema/racoonctl-status.schema.json's x-source-config/
-x-source-render provenance annotations against the actual source they cite
-(src/racoon/cftoken.l, src/racoon/strnames.c).
+"""Guard share/schema/racoonctl-status.schema.json against drifting away
+from the source it describes. Two independent checks:
+
+1. The x-source-config/x-source-render provenance annotations, verified
+   against the actual source they cite (src/racoon/cftoken.l,
+   src/racoon/strnames.c, src/racoon/status.c) -- see below.
+
+2. schema_version consistency. That value is authored once, as
+   RACOONCTL_STATUS_SCHEMA_VERSION in src/racoon/status.h; status.c's
+   renderer and test/test_status_dump.c both build their strings from that
+   macro, so those two cannot drift. The remaining two copies are not C and
+   cannot include the header -- this file's own
+   properties.schema_version.const, and the worked JSON example in
+   src/racoon/racoonctl.1.in -- so they are compared against the macro
+   here. A bump that moves some copies but not all fails this script rather
+   than shipping a daemon and a published schema that disagree about what
+   they speak.
+
+Both checks report in the same [OK  ]/[FAIL] style and either failing makes
+the script exit non-zero.
+
+--- provenance annotations ---
 
 Each annotated schema property carries a free-text citation of the form
 "path:line (identifier[, extra])", e.g.:
@@ -43,8 +62,22 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = REPO_ROOT / "share" / "schema" / "racoonctl-status.schema.json"
+HEADER_PATH = REPO_ROOT / "src" / "racoon" / "status.h"
+MANPAGE_PATH = REPO_ROOT / "src" / "racoon" / "racoonctl.1.in"
 
 CITATION_RE = re.compile(r"^(?P<path>\S+):(?P<line>\d+)\s+\((?P<ident>[^,)]+)")
+
+# status.h's single C-side source of truth for schema_version. status.c's
+# renderer and test_status_dump.c's assertion both build their strings from
+# this macro, so those two copies cannot drift; the schema file's "const"
+# and the man page's worked example are JSON and mdoc, cannot include a C
+# header, and are held to it here instead.
+VERSION_DEFINE_RE = re.compile(
+    r'^[ \t]*#[ \t]*define[ \t]+RACOONCTL_STATUS_SCHEMA_VERSION[ \t]+"([^"]*)"',
+    re.MULTILINE,
+)
+# The worked JSON example in racoonctl.1.in, e.g. '  "schema_version": "2.0",'
+MANPAGE_VERSION_RE = re.compile(r'"schema_version"[ \t]*:[ \t]*"([^"]*)"')
 
 # How many lines around the cited one to tolerate -- generous enough to
 # survive minor drift (an intervening comment, a nearby edit) without
@@ -91,6 +124,90 @@ def check_citation(pointer, keyword, citation):
     return True, f"{m.group('path')}:{line_no}: {ident!r} confirmed"
 
 
+def read_header_version():
+    """The value of RACOONCTL_STATUS_SCHEMA_VERSION in status.h, or None."""
+    if not HEADER_PATH.is_file():
+        return None, f"header not found at src/racoon/status.h"
+    m = VERSION_DEFINE_RE.search(HEADER_PATH.read_text())
+    if m is None:
+        return None, ("src/racoon/status.h: no "
+                      "'#define RACOONCTL_STATUS_SCHEMA_VERSION \"...\"' found "
+                      "-- the C-side source of truth is missing or was renamed")
+    return m.group(1), None
+
+
+def read_manpage_versions():
+    """Every schema_version string in racoonctl.1.in's worked example.
+
+    Returned as a list so a page carrying two different values (an example
+    updated in one place but not another) is reported rather than silently
+    passing on whichever happened to be found first."""
+    if not MANPAGE_PATH.is_file():
+        return None, "man page not found at src/racoon/racoonctl.1.in"
+    found = MANPAGE_VERSION_RE.findall(MANPAGE_PATH.read_text())
+    if not found:
+        return None, ("src/racoon/racoonctl.1.in: no \"schema_version\": \"...\" "
+                      "in the worked JSON example -- expected one")
+    return found, None
+
+
+def check_schema_version(schema):
+    """Confirm status.h, the schema's const, and the man page example all
+    name the same schema_version.
+
+    Returns (checks_run, failures) and prints one line per check in the
+    same [OK  ]/[FAIL] style as the citation checks above."""
+    checks = 0
+    failures = 0
+
+    header_version, err = read_header_version()
+    if err is not None:
+        print(f"[FAIL] schema_version source: {err}")
+        return 1, 1
+    print(f"[OK  ] schema_version source: src/racoon/status.h defines "
+          f"{header_version!r}")
+    checks += 1
+
+    const = schema.get("properties", {}).get("schema_version", {}).get("const")
+    checks += 1
+    if const is None:
+        print("[FAIL] schema_version const: "
+              "share/schema/racoonctl-status.schema.json has no "
+              "properties.schema_version.const to compare against")
+        failures += 1
+    elif const != header_version:
+        print(f"[FAIL] schema_version const: schema file says {const!r} but "
+              f"src/racoon/status.h defines {header_version!r} -- the daemon "
+              f"and its published schema would disagree on the wire")
+        failures += 1
+    else:
+        print(f"[OK  ] schema_version const: schema file agrees ({const!r})")
+
+    versions, err = read_manpage_versions()
+    checks += 1
+    if err is not None:
+        print(f"[FAIL] schema_version manpage: {err}")
+        failures += 1
+    else:
+        distinct = sorted(set(versions))
+        if len(distinct) > 1:
+            print(f"[FAIL] schema_version manpage: racoonctl.1.in names more "
+                  f"than one version in its example(s): {distinct} -- expected "
+                  f"all to be {header_version!r}")
+            failures += 1
+        elif distinct[0] != header_version:
+            print(f"[FAIL] schema_version manpage: racoonctl.1.in's example "
+                  f"says {distinct[0]!r} but src/racoon/status.h defines "
+                  f"{header_version!r} -- the documented example would not "
+                  f"match what the daemon emits")
+            failures += 1
+        else:
+            print(f"[OK  ] schema_version manpage: racoonctl.1.in agrees "
+                  f"({distinct[0]!r})")
+
+    return checks, failures
+
+
 def main():
     if not SCHEMA_PATH.is_file():
         print(f"error: schema not found at {SCHEMA_PATH}", file=sys.stderr)
@@ -113,7 +230,13 @@ def main():
             failures += 1
 
     print(f"\n{len(annotations)} citations checked, {failures} failed.")
-    return 1 if failures else 0
+
+    print()
+    version_checks, version_failures = check_schema_version(schema)
+    print(f"\n{version_checks} schema_version copies checked, "
+          f"{version_failures} failed.")
+
+    return 1 if (failures or version_failures) else 0
 
 
 if __name__ == "__main__":

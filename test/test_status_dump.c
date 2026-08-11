@@ -207,17 +207,23 @@ test_empty_tree_json_nonverbose(void)
 		TEST_FAIL("status_dump() returned NULL");
 	if (!braces_balanced((char *)out->v, out->l))
 		TEST_FAIL("unbalanced braces in JSON output");
-	/* 2.0 since issue #143 L2 moved an AH SA's transform name into
-	 * authentication_algorithm -- a breaking relocation, hence major
-	 * rather than the 1.3 it briefly shipped as (D9). 1.2 had widened
+	/* Currently 2.0: issue #143 L2 moved an AH SA's transform name into
+	 * authentication_algorithm, a breaking relocation, hence major rather
+	 * than the 1.3 it briefly shipped as (D9). 1.2 had widened
 	 * spi_in/spi_out (F4), which was genuinely additive.
 	 *
-	 * Pinned to the exact version deliberately: nothing shares this string
-	 * between the renderer, share/schema/'s "const", and racoonctl.1.in's
-	 * example, so a bump that updates one and forgets another has to fail
-	 * somewhere -- and this is the cheapest place for it to happen. */
-	if (strstr((char *)out->v, "\"schema_version\":\"2.0\"") == NULL)
-		TEST_FAIL("missing or stale schema_version (expected 2.0)");
+	 * Built from status.h's RACOONCTL_STATUS_SCHEMA_VERSION rather than a
+	 * second copy of the literal, so this assertion follows the renderer
+	 * automatically on a bump and there is no local value that can go
+	 * stale against it. Renaming or removing the macro breaks this
+	 * translation unit at compile time, which is the point: the test
+	 * cannot silently keep asserting an old version. The schema file's
+	 * "const" and racoonctl.1.in's example live outside C and are held to
+	 * the same macro by tools/schema_cross_check.py instead. */
+	if (strstr((char *)out->v,
+	    "\"schema_version\":\"" RACOONCTL_STATUS_SCHEMA_VERSION "\"") == NULL)
+		TEST_FAIL("missing or stale schema_version (expected "
+		    RACOONCTL_STATUS_SCHEMA_VERSION ")");
 	if (strstr((char *)out->v, "\"phase1\":[]") == NULL)
 		TEST_FAIL("expected an empty phase1 array");
 	if (strstr((char *)out->v, "\"phase2\"") != NULL)

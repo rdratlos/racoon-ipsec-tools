@@ -1265,13 +1265,14 @@ render_json(struct status_snapshot *snap, struct outbuf *ob)
 	 * for exactly that. Shipped briefly as 1.3; see D9 in
 	 * doc/dev/racoonctl-status-analysis.md for the reversal.
 	 *
-	 * This string is not shared with the other three places that must
-	 * agree on it -- share/schema/racoonctl-status.schema.json's "const",
-	 * racoonctl.1.in's worked example, and test_status_dump.c's
-	 * assertion. The test pins the exact value, so a renderer bump that
-	 * forgets the schema file (or vice versa) fails there rather than
-	 * shipping a mismatch. */
-	ob_puts(ob, "{\"schema_version\":\"2.0\",\"timestamp\":");
+	 * The value itself lives in status.h, which is the single C-side
+	 * source of truth: the wire string is built from it by literal
+	 * concatenation here, test_status_dump.c pins its assertion against
+	 * the same macro, and tools/schema_cross_check.py holds the schema
+	 * file and the man page to it. See that header for the whole
+	 * arrangement. */
+	ob_puts(ob, "{\"schema_version\":\"" RACOONCTL_STATUS_SCHEMA_VERSION
+	    "\",\"timestamp\":");
 	json_string(ob, snap->timestamp);
 
 	ob_puts(ob, ",\"phase1\":[");
