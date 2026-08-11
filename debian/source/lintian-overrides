@@ -7,3 +7,15 @@ ipsec-tools source: absolute-symbolic-link-target-in-source /usr/lib/systemd/sys
 ipsec-tools source: absolute-symbolic-link-target-in-source /usr/lib/systemd/systemd-resolved [tests/hooks/fixtures/13-resolved-plus-second-forwarder/root/proc/100/exe]
 ipsec-tools source: absolute-symbolic-link-target-in-source /usr/sbin/dnsmasq [tests/hooks/fixtures/12-dnsmasq-loopback-static-resolv/root/proc/200/exe]
 ipsec-tools source: absolute-symbolic-link-target-in-source /usr/sbin/unbound [tests/hooks/fixtures/13-resolved-plus-second-forwarder/root/proc/300/exe]
+
+# docs/admin-guide/racoon-admin-guide.html's inline <svg class="doc-logo">
+# (the racoon mascot illustration) has two <path> elements whose "d"
+# attribute is long, tool-exported vector path data -- that data is the
+# only form the illustration exists in, there is no separate, more
+# "source" asset to include instead, and hand-wrapping generated path
+# coordinates would risk introducing a transcription error for no
+# benefit. All other over-length lines in this file and in
+# doc/admin/split-dns.html were plain prose/markup and have been
+# reflowed instead of overridden -- see the source-is-missing check's
+# own "very-long-line-length-in-source-file" note.
+ipsec-tools source: source-is-missing [docs/admin-guide/racoon-admin-guide.html]

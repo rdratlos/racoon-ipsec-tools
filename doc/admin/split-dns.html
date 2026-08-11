@@ -128,15 +128,36 @@
 
 <section id="overview">
 <h2>1. Overview &amp; design constraints</h2>
-<p>When a road-warrior client completes Phase 1 and Mode Config negotiation, the gateway may hand back an internal address, a list of split-include networks, one or more internal DNS servers, and a list of split-DNS domains. <code>phase1-up.sh</code> turns that into: a dedicated interface carrying the assigned address, routes for the split-include networks, and DNS configuration scoped to the given domains only — so lookups for <code>corp.example.com</code> go over the tunnel while everything else keeps using your normal resolver. <code>phase1-down.sh</code> reverses exactly what was applied when the tunnel goes down.</p>
+<p>When a road-warrior client completes Phase 1 and Mode Config negotiation, the gateway may hand
+back an internal address, a list of split-include networks, one or more internal DNS servers, and a
+list of split-DNS domains. <code>phase1-up.sh</code> turns that into: a dedicated interface carrying
+the assigned address, routes for the split-include networks, and DNS configuration scoped to the
+given domains only — so lookups for <code>corp.example.com</code> go over the tunnel while
+everything else keeps using your normal resolver. <code>phase1-down.sh</code> reverses exactly what
+was applied when the tunnel goes down.</p>
 
 <p>The scripts follow a fixed set of rules, regardless of which backend ends up handling DNS on your system:</p>
 <ul>
   <li><strong>Never a persistent system change.</strong> Nothing here edits <code>/etc/nsswitch.conf</code>, enables a service, or otherwise reconfigures your machine beyond the lifetime of the VPN session. Where a genuine reconfiguration would help (e.g. resolving a <span class="badge warn">PARALLEL_UNLINKED</span> resolv.conf landscape), the scripts report a recommendation — they never apply it themselves.</li>
-  <li><strong>Owns only the SPD entries it installs.</strong> racoon does not install SPD policy for a Mode Config initiator (policy generation is responder-only) — without one, split-include traffic the scripts just routed onto the tunnel has nothing telling the kernel to encrypt it, which previously produced a kernel-ACQUIRE reconnect loop. The scripts install exactly the entries their own routes need, record their full selector text, and tear them down the same way as every other step — never <code>spdflush</code>, never <code>setkey -F</code>, never anything they didn't themselves install.</li>
+<li><strong>Owns only the SPD entries it installs.</strong> racoon does not install SPD policy for a
+Mode Config initiator (policy generation is responder-only) — without one, split-include traffic the
+scripts just routed onto the tunnel has nothing telling the kernel to encrypt it, which previously
+produced a kernel-ACQUIRE reconnect loop. The scripts install exactly the entries their own routes
+need, record their full selector text, and tear them down the same way as every other step — never
+<code>spdflush</code>, never <code>setkey -F</code>, never anything they didn't themselves
+install.</li>
   <li><strong>Every value from the gateway is untrusted input.</strong> Mode Config attributes are validated against a strict whitelist before use; a value that fails validation is dropped, never partially used.</li>
   <li><strong>DNS goes up last, comes down first.</strong> On connect, DNS is only configured once the tunnel and routes are in place; on disconnect, DNS is reverted before routes and the interface are torn down.</li>
-  <li><strong>The VPN address lives on a dedicated dummy interface</strong> (<code>racoon0</code> by default), never on your physical network card — this avoids ARP-leaking the internal address onto your LAN. Split-include routes still point out your physical interface; only the packets' <em>source</em> address is anchored via the dummy interface's address. If NetworkManager is running on the system at all — even when a different backend is handling DNS, e.g. it manages your physical interfaces while systemd-resolved is reached directly — it will very likely auto-manage this freshly-created interface the moment it appears; the scripts detect that and tear it down through NetworkManager's own device-removal path first (falling back to a plain interface delete if that turns out not to be needed), rather than deleting it out from under NetworkManager's bookkeeping.</li>
+<li><strong>The VPN address lives on a dedicated dummy interface</strong> (<code>racoon0</code> by
+default), never on your physical network card — this avoids ARP-leaking the internal address onto
+your LAN. Split-include routes still point out your physical interface; only the packets'
+<em>source</em> address is anchored via the dummy interface's address. If NetworkManager is running
+on the system at all — even when a different backend is handling DNS, e.g. it manages your physical
+interfaces while systemd-resolved is reached directly — it will very likely auto-manage this
+freshly-created interface the moment it appears; the scripts detect that and tear it down through
+NetworkManager's own device-removal path first (falling back to a plain interface delete if that
+turns out not to be needed), rather than deleting it out from under NetworkManager's
+bookkeeping.</li>
   <li><strong>No hardcoded fallback network.</strong> If the gateway sends no split-include networks and no internal DNS servers, there is nothing to route through the tunnel — <code>phase1-up.sh</code> reports that and refuses, rather than guessing a network that might not even be reachable through this gateway.</li>
 </ul>
 </section>
@@ -156,7 +177,14 @@
     script "/etc/racoon/scripts/phase1-down.sh" phase1_down;
 }</code></pre>
 <p>Building from a source checkout without installing (development, or running the test suite) works the same way against the in-tree copy at <code>src/racoon/scripts/</code> — nothing about the scripts themselves differs between the two locations.</p>
-<p>All four scripts are plain POSIX <code>sh</code> — no bashisms, no arrays, no <code>[[ ]]</code> — and run under <code>dash</code>, <code>bash</code>, and NetBSD's <code>/bin/sh</code> unmodified. They must stay together in the same directory: <code>phase1-up.sh</code>/<code>phase1-down.sh</code>/<code>racoon-dns-detect</code> all source <code>racoon-hook-lib.sh</code> from the directory they themselves live in — this is also why <code>racoon-dns-detect</code> is installed alongside the others rather than into <code>sbindir</code> with the rest of racoon's own binaries; run it via its installed path (or symlink it onto your own <code>PATH</code> if you prefer).</p>
+<p>All four scripts are plain POSIX <code>sh</code> — no bashisms, no arrays, no <code>[[ ]]</code>
+— and run under <code>dash</code>, <code>bash</code>, and NetBSD's <code>/bin/sh</code> unmodified.
+They must stay together in the same directory:
+<code>phase1-up.sh</code>/<code>phase1-down.sh</code>/<code>racoon-dns-detect</code> all source
+<code>racoon-hook-lib.sh</code> from the directory they themselves live in — this is also why
+<code>racoon-dns-detect</code> is installed alongside the others rather than into
+<code>sbindir</code> with the rest of racoon's own binaries; run it via its installed path (or
+symlink it onto your own <code>PATH</code> if you prefer).</p>
 </section>
 
 <section id="config">
@@ -176,7 +204,12 @@
 
 <section id="backends">
 <h2>4. Supported DNS backends</h2>
-<p>Backend detection asks, in order: NetworkManager's own D-Bus <code>RcManager</code> property (never guessed from file layout — NetworkManager's own "symlink" mode can legitimately write a plain file), then <code>nsswitch.conf</code>'s <code>hosts:</code> line for an <code>nss-resolve</code> entry, then the glibc resolver's actual symlink target, then a content-signature scan of <code>/etc/resolv.conf</code>, then whether <code>resolvconf</code>/<code>dnsmasq</code> are present and active. Set <code>backend</code> explicitly in <code>hooks.conf</code> to skip detection.</p>
+<p>Backend detection asks, in order: NetworkManager's own D-Bus <code>RcManager</code> property
+(never guessed from file layout — NetworkManager's own "symlink" mode can legitimately write a plain
+file), then <code>nsswitch.conf</code>'s <code>hosts:</code> line for an <code>nss-resolve</code>
+entry, then the glibc resolver's actual symlink target, then a content-signature scan of
+<code>/etc/resolv.conf</code>, then whether <code>resolvconf</code>/<code>dnsmasq</code> are present
+and active. Set <code>backend</code> explicitly in <code>hooks.conf</code> to skip detection.</p>
 
 <table>
 <thead><tr><th>Backend</th><th>Split-DNS?</th><th>Mechanism</th></tr></thead>
@@ -184,12 +217,22 @@
 <tr>
   <td><code>resolved</code></td>
   <td><span class="badge ok">yes</span></td>
-  <td>Per-link DNS servers and routing-only domains (<code>~domain</code>) via <code>resolvectl</code> (or <code>systemd-resolve</code> on older systems — the two have <em>incompatible</em> flag grammar and are never conflated). <code>default-route</code> is <strong>only ever available via <code>resolvectl</code></strong> — <code>systemd-resolve</code> has no equivalent at all — and even then only once feature-probed (<code>resolvectl --help</code>), never assumed from a version number. See the capability table just below.</td>
+<td>Per-link DNS servers and routing-only domains (<code>~domain</code>) via <code>resolvectl</code>
+(or <code>systemd-resolve</code> on older systems — the two have <em>incompatible</em> flag grammar
+and are never conflated). <code>default-route</code> is <strong>only ever available via
+<code>resolvectl</code></strong> — <code>systemd-resolve</code> has no equivalent at all — and even
+then only once feature-probed (<code>resolvectl --help</code>), never assumed from a version number.
+See the capability table just below.</td>
 </tr>
 <tr>
   <td><code>networkmanager</code></td>
   <td><span class="badge ok">yes, if a routing-capable DNS plugin is active</span></td>
-  <td>A dedicated dummy connection profile (<code>racoon-vpn-dns</code>) fully configured in one <code>nmcli connection add</code> call before first activation. Routing-only domains require <code>systemd-resolved</code>, <code>dnsmasq</code>, or <code>dnsconfd</code> to also be listed in NetworkManager's own <code>dns=</code> setting; with a plain <code>dns=default</code> configuration NetworkManager has no concept of per-domain routing, and <code>phase1-up.sh</code> says so loudly rather than silently doing a full redirect.</td>
+<td>A dedicated dummy connection profile (<code>racoon-vpn-dns</code>) fully configured in one
+<code>nmcli connection add</code> call before first activation. Routing-only domains require
+<code>systemd-resolved</code>, <code>dnsmasq</code>, or <code>dnsconfd</code> to also be listed in
+NetworkManager's own <code>dns=</code> setting; with a plain <code>dns=default</code> configuration
+NetworkManager has no concept of per-domain routing, and <code>phase1-up.sh</code> says so loudly
+rather than silently doing a full redirect.</td>
 </tr>
 <tr>
   <td><code>resolvconf</code></td>
@@ -244,15 +287,56 @@ racoon-dns-detect --detect --format=kv</code></pre>
 <p>Two resolv.conf landscape problems it will flag by name:</p>
 <ul>
   <li><span class="badge bad">DIVERGENT</span> — the file glibc actually reads (per <code>nsswitch.conf</code>/the resolver symlink) disagrees with at least one other backend-generated copy on the system.</li>
-  <li><span class="badge warn">PARALLEL_UNLINKED</span> — reported precisely when <code>/etc/resolv.conf</code> is a <strong>plain file, not a symlink</strong>, <em>and</em> at least <strong>two other</strong> surveyed locations are backend-generated copies (<code>/etc/resolv.conf</code> itself is excluded from that count — an ordinary NetworkManager <code>dns=dnsmasq</code> setup, one generated copy plus <code>/etc/resolv.conf</code>, is not this condition). <code>racoon-dns-detect</code> prints a recommendation (symlink <code>/etc/resolv.conf</code> to the authoritative backend's output, or set that backend's own file-ownership setting) — it never applies this itself (design rule in <a href="#overview">§1</a>).</li>
+<li><span class="badge warn">PARALLEL_UNLINKED</span> — reported precisely when
+<code>/etc/resolv.conf</code> is a <strong>plain file, not a symlink</strong>, <em>and</em> at least
+<strong>two other</strong> surveyed locations are backend-generated copies
+(<code>/etc/resolv.conf</code> itself is excluded from that count — an ordinary NetworkManager
+<code>dns=dnsmasq</code> setup, one generated copy plus <code>/etc/resolv.conf</code>, is not this
+condition). <code>racoon-dns-detect</code> prints a recommendation (symlink
+<code>/etc/resolv.conf</code> to the authoritative backend's output, or set that backend's own
+file-ownership setting) — it never applies this itself (design rule in <a
+href="#overview">§1</a>).</li>
 </ul>
 </section>
 
 <section id="state">
 <h2>6. State, logs, and teardown</h2>
 <p>Every applied step is journaled to <code>/run/racoon/hook-state.&lt;remote-addr&gt;.&lt;generation&gt;</code> as it succeeds — this file, not a re-run of detection, is <code>phase1-down.sh</code>'s <em>only</em> source of what to undo. Undoing happens in the reverse of apply order, which is what makes both "DNS down first" and, since brief 3 §E, "SPD before routes/address/dummy" (<a href="#overview">§1</a>) fall out automatically rather than needing to be separately-maintained rules.</p>
-<p>Only DNS-group steps roll back <em>within</em> a single <code>phase1-up.sh</code> run if a later required DNS step fails — SPD entries, routes, and the dummy interface do not get the same in-transaction treatment, by design: DNS specifically was the historical cause of a real reconnect-loop bug (an unscoped VPN resolver left registered), while a partially-applied route or SPD entry from a run that failed part way through is not itself harmful in the same way. Those already-succeeded steps stay applied, recorded in the state file with their own undo commands, to be cleaned up by the <em>next</em> <code>phase1-down.sh</code> run exactly like any other teardown — the state file is the sole guard either way. The residual case this doesn't cover is a hard crash between "a step applied" and "a matching <code>phase1-down.sh</code> ever runs" (e.g. <code>SIGKILL</code>, or <code>SIGTERM</code> under a shutdown path that doesn't reliably invoke the scripts — a known daemon-side gap, tracked separately and out of scope for the scripts themselves); until whatever runs next for that peer, the state file is what's left of the record.</p>
-<p>State is matched per remote address, not per remote address+port: the port racoon reports floats across a NAT-T rebind, so it is not part of a session's identity. Each <code>phase1-up.sh</code> run allocates a new, monotonically-numbered generation for its peer address without touching any earlier generation still on disk; each <code>phase1-down.sh</code> run consumes the generation matching its own <code>IKE_COOKIE</code> — racoon's ISAKMP cookie pair for the negotiation, unique per Phase 1 attempt and stable from setup through teardown — rather than assuming file order. That distinction matters whenever more than one generation is live for the same peer at once: a teardown for an old session and the setup of its replacement landing within the same second (which live testing showed does happen), or a generation from an earlier session that was never cleanly torn down and is still sitting on disk (an <em>orphan</em> — a later, unrelated teardown for the same peer must not consume it just because it happens to be the oldest). <code>phase1-down.sh</code> never guesses at cleaning up a generation that isn't its own, even one that looks orphaned: a live generation with no matching <code>IKE_COOKIE</code> may just as well be a genuinely concurrent session for the same peer, or an earlier run's partial-failure retry still waiting for its own teardown to claim it — there is no safe way to tell "orphan" apart from "not mine yet" without reintroducing exactly the file-order guessing this design replaced. An accumulated orphan is a sign something upstream didn't clean up after itself (see the previous paragraph) and is left for an administrator to investigate, not silently swept up. Teardown is best-effort: one failed undo does not block the rest from running, and a generation with anything left to undo is marked consumed rather than deleted, so a later retry picks it up again rather than the failure going unrecorded. Consumed generations are reaped automatically (oldest first) once more than 5 accumulate for a peer, or after 24 hours — a live, unconsumed generation (including an orphan with no matching <code>IKE_COOKIE</code> left to claim it) is never touched by reaping.</p>
+<p>Only DNS-group steps roll back <em>within</em> a single <code>phase1-up.sh</code> run if a later
+required DNS step fails — SPD entries, routes, and the dummy interface do not get the same
+in-transaction treatment, by design: DNS specifically was the historical cause of a real
+reconnect-loop bug (an unscoped VPN resolver left registered), while a partially-applied route or
+SPD entry from a run that failed part way through is not itself harmful in the same way. Those
+already-succeeded steps stay applied, recorded in the state file with their own undo commands, to be
+cleaned up by the <em>next</em> <code>phase1-down.sh</code> run exactly like any other teardown —
+the state file is the sole guard either way. The residual case this doesn't cover is a hard crash
+between "a step applied" and "a matching <code>phase1-down.sh</code> ever runs" (e.g.
+<code>SIGKILL</code>, or <code>SIGTERM</code> under a shutdown path that doesn't reliably invoke the
+scripts — a known daemon-side gap, tracked separately and out of scope for the scripts themselves);
+until whatever runs next for that peer, the state file is what's left of the record.</p>
+<p>State is matched per remote address, not per remote address+port: the port racoon reports floats
+across a NAT-T rebind, so it is not part of a session's identity. Each <code>phase1-up.sh</code> run
+allocates a new, monotonically-numbered generation for its peer address without touching any earlier
+generation still on disk; each <code>phase1-down.sh</code> run consumes the generation matching its
+own <code>IKE_COOKIE</code> — racoon's ISAKMP cookie pair for the negotiation, unique per Phase 1
+attempt and stable from setup through teardown — rather than assuming file order. That distinction
+matters whenever more than one generation is live for the same peer at once: a teardown for an old
+session and the setup of its replacement landing within the same second (which live testing showed
+does happen), or a generation from an earlier session that was never cleanly torn down and is still
+sitting on disk (an <em>orphan</em> — a later, unrelated teardown for the same peer must not consume
+it just because it happens to be the oldest). <code>phase1-down.sh</code> never guesses at cleaning
+up a generation that isn't its own, even one that looks orphaned: a live generation with no matching
+<code>IKE_COOKIE</code> may just as well be a genuinely concurrent session for the same peer, or an
+earlier run's partial-failure retry still waiting for its own teardown to claim it — there is no
+safe way to tell "orphan" apart from "not mine yet" without reintroducing exactly the file-order
+guessing this design replaced. An accumulated orphan is a sign something upstream didn't clean up
+after itself (see the previous paragraph) and is left for an administrator to investigate, not
+silently swept up. Teardown is best-effort: one failed undo does not block the rest from running,
+and a generation with anything left to undo is marked consumed rather than deleted, so a later retry
+picks it up again rather than the failure going unrecorded. Consumed generations are reaped
+automatically (oldest first) once more than 5 accumulate for a peer, or after 24 hours — a live,
+unconsumed generation (including an orphan with no matching <code>IKE_COOKIE</code> left to claim
+it) is never touched by reaping.</p>
 <p>Verbosity is controlled by <code>debug_level</code> in <code>hooks.conf</code> (or <code>RACOON_HOOK_DEBUG</code> in the environment, which always wins):</p>
 <table>
 <thead><tr><th>Level</th><th>Destination</th></tr></thead>
@@ -271,7 +355,12 @@ racoon-dns-detect --detect --format=kv</code></pre>
   <li>Every Mode Config value the gateway sends (internal address, DNS servers, split-include networks, split-DNS domains) is whitelist-validated before use — IPv4/CIDR/domain-name/port syntax and count limits. The whole value is rejected on the first invalid element; nothing is trimmed or "fixed" and partially used.</li>
   <li>0.0.0.0, loopback, and multicast addresses are rejected as DNS servers.</li>
   <li>Plan steps are built entirely from already-validated tokens before any external command runs, so the single execution point that evaluates them never sees an un-validated value from the network.</li>
-  <li><code>setkey</code> is only ever invoked in <code>-c</code> (stdin) mode with a single, fully-constructed <code>spdadd</code>/<code>spddelete</code> line built entirely from already-validated selector components — never a batch file, never <code>-F</code>. LOCAL_ADDR/REMOTE_ADDR/LOCAL_PORT/REMOTE_PORT (racoon's own Phase 1 environment) are whitelist-validated before they can reach that line, since a newline or shell metacharacter smuggled through would inject arbitrary <code>setkey</code> commands.</li>
+<li><code>setkey</code> is only ever invoked in <code>-c</code> (stdin) mode with a single,
+fully-constructed <code>spdadd</code>/<code>spddelete</code> line built entirely from
+already-validated selector components — never a batch file, never <code>-F</code>.
+LOCAL_ADDR/REMOTE_ADDR/LOCAL_PORT/REMOTE_PORT (racoon's own Phase 1 environment) are
+whitelist-validated before they can reach that line, since a newline or shell metacharacter smuggled
+through would inject arbitrary <code>setkey</code> commands.</li>
 </ul>
 </section>
 
@@ -282,7 +371,15 @@ racoon-dns-detect --detect --format=kv</code></pre>
 <h3>A required step keeps failing and the tunnel exits nonzero</h3>
 <p>Set <code>debug_level = 2</code> (or <code>RACOON_HOOK_DEBUG=2</code>) and re-run; the trace at <code>/run/racoon/hook.trace</code> has the exact failing command and its output. <code>racoon-dns-detect --dry-run --explain</code> with the same DNS parameters will show the same plan without needing an active tunnel.</p>
 <h3>A previous disconnect never fully cleaned up</h3>
-<p>Check <code>/run/racoon/hook-state.*</code> — a non-empty file (not <code>.consumed</code>, not <code>.cookie</code>) means something failed to undo last time. Since <code>phase1-down.sh</code> matches by exact <code>IKE_COOKIE</code>, not just <code>REMOTE_ADDR</code>, a hand-run retry needs that generation's own cookie: read it from the matching <code>hook-state.&lt;remote-addr&gt;.&lt;generation&gt;.cookie</code> sidecar and export it as <code>IKE_COOKIE</code> alongside <code>REMOTE_ADDR</code> before invoking <code>phase1-down.sh</code>, or just inspect the state file's undo commands directly and run them by hand; each line is <code>id&nbsp;&nbsp;type&nbsp;&nbsp;outcome&nbsp;&nbsp;undo_command</code>, tab-separated.</p>
+<p>Check <code>/run/racoon/hook-state.*</code> — a non-empty file (not <code>.consumed</code>, not
+<code>.cookie</code>) means something failed to undo last time. Since <code>phase1-down.sh</code>
+matches by exact <code>IKE_COOKIE</code>, not just <code>REMOTE_ADDR</code>, a hand-run retry needs
+that generation's own cookie: read it from the matching
+<code>hook-state.&lt;remote-addr&gt;.&lt;generation&gt;.cookie</code> sidecar and export it as
+<code>IKE_COOKIE</code> alongside <code>REMOTE_ADDR</code> before invoking
+<code>phase1-down.sh</code>, or just inspect the state file's undo commands directly and run them by
+hand; each line is <code>id&nbsp;&nbsp;type&nbsp;&nbsp;outcome&nbsp;&nbsp;undo_command</code>,
+tab-separated.</p>
 </section>
 
 <section id="limitations">
@@ -290,7 +387,13 @@ racoon-dns-detect --detect --format=kv</code></pre>
 <ul>
   <li>IPv4 only — no IPv6 split-DNS/routing support yet.</li>
   <li><code>resolvectl</code>'s <code>default-route</code> subcommand is feature-probed (via <code>resolvectl --help</code>) rather than version-gated, because the systemd release that introduced it could not be confirmed against upstream release notes.</li>
-  <li>On a <code>systemd-resolve</code>-only <code>resolved</code> system (no <code>default-route</code> support at all — §4) with a gateway that pushes DNS servers but no split-DNS domains, there is no scoping mechanism available. <code>phase1-up.sh</code> reports this and skips DNS configuration entirely rather than registering an unscoped VPN resolver for every lookup on the link — internal names behind the tunnel will not resolve until the gateway is configured to send split-DNS domains, or the client is on a host with <code>resolvectl</code> instead.</li>
+<li>On a <code>systemd-resolve</code>-only <code>resolved</code> system (no
+<code>default-route</code> support at all — §4) with a gateway that pushes DNS servers but no
+split-DNS domains, there is no scoping mechanism available. <code>phase1-up.sh</code> reports this
+and skips DNS configuration entirely rather than registering an unscoped VPN resolver for every
+lookup on the link — internal names behind the tunnel will not resolve until the gateway is
+configured to send split-DNS domains, or the client is on a host with <code>resolvectl</code>
+instead.</li>
   <li><code>resolvconf</code> and the <code>/etc/resolv.conf</code> fallback backend both apply a full DNS redirect for the tunnel's duration, not per-domain routing — this is a property of those backends, not a bug in the scripts.</li>
   <li>The road-warrior topology assumes one active gateway connection per racoon instance; the connection id used for state-file naming is derived from <code>REMOTE_ADDR</code> alone (not <code>REMOTE_PORT</code>, which floats across a NAT-T rebind).</li>
 </ul>
