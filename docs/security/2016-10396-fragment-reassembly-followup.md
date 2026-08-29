@@ -120,25 +120,57 @@ the DH group for stronger forward secrecy is exactly what began exposing it.
 
 ## 5. CVE audit — historically inherited fixes
 
-All racoon CVE patches carried by this fork were reviewed for completeness and
-for known documented follow-ups. Confidence is stated explicitly.
+**Revision (2026-07-15):** the table below supersedes the first pass of this
+audit. The first pass classified the pre-2010 CVEs as "inherited via
+baseline... recommend formal re-verification" without actually reading the
+current code — an unverified assumption of exactly the kind this project has
+been repeatedly burned by (patches assumed merged onto `main` that turn out
+to be missing or incomplete). This revision closes that gap: every row was
+re-verified by (a) obtaining the *authoritative* technical description of the
+CVE (NVD/vendor advisory, not memory), (b) locating the actual historical fix
+— usually a NetBSD/KAME upstream commit on the `vendor/netbsd` tracking
+branch — and (c) reading the corresponding function on current `origin/main`
+line by line to confirm the fix's *content* is present, independent of
+whether that exact commit is a git ancestor of `main`.
 
-| CVE | Affected file | Patch present | Follow-up needed | Action |
+That independence from ancestry matters: `main` and `vendor/netbsd` are
+separate lines of history in this repository (`main` derives from an early
+CVS import that was subsequently hardened independently), so `git
+merge-base --is-ancestor` returned **NO** for every single commit checked
+below, including ones whose fix content turned out to be fully present.
+Ancestry alone is not evidence of absence here — only reading the code is.
+The audit also expanded scope beyond the four CVEs named in the original
+task: cross-checking against the Ubuntu/Debian CVE trackers surfaced three
+CVEs affecting this codebase that were **absent from the original table
+entirely** (CVE-2009-1574, CVE-2008-3651, and the config-level
+CVE-2008-1198/CVE-2018-5389 pair).
+
+| CVE / Bug | Affected function(s) | Authoritative description source | Current `main` content | Verdict |
 | --- | --- | --- | --- | --- |
-| **CVE-2016-10396** (out-of-order fragment DoS) | `src/racoon/isakmp_frag.c`, `handler.h` | Yes (orig. + partial `7fc4152`) | **Yes — this advisory.** Original patch had a documented NetBSD follow-up (PR bin/53646) that was only partly applied | **Fixed here.** Full follow-up ported; regression test added |
-| **CVE-2015-4047** (NULL deref, missing rmconf check) | `src/racoon/gssapi.c` | Yes (`23a56f8`, Debian `bug785778`) | None known | Verified complete |
-| Debian #527634 (fragment with all-zero item lengths → NULL deref) | `src/racoon/isakmp_frag.c` | Yes — `Fragment too short` / `Message too short` length guards (`frag->len < sizeof(*frag)+1`) | None known | Verified present |
-| **CVE-2009-1632** (memory leaks in NAT-T + RSA auth → DoS) | `src/racoon/nattraversal.c`, `rsalist.c` | Inherited via 0.7.1+ baseline | None known | Recommend formal re-verification (see §6) |
-| **CVE-2008-3652** (orphaned phase-1 handles from invalid first exchange → DoS) | `src/racoon/isakmp.c` / `handler.c` | Inherited via baseline | None known | Recommend formal re-verification |
-| **CVE-2007-1841** (crafted packet crashes a tunnel) | `src/racoon` | Inherited via baseline | None known | Recommend formal re-verification |
-| **CVE-2005-3732** (malformed ISAKMP / cert handling) | `src/racoon` (X.509) | Inherited via upstream release ≥ 0.6 | None known | Recommend formal re-verification |
+| **CVE-2016-10396** (out-of-order fragment DoS) | `isakmp_frag_extract()`, `isakmp_frag_reassembly()` (`isakmp_frag.c`) | NetBSD PR bin/53646 | Corrected NetBSD rev. 1.12 logic ported | **Fixed** (this fork's earlier hotfix, PR #77/#78) |
+| **CVE-2015-4047** (NULL deref, missing rmconf check) | `gssapi_init()` (`gssapi.c`) | Debian bug785778 | `iph1->rmconf == NULL` guard present before first use, line 195 | **Verified present** |
+| **CVE-2009-1574** / Debian #527634 (frag without payload → NULL deref) | `isakmp_frag_extract()` (`isakmp_frag.c`) | Red Hat #497990; upstream commit `03e543d` (Neil Kettle) | `ntohs(frag->len) < sizeof(*frag) + 1` guard present, line 252 | **Verified present** — was missing from the original table entirely |
+| **CVE-2009-1632** (memory leaks: X.509 sig verify + NAT-T keepalive → DoS) | `eay_check_x509sign()` (`crypto_openssl.c`); `natt_keepalive_send()`/`natt_keepalive_remove()` (`nattraversal.c`) | Gentoo GLSA 200905-03 / Ubuntu USN-785-1 (names both functions explicitly) | `X509_free(x509)` on every path in `eay_check_x509sign()`; `natt_keepalive_delete()` frees `ka->src`/`ka->dst`/`ka` on both call sites | **Verified present** — the original table's file attribution (`rsalist.c`) was wrong; corrected here |
+| **CVE-2008-3652** (orphaned phase-1 handles from invalid first exchange → DoS) | `ph1_main()` (`isakmp.c`) | Debian bug501026; upstream commit `36be9af` (Krzysztof Piotr Oledzki) | `RESPONDER && PHASE1ST_START` → handler deleted (`return -1`) instead of kept forever; log text was independently reworded but the logic matches | **Verified present** |
+| **CVE-2008-3651** (memory leak via invalid proposals) | `cmpsaprop_alloc()`, `aproppair2saprop()`, `set_proposal_from_policy()`, `set_proposal_from_proposal()` (`proposal.c`) | Gentoo GLSA 200812-03; upstream commit `8f589d2` (Kohki Ohhira) | All 6 error paths from the upstream patch (`racoon_free(newpr)` ×3, `racoon_free(pp0)` ×2, `flushsaprop(newpp)` ×1) present at their respective sites | **Verified present** — was missing from the original table entirely |
+| **CVE-2007-1841** (unencrypted DELETE/NOTIFY crashes a tunnel) | `isakmp_info_recv()`, `isakmp_info_recv_d()` (`isakmp_inf.c`) | Ubuntu USN-450-1 (names `isakmp_info_recv()` explicitly) | Unencrypted D/N rejected once phase 1 has progressed past `MSG2SENT`/`MSG3SENT`; `isakmp_info_recv_d()` additionally rejects unencrypted deletes unless `weak_phase1_check` is explicitly set | **Verified present**, hardened beyond the original advisory |
+| **CVE-2005-3732** (aggressive-mode NULL deref via missing KE/NONCE) | `agg_i2recv()`, `agg_r1recv()` (`isakmp_agg.c`) | Ubuntu security notices; upstream 0.6.3 release (commit `c762181`) | `iph1->dhpub_p == NULL \|\| iph1->nonce_p == NULL` existency check present at both sites; `natt_options != NULL` guards present | **Verified present** |
+| **CVE-2008-1198** / **CVE-2018-5389** (aggressive-mode PSK dictionary/brute-force weakness) | Configuration / protocol, not a code defect | Ubuntu/Debian CVE trackers | `debian/racoon.conf`'s only `aggressive` mention is commented out as an alternative to `main`; admin guide has a dedicated "§8.3 Aggressive Mode Considerations" | **Not a code gap.** Config-hardening item — noted for the upcoming examples/DNS review, not actioned here |
+| CVE-2012-3727 | — | Apple advisory | N/A — this CVE is in Apple's own iOS IPsec client rewrite, not `ipsec-tools`/racoon | **Not applicable to this codebase** |
 
-**Key finding:** CVE-2016-10396 is the one inherited fix that carried a
-*known, documented* upstream correction the fork had not fully applied. The
-pre-2010 fixes are baseline-inherited with no known follow-up, but they were
-adopted as opaque backports and have **not** been re-verified line-by-line
-against every distribution's subsequent patch history — which is the gap §6
-addresses.
+**Key finding:** every code-level CVE affecting this codebase — eight in
+total once the omissions are included — is **actually fixed** in current
+`main`, verified by direct code inspection rather than by trusting changelog
+narrative or git ancestry. CVE-2016-10396 remains the *only* case where the
+inherited patch itself was defective. The real, confirmed gap this revision
+found is a **documentation/tracking gap, not a code gap**: three relevant
+CVEs (CVE-2009-1574, CVE-2008-3651, and the config-level pair) were never
+entered into this audit at all, and the CVE-2009-1632 file attribution was
+wrong (`rsalist.c` instead of `crypto_openssl.c`). An audit table that omits
+CVEs or misattributes files is exactly the kind of gap that produces false
+confidence ("we checked, it's fine") without anyone having actually read the
+code — which is the same root cause as §6 below, just at the tracking layer
+instead of the patch layer.
 
 ## 6. Process post-mortem
 
