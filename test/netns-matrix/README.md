@@ -5,8 +5,9 @@ GitHub-hosted runner with no containers or VMs. Two network namespaces, one
 `racoon` per namespace, PSK main mode, ESP.
 
 It is the lightweight tier beneath the Incus-based itlab of RFC 0001 and the
-"fall back to `ip netns`" option named in the Risks table of RFC 0002. It
-consumes the same installed `racoon` and `setkey` an operator would run.
+"fall back to `ip netns`" option named in the Risks table of RFC 0002 (both in
+`docs/rfcs` on `main`). It consumes the same installed `racoon` and `setkey` an
+operator would run.
 
 ## What a live row proves
 
@@ -33,7 +34,7 @@ Each `psk-*` row asserts, against the live kernel:
 
 ```sh
 # build and install racoon and setkey as usual, then:
-sudo env RNM_REQUIRE_LIVE=1 sh test/netns-matrix/run.sh --min-pass 4
+sudo env RNM_REQUIRE_LIVE=1 RNM_BACKEND=pfkey sh test/netns-matrix/run.sh --min-pass 4
 
 # one row, or a regex:
 sudo sh test/netns-matrix/run.sh --cases '^psk-tunnel'
@@ -49,11 +50,29 @@ Per-row logs, configs, SADs and `xfrm_stat` dumps are kept in `RNM_OUT`
 
 ## Result model
 
-* Each row ends **PASS**, **FAIL** or **SKIP**.
+* Each row ends **PASS**, **FAIL**, **SKIP** or **XFAIL**.
+* **XFAIL** means every assertion held except one *documented* known defect
+  (`xfail=...` in `cases.tsv`). It never fails the run and is always printed
+  (and shown as a warning annotation in GitHub Actions). It is deliberately
+  narrow: see "Known defects".
 * `RNM_REQUIRE_LIVE=1` (set in CI) turns a SKIP of a live row into a FAIL, so
   a runner without PF_KEY or ESP cannot go green by skipping.
-* `--min-pass N` fails the run when fewer than N rows passed.
+* `--min-pass N` fails the run when fewer than N rows passed or XFAILed.
 * An empty selection, or an invalid or empty `--shard K M`, is an error.
+
+## Known defects
+
+`xfail=icv` on a row excuses exactly one assertion, the ICV length, and only
+when all of these hold: the backend is the one with the defect (`RNM_BACKEND`,
+default `pfkey`), the algorithm has a documented defect, and the observed value
+is exactly the documented wrong value. Anything else is a FAIL. If the ICV is
+correct while the marker is present the row fails as **XPASS**, so a fixed
+defect cannot keep its marker. The XFRM backend runs with `RNM_BACKEND=xfrm`,
+where the marker never excuses anything.
+
+| Id | Backend | Defect | Evidence | Fix |
+|----|---------|--------|----------|-----|
+| `icv` | PF_KEY | `hmac(sha256)` SAs get a 96-bit ICV, RFC 4868 requires 128. PF_KEY carries only an algorithm id, so Linux applies its own truncation. racoon-to-racoon still works because both ends agree, but a peer using 128 bits would fail integrity checks. | Measured on a GitHub-hosted runner, kernel 6.17.0-1022-azure | `XFRMA_ALG_AUTH_TRUNC` with explicit `alg_trunc_len` (RFC 0002) |
 
 ## Harness self-test
 

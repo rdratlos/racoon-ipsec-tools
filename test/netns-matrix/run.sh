@@ -8,7 +8,11 @@
 #   * A kind calls skip REASON when the host cannot run the row.
 #   * RNM_REQUIRE_LIVE=1 (set in CI) turns every SKIP of a gate=live row into a
 #     FAIL, so a runner that silently lacks PF_KEY/ESP can never go green.
-#   * --min-pass N fails the run when fewer than N rows passed.
+#   * A row can end XFAIL: every assertion held except one DOCUMENTED known
+#     defect (see xfail= in cases.tsv and icv_verdict in lib.sh). XFAIL does not
+#     fail the run, is always printed, and turns into a FAIL (XPASS) the moment
+#     the defect is fixed.
+#   * --min-pass N fails the run when fewer than N rows passed or XFAILed.
 #   * An empty selection, or an empty shard, is an error, never a green run.
 set -u
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -17,6 +21,11 @@ for _k in "$HERE"/kinds/*.sh; do
 	# shellcheck disable=SC1090
 	. "$_k"
 done
+# Test-only hook (selftest.sh): extra kinds sourced from a file.
+if [ -n "${RNM_EXTRA_KINDS:-}" ]; then
+	# shellcheck disable=SC1090
+	. "$RNM_EXTRA_KINDS"
+fi
 
 CASES_FILE=${RNM_CASES_FILE:-$HERE/cases.tsv}
 FILTER=
@@ -30,6 +39,7 @@ usage() {
 usage: run.sh [--cases REGEX] [--shard K M] [--min-pass N] [--list]
 env:   RACOON_BIN, SETKEY_BIN   binaries under test (default: from PATH)
        RNM_REQUIRE_LIVE=1       SKIP of a gate=live row becomes FAIL (CI)
+       RNM_BACKEND=pfkey|xfrm   kernel interface under test (default pfkey)
        RNM_OUT=DIR              where per-row logs are kept (default /tmp/rnm-logs)
 EOF
 }
@@ -68,6 +78,7 @@ mkdir -p "$RNM_OUT"
 pass=0
 fail=0
 skip=0
+xfailed=0
 selected=0
 idx=0
 LIVE_UNMET=
@@ -89,6 +100,7 @@ while IFS="$(printf '\t')" read -r name kind args gate note || [ -n "$name" ]; d
 	log "=== $name ($kind) ${args:+[$args]} ==="
 	R_FAIL=0
 	R_SKIP=
+	R_XFAIL=0
 	_row_skip=
 
 	if [ "$gate" = live ]; then
@@ -118,6 +130,10 @@ while IFS="$(printf '\t')" read -r name kind args gate note || [ -n "$name" ]; d
 		collect_logs "$name"
 		log "FAIL $name (logs: $RNM_OUT/$name)"
 		fail=$((fail + 1))
+	elif [ "$R_XFAIL" != 0 ]; then
+		collect_logs "$name"
+		log "XFAIL $name (known defect, see XFAIL lines above; logs: $RNM_OUT/$name)"
+		xfailed=$((xfailed + 1))
 	else
 		collect_logs "$name"
 		log "PASS $name"
@@ -126,14 +142,14 @@ while IFS="$(printf '\t')" read -r name kind args gate note || [ -n "$name" ]; d
 	ns_down
 done <"$CASES_FILE"
 
-log "pass=$pass fail=$fail skip=$skip"
+log "pass=$pass fail=$fail skip=$skip xfail=$xfailed"
 
 if [ "$selected" -eq 0 ]; then
 	echo "error: no rows selected (filter='$FILTER' shard='${SHARD_K:-}/${SHARD_M:-}')" >&2
 	exit 2
 fi
-if [ "$pass" -lt "$MIN_PASS" ]; then
-	echo "error: only $pass rows passed, --min-pass requires $MIN_PASS" >&2
+if [ $((pass + xfailed)) -lt "$MIN_PASS" ]; then
+	echo "error: only $((pass + xfailed)) rows passed or xfailed, --min-pass requires $MIN_PASS" >&2
 	exit 1
 fi
 [ "$fail" -eq 0 ]

@@ -124,6 +124,42 @@ check "gen_policy: a out is tunnel a->b" has "$PA" "-P out ipsec esp/tunnel/$IP_
 check "gen_policy: b in mirrors a out" has "$PB" "-P in ipsec esp/tunnel/$IP_A-$IP_B/require"
 check "gen_policy: transport has empty tunnel endpoints" has "$(gen_policy a transport)" 'esp/transport//require'
 
+# --- known-defect (XFAIL) logic ----------------------------------------------
+V() { icv_verdict "$@"; }
+S256='hmac(sha256)'
+check "verdict: correct ICV passes" eq "$(V pfkey 0 "$S256" 128 128)" PASS
+check "verdict: wrong ICV without the marker is a FAIL" eq "$(V pfkey 0 "$S256" 128 96)" FAIL
+check "verdict: the known wrong value with the marker is XFAIL" eq "$(V pfkey 1 "$S256" 128 96)" XFAIL
+check "verdict: marker but ICV now correct is XPASS (marker must be removed)" eq "$(V pfkey 1 "$S256" 128 128)" XPASS
+check "verdict: marker does NOT excuse a different wrong value" eq "$(V pfkey 1 "$S256" 128 64)" FAIL
+check "verdict: marker never excuses the xfrm backend" eq "$(V xfrm 1 "$S256" 128 96)" FAIL
+check "verdict: marker with correct ICV on xfrm simply passes" eq "$(V xfrm 1 "$S256" 128 128)" PASS
+check "verdict: no known defect for sha1, wrong ICV still FAILs" eq "$(V pfkey 1 'hmac(sha1)' 96 128)" FAIL
+check "verdict: no known defect for sha1, correct ICV passes" eq "$(V pfkey 1 'hmac(sha1)' 96 96)" PASS
+
+# Runner accounting for XFAIL, using synthetic kinds (RNM_EXTRA_KINDS hook).
+XK=$(mktemp)
+cat >"$XK" <<'EOK'
+kind_selftest_pass() { return 0; }
+kind_selftest_xfail() { xfail "known thing"; }
+kind_selftest_fail() { fail "boom"; }
+EOK
+XC=$(mktemp)
+printf 't-pass\tselftest_pass\t-\t-\tn\nt-xfail\tselftest_xfail\t-\t-\tn\nt-fail\tselftest_fail\t-\t-\tn\n' >"$XC"
+xr() { RNM_EXTRA_KINDS=$XK RNM_CASES_FILE=$XC RNM_OUT=/tmp/rnm-selftest-out sh "$HERE/run.sh" "$@" 2>&1; }
+out=$(xr --cases '^t-xfail '); rc=$?
+check "runner: an XFAIL-only run exits 0 and reports xfail=1" sh -c "[ $rc -eq 0 ] && printf '%s' '$out' | grep -q 'pass=0 fail=0 skip=0 xfail=1'"
+check "runner: XFAIL is printed, not hidden" sh -c "printf '%s' '$out' | grep -q '^XFAIL t-xfail'"
+out=$(xr --cases '^t-xfail ' --min-pass 1); rc=$?
+check "runner: XFAIL counts toward --min-pass" eq "$rc" 0
+out=$(xr --cases '^t-xfail ' --min-pass 2); rc=$?
+check "runner: --min-pass 2 fails with one XFAIL" eq "$rc" 1
+out=$(xr --cases 't-xfail|t-fail'); rc=$?
+check "runner: a real FAIL next to an XFAIL still fails the run" eq "$rc" 1
+out=$(xr); rc=$?
+check "runner: mixed run counts pass/fail/xfail separately" sh -c "printf '%s' '$out' | grep -q 'pass=1 fail=1 skip=0 xfail=1'"
+rm -f "$XK" "$XC"
+
 # --- preflight diagnosis -----------------------------------------------------
 # Regression for the first hosted-runner run: setkey could not load libipsec,
 # and that was reported as "PF_KEY unavailable".
