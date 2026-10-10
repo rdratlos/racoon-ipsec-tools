@@ -294,18 +294,33 @@ Always use the canonical `linux/xfrm.h` struct definitions — never hand-redefi
 
 On the XFRM netlink path the integrity algorithm is carried in an attribute, and the
 choice of attribute decides the ICV length. The PF_KEY backend carries only an algorithm
-id, so this is a new failure mode introduced by the migration.
+id and no ICV length, so the kernel chooses the truncation. That choice is wrong for
+`hmac(sha256)`: the **current PF_KEY backend already installs a 96-bit ICV instead of
+the 128 bits of RFC 4868** (see Measured evidence below). The XFRM backend therefore
+fixes an existing defect, provided it sets the truncation explicitly. Choosing the
+wrong attribute would reproduce the defect.
 
 **Required rule**: for every non-NULL integrity algorithm, `send_add` and `send_update`
 emit `XFRMA_ALG_AUTH_TRUNC` (`struct xfrm_algo_auth`) with an explicit `alg_trunc_len`.
 The legacy `XFRMA_ALG_AUTH` (`struct xfrm_algo`) is never used. `XFRMA_ALG_AUTH` has no
-truncation field, so the kernel applies its own per-algorithm default. racoon2 observed
-that, for `hmac(sha256)`, this default was a 96-bit ICV rather than the 128-bit ICV of
-RFC 4868 that current peers send. The SA installs without error and the kernel ACKs it,
-but ESP packets then fail integrity verification in both directions. Look for
-integrity/protocol-error counters in `/proc/net/xfrm_stat` when debugging. The exact
-kernel default is to be confirmed by the SA-add integration tests (B-series) on the
-4.15 floor kernel and on a current kernel; the rule above does not depend on it.
+truncation field, so the kernel applies its own per-algorithm default. For
+`hmac(sha256)` that default is a 96-bit ICV rather than the 128-bit ICV of RFC 4868
+that current peers send. The SA installs without error and the kernel ACKs it. Against
+a peer using 128 bits, ESP packets are expected to fail integrity verification (not yet
+tested against such a peer; see Measured evidence). Look for integrity/protocol-error
+counters in `/proc/net/xfrm_stat` when debugging.
+
+**Measured evidence.** Two independent observations agree that the kernel's default
+truncation for `hmac(sha256)` is 96 bits:
+- racoon2's XFRM backend, via `XFRMA_ALG_AUTH` (see Prior art below).
+- racoon's own PF_KEY backend, measured with the netns matrix (`test/netns-matrix`,
+  RFC 0001's lightweight tier, on `develop`) on a GitHub-hosted runner, Linux
+  `6.17.0-1022-azure`. Two racoon instances negotiated in network namespaces and
+  carried traffic through ESP. `hmac(sha1)` SAs had the expected 96-bit ICV;
+  `hmac(sha256)` SAs had a 96-bit ICV on both ends instead of 128.
+
+What is not yet established: behaviour on the 4.15 floor kernel, and interoperability
+with a 128-bit peer. The rule above does not depend on either.
 
 | `IPSECDOI_ATTR_AUTH_*` | Kernel `alg_name` | `alg_trunc_len` (bits) | Reference |
 |------------------------|-------------------|------------------------|-----------|
@@ -336,6 +351,12 @@ Notes:
   check the ICV length; E1/E2 run against an RFC 4868 peer (strongSwan) using
   `HMAC_SHA2_256` and require bidirectional data-plane traffic, since a truncation
   mismatch is invisible at the netlink ACK level.
+- **Regression gate already in place.** The netns matrix asserts the 128-bit ICV for
+  `hmac(sha256)`. On the PF_KEY backend the two sha256 rows end XFAIL (a documented
+  known defect, narrowly scoped to the ICV assertion and the exact value of 96 bits).
+  The XFRM backend runs the same rows with `RNM_BACKEND=xfrm`, where the marker excuses
+  nothing, and a row that unexpectedly passes while marked fails as XPASS, so the
+  marker has to be removed when the defect is fixed.
 
 ### Kernel Header Sufficiency Analysis
 
