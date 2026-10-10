@@ -162,8 +162,8 @@ All existing Racoon data structures (`ph2handle`, `secpolicy`, `policyindex`, `s
 | kernelpaws_ops | pfkeyv2 backend | xfrm backend |
 |----------------|-----------------|--------------|
 | `send_getspi` | `pfkey_send_getspi2()` | `XFRM_MSG_ALLOCSPI` |
-| `send_add` | `pfkey_send_add2()` | `XFRM_MSG_NEWSA` |
-| `send_update` | `pfkey_send_update2()` | `XFRM_MSG_UPDSA` |
+| `send_add` | `pfkey_send_add2()` | `XFRM_MSG_NEWSA` (authentication via `XFRMA_ALG_AUTH_TRUNC` only, see Authentication Algorithm Attribute) |
+| `send_update` | `pfkey_send_update2()` | `XFRM_MSG_UPDSA` (same attribute set as `send_add`) |
 | `send_delete` | `pfkey_send_delete()` | `XFRM_MSG_DELSA` |
 | `spd_add` | `pfkey_send_spdadd2()` | `XFRM_MSG_NEWPOLICY` |
 | `spd_delete` | `pfkey_send_spddelete()` | `XFRM_MSG_DELPOLICY` |
@@ -290,6 +290,53 @@ Beyond alignment, XFRM netlink attributes use a mix of network byte order and ho
 
 Always use the canonical `linux/xfrm.h` struct definitions — never hand-redefine.
 
+### XFRM Backend: Authentication Algorithm Attribute
+
+On the XFRM netlink path the integrity algorithm is carried in an attribute, and the
+choice of attribute decides the ICV length. The PF_KEY backend carries only an algorithm
+id, so this is a new failure mode introduced by the migration.
+
+**Required rule**: for every non-NULL integrity algorithm, `send_add` and `send_update`
+emit `XFRMA_ALG_AUTH_TRUNC` (`struct xfrm_algo_auth`) with an explicit `alg_trunc_len`.
+The legacy `XFRMA_ALG_AUTH` (`struct xfrm_algo`) is never used. `XFRMA_ALG_AUTH` has no
+truncation field, so the kernel applies its own per-algorithm default. racoon2 observed
+that, for `hmac(sha256)`, this default was a 96-bit ICV rather than the 128-bit ICV of
+RFC 4868 that current peers send. The SA installs without error and the kernel ACKs it,
+but ESP packets then fail integrity verification in both directions. Look for
+integrity/protocol-error counters in `/proc/net/xfrm_stat` when debugging. The exact
+kernel default is to be confirmed by the SA-add integration tests (B-series) on the
+4.15 floor kernel and on a current kernel; the rule above does not depend on it.
+
+| `IPSECDOI_ATTR_AUTH_*` | Kernel `alg_name` | `alg_trunc_len` (bits) | Reference |
+|------------------------|-------------------|------------------------|-----------|
+| `HMAC_MD5` | `hmac(md5)` | 96 | RFC 2403 |
+| `HMAC_SHA1` | `hmac(sha1)` | 96 | RFC 2404 |
+| `HMAC_SHA2_256` | `hmac(sha256)` | 128 | RFC 4868 |
+| `HMAC_SHA2_384` | `hmac(sha384)` | 192 | RFC 4868 |
+| `HMAC_SHA2_512` | `hmac(sha512)` | 256 | RFC 4868 |
+
+Notes:
+- `alg_key_len` is in **bits**; the `ph2handle` key length is in bytes.
+- The truncation length must come from this table (or an equivalent table keyed on the
+  negotiated transform), never from a default.
+- **Compile-time guards cannot protect this.** `XFRMA_*` attribute types are plain
+  enumerators in `linux/xfrm.h` (`enum xfrm_attr_type_t`) with no matching macro, so
+  `#ifdef XFRMA_ALG_AUTH_TRUNC` is always false, even on headers that define it. Code
+  guarded that way silently falls back to the legacy attribute. `XFRM_MSG_*` message
+  types are self-defined (`#define XFRM_MSG_NEWSA XFRM_MSG_NEWSA`) only in some header
+  versions, so `#ifdef` on them is not reliable across the supported range either. The attribute has been in
+  the kernel since 2.6.31, so with the 4.15 floor it is emitted unconditionally with no guard.
+- **Prior art**: racoon2's Linux backend (`lib/if_xfrm.c`, branch `int/gsoc2026` of
+  `derekm/racoon2`, discussed in issue #145) hit exactly this failure while interoperating
+  with iOS and strongSwan: an `#ifdef` guard on the enum constant caused 96-bit
+  `hmac(sha256)` ICVs to be installed. Their fix is to always emit the attribute.
+- **Test requirement** (within the existing 77-test budget, no renumbering): the SA-add
+  unit tests (A2-A4) assert attribute type and `alg_trunc_len` for each row of the table;
+  the SA-add integration tests (B1-B9) read the installed SA back with `ip xfrm state` and
+  check the ICV length; E1/E2 run against an RFC 4868 peer (strongSwan) using
+  `HMAC_SHA2_256` and require bidirectional data-plane traffic, since a truncation
+  mismatch is invisible at the netlink ACK level.
+
 ### Kernel Header Sufficiency Analysis
 
 A thorough analysis of LibreSwan's XFRM header usage (vendored copy from kernel 6.0.0rc5 in `external/linux-xfrm-headers/`) was performed against the kernel 4.15 (Ubuntu Bionic) system headers. Key findings:
@@ -297,7 +344,7 @@ A thorough analysis of LibreSwan's XFRM header usage (vendored copy from kernel 
 - All core XFRM structures (`xfrm_usersa_info`, `xfrm_userpolicy_info`, `xfrm_selector`, `xfrm_id`, `xfrm_algo_aead`, etc.) have been ABI-stable since kernel 2.6.25.
 - The minimum kernel for basic IKEv1 ESP/AH is 2.6.25; kernel 4.15 additionally provides AEAD (2.6.27), auth truncation (2.6.31), ESN (2.6.39), flow marks (3.15), and labeled IPsec (3.0).
 - LibreSwan requires its vendored `xfrm.h` not because kernel 4.15 headers lack basic structures, but because its code unconditionally references kernel 6.8 constants (`XFRMA_SA_DIR`, `XFRM_SA_DIR_IN/OUT`, `XFRM_MODE_IPTFS`, `XFRMA_IPTFS_*`) that are only executed at runtime when the kernel supports those features. Without `#ifdef` guards, compilation fails on any system with pre-6.8 headers.
-- **Racoon does not have this problem.** The kernelpaws XFRM backend can gate 6.8+ features behind both compile-time (`#ifdef`) and runtime checks, avoiding the LibreSwan compile-time dependency entirely.
+- **Racoon does not have this problem.** The kernelpaws XFRM backend can gate 6.8+ features behind both compile-time and runtime checks. Because `XFRMA_*` are enumerators without macros (and `XFRM_MSG_*` self-defines are not present in every header version), the compile-time check must be `AC_CHECK_DECLS` (or an equivalent compile test), never `#ifdef` (see Authentication Algorithm Attribute), avoiding the LibreSwan compile-time dependency entirely.
 - **Conclusion:** Standard system `linux/xfrm.h` from kernel 4.15+ is fully sufficient for the kernelpaws XFRM backend. No vendored headers are needed.
 
 ### XFRM Flush Semantics
@@ -446,6 +493,7 @@ Testing follows a TDD approach with 77 tests across four categories. Each `kerne
 | Incus unavailable in CI | Fall back to `ip netns` (Linux network namespaces) for container tests; VM tests require dedicated runner |
 | Replay window / ESN complexity | Encapsulate in XFRM backend; expose simple `replay_window` and `esn` knobs |
 | IPCOMP kernel deprecation | Probe at init time; handle rejection gracefully |
+| Wrong ICV length on XFRM SA install (SA installs, data plane drops) | Always emit `XFRMA_ALG_AUTH_TRUNC` with explicit `alg_trunc_len`; never `XFRMA_ALG_AUTH`; no `#ifdef` on enumerators; RFC 4868 peer in E1/E2 |
 
 ## Referenced Documents
 
@@ -456,3 +504,4 @@ Testing follows a TDD approach with 77 tests across four categories. Each `kerne
 - Branch `prototype/kernelpaws`, `docs/suites/kernelpaws_prototype.md` — prototype implementation status and compliance matrix.
 - Branch `prototype/kernelpaws`, `docs/suites/kernelpaws_review.md` — LibreSwan XFRM maintainer design review feedback.
 - Branch `prototype/kernelpaws`, `docs/suites/libreswan_xfrm_analysis.md` — PF_KEYv2 to XFRM reference architecture mapping.
+- `derekm/racoon2`, branch `int/gsoc2026`, `lib/if_xfrm.c` — independent XFRM backend for racoon2 (IKEv2/IKEv1); source of the `XFRMA_ALG_AUTH_TRUNC` finding. Discussed in issue #145.
