@@ -1,0 +1,106 @@
+# netns matrix: racoon <-> racoon over a REAL kernel IPsec stack.
+#
+# Two network namespaces on the hosted runner, one racoon per namespace,
+# PSK main mode, ESP in transport and tunnel mode. Every live row asserts the
+# SA content (including the RFC truncation of the ICV), that traffic really
+# crosses ESP, and that no XFRM error counter moves. See
+# test/netns-matrix/README.md and RFC 0001 / RFC 0002.
+#
+# This is the lightweight tier below the Incus-based itlab (RFC 0001): it uses
+# the runner's own kernel, so it cannot cover a kernel-version matrix.
+
+name: netns matrix
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'test/netns-matrix/**'
+      - '.github/workflows/netns-matrix.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'test/netns-matrix/**'
+      - '.github/workflows/netns-matrix.yml'
+  schedule:
+    # Nightly: catches runner-image kernel / module drift (af_key, esp4).
+    - cron: '30 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: netns-matrix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  selftest:
+    name: 'Harness self-test (no root, no kernel IPsec needed)'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test
+        run: sh test/netns-matrix/selftest.sh
+      - name: shellcheck (errors only)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck -s sh -S error -x test/netns-matrix/*.sh test/netns-matrix/kinds/*.sh
+
+  live:
+    name: 'Live rows (PF_KEY backend, hosted-runner kernel)'
+    needs: selftest
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build and test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq autoconf automake libtool pkg-config gcc make \
+            bison flex libssl-dev libfl-dev iproute2 iputils-ping
+
+      - name: Kernel facts (for diagnosing a runner image change)
+        run: |
+          uname -r
+          sudo modprobe -a af_key esp4 xfrm_user 2>&1 || true
+          lsmod | grep -E 'af_key|esp4|xfrm|veth' || true
+          grep -E 'CONFIG_(NET_KEY|INET_ESP|XFRM_USER)=' "/boot/config-$(uname -r)" || true
+
+      - name: Build and install racoon + setkey
+        run: |
+          sh bootstrap
+          ./configure --prefix=/usr/local --sysconfdir=/etc/racoon \
+            --enable-adminport --enable-dpd --enable-natt --enable-frag \
+            --with-kernel-headers=/usr/include --without-readline \
+            --disable-security-context
+          make -j"$(nproc)"
+          sudo make install
+          # libipsec lands in /usr/local/lib; refresh the linker cache or
+          # setkey/racoon fail to start with "cannot open shared object file".
+          sudo ldconfig
+          command -v racoon setkey
+          racoon -V
+
+      - name: Live rows
+        run: |
+          set -o pipefail
+          # RNM_REQUIRE_LIVE=1: a runner that cannot do PF_KEY/ESP must FAIL,
+          # never go green by skipping. --min-pass guards against a vacuous run.
+          sudo env RNM_REQUIRE_LIVE=1 \
+            RACOON_BIN="$(command -v racoon)" SETKEY_BIN="$(command -v setkey)" \
+            RNM_OUT="$RUNNER_TEMP/rnm-logs" \
+            sh test/netns-matrix/run.sh --min-pass 4 | tee "$RUNNER_TEMP/rnm-summary.log"
+
+      - name: Upload row logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: netns-matrix-logs
+          path: |
+            ${{ runner.temp }}/rnm-logs
+            ${{ runner.temp }}/rnm-summary.log
+          if-no-files-found: warn
