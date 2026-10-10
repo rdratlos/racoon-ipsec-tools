@@ -21,9 +21,14 @@ RNM_OUT=${RNM_OUT:-/tmp/rnm-logs}
 RACOON_BIN=${RACOON_BIN:-$(command -v racoon 2>/dev/null || true)}
 SETKEY_BIN=${SETKEY_BIN:-$(command -v setkey 2>/dev/null || true)}
 
+# Kernel interface racoon is driving. Today only the PF_KEY backend exists; the
+# XFRM backend of RFC 0002 will run the same rows with RNM_BACKEND=xfrm.
+RNM_BACKEND=${RNM_BACKEND:-pfkey}
+
 # Per-row result flags, reset by run.sh before every row.
 R_FAIL=0
 R_SKIP=
+R_XFAIL=0
 
 log() { printf '%s\n' "$*"; }
 
@@ -32,6 +37,15 @@ log() { printf '%s\n' "$*"; }
 fail() {
 	R_FAIL=1
 	log "FAIL: $*"
+}
+
+# xfail MSG: a documented, expected deviation. The row stays red-capable for
+# everything else; see icv_verdict() for how it is kept honest.
+xfail() {
+	R_XFAIL=1
+	log "XFAIL: $*"
+	[ "${GITHUB_ACTIONS:-}" = true ] && log "::warning title=Known defect::$*"
+	return 0
 }
 
 # skip REASON: the row cannot run in this environment. run.sh turns this into
@@ -319,6 +333,36 @@ wait_ping() {
 sad_auth_trunc_bits() {
 	awk -v alg="$1" '
 		$1 == "auth-trunc" && $2 == alg { print $4; exit }'
+}
+
+# known_icv_bits BACKEND ALG: the wrong ICV length a backend is KNOWN to
+# install for ALG (empty when there is no known defect). PF_KEY carries only an
+# algorithm id, so Linux applies its own default truncation: 96 bits for
+# hmac(sha256) instead of the 128 bits of RFC 4868. Measured on a GitHub-hosted
+# runner, kernel 6.17.0-1022-azure.
+known_icv_bits() {
+	case "$1:$2" in
+	pfkey:'hmac(sha256)') echo 96 ;;
+	esac
+}
+
+# icv_verdict BACKEND XFAIL ALG WANT GOT: print PASS, FAIL, XFAIL or XPASS.
+#   XFAIL only if the row opted in (XFAIL=1), the backend has a known defect
+#         for ALG, and GOT is exactly that known wrong value.
+#   XPASS (reported as a failure) if the row opted in but the ICV is correct,
+#         so a fixed defect cannot keep its marker.
+#   Anything else that differs from WANT is a plain FAIL.
+icv_verdict() {
+	_known=$(known_icv_bits "$1" "$3")
+	if [ "$5" = "$4" ]; then
+		if [ "$2" = 1 ] && [ -n "$_known" ]; then echo XPASS; else echo PASS; fi
+		return 0
+	fi
+	if [ "$2" = 1 ] && [ -n "$_known" ] && [ "$5" = "$_known" ]; then
+		echo XFAIL
+		return 0
+	fi
+	echo FAIL
 }
 
 # sad_spis: print the sorted ESP SPIs in `ip xfrm state` text on stdin.

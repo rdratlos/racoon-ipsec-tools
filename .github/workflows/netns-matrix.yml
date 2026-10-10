@@ -90,10 +90,20 @@ jobs:
           set -o pipefail
           # RNM_REQUIRE_LIVE=1: a runner that cannot do PF_KEY/ESP must FAIL,
           # never go green by skipping. --min-pass guards against a vacuous run.
-          sudo env RNM_REQUIRE_LIVE=1 \
+          sudo env RNM_REQUIRE_LIVE=1 RNM_BACKEND=pfkey \
             RACOON_BIN="$(command -v racoon)" SETKEY_BIN="$(command -v setkey)" \
             RNM_OUT="$RUNNER_TEMP/rnm-logs" \
             sh test/netns-matrix/run.sh --min-pass 4 | tee "$RUNNER_TEMP/rnm-summary.log"
+
+      - name: Summarize known defects
+        if: always()
+        run: |
+          {
+            echo "### netns matrix"
+            grep -E '^(pass=|XFAIL |FAIL |PASS |SKIP )' "$RUNNER_TEMP/rnm-summary.log" || true
+            echo
+            echo "XFAIL = a documented known defect (see test/netns-matrix/README.md); it fails the run as XPASS once fixed."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload row logs
         if: always()

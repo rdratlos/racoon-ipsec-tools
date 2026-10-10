@@ -6,6 +6,10 @@
 #   auth=sha1|sha256        phase 2 HMAC
 #   rekey=0|1               1: short SA lifetime, assert a new SA replaces the
 #                           old one while traffic keeps flowing
+#   xfail=icv               the ICV-length assertion is a KNOWN defect of the
+#                           current backend (see known_icv_bits in lib.sh).
+#                           Only that assertion is excused, only for the exact
+#                           known wrong value, and a fixed defect fails as XPASS.
 #
 # Assertions, all against the live kernel:
 #   1. both SADs hold ESP SAs and the negotiated HMAC carries the RFC
@@ -18,11 +22,13 @@ kind_psk() {
 	_mode=transport
 	_auth=sha256
 	_rekey=0
+	_xfail=0
 	for _kv in $2; do
 		case $_kv in
 		mode=*) _mode=${_kv#mode=} ;;
 		auth=*) _auth=${_kv#auth=} ;;
 		rekey=*) _rekey=${_kv#rekey=} ;;
+		xfail=icv) _xfail=1 ;;
 		esac
 	done
 	case $_auth in
@@ -52,10 +58,13 @@ kind_psk() {
 		_bits=$(printf '%s\n' "$_sad" | sad_auth_trunc_bits "$_want_alg")
 		if [ -z "$_bits" ]; then
 			fail "$_ns: no 'auth-trunc $_want_alg' in SAD (legacy 'auth' attribute or wrong algorithm)"
-		elif [ "$_bits" != "$_want_trunc" ]; then
-			fail "$_ns: $_want_alg ICV is $_bits bits, expected $_want_trunc"
 		else
-			log "$_ns: $_want_alg ICV $_bits bits OK"
+			case $(icv_verdict "$RNM_BACKEND" "$_xfail" "$_want_alg" "$_want_trunc" "$_bits") in
+			PASS) log "$_ns: $_want_alg ICV $_bits bits OK" ;;
+			XFAIL) xfail "$_ns: $_want_alg ICV is $_bits bits, expected $_want_trunc (RFC 4868). Known $RNM_BACKEND-backend defect: PF_KEY cannot carry an ICV length. Fixed by XFRMA_ALG_AUTH_TRUNC, RFC 0002." ;;
+			XPASS) fail "$_ns: XPASS: $_want_alg ICV is correct ($_bits bits) but the row is marked xfail=icv; remove the marker from cases.tsv" ;;
+			*) fail "$_ns: $_want_alg ICV is $_bits bits, expected $_want_trunc" ;;
+			esac
 		fi
 	done
 
