@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261011T233117Z-d01cf078",
+  "created": "2026-10-11T23:31:17Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "config",
+      "files": [
+        ".github/workflows/develop-provenance.yml",
+        ".provenance/README.md",
+        ".provenance/legacy-map.toml",
+        ".provenance/manifests/.gitkeep",
+        ".provenance/policy.toml",
+        ".provenance/profiles/claude-opus/r1.toml",
+        ".provenance/profiles/claude-sonnet/r1.toml",
+        ".provenance/profiles/opencode-kitch/r1.toml",
+        ".provenance/profiles/opencode-pair/r1.toml",
+        ".provenance/profiles/opencode-qwen3-coder/r1.toml",
+        ".provenance/schema/manifest-v1.schema.json",
+        ".provenance/schema/profile-v1.schema.json",
+        "tools/prov.py",
+        "tools/test_prov.py"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "reimth@etik.com",
+    "statement": "reviewed-and-tested"
+  },
+  "session": {
+    "ref": "https://claude.ai/code/session_01Rz28uup7ofewmypEP1tMNf"
+  }
+}

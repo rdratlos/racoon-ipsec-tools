@@ -1,0 +1,66 @@
+# AI provenance checks (RFC 0005 "provpaws"), develop-owned.
+#
+# Two jobs, two failure modes:
+#   self-test  -- tools/prov.py's own tests. Blocking: a broken checker must
+#                 never silently pass everything.
+#   verify     -- trailers, manifests, profiles and policy over the commits a
+#                 PR/push introduces. Phase 0: NON-blocking (continue-on-error)
+#                 so the rules can be tuned on real traffic. Phase 1 removes
+#                 continue-on-error (RFC 0005, Rollout).
+
+name: AI provenance
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  self-test:
+    name: prov.py self-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jsonschema
+        run: pip install --quiet jsonschema
+
+      - name: python3 -m unittest tools/test_prov.py
+        run: python3 -m unittest -v tools/test_prov.py
+
+  verify:
+    name: Provenance of introduced commits
+    runs-on: ubuntu-latest
+    continue-on-error: true     # Phase 0 only -- see header
+    steps:
+      - name: Checkout (full history: baseline ancestry and blame)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install jsonschema
+        run: pip install --quiet jsonschema
+
+      - name: tools/prov.py verify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ZERO="0000000000000000000000000000000000000000"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE=$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA")
+            RANGE="${BASE}..${PR_HEAD_SHA}"
+          elif [ "$PUSH_BEFORE" = "$ZERO" ]; then
+            RANGE="${PUSH_AFTER}"
+          else
+            RANGE="${PUSH_BEFORE}..${PUSH_AFTER}"
+          fi
+          python3 tools/prov.py verify --range "$RANGE"

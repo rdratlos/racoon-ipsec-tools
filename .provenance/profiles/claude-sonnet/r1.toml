@@ -1,0 +1,15 @@
+# Seed profile derived from existing history ("Assisted-by: Claude Sonnet 5").
+# Confirm or correct before Phase 1; once merged this file is immutable.
+schema_version = "1.0"
+id = "claude-sonnet"
+revision = 1
+harness = "claude-code"
+owner = "rdratlos"
+status = "active"
+description = "Claude Code, single agent, Sonnet model."
+
+[[roles]]
+name = "implementer"
+model_family = "anthropic-claude"
+model_id = "claude-sonnet-5"
+disclosure = "public"

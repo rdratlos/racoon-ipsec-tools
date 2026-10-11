@@ -1,0 +1,17 @@
+# Seed profile derived from existing history ("Assisted-by: OpenCode:KITCH-Coder").
+# Example of an organisation-managed neutral reference: the owner resolves
+# KITCH-Coder to a concrete model; the public history does not need to.
+# Decide disclosure before Phase 1; once merged this file is immutable.
+schema_version = "1.0"
+id = "opencode-kitch"
+revision = 1
+harness = "opencode"
+owner = "rdratlos"
+status = "active"
+description = "OpenCode with the KITCH-Coder model (owner-resolved reference)."
+
+[[roles]]
+name = "implementer"
+model_family = "kitch"
+model_id = "KITCH-Coder"
+disclosure = "withheld"

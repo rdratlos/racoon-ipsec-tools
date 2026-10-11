@@ -1,0 +1,28 @@
+# Example multi-agent profile: implementer and reviewer from different model
+# families, so AI output in critical paths satisfies the dissimilarity rule.
+schema_version = "1.0"
+id = "opencode-pair"
+revision = 1
+harness = "opencode"
+owner = "rdratlos"
+status = "active"
+description = "OpenCode orchestrated pair: Qwen implements, Claude reviews."
+
+[[roles]]
+name = "orchestrator"
+model_family = "anthropic-claude"
+model_id = "claude-sonnet-5"
+disclosure = "public"
+description = "Plans and integrates; its own output rarely enters the diff."
+
+[[roles]]
+name = "implementer"
+model_family = "alibaba-qwen"
+model_id = "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+disclosure = "public"
+
+[[roles]]
+name = "reviewer"
+model_family = "anthropic-claude"
+model_id = "claude-sonnet-5"
+disclosure = "public"

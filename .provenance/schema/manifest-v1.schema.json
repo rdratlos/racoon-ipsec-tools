@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rdratlos/racoon-ipsec-tools/.provenance/schema/manifest-v1.schema.json",
+  "title": "racoon AI provenance manifest (RFC 0005 \"provpaws\")",
+  "description": "One manifest per AI-assisted work session. Referenced from commits by the Provenance-Id trailer. Records which models produced output that entered the diff, as declared by the human contributor. Self-reported: model_reported_by states how trustworthy each model field is.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "provenance_id", "created", "contributions", "human_review"],
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "description": "Frozen per major version. A breaking change creates manifest-v2.schema.json; v1 manifests stay valid forever."
+    },
+    "provenance_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$",
+      "description": "UTC timestamp plus random suffix. Must equal the manifest file name stem and the Provenance-Id trailer value."
+    },
+    "created": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "contributions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/contribution" }
+    },
+    "human_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer", "statement"],
+      "properties": {
+        "reviewer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The accountable human: e-mail address as used in Signed-off-by, or GitHub handle."
+        },
+        "statement": {
+          "enum": ["pending", "reviewed", "reviewed-and-tested"],
+          "description": "pending: written by an agent or before review; verify fails until the accountable human changes it. An AI can prepare the record but never complete the attestation."
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Digest of a privately kept session log. Proves a log existed without publishing prompts or transcripts."
+        },
+        "ref": {
+          "type": "string",
+          "description": "Optional opaque session reference (e.g. a tool session URL). Informational only; may not be resolvable by others."
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "maxLength": 2000
+    }
+  },
+  "$defs": {
+    "contribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "role", "model", "model_reported_by", "files"],
+      "properties": {
+        "profile": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*@r[1-9][0-9]*$",
+          "description": "Profile reference <id>@r<N>, resolving to .provenance/profiles/<id>/r<N>.toml."
+        },
+        "role": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Role name as defined in the referenced profile (implementer, reviewer, ...)."
+        },
+        "model": { "$ref": "#/$defs/model" },
+        "model_reported_by": {
+          "enum": ["api", "config", "manual"],
+          "description": "api: model id as returned by the provider; config: as configured in the harness; manual: declared by hand."
+        },
+        "files": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Repository paths whose committed content contains output of this contribution. Empty for review-only roles."
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "id"],
+      "properties": {
+        "family": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Model family used for the dissimilarity rule (e.g. anthropic-claude, alibaba-qwen)."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Model identifier, or the organisation-managed neutral reference when disclosure is withheld."
+        },
+        "snapshot": {
+          "type": "string",
+          "description": "Dated snapshot / build identifier, if the provider exposes one."
+        }
+      }
+    }
+  }
+}

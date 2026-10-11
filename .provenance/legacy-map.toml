@@ -1,0 +1,41 @@
+# Maps free-text Assisted-by values from commits before the enforcement
+# baseline to profiles, so `prov query` can include pre-policy history.
+# Keys are case-insensitive regular expressions matched against the whole
+# trailer value (e-mail addresses stripped). First match wins; unmatched
+# legacy values are reported as "unmapped" rather than guessed.
+schema_version = "1.0"
+
+[[map]]
+pattern = "claude\\s+opus\\s+5(\\.5)?"
+family = "anthropic-claude"
+model_id = "claude-opus-5"
+note = "Opus 5 / 5.5 not reliably distinguished in legacy trailers"
+
+[[map]]
+pattern = "claude\\s+opus\\s+4\\.8|claude:claude-opus-4-6"
+family = "anthropic-claude"
+model_id = "claude-opus-4"
+
+[[map]]
+pattern = "claude\\s+son+et\\s+5(\\.5)?"
+family = "anthropic-claude"
+model_id = "claude-sonnet-5"
+note = "includes the 'Sonet' typo variant"
+
+[[map]]
+pattern = "claude\\s+fable\\s+5"
+family = "anthropic-claude"
+model_id = "claude-fable-5"
+
+[[map]]
+pattern = "opencode:(kitch/)?kitch-coder"
+family = "kitch"
+model_id = "KITCH-Coder"
+
+[[map]]
+pattern = "opencode:qwen/qwen3-coder.*"
+family = "alibaba-qwen"
+model_id = "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+
+# Deliberately NOT mapped: bare "Claude" and bare "OpenCode:" -- the model is
+# unknown and guessing would create false confidence in a recall.

@@ -1,0 +1,15 @@
+# Seed profile derived from existing history
+# ("Assisted-by: OpenCode:Qwen/Qwen3-Coder-480B-A35B-Instruct").
+schema_version = "1.0"
+id = "opencode-qwen3-coder"
+revision = 1
+harness = "opencode"
+owner = "rdratlos"
+status = "active"
+description = "OpenCode, single agent, Qwen3-Coder."
+
+[[roles]]
+name = "implementer"
+model_family = "alibaba-qwen"
+model_id = "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+disclosure = "public"

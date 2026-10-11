@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rdratlos/racoon-ipsec-tools/.provenance/schema/profile-v1.schema.json",
+  "title": "racoon AI agent profile (RFC 0005 \"provpaws\")",
+  "description": "Tool-neutral description of an AI-assisted setup: which harness, which roles, which model per role. Stored as TOML at .provenance/profiles/<id>/r<N>.toml. A revision file is immutable once merged; any change creates r<N+1>.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "revision", "harness", "owner", "status", "roles"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Must equal the profile directory name."
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Must equal N in the file name r<N>.toml."
+    },
+    "harness": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Agent harness (claude-code, opencode, chat, ...). Informational; the spec does not depend on any particular harness."
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Who maintains this profile and resolves its neutral references (a person or an organisation)."
+    },
+    "status": { "enum": ["active", "retired"] },
+    "description": { "type": "string" },
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "model_family", "model_id", "disclosure"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "model_family": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "model_id": { "type": "string", "minLength": 1 },
+          "disclosure": {
+            "enum": ["public", "withheld"],
+            "description": "withheld: model_id is a neutral reference resolved only by the profile owner."
+          },
+          "description": { "type": "string" }
+        }
+      }
+    }
+  }
+}

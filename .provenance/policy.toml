@@ -1,0 +1,65 @@
+# AI provenance policy -- RFC 0005 ("provpaws").
+# Read by tools/prov.py. Changes to this file are policy changes: review them
+# like code, and say why in the commit message.
+
+schema_version = "1.0"
+
+[enforcement]
+# Commits reachable from this commit are exempt from trailer rules (they
+# predate the policy). prov query still sees them via legacy-map.toml.
+# Set to develop's tip at the time Phase 0 lands.
+baseline = "2813d182935d4800c4b8471ca16d5328fa21b4db"
+
+# AI-assisted commits must carry a human Signed-off-by.
+require_signoff_on_assisted = true
+
+# What to do when a manifest's api-reported model differs from the model its
+# profile role declares (silent substitution by a provider/router/alias).
+substitution = "warn"            # "warn" | "fail"
+
+[trailers]
+assisted = "Assisted-by"         # canonical spelling; other casings fail
+scope = "AI-Scope"
+provenance = "Provenance-Id"
+allowed_scopes = ["docs", "tests", "build", "ci", "packaging", "refactor", "code"]
+
+# Trailers carrying an AI identity in Signed-off-by or Co-Authored-By fail.
+# Case-insensitive regular expressions, matched against the trailer value.
+ai_identity_patterns = [
+  "noreply@anthropic\\.com",
+  "@openai\\.com",
+  "copilot",
+  "\\bclaude\\b",
+  "\\bopencode\\b",
+  "\\bgpt-?[0-9]",
+  "\\bgemini\\b",
+  "\\bqwen",
+]
+
+[critical]
+# Attack-surface and privilege-boundary code (fnmatch globs, repository
+# relative). AI output in these paths gets extra rules below.
+paths = [
+  "src/racoon/isakmp*.c",
+  "src/racoon/ipsec_doi.c",
+  "src/racoon/oakley.c",
+  "src/racoon/crypto_openssl.c",
+  "src/racoon/openssl_compat.c",
+  "src/racoon/privsep.c",
+  "src/racoon/admin.c",
+  "src/racoon/pfkey.c",
+  "src/racoon/nattraversal.c",
+  "src/racoon/dnssec.c",
+  "src/racoon/kernelpaws*.c",
+  "src/racoon/resolvpaws*.c",
+  "src/libipsec/*.c",
+]
+
+# For these scopes, a contribution touching a critical path requires a
+# reviewer contribution from a different model family than every
+# contribution that wrote critical files.
+require_dissimilar_review_for_scopes = ["code", "refactor"]
+
+# Withheld (organisation-internal) models may not write critical files:
+# nobody outside the organisation could act on a recall.
+forbid_withheld_in_critical = true
