@@ -260,6 +260,13 @@ AI-Scope: <docs|tests|build|ci|packaging|refactor|code>[, …]
 Provenance-Id: <id>
 ```
 
+**Retyped is still assisted:** provenance follows the text, not the
+keyboard. If you apply an agent's proposal by hand -- copied, retyped or
+edited -- the commit still carries these trailers, under your name and your
+sign-off. Before each commit ask: *would these lines look like this if the
+agent had never answered?* If not, declare it. `.provenance/README.md`
+("Retyped is still assisted") has the cases and the reason.
+
 `python3 tools/prov.py declare` writes the matching manifest under
 `.provenance/manifests/` and prints these lines. Before merge, approve the
 work in your own terminal with `python3 tools/prov.py attest --test "make

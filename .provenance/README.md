@@ -84,8 +84,39 @@ CI reads `allowed_signers` from the **base** of a change, so a pull request
 cannot admit its own key. Merge into `develop` with merge commits: GitHub's
 rebase- and squash-merge recreate commits without your signature.
 
-List only files whose committed content still contains AI output. Models you
-only used for searching or explaining need not be declared.
+## Retyped is still assisted
+
+**Provenance follows the text, not the keyboard.** Whether the agent
+committed its output, or you copied, retyped, pasted or edited it yourself,
+makes no difference: if the agent's output is in the lines you commit, the
+commit is assisted and carries the trailers. Your name as author and your
+`Signed-off-by:` stay exactly where they are -- you are still the
+accountable author; the trailers only say where the text came from.
+
+The one-question test, before every commit:
+
+> **Would these lines look like this if the agent had never answered?**
+> No → declare it.
+
+| Situation | Assisted? |
+| --- | --- |
+| The agent commits its own output | yes -- the agent declares it |
+| You apply a file, snippet or patch the agent proposed, by hand | **yes** -- same `Provenance-Id` as the session, or `declare --reported-by manual` |
+| You take the agent's draft and rework it | **yes**, as long as any of its output survives in the file |
+| You start from the agent's draft and end up rewriting every line | no -- the final text is yours |
+| The agent only searched, explained or reviewed; you wrote the lines | no -- need not be declared |
+| A colleague's suggestion, a Stack Overflow snippet | not RFC 0005 -- license and attribution rules apply as before |
+
+Why AI output is treated differently from a colleague or Stack Overflow:
+a model repeats its mistakes. When one model is found to have a systematic
+bug pattern, the recall drill (`prov query`) has to find **every** place its
+output landed, across all contributors -- and an undeclared line is exactly
+the line it cannot find.
+
+Declaring is not a confession. There is no quota and no penalty for a high
+AI share; the only commit that harms the project is the one that hides its
+origin. List in the manifest only files whose committed content still
+contains AI output.
 
 ## Layout
 
