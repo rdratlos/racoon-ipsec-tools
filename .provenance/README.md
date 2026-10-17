@@ -29,8 +29,21 @@ Never put an AI in `Signed-off-by:` or `Co-Authored-By:`.
 The agent (Claude Code, OpenCode, ...) commits with **you as author** and
 itself as committer, and records the session with `--statement pending`:
 
+Git identity for agent commits -- author = you, committer = the agent:
+
+- **Committer** is the same for everyone and comes with the repository for
+  Claude Code (`.claude/settings.json`, `env`). Other harnesses set
+  `GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL` the same way.
+- **Author** is yours and never in the repository: set
+  `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL` in your own configuration -- the
+  environment variables of your Claude Code cloud environment, or `env` in
+  `~/.claude/settings.json` for local sessions. If you forget, git uses
+  `user.name`/`user.email`; in a cloud session that is the agent's own
+  identity, and `verify` fails the commit for an AI author.
+
 ```sh
-# git identity for agent commits: author = you, committer = the agent
+# what an agent session looks like (Claude Code sets these for you)
+export GIT_AUTHOR_NAME="Your Name" GIT_AUTHOR_EMAIL="you@example.org"
 export GIT_COMMITTER_NAME="Claude Code" GIT_COMMITTER_EMAIL="agent@agents.invalid"
 
 python3 tools/prov.py declare --statement pending \

@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261017T122645Z-d45fea29",
+  "created": "2026-10-17T12:26:45Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "config",
+      "files": [
+        ".provenance/README.md",
+        ".provenance/policy.toml",
+        "CONTRIBUTING.md",
+        "tools/test_prov.py"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "reimth@etik.com",
+    "statement": "pending"
+  },
+  "session": {
+    "ref": "https://claude.ai/code/session_011jVeo4D8sHByAusu9CKSLg"
+  }
+}

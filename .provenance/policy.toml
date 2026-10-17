@@ -7,8 +7,12 @@ schema_version = "1.0"
 [enforcement]
 # Commits reachable from this commit are exempt from trailer rules (they
 # predate the policy). prov query still sees them via legacy-map.toml.
-# Set to develop's tip at the time Phase 0 lands.
-baseline = "2813d182935d4800c4b8471ca16d5328fa21b4db"
+# Phase 0 set this to 2813d18 (develop's tip when Phase 0 landed). Phase 1
+# moves it to b509568 (prov attest): the three Phase 0 commits after 2813d18
+# were signed off and reviewed before attestation existed, and cannot be
+# attested now because the range back to 2813d18 contains a merge commit
+# (attest requires a linear range).
+baseline = "b509568eae7357d8d724ef38139abe180c28ccc8"
 
 # AI-assisted commits must carry a human Signed-off-by.
 require_signoff_on_assisted = true
@@ -88,6 +92,6 @@ dco = "rebase-signoff"
 
 # attest refuses to run when one of these environment variables is set: a
 # speed bump against an agent attesting its own work, not a security control
-# (the signature is). CLAUDECODE is set by Claude Code. Add OpenCode's marker
-# once verified.
-agent_env = ["CLAUDECODE"]
+# (the signature is). CLAUDECODE is set by Claude Code; AI_AGENT is also set
+# in Claude Code cloud sessions. Add OpenCode's marker once verified.
+agent_env = ["CLAUDECODE", "AI_AGENT"]
