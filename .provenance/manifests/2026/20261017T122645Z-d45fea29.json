@@ -12,6 +12,8 @@
       },
       "model_reported_by": "config",
       "files": [
+        ".claude/CLAUDE.md",
+        ".claude/settings.json",
         ".provenance/README.md",
         ".provenance/policy.toml",
         "CONTRIBUTING.md",
