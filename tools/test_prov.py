@@ -9,6 +9,10 @@ real .provenance/ directory (policy, schemas, profiles) with the baseline
 cleared, makes commits, and checks that `prov verify` accepts or rejects
 them for the right reason. No network, no fixtures outside this file.
 
+ProvTests covers trailers, manifests and policy with attestation switched
+off; AttestTests switches it on and signs approval commits with throw-away
+SSH keys (needs ssh-keygen, as git's SSH signing does).
+
 Run:  python3 -m unittest -v tools/test_prov.py
 """
 
@@ -22,6 +26,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -29,10 +34,12 @@ import prov  # noqa: E402
 
 SRC_PROV = os.path.join(os.path.dirname(HERE), ".provenance")
 HUMAN = "Signed-off-by: Jane Doe <jane@example.org>"
+AGENT_ENV = {"GIT_COMMITTER_NAME": "Claude Code",
+             "GIT_COMMITTER_EMAIL": "agent@agents.invalid"}
 
 
 class Repo:
-    def __init__(self):
+    def __init__(self, attest=False, dco="rebase-signoff", signers=True):
         self.dir = tempfile.mkdtemp(prefix="prov-test-")
         self.git("init", "-q", "-b", "develop")
         self.git("config", "user.name", "Jane Doe")
@@ -40,20 +47,61 @@ class Repo:
         self.git("config", "commit.gpgsign", "false")
         shutil.copytree(SRC_PROV, os.path.join(self.dir, ".provenance"),
                         ignore=shutil.ignore_patterns("[0-9][0-9][0-9][0-9]"))
+        # start from no allowed signers, whatever the real repository lists
+        with open(os.path.join(self.dir, ".provenance", "allowed_signers"), "w") as f:
+            f.write("# test repository\n")
         pol = os.path.join(self.dir, ".provenance", "policy.toml")
         with open(pol) as f:
             text = f.read()
         text = re.sub(r'^baseline = ".*"$', 'baseline = ""', text, flags=re.M)
+        text = re.sub(r'^required = true$', f'required = {str(attest).lower()}',
+                      text, flags=re.M)
+        text = re.sub(r'^dco = ".*"$', f'dco = "{dco}"', text, flags=re.M)
         with open(pol, "w") as f:
             f.write(text)
+        self.keys = {}
+        if attest:
+            self.git("config", "gpg.format", "ssh")
+            # a host-wide gpg.ssh.program may point elsewhere; tests use
+            # plain ssh-keygen, as CI does
+            self.git("config", "gpg.ssh.program", "ssh-keygen")
+            self.use_key("jane")
+            if signers:
+                self.allow("jane")
         self.git("add", "-A")
         self.write("README", "base\n")
         self.commit("initial", trailers=[HUMAN])
         self.base = self.head()
 
-    def git(self, *args, stdin=None):
+    def git(self, *args, stdin=None, env=None):
         return subprocess.run(["git", "-C", self.dir, *args], input=stdin,
-                              check=True, capture_output=True, text=True).stdout
+                              check=True, capture_output=True, text=True,
+                              env=dict(os.environ, **(env or {}))).stdout
+
+    def key(self, name):
+        if name not in self.keys:
+            path = os.path.join(self.dir + "-keys", name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "",
+                            "-C", name, "-f", path], check=True)
+            self.keys[name] = path
+        return self.keys[name]
+
+    def use_key(self, name):
+        self.git("config", "user.signingkey", self.key(name))
+
+    def allow(self, name, email="jane@example.org"):
+        pub = open(self.key(name) + ".pub").read().split()
+        self.write(".provenance/allowed_signers", f"{email} {pub[0]} {pub[1]}\n")
+
+    def attest(self, *argv, env_extra=None):
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+        env.update(env_extra or {})
+        buf = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=True), redirect_stdout(buf):
+            rc = prov.main(["-C", self.dir, "attest", "--yes",
+                            "--range", f"{self.base}..HEAD", *argv])
+        return rc, buf.getvalue()
 
     def head(self):
         return self.git("rev-parse", "HEAD").strip()
@@ -72,9 +120,10 @@ class Repo:
         assert rc == 0, buf.getvalue()
         return buf.getvalue().strip().splitlines()
 
-    def commit(self, subject, trailers=()):
+    def commit(self, subject, trailers=(), env=None, author=None):
         msg = subject + "\n\nbody\n\n" + "\n".join(trailers) + "\n"
-        self.git("commit", "-q", "-F", "-", stdin=msg)
+        extra = ["--author", author] if author else []
+        self.git("commit", "-q", *extra, "-F", "-", stdin=msg, env=env)
 
     def verify(self, rng=None):
         buf = io.StringIO()
@@ -91,6 +140,7 @@ class Repo:
 
     def cleanup(self):
         shutil.rmtree(self.dir, ignore_errors=True)
+        shutil.rmtree(self.dir + "-keys", ignore_errors=True)
 
 
 class ProvTests(unittest.TestCase):
@@ -311,6 +361,193 @@ class ProvTests(unittest.TestCase):
         res = self.r.query("--model", "sonnet", "--include-legacy")
         self.assertEqual([h["kind"] for h in res["hits"]], ["legacy"])
         self.assertEqual(res["unmapped_legacy"], {"Claude": 1})
+
+
+
+class AttestTests(unittest.TestCase):
+    """prov attest + verify with attestation required (policy b by default)."""
+
+    def setUp(self):
+        self.r = None
+
+    def tearDown(self):
+        if self.r:
+            self.r.cleanup()
+
+    def repo(self, **kw):
+        self.r = Repo(attest=True, **kw)
+        return self.r
+
+    def agent_session(self, path="src/x.c", text="int x;\n", subject="agent change"):
+        r = self.r
+        r.write(path, text)
+        tr = r.declare("--contrib", f"claude-opus@r1:implementer={path}",
+                       "--scope", "code", "--statement", "pending")
+        r.commit(subject, tr, env=AGENT_ENV)
+        return tr
+
+    def verify(self):
+        return self.r.verify()
+
+    def test_end_to_end_attest_then_verify(self):
+        r = self.repo()
+        self.agent_session()
+        rc, out = self.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("not covered by a valid attestation", out)
+        rc, out = r.attest("--test", "true")
+        self.assertEqual(rc, 0, out)
+        rc, out = self.verify()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("approved by a signed human attestation", out)
+        # policy b: sign-off added, agent kept as committer, author is human
+        agent = r.git("rev-parse", "HEAD~1").strip()
+        self.assertIn(HUMAN, r.git("show", "-s", "--format=%B", agent))
+        self.assertEqual(r.git("show", "-s", "--format=%cn", agent).strip(),
+                         "Claude Code")
+        self.assertEqual(r.git("show", "-s", "--format=%an", agent).strip(),
+                         "Jane Doe")
+        att = r.git("show", "--name-only", "--format=", "HEAD").split()
+        doc = json.loads(r.git("show", f"HEAD:{att[0]}"))
+        self.assertEqual(doc["statement"], "reviewed-and-tested")
+        self.assertEqual(doc["tests"]["exit"], 0)
+
+    def test_attest_without_tests_is_reviewed_only(self):
+        r = self.repo()
+        self.agent_session()
+        rc, out = r.attest()
+        self.assertEqual(rc, 0, out)
+        att = r.git("show", "--name-only", "--format=", "HEAD").split()
+        self.assertEqual(json.loads(r.git("show", f"HEAD:{att[0]}"))["statement"],
+                         "reviewed")
+        self.assertEqual(self.verify()[0], 0)
+
+    def test_attest_refused_in_agent_session(self):
+        r = self.repo()
+        self.agent_session()
+        before = r.head()
+        rc, _ = r.attest(env_extra={"CLAUDECODE": "1"})
+        self.assertEqual(rc, 2)
+        self.assertEqual(r.head(), before)
+
+    def test_failing_tests_attest_nothing(self):
+        r = self.repo()
+        self.agent_session()
+        before = r.head()
+        rc, _ = r.attest("--test", "false")
+        self.assertEqual(rc, 1)
+        self.assertEqual(r.head(), before)
+
+    def test_diff_changed_after_attestation_fails(self):
+        r = self.repo()
+        self.agent_session()
+        self.assertEqual(r.attest()[0], 0)
+        approval = r.head()
+        agent = r.git("rev-parse", "HEAD~1").strip()
+        # rebuild the series with a modified agent diff, keep the approval
+        r.git("reset", "-q", "--hard", r.base)
+        r.git("cherry-pick", agent)
+        r.write("src/x.c", "/* slipped in after review */\n")
+        r.git("commit", "-q", "--amend", "--no-edit")
+        r.git("cherry-pick", "-S", approval)
+        rc, out = self.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("diff changed after approval", out)
+
+    def test_rebase_needs_resigning_but_keeps_attestation(self):
+        r = self.repo()
+        self.agent_session()
+        self.assertEqual(r.attest()[0], 0)
+        r.git("checkout", "-q", "-b", "upstream", r.base)
+        r.write("docs/unrelated.md", "x\n")
+        r.commit("unrelated", [HUMAN])
+        new_base = r.head()
+        r.git("checkout", "-q", "develop")
+        r.base = new_base
+        # an unsigned rebase drops the approval signature: verify says so
+        r.git("rebase", "-q", "--no-gpg-sign", new_base)
+        rc, out = self.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("not signed by an allowed key", out)
+        # the human re-signs while rebasing: patch-ids are unchanged, so the
+        # attestation still binds and no new attestation is needed
+        r.git("rebase", "-q", "--force-rebase", "--gpg-sign", new_base)
+        rc, out = self.verify()
+        self.assertEqual(rc, 0, out)
+
+    def test_unsigned_approval_fails(self):
+        r = self.repo()
+        self.agent_session()
+        agent = r.head()
+        pid = [l.split(": ")[1] for l in
+               r.git("show", "-s", "--format=%B", agent).splitlines()
+               if l.startswith("Provenance-Id")][0]
+        doc = {"schema_version": "1.0", "provenance_id": pid,
+               "reviewer": "jane@example.org", "statement": "reviewed",
+               "attested": "20261017T120000Z",
+               "commits": [{"patch_id": prov.Git(r.dir).patch_id(agent),
+                            "subject": "agent change"}]}
+        r.write(prov.attestation_path(pid, "20261017T120000Z"), json.dumps(doc))
+        r.commit("provenance: attest (unsigned)", [HUMAN])
+        rc, out = self.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("not signed by an allowed key", out)
+
+    def test_change_cannot_admit_its_own_key(self):
+        r = self.repo()
+        self.agent_session()
+        r.allow("mallory")           # added in the change, not at the base
+        r.commit("add a key", [HUMAN])
+        r.use_key("mallory")
+        self.assertEqual(r.attest()[0], 0)
+        rc, out = self.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("not signed by an allowed key", out)
+
+    def test_bootstrap_signers_from_change_warns(self):
+        r = self.repo(signers=False)
+        r.allow("jane")
+        r.commit("add maintainer key", [HUMAN])
+        self.agent_session()
+        self.assertEqual(r.attest()[0], 0)
+        rc, out = self.verify()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("bootstrap", out)
+
+    def test_ai_author_fails(self):
+        r = self.repo()
+        r.write("src/x.c", "int x;\n")
+        tr = r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                       "--scope", "code", "--statement", "pending")
+        r.commit("agent as author", tr + [HUMAN],
+                 author="Claude <noreply@anthropic.com>")
+        rc, out = self.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("is an AI identity", out)
+
+    def test_new_commit_needs_new_attestation(self):
+        r = self.repo()
+        tr = self.agent_session()
+        self.assertEqual(r.attest()[0], 0)
+        r.write("tests/t.c", "int t;\n")
+        r.commit("agent follow-up", tr, env=AGENT_ENV)
+        rc, out = self.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("not covered by a valid attestation", out)
+        rc, out = r.attest()
+        self.assertEqual(rc, 0, out)
+        rc, out = self.verify()
+        self.assertEqual(rc, 0, out)
+
+    def test_policy_a_signoff_on_approval_commit_only(self):
+        r = self.repo(dco="approval-commit")
+        self.agent_session()
+        agent = r.head()
+        self.assertEqual(r.attest()[0], 0)
+        self.assertEqual(r.git("rev-parse", "HEAD~1").strip(), agent)  # no rewrite
+        self.assertNotIn("Signed-off-by", r.git("show", "-s", "--format=%B", agent))
+        rc, out = self.verify()
+        self.assertEqual(rc, 0, out)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rdratlos/racoon-ipsec-tools/.provenance/schema/attestation-v1.schema.json",
+  "title": "racoon AI provenance attestation (RFC 0005 \"provpaws\")",
+  "description": "The accountable human's approval of the commits of one AI-assisted session. Written by `prov attest`, committed in a signed approval commit at .provenance/attestations/<YYYY>/<provenance_id>/<attested>.json. Binds to the reviewed content by `git patch-id --stable`, so it survives rebase but not a change to any reviewed diff. Immutable once merged; further commits of the same session get a further attestation file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "provenance_id", "reviewer", "statement", "attested", "commits"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "provenance_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$"
+    },
+    "reviewer": {
+      "type": "string",
+      "minLength": 3,
+      "description": "E-mail address of the accountable human. Must equal the signing principal of the approval commit."
+    },
+    "statement": { "enum": ["reviewed", "reviewed-and-tested"] },
+    "attested": {
+      "type": "string",
+      "pattern": "^[0-9]{8}T[0-9]{6}Z$",
+      "description": "UTC time of attestation; equals the file name stem."
+    },
+    "commits": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["patch_id", "subject"],
+        "properties": {
+          "patch_id": {
+            "type": "string",
+            "pattern": "^([0-9a-f]{40}|[0-9a-f]{64}|empty)$",
+            "description": "git patch-id --stable of the reviewed commit."
+          },
+          "subject": { "type": "string" }
+        }
+      }
+    },
+    "tests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "exit", "log_digest"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "exit": { "type": "integer" },
+        "log_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "duration_s": { "type": "number", "minimum": 0 }
+      },
+      "description": "Evidence for reviewed-and-tested: the command prov attest ran on the attested tree, its exit status and a digest of its output."
+    }
+  },
+  "if": { "properties": { "statement": { "const": "reviewed-and-tested" } } },
+  "then": {
+    "required": ["tests"],
+    "properties": { "tests": { "properties": { "exit": { "const": 0 } } } }
+  }
+}

@@ -7,10 +7,13 @@ and its rationale are in `docs/rfcs/0005-provpaws-ai-provenance.md` (on
 
 ## The rule in one paragraph
 
-A human is always the author and the only one who signs off. If AI output
-ends up in your commit, add three trailers and a manifest. `tools/prov.py
-declare` writes the manifest and prints the trailers for you; CI
-(`develop-provenance.yml`) checks the result.
+A human is always the author and the only one who signs off; the agent may
+appear as **committer**. If AI output ends up in a commit, it carries three
+trailers and a manifest (`tools/prov.py declare` writes both). Before merge,
+the accountable human runs `tools/prov.py attest`, which adds their
+Signed-off-by and writes a **signed approval commit** that binds the
+approval to the reviewed diffs. CI (`develop-provenance.yml`) checks all of
+it.
 
 ```
 Assisted-by: <profile>@r<N> [analysis tools]
@@ -23,15 +26,50 @@ Never put an AI in `Signed-off-by:` or `Co-Authored-By:`.
 
 ## Typical session
 
+The agent (Claude Code, OpenCode, ...) commits with **you as author** and
+itself as committer, and records the session with `--statement pending`:
+
 ```sh
-# after the AI session, before committing:
-python3 tools/prov.py declare \
+# git identity for agent commits: author = you, committer = the agent
+export GIT_COMMITTER_NAME="Claude Code" GIT_COMMITTER_EMAIL="agent@agents.invalid"
+
+python3 tools/prov.py declare --statement pending \
     --contrib opencode-pair@r1:implementer=src/racoon/isakmp.c,test/test_isakmp.c \
     --contrib opencode-pair@r1:reviewer \
     --scope code,tests  > /tmp/trailers
-git commit -s -t /tmp/trailers     # or paste the printed lines
-python3 tools/prov.py verify       # same check CI runs
+git commit -t /tmp/trailers        # no Signed-off-by: that is yours to add
 ```
+
+Then you review the branch and approve it, in your own terminal (attest
+refuses to run inside a Claude Code session):
+
+```sh
+python3 tools/prov.py attest --range origin/develop..HEAD --test "make check"
+python3 tools/prov.py verify --range origin/develop..HEAD    # what CI runs
+```
+
+`attest` runs the tests (exit 0 required for `reviewed-and-tested`), shows
+what you approve, adds your Signed-off-by to every commit in the range
+(message-only rewrite; trees, author and committer unchanged), and commits
+`.provenance/attestations/<YYYY>/<id>/<time>.json` **signed with your SSH
+key**. The attestation lists each commit by `git patch-id --stable`:
+
+- a later rebase keeps the approval valid, if you re-sign while rebasing
+  (`git rebase --gpg-sign`, or `commit.gpgsign = true`);
+- any change to a reviewed diff invalidates it: attest again;
+- further commits of the same session need a further `attest`.
+
+One-time setup: an SSH signing key (preferably on a hardware token) and its
+public key in `.provenance/allowed_signers`:
+
+```sh
+git config gpg.format ssh
+git config user.signingkey ~/.ssh/id_ed25519_sk.pub
+```
+
+CI reads `allowed_signers` from the **base** of a change, so a pull request
+cannot admit its own key. Merge into `develop` with merge commits: GitHub's
+rebase- and squash-merge recreate commits without your signature.
 
 List only files whose committed content still contains AI output. Models you
 only used for searching or explaining need not be declared.
@@ -44,6 +82,8 @@ only used for searching or explaining need not be declared.
 | `schema/*.schema.json` | manifest and profile schemas (v1, frozen) | new major = new file |
 | `profiles/<id>/r<N>.toml` | which model per role in a setup | **immutable**; change = `r<N+1>` |
 | `manifests/<YYYY>/<id>.json` | one per AI-assisted session | **immutable** |
+| `attestations/<YYYY>/<id>/<time>.json` | human approval, in a signed commit | **immutable** |
+| `allowed_signers` | SSH keys allowed to sign approvals | reviewed like code |
 | `legacy-map.toml` | maps pre-policy free-text trailers for `query` | editable |
 
 ## Profiles and confidential models

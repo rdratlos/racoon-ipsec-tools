@@ -1,0 +1,6 @@
+# SSH keys allowed to sign provenance approval commits (RFC 0005).
+# Format (git gpg.ssh.allowedSignersFile / ssh-keygen ALLOWED SIGNERS):
+#   <email> <key-type> <base64-key> [comment]
+# One line per accountable human. Changes are policy changes: review them.
+# Add the maintainer's key before Phase 1, e.g.:
+#   reimth@etik.com sk-ssh-ed25519@openssh.com AAAA... yubikey-5

@@ -10,6 +10,8 @@ Everything this tool knows lives in the Git repository:
   .provenance/schema/*.schema.json      manifest and profile schemas
   .provenance/profiles/<id>/r<N>.toml   immutable agent profiles
   .provenance/manifests/<YYYY>/<id>.json  one manifest per AI-assisted session
+  .provenance/attestations/<YYYY>/<id>/<time>.json  human approval (signed)
+  .provenance/allowed_signers           SSH keys allowed to sign approvals
   .provenance/legacy-map.toml           free-text trailers before the baseline
 
 and in commit trailers:
@@ -23,6 +25,7 @@ Subcommands:
 
   verify   check trailers, manifests, profiles and policy over a commit range
   declare  write a manifest for the current work and print the trailers
+  attest   human approval: sign-off, test evidence, signed approval commit
   query    find commits/files a model or profile contributed to (recall drill)
 
 Tool-neutral by design: no subcommand depends on Claude Code, OpenCode or any
@@ -51,6 +54,9 @@ PROFILE_PATH_RE = re.compile(
 MANIFEST_PATH_RE = re.compile(
     r"^\.provenance/manifests/([0-9]{4})/([0-9]{8}T[0-9]{6}Z-[0-9a-f]{8})\.json$")
 PROVID_RE = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$")
+ATTEST_PATH_RE = re.compile(
+    r"^\.provenance/attestations/([0-9]{4})/([0-9]{8}T[0-9]{6}Z-[0-9a-f]{8})/"
+    r"([0-9]{8}T[0-9]{6}Z)\.json$")
 EMAIL_RE = re.compile(r"\s*<[^>]*>\s*")
 
 
@@ -87,9 +93,9 @@ class Git:
                 capture_output=True, text=True).stdout.strip()
         self.root = root
 
-    def run(self, *args, check=True, stdin=None):
+    def run(self, *args, check=True, stdin=None, env=None):
         p = subprocess.run(["git", "-C", self.root, *args], input=stdin,
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, env=env)
         if check and p.returncode != 0:
             raise RuntimeError(f"git {' '.join(args)}: {p.stderr.strip()}")
         return p
@@ -132,6 +138,22 @@ class Git:
     def changed_files(self, c):
         return set(self.out("diff-tree", "--no-commit-id", "--name-only",
                             "-r", "--root", c).split("\n")) - {""}
+
+    def patch_id(self, c):
+        """git patch-id --stable: identifies a commit by its diff, so it
+        survives rebase and cherry-pick but not a change to the diff."""
+        cache = self.__dict__.setdefault("_pid_cache", {})
+        if c not in cache:
+            diff = self.out("show", "--no-color", "--binary",
+                            "--pretty=format:commit %H", c)
+            out = self.out("patch-id", "--stable", stdin=diff).split()
+            cache[c] = out[0] if out else "empty"
+        return cache[c]
+
+    def ident(self, c):
+        f = self.out("show", "-s", "--format=%an%x00%ae%x00%cn%x00%ce", c)
+        an, ae, cn, ce = f.rstrip("\n").split("\x00")
+        return {"author": (an, ae), "committer": (cn, ce)}
 
     def trailers(self, c):
         """Return [(key, value)] exactly as written (case preserved)."""
@@ -222,14 +244,16 @@ def verify_tree(git, report, policy, head):
     if pschema is None or mschema is None:
         report.fail(f"{PROV_DIR}/schema: profile/manifest schema missing")
         return
+    aschema = load_schema(git, "attestation-v1.schema.json")
     pv, mv = validator_for(pschema), validator_for(mschema)
+    av = validator_for(aschema) if aschema else None
     if pv is None:
         report.fail("jsonschema not installed (pip install jsonschema, or "
                     "apt install python3-jsonschema)")
         return
 
     tree = git.ls_tree(head, f"{PROV_DIR}/")
-    n_prof = n_man = 0
+    n_prof = n_man = n_att = 0
     for path in sorted(tree):
         if path.startswith(f"{PROV_DIR}/profiles/"):
             m = PROFILE_PATH_RE.match(path)
@@ -273,8 +297,33 @@ def verify_tree(git, report, policy, head):
                 report.fail(f"{path}: provenance_id does not match the file path")
                 continue
             n_man += 1
-    report.ok(f"{n_prof} profile revision(s), {n_man} manifest(s) "
-              f"valid against schema v1")
+        elif path.startswith(f"{PROV_DIR}/attestations/"):
+            m = ATTEST_PATH_RE.match(path)
+            if not m:
+                report.fail(f"{path}: not of the form "
+                            f"attestations/<YYYY>/<id>/<time>.json")
+                continue
+            if av is None:
+                report.fail(f"{path}: attestation schema missing")
+                continue
+            try:
+                doc = json.loads(git.show(head, path))
+            except json.JSONDecodeError as e:
+                report.fail(f"{path}: invalid JSON: {e}")
+                continue
+            errs = schema_errors(av, doc)
+            for e in errs:
+                report.fail(f"{path}: {e}")
+            if errs:
+                continue
+            if (doc["provenance_id"] != m.group(2) or doc["attested"] != m.group(3)
+                    or m.group(1) != m.group(2)[:4]):
+                report.fail(f"{path}: provenance_id/attested do not match the "
+                            f"file path")
+                continue
+            n_att += 1
+    report.ok(f"{n_prof} profile revision(s), {n_man} manifest(s), "
+              f"{n_att} attestation(s) valid against schema v1")
 
     legacy = git.show(head, f"{PROV_DIR}/legacy-map.toml")
     if legacy is not None:
@@ -293,8 +342,9 @@ def verify_immutability(git, report, base, head):
         report.ok("no base revision: immutability check skipped")
         return
     before = git.ls_tree(base, f"{PROV_DIR}/profiles/")
-    before.update({k: v for k, v in git.ls_tree(base, f"{PROV_DIR}/manifests/").items()
-                   if not k.endswith(".gitkeep")})
+    for sub in ("manifests", "attestations"):
+        before.update({k: v for k, v in git.ls_tree(base, f"{PROV_DIR}/{sub}/").items()
+                       if not k.endswith(".gitkeep")})
     after = git.ls_tree(head, f"{PROV_DIR}/")
     bad = 0
     for path, blob in sorted(before.items()):
@@ -306,10 +356,11 @@ def verify_immutability(git, report, base, head):
             report.fail(f"{path}: modified (create a new revision instead)")
             bad += 1
     if not bad:
-        report.ok(f"{len(before)} existing profile/manifest file(s) unchanged")
+        report.ok(f"{len(before)} existing profile/manifest/attestation "
+                  f"file(s) unchanged")
 
 
-def verify_commits(git, report, policy, commits):
+def verify_commits(git, report, policy, commits, base=None, head="HEAD"):
     tcfg = policy.get("trailers", {})
     k_ass = tcfg.get("assisted", "Assisted-by")
     k_scope = tcfg.get("scope", "AI-Scope")
@@ -323,6 +374,9 @@ def verify_commits(git, report, policy, commits):
         baseline = None
     need_signoff = policy.get("enforcement", {}).get(
         "require_signoff_on_assisted", True)
+    acfg = policy.get("attestation", {})
+    if acfg.get("required") and acfg.get("dco") == "approval-commit":
+        need_signoff = False    # policy (a): the approval commit carries it
 
     sessions = {}   # provid -> {"commits": [...], "files": set(), "scopes": set()}
     checked = exempt = assisted = 0
@@ -361,6 +415,12 @@ def verify_commits(git, report, policy, commits):
                 report.fail(f"{short}: {k_scope}/{k_prov} without {k_ass}")
             continue
         assisted += 1
+
+        an, ae = git.ident(c)["author"]
+        if any(r.search(f"{an} <{ae}>") for r in ai_res):
+            report.fail(f"{short}: author '{an} <{ae}>' is an AI identity -- "
+                        f"the author of record is the accountable human; the "
+                        f"agent may appear as committer")
 
         refs = []
         for v in ass:
@@ -423,8 +483,13 @@ def verify_commits(git, report, policy, commits):
     report.ok(f"{checked} commit(s) checked, {assisted} AI-assisted, "
               f"{exempt} exempt (at or before baseline)")
 
+    signers = None
+    if acfg.get("required") and sessions:
+        signers = allowed_signers_text(git, report, policy, base, head)
     for pid, s in sorted(sessions.items()):
         verify_session(git, report, policy, pid, s)
+        if acfg.get("required"):
+            verify_attestation(git, report, policy, pid, s, head, signers)
 
 
 def verify_session(git, report, policy, pid, s):
@@ -434,7 +499,8 @@ def verify_session(git, report, policy, pid, s):
         return
     before = report.fails
     sub_mode = policy.get("enforcement", {}).get("substitution", "warn")
-    if mdoc.get("human_review", {}).get("statement") == "pending":
+    if (mdoc.get("human_review", {}).get("statement") == "pending"
+            and not policy.get("attestation", {}).get("required")):
         report.fail(f"manifest {pid}: human_review.statement is 'pending' -- "
                     f"the accountable human must review and set it to "
                     f"'reviewed' or 'reviewed-and-tested' before merge")
@@ -502,6 +568,111 @@ def verify_session(git, report, policy, pid, s):
                   f"commit(s) and policy")
 
 
+def attestation_path(pid, attested):
+    return f"{PROV_DIR}/attestations/{pid[:4]}/{pid}/{attested}.json"
+
+
+def allowed_signers_text(git, report, policy, base, head):
+    """Allowed signers come from the BASE of the range, so a change cannot
+    admit its own key. Bootstrap: no file at base -> the change's own file,
+    with a warning."""
+    path = policy.get("attestation", {}).get(
+        "allowed_signers", f"{PROV_DIR}/allowed_signers")
+    text = git.show(base, path) if base else None
+    if text is None or not _signer_lines(text):
+        text = git.show(head, path)
+        if text is not None and _signer_lines(text):
+            report.warn(f"{path}: not present (or empty) at the base of the "
+                        f"range -- bootstrap: using the change's own file")
+    return text if text and _signer_lines(text) else None
+
+
+def _signer_lines(text):
+    return [l for l in text.splitlines() if l.strip() and not l.lstrip().startswith("#")]
+
+
+def commit_signature(git, sha, signers_text):
+    """(status, principal) of a commit signature, checked against an
+    allowed-signers text. Status letters as git's %G? ('G' = good)."""
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".allowed_signers",
+                                     delete=False) as f:
+        f.write(signers_text or "")
+        tmp = f.name
+    try:
+        out = git.out("-c", f"gpg.ssh.allowedSignersFile={tmp}", "log", "-1",
+                      "--format=%G?%x00%GS", sha, check=False)
+    finally:
+        os.unlink(tmp)
+    status, _, principal = out.strip().partition("\x00")
+    return status or "N", principal
+
+
+def session_attestations(git, head, pid):
+    """[(path, doc, adding_commit)] for all attestations of pid at head."""
+    prefix = f"{PROV_DIR}/attestations/{pid[:4]}/{pid}/"
+    result = []
+    for path in sorted(git.ls_tree(head, prefix)):
+        if not ATTEST_PATH_RE.match(path):
+            continue
+        try:
+            doc = json.loads(git.show(head, path))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        added = git.out("log", "--diff-filter=A", "--format=%H", head, "--",
+                        path).split()
+        result.append((path, doc, added[-1] if added else None))
+    return result
+
+
+def verify_attestation(git, report, policy, pid, s, head, signers):
+    acfg = policy.get("attestation", {})
+    tcfg = policy.get("trailers", {})
+    ai_res = [re.compile(p, re.I) for p in tcfg.get("ai_identity_patterns", [])]
+    before = report.fails
+    approved = {}
+    for path, doc, sha in session_attestations(git, head, pid):
+        if sha is None:
+            report.fail(f"{path}: cannot find the commit that added it")
+            continue
+        where = f"attestation {path.rsplit('/', 1)[-1]} ({sha[:12]})"
+        if any(r.search(doc.get("reviewer", "")) for r in ai_res):
+            report.fail(f"{where}: reviewer '{doc.get('reviewer')}' is an AI identity")
+            continue
+        if acfg.get("require_signature", True):
+            if signers is None:
+                report.fail(f"{where}: no allowed signers configured "
+                            f"({acfg.get('allowed_signers', '.provenance/allowed_signers')})")
+                continue
+            status, principal = commit_signature(git, sha, signers)
+            if status != "G":
+                report.fail(f"{where}: approval commit is not signed by an "
+                            f"allowed key (signature status '{status}')")
+                continue
+            if principal != doc.get("reviewer"):
+                report.fail(f"{where}: signed by '{principal}', but reviewer is "
+                            f"'{doc.get('reviewer')}'")
+                continue
+        if acfg.get("dco") == "approval-commit":
+            sobs = [v for k, v in git.trailers(sha) if k.lower() == "signed-off-by"]
+            if not any(doc.get("reviewer", "") in v for v in sobs):
+                report.fail(f"{where}: dco = approval-commit requires the "
+                            f"reviewer's Signed-off-by on the approval commit")
+                continue
+        for entry in doc.get("commits", []):
+            approved[entry["patch_id"]] = doc.get("statement")
+
+    for c in s["commits"]:
+        pid_c = git.patch_id(c)
+        if pid_c not in approved:
+            report.fail(f"{c[:12]}: not covered by a valid attestation of {pid} "
+                        f"(never attested, or its diff changed after approval) "
+                        f"-- run `prov attest`")
+    if report.fails == before:
+        report.ok(f"attestation {pid}: {len(s['commits'])} commit(s) approved "
+                  f"by a signed human attestation")
+
+
 def default_range(git, policy):
     p = git.run("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}",
                 check=False)
@@ -527,7 +698,7 @@ def cmd_verify(args):
     print(f"prov verify: range {rng}")
     verify_tree(git, report, policy, head)
     verify_immutability(git, report, base, head)
-    verify_commits(git, report, policy, git.commits(rng))
+    verify_commits(git, report, policy, git.commits(rng), base=base, head=head)
     print(f"prov verify: {report.fails} failure(s), {report.warns} warning(s)")
     return 1 if report.fails else 0
 
@@ -613,6 +784,215 @@ def cmd_declare(args):
     print(f"wrote {path}" + ("" if args.no_stage else " (staged)"),
           file=sys.stderr)
     print("\n".join(lines))
+    return 0
+
+
+# --------------------------------------------------------------------------
+# attest
+
+def _err(msg):
+    print(f"prov attest: {msg}", file=sys.stderr)
+
+
+def add_signoff(git, commits, trailer):
+    """Append `trailer` to every commit message in the linear series
+    `commits` (oldest first) and move HEAD to the rewritten tip.
+
+    Message-only rewrite: each new commit reuses the original tree, author
+    and committer (name, e-mail, date), so the agent stays recorded as
+    committer and diffs -- and therefore patch-ids -- are unchanged. Existing
+    commit signatures on the rewritten commits are not carried over."""
+    def has(c):
+        return any(f"{k}: {v}" == trailer for k, v in git.trailers(c))
+    # commits that already carry the trailer at the start stay untouched
+    # (signatures included); rewriting starts at the first one without it
+    first = next((i for i, c in enumerate(commits) if not has(c)), None)
+    if first is None:
+        return git.out("rev-parse", "HEAD").strip()
+    commits = commits[first:]
+    parent = git.out("rev-parse", f"{commits[0]}^").strip()
+    for c in commits:
+        msg = git.message(c)
+        new_msg = git.out("interpret-trailers", "--if-exists", "addIfDifferent",
+                          "--trailer", trailer, stdin=msg)
+        # a commit that was signed (e.g. an earlier approval commit) is
+        # re-signed by the attesting human; others stay unsigned
+        signed = "\ngpgsig " in git.out("cat-file", "commit", c)
+        f = git.out("show", "-s", "--date=raw",
+                    "--format=%an%x00%ae%x00%ad%x00%cn%x00%ce%x00%cd", c)
+        an, ae, ad, cn, ce, cd = f.rstrip("\n").split("\x00")
+        env = dict(os.environ, GIT_AUTHOR_NAME=an, GIT_AUTHOR_EMAIL=ae,
+                   GIT_AUTHOR_DATE=ad, GIT_COMMITTER_NAME=cn,
+                   GIT_COMMITTER_EMAIL=ce, GIT_COMMITTER_DATE=cd)
+        tree = git.out("rev-parse", f"{c}^{{tree}}").strip()
+        parent = git.out("commit-tree", *(["-S"] if signed else []), tree,
+                         "-p", parent, stdin=new_msg, env=env).strip()
+    git.run("update-ref", "-m", "prov attest: add Signed-off-by", "HEAD", parent)
+    return parent
+
+
+def run_tests(git, command):
+    import hashlib
+    import time
+    t0 = time.monotonic()
+    p = subprocess.run(command, shell=True, cwd=git.root, capture_output=True)
+    log = p.stdout + p.stderr
+    return {"command": command, "exit": p.returncode,
+            "log_digest": "sha256:" + hashlib.sha256(log).hexdigest(),
+            "duration_s": round(time.monotonic() - t0, 3)}, log
+
+
+def cmd_attest(args):
+    git = Git(args.repo)
+    report = Report()
+    policy = load_policy(git, report)
+    if policy is None:
+        return 1
+    acfg = policy.get("attestation", {})
+    k_prov = policy.get("trailers", {}).get("provenance", "Provenance-Id").lower()
+    ai_res = [re.compile(p, re.I)
+              for p in policy.get("trailers", {}).get("ai_identity_patterns", [])]
+
+    # 1. a human, not an agent session (speed bump; the signature is the control)
+    for var in acfg.get("agent_env", []):
+        if os.environ.get(var):
+            _err(f"refusing to run inside an agent session ({var} is set). "
+                 f"Attestation is the accountable human's act: run it in your "
+                 f"own terminal.")
+            return 2
+    name = git.out("config", "user.name", check=False).strip()
+    email = git.out("config", "user.email", check=False).strip()
+    if not name or not email:
+        _err("git user.name and user.email must be set")
+        return 2
+    if any(r.search(f"{name} <{email}>") for r in ai_res):
+        _err(f"git identity '{name} <{email}>' is an AI identity")
+        return 2
+
+    # 2. a clean, linear range ending at HEAD
+    if git.out("status", "--porcelain", "--untracked-files=no").strip():
+        _err("working tree has uncommitted changes")
+        return 2
+    rng = args.range or default_range(git, policy)
+    if ".." not in rng:
+        _err(f"need a range BASE..HEAD (got '{rng}'); use --range")
+        return 2
+    base, head = rng.split("..", 1)
+    head = head.lstrip(".") or "HEAD"
+    if git.out("rev-parse", head).strip() != git.out("rev-parse", "HEAD").strip():
+        _err("the range must end at HEAD (attest rewrites and extends HEAD)")
+        return 2
+    if git.out("rev-list", "--merges", rng).strip():
+        _err("the range contains merge commits; attest needs a linear series")
+        return 2
+    commits = git.commits(rng)
+    if not commits:
+        _err(f"no commits in {rng}")
+        return 2
+
+    # 3. what still needs approval
+    sessions = {}
+    for c in commits:
+        for k, v in git.trailers(c):
+            if k.lower() == k_prov:
+                sessions.setdefault(v, []).append(c)
+    todo = {}
+    for pid, cs in sessions.items():
+        done = {e["patch_id"] for _, d, _ in session_attestations(git, "HEAD", pid)
+                for e in d.get("commits", [])}
+        left = [c for c in cs if git.patch_id(c) not in done]
+        if left:
+            todo[pid] = left
+    if not todo:
+        print("prov attest: nothing to attest -- every AI-assisted commit in "
+              f"{rng} is already covered")
+        return 0
+
+    # 4. test evidence on the tree being approved
+    tests = None
+    if args.test:
+        print(f"prov attest: running tests: {args.test}")
+        tests, log = run_tests(git, args.test)
+        if args.test_log:
+            with open(args.test_log, "wb") as f:
+                f.write(log)
+        if tests["exit"] != 0:
+            sys.stdout.write(log.decode(errors="replace")[-4000:])
+            _err(f"tests failed (exit {tests['exit']}); nothing attested")
+            return 1
+        statement = "reviewed-and-tested"
+    else:
+        statement = "reviewed"
+
+    # 5. show what is being approved, and ask
+    print(f"\nprov attest: {name} <{email}> approves as '{statement}':")
+    for pid, cs in sorted(todo.items()):
+        print(f"  {pid}")
+        for c in cs:
+            print(f"    {c[:12]} {git.subject(c)}")
+    print(git.out("diff", "--stat", f"{commits[0]}^", "HEAD"))
+    dco = acfg.get("dco", "rebase-signoff")
+    if dco == "rebase-signoff":
+        print(f"Your Signed-off-by will be added to {len(commits)} commit(s) "
+              f"in {rng} (message-only rewrite).")
+    if sys.stdin.isatty() and not args.yes:
+        if input("Type 'attest' to sign this approval: ").strip() != "attest":
+            _err("not confirmed; nothing changed")
+            return 1
+    elif not args.yes:
+        _err("no terminal for confirmation; pass --yes to confirm explicitly")
+        return 2
+
+    # 6. DCO, then the signed approval commit
+    signoff = f"Signed-off-by: {name} <{email}>"
+    if dco == "rebase-signoff":
+        add_signoff(git, commits, signoff)
+    import time
+    while True:   # one attestation per session and second: wait out a clash
+        now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        if not any(os.path.exists(os.path.join(git.root, attestation_path(p, now)))
+                   for p in todo):
+            break
+        time.sleep(0.25)
+    written = []
+    for pid, cs in sorted(todo.items()):
+        doc = {"schema_version": "1.0", "provenance_id": pid,
+               "reviewer": email, "statement": statement, "attested": now,
+               "commits": [{"patch_id": git.patch_id(c), "subject": git.subject(c)}
+                           for c in cs]}
+        if tests:
+            doc["tests"] = tests
+        path = attestation_path(pid, now)
+        full = os.path.join(git.root, path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w", encoding="utf-8") as f:
+            json.dump(doc, f, indent=2)
+            f.write("\n")
+        git.run("add", path)
+        written.append(path)
+
+    msg = (f"provenance: attest {', '.join(sorted(todo))}\n\n"
+           f"Human approval ({statement}) of "
+           f"{sum(len(v) for v in todo.values())} AI-assisted commit(s), "
+           f"bound by git patch-id (RFC 0005).\n"
+           + (f"Tests: {tests['command']} (exit 0)\n" if tests else "")
+           + f"\n{signoff}\n")
+    sign = ["-S"] if acfg.get("require_signature", True) else []
+    p = git.run("commit", "-q", *sign, "-F", "-", stdin=msg, check=False)
+    if p.returncode != 0:
+        git.run("reset", "-q", "--", *written, check=False)
+        for w in written:
+            os.unlink(os.path.join(git.root, w))
+        _err("signing the approval commit failed -- configure commit signing "
+             "(git config gpg.format ssh; git config user.signingkey <key>) "
+             f"and retry.\n{p.stderr.strip()}")
+        if dco == "rebase-signoff":
+            _err("note: Signed-off-by was already added; `git reflog` shows "
+                 "the previous HEAD if you want to undo that")
+        return 1
+    print(f"prov attest: signed approval commit "
+          f"{git.out('rev-parse', '--short', 'HEAD').strip()} written "
+          f"({', '.join(written)})")
     return 0
 
 
@@ -762,6 +1142,18 @@ def main(argv=None):
     d.add_argument("--id", help=argparse.SUPPRESS)
     d.add_argument("--no-stage", action="store_true", help="do not git add")
     d.set_defaults(func=cmd_declare)
+
+    a = sub.add_parser("attest", help="human approval: sign-off, tests, "
+                       "signed approval commit")
+    a.add_argument("--range", help="BASE..HEAD to approve (default: upstream..HEAD)")
+    a.add_argument("--test", metavar="CMD",
+                   help="run CMD on the approved tree; exit 0 required, "
+                        "recorded as reviewed-and-tested evidence")
+    a.add_argument("--test-log", metavar="FILE",
+                   help="keep the test output locally (only its digest is recorded)")
+    a.add_argument("--yes", action="store_true",
+                   help="confirm without a terminal prompt")
+    a.set_defaults(func=cmd_attest)
 
     q = sub.add_parser("query", help="find what a model/profile contributed")
     g = q.add_argument_group("selector (at least one)")
