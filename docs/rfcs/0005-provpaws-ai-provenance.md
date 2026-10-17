@@ -121,12 +121,14 @@ commit message            .provenance/ (in the tree)
 Assisted-by: P@rN  ─────▶ profiles/P/rN.toml      which model per role
 AI-Scope: code            policy.toml             rules
 Provenance-Id: X   ─────▶ manifests/YYYY/X.json   what each role wrote
-Signed-off-by: human                              + human review statement
+Signed-off-by: human ◀─── attestations/YYYY/X/T.json  human approval,
+                          (signed approval commit)    bound by patch-id
 ```
 
 The commit message carries three short, stable trailers. Everything
 detailed lives in versioned files in the tree, keyed by IDs rather than
-commit SHAs, so it survives every Git operation that rewrites SHAs.
+commit SHAs, so it survives every Git operation that rewrites SHAs. The
+human approval is a separate, signed commit written by `prov attest` (§4a).
 
 ### 2. Trailers
 
@@ -135,7 +137,7 @@ commit SHAs, so it survives every Git operation that rewrites SHAs.
 | `Assisted-by:` | one per profile used | `<profile-id>@r<N> [tool …]` |
 | `AI-Scope:` | exactly one if assisted | comma list from `docs, tests, build, ci, packaging, refactor, code` |
 | `Provenance-Id:` | exactly one if assisted | `YYYYMMDDTHHMMSSZ-<8 hex>` |
-| `Signed-off-by:` | ≥ 1 human if assisted | unchanged DCO meaning |
+| `Signed-off-by:` | ≥ 1 human if assisted | unchanged DCO meaning; added by `prov attest` (§4a) |
 
 - The key `Assisted-by` and the optional trailing analysis tools
   (`coccinelle`, `sparse`, …) follow the kernel's syntax, so kernel-style
@@ -147,6 +149,23 @@ commit SHAs, so it survives every Git operation that rewrites SHAs.
 - `AI-Scope` is QEMU's idea: what kind of change the AI output is. It
   drives policy (§6) and makes review triage cheap.
 - Other trailers (e.g. `Claude-Session:`) are allowed and ignored.
+
+**Commit identities — the pair in Git's two fields.** The human of the
+pair is the **author** of record; the agent may appear as **committer**:
+
+| Field | Value | Meaning |
+| --- | --- | --- |
+| Author | the accountable human | author of record, as in kernel and Fedora practice |
+| Committer | the agent (e.g. `Claude Code <agent@…>`) | mechanical fact: who created the commit object |
+| `Assisted-by:` + manifest | profile, model, files | what the AI contributed |
+| `Signed-off-by:` | the human, added by `prov attest` | DCO certification |
+
+An agent therefore commits with the human's name as author. That is not
+misrepresentation: the trailers and manifest disclose the assistance, and
+authorship here means accountability, not keystrokes. An agent never adds
+`Signed-off-by:` and never has access to the human's signing key.
+`verify` fails an AI-assisted commit whose **author** matches an AI
+identity pattern; the committer is not restricted.
 
 ### 3. Profiles — the neutral reference
 
@@ -226,13 +245,88 @@ Rules:
   `verify` warns (or fails, per policy); `config`/`manual` mismatches fail —
   change the profile instead.
 - **`human_review.statement = "pending"`** is what an agent writes when it
-  runs `declare`. `verify` fails on `pending`, so a record prepared by an AI
-  cannot merge until the accountable human changes it and signs off (G2).
+  runs `declare`. The manifest stays as the agent wrote it; approval is the
+  separate attestation (§4a). (Where `attestation.required = false`,
+  `verify` instead fails on `pending` until the human edits it.)
 - Manifests are **immutable** once merged, like profiles.
 - Schema: `.provenance/schema/manifest-v1.schema.json` (JSON Schema
   Draft 2020-12). `schema_version` is frozen per major version, the same
   discipline as `RACOONCTL_STATUS_SCHEMA_VERSION`: a breaking change is a
   new `manifest-v2` file, and v1 records stay valid forever.
+
+### 4a. Attestation — the human approval (`prov attest`)
+
+Approval used to mean editing the manifest, amending commits and signing
+off by hand. That rewrote what the agent produced, needed a rebase for
+multi-commit sessions, and bound the approval to nothing: the content could
+change after review. `prov attest` replaces it with one deliberate act:
+
+1. **Checks** that it runs in the human's own terminal (it refuses when an
+   agent marker such as `CLAUDECODE` is set), on a clean, linear range
+   ending at `HEAD`, with a git identity that is not an AI identity.
+2. **Runs the tests** given with `--test` on the tree being approved.
+   Exit 0 is required for `reviewed-and-tested`; the command, exit status,
+   duration and a SHA-256 digest of the output are recorded (the log itself
+   stays local, `--test-log`). Without `--test` the statement is `reviewed`.
+3. **Shows** the sessions, commits and diffstat, and asks for confirmation.
+4. **DCO** per `attestation.dco`:
+   - `rebase-signoff` (**policy b, racoon**) — adds the human's
+     `Signed-off-by:` to every commit in the range by a message-only
+     rewrite: trees, author and committer (names, e-mails, dates) are kept,
+     so the agent stays recorded as committer and diffs are unchanged.
+     Leading commits that already carry the sign-off are left untouched; a
+     signed commit that must be rewritten is re-signed by the attester.
+   - `approval-commit` (**policy a**) — no rewrite; the signed approval
+     commit carries the `Signed-off-by:` for the whole series. Intended for
+     projects where review records, not the DCO, carry the certification.
+5. **Writes** `.provenance/attestations/<YYYY>/<Provenance-Id>/<time>.json`
+   and commits it **signed** (`git commit -S`):
+
+```json
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261017T094500Z-3f9a1c2e",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261017T115000Z",
+  "commits": [
+    { "patch_id": "9b1c…", "subject": "isakmp: bound-check …" },
+    { "patch_id": "41de…", "subject": "test: cover …" }
+  ],
+  "tests": { "command": "make check", "exit": 0,
+             "log_digest": "sha256:…", "duration_s": 412.7 }
+}
+```
+
+**Binding by `git patch-id --stable`.** A patch-id identifies a commit by
+its diff, not its SHA. The approval therefore survives rebase and
+cherry-pick (G4), but any change to a reviewed diff, even one line,
+invalidates it: `verify` recomputes the patch-ids and fails with "diff
+changed after approval". Further commits of the same session need a further
+attestation; attestation files are immutable once merged, like manifests.
+
+**Signature, not tooling, is the control.** The approval commit must be
+SSH-signed by a key listed in `.provenance/allowed_signers`
+(`gpg.ssh.allowedSignersFile` format), and the signing principal must equal
+`reviewer`. `verify` reads the allowed signers from the **base** of the
+range, so a change cannot admit its own key (bootstrap: if the base has no
+signers, the change's own file is used with a warning). A key on a hardware
+token — FIDO2 `sk-` keys, or an OpenPGP card serving SSH through gpg-agent
+— with touch required proves human presence; the agent never holds the
+key. The agent-environment check in step 1 is only a speed bump.
+
+**Rebasing and merging.** A rebase creates new commit objects and drops
+signatures. Patch-ids are unchanged, so the human re-signs while rebasing
+(`git rebase --gpg-sign`, or `commit.gpgsign = true`) and the attestation
+stays valid without re-attesting — re-signing is the re-confirmation.
+GitHub's rebase-merge and squash-merge recreate commits without the
+human's signature; merges into `develop` therefore use merge commits.
+
+**Manifest vs. attestation.** The manifest says what the AI did, written by
+the agent; the attestation says what the human approved, signed by the
+human. Neither edits the other. For DO-178C-style projects the attestation
+is the review record: reviewer identity bound by signature, reviewed
+content bound by patch-id, test evidence by digest.
 
 ### 5. Why in-tree files, not git notes or a side branch
 
@@ -263,7 +357,10 @@ and makes the record reviewable alongside the code it describes.
   instead.
 - **Withheld models stay out of critical paths.** Nobody outside the
   owning organisation could act on a recall of a model they cannot name.
-- **AI-assisted commits need a human `Signed-off-by:`.**
+- **AI-assisted commits need a human `Signed-off-by:`** (policy b), or a
+  signed-off approval commit (policy a).
+- **`[attestation]`** — `required`, `require_signature`, `allowed_signers`,
+  `dco` (`rebase-signoff` | `approval-commit`), `agent_env` (§4a).
 
 ### 7. Capture: adapters per harness
 
@@ -301,10 +398,15 @@ reporting in `schema_cross_check.py`'s `[OK  ]`/`[WARN]`/`[FAIL]` style.
   range after the baseline: trailer spelling, AI identities, profile
   resolution in the commit's own tree, scope, sign-off, manifest presence;
   per session: role/model/family match against the profile, substitution,
-  `files` ⊆ files changed by the session's commits, `pending` review,
-  dissimilarity, withheld-in-critical.
+  `files` ⊆ files changed by the session's commits, dissimilarity,
+  withheld-in-critical; with attestation required: every commit's patch-id
+  covered by an attestation whose approval commit is signed by an allowed
+  key of the reviewer (allowed signers read at `A`).
 - `prov declare --contrib <id>@r<N>:<role>[=file,…] … --scope …` — writes
   and stages a manifest, prints trailers. `--statement pending` for agents.
+- `prov attest [--range BASE..HEAD] [--test CMD] [--test-log FILE]` —
+  the human approval (§4a): tests, sign-off per policy, signed approval
+  commit.
 - `prov query --model RE | --family F | --profile ID [--blame]
   [--include-legacy]` — the recall drill. `--blame` counts surviving lines
   per commit and file at a revision. `--include-legacy` maps pre-baseline
@@ -318,22 +420,24 @@ reporting in `schema_cross_check.py`'s `[OK  ]`/`[WARN]`/`[FAIL]` style.
 `develop-provenance.yml` (develop-owned, named per the tree-separation
 policy):
 
-- `self-test` — `python3 -m unittest tools/test_prov.py`: 23 tests in
-  throw-away repositories covering every pass/fail rule. Always blocking: a
-  broken checker must never silently pass everything.
+- `self-test` — `python3 -m unittest tools/test_prov.py`: 35 tests in
+  throw-away repositories covering every pass/fail rule, including signed
+  approval commits with throw-away SSH keys. Always blocking: a broken
+  checker must never silently pass everything.
 - `verify` — `prov verify` over the PR's merge-base..head or the push range.
   Non-blocking (`continue-on-error`) in Phase 0, blocking from Phase 1.
 
-Merges into `develop` use merge commits or rebase-merge. GitHub's
-squash-merge concatenates commit messages and can mangle trailers; it should
-be disabled for `develop` in the repository settings once `verify` blocks.
+Merges into `develop` use **merge commits only**. GitHub's squash-merge
+concatenates commit messages and can mangle trailers; both squash- and
+rebase-merge recreate commits without the human's signature (§4a). Disable
+both for `develop` in the repository settings once `verify` blocks.
 
 ### 10. Rollout
 
 | Phase | Content | Exit criterion |
 | --- | --- | --- |
 | 0 | RFC, schemas, policy, seed profiles, `prov`, CI (verify non-blocking) | self-tests green; recall drill runs on real history |
-| 1 | `CONTRIBUTING.md` section (Appendix A); `verify` blocking; remove `.claude` rewrite hook; disable squash-merge | one month of maintainer commits passing |
+| 1 | `CONTRIBUTING.md` section (Appendix A); maintainer key in `allowed_signers`; `verify` blocking; remove `.claude` rewrite hook; agent git identity (author = human, committer = agent); merge commits only | one month of maintainer sessions attested and passing |
 | 2 | Claude Code adapter | `declare` output produced without manual steps |
 | 3 | OpenCode adapter; harness-config cross-check | multi-agent session recorded with roles |
 | 4 | First formal recall drill (Acceptance criteria) before inviting outside contributors | drill report filed as an Issue |
@@ -399,6 +503,12 @@ be disabled for `develop` in the repository settings once `verify` blocks.
 - **Over-matching AI identity patterns** (a human called Claude). Patterns
   live in `policy.toml` and are adjusted by normal review.
 - **Tool APIs change** (hooks, settings). Confined to adapters by design.
+- **An agent attests its own work.** It can prepare everything, but the
+  approval commit needs a signature from an allowed key. Mitigation: keys on
+  hardware tokens with touch required, never in reach of the agent; allowed
+  signers read from the base; the agent-environment refusal as a speed bump.
+- **Signatures lost on merge.** Rebase- and squash-merge recreate commits.
+  Mitigation: merge commits only; re-sign on local rebase (§4a).
 
 ## Open questions
 
@@ -412,6 +522,11 @@ be disabled for `develop` in the repository settings once `verify` blocks.
   reliably?
 - Is a per-file `files` list enough, or do we want line ranges for the
   first few sessions to measure how often AI and human edits interleave?
+- OpenCode's environment marker for `attestation.agent_env` (to be verified;
+  only `CLAUDECODE` is listed today).
+- OpenPGP (`gpg.format = openpgp`) approval signatures in addition to SSH,
+  with a keyring in the repository? SSH keys served by an OpenPGP card via
+  gpg-agent already work.
 
 ## Acceptance criteria
 
@@ -424,7 +539,13 @@ be disabled for `develop` in the repository settings once `verify` blocks.
       manifest, or a `pending` review fails `verify`.
 - [ ] AI `code` in a critical path without a dissimilar-family reviewer
       fails; with one, passes.
-- [ ] Modifying or deleting a merged profile revision or manifest fails.
+- [ ] Modifying or deleting a merged profile revision, manifest or
+      attestation fails.
+- [ ] `prov attest` adds the sign-off (policy b) without changing trees,
+      author or committer; a signed approval commit by an allowed key
+      passes `verify`; an unsigned approval, a key added by the change
+      itself, a diff changed after approval, an unattested follow-up
+      commit, or an AI author fails.
 - [ ] **Recall drill:** for a chosen model, `prov query --blame` lists every
       affected commit and file and the surviving line counts, cross-checked
       by hand against `git blame` for at least three files; result and
@@ -439,23 +560,25 @@ be disabled for `develop` in the repository settings once `verify` blocks.
 > ## AI-Assisted Development
 >
 > AI tools are welcome. You remain the author and are accountable for every
-> line: review, test, and sign off your work as usual. AI agents never add
-> `Signed-off-by:` or `Co-Authored-By:`.
+> line. An AI agent may commit for you, with you as author and itself as
+> committer, but never adds `Signed-off-by:` or `Co-Authored-By:`.
 >
-> If AI output is part of your commit, record it (RFC 0005):
+> If AI output is part of a commit, it is recorded (RFC 0005):
 >
 > ```
 > Assisted-by: <profile>@r<N> [analysis tools]
 > AI-Scope: <docs|tests|build|ci|packaging|refactor|code>[, …]
 > Provenance-Id: <id>
-> Signed-off-by: Your Name <you@example.org>
 > ```
 >
 > `python3 tools/prov.py declare` writes the matching manifest under
-> `.provenance/manifests/` and prints these lines; `python3 tools/prov.py
-> verify` runs the same check as CI. See `.provenance/README.md` for
-> profiles, confidential models, and the extra rules for security-critical
-> paths.
+> `.provenance/manifests/` and prints these lines. Before merge, approve the
+> work in your own terminal with `python3 tools/prov.py attest --test "make
+> check"`: it adds your `Signed-off-by:` and writes an approval commit
+> signed with your SSH key (listed in `.provenance/allowed_signers`).
+> `python3 tools/prov.py verify` runs the same check as CI. See
+> `.provenance/README.md` for profiles, confidential models, signing setup,
+> and the extra rules for security-critical paths.
 
 ## Appendix B: initial recall drill on legacy history
 
