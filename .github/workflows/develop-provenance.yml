@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true     # Phase 0 only -- see header
     steps:
-      - name: Checkout (full history: baseline ancestry and blame)
+      - name: "Checkout (full history: baseline ancestry and blame)"
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
