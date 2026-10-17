@@ -1,0 +1,7 @@
+# name	kind	args	gate	note   (empty columns must be written as '-': read(1) collapses tabs)
+# gate: (empty) = runs everywhere | live = needs a kernel with PF_KEY + ESP (see preflight)
+# Adding a row: one line here; add a kind_<kind> in kinds/<kind>.sh if it is new.
+preflight	preflight	-	live	Can this host run the live tier at all? SKIP (or FAIL under RNM_REQUIRE_LIVE=1) with the reason
+psk-transport-sha256	psk	mode=transport auth=sha256 xfail=icv	live	Transport ESP, hmac(sha256): ICV must be 128 bits (RFC 4868) - XFAIL on PF_KEY (kernel installs 96); ping through ESP, counters move, no XFRM errors
+psk-tunnel-sha1	psk	mode=tunnel auth=sha1	live	Tunnel ESP between gateways, hmac(sha1): ICV 96 bits (RFC 2404); policy/SA reqid matching via LAN-to-LAN ping
+psk-rekey-sha256	psk	mode=tunnel auth=sha256 rekey=1 xfail=icv	live	30s SA lifetime: kernel EXPIRE -> racoon rekeys -> new SPI, traffic keeps flowing (the path an XFRM backend must reproduce)
