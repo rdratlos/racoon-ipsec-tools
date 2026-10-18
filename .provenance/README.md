@@ -29,8 +29,21 @@ Never put an AI in `Signed-off-by:` or `Co-Authored-By:`.
 The agent (Claude Code, OpenCode, ...) commits with **you as author** and
 itself as committer, and records the session with `--statement pending`:
 
+Git identity for agent commits -- author = you, committer = the agent:
+
+- **Committer** is the same for everyone and comes with the repository for
+  Claude Code (`.claude/settings.json`, `env`). Other harnesses set
+  `GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL` the same way.
+- **Author** is yours and never in the repository: set
+  `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL` in your own configuration -- the
+  environment variables of your Claude Code cloud environment, or `env` in
+  `~/.claude/settings.json` for local sessions. If you forget, git uses
+  `user.name`/`user.email`; in a cloud session that is the agent's own
+  identity, and `verify` fails the commit for an AI author.
+
 ```sh
-# git identity for agent commits: author = you, committer = the agent
+# what an agent session looks like (Claude Code sets these for you)
+export GIT_AUTHOR_NAME="Your Name" GIT_AUTHOR_EMAIL="you@example.org"
 export GIT_COMMITTER_NAME="Claude Code" GIT_COMMITTER_EMAIL="agent@agents.invalid"
 
 python3 tools/prov.py declare --statement pending \
@@ -71,8 +84,39 @@ CI reads `allowed_signers` from the **base** of a change, so a pull request
 cannot admit its own key. Merge into `develop` with merge commits: GitHub's
 rebase- and squash-merge recreate commits without your signature.
 
-List only files whose committed content still contains AI output. Models you
-only used for searching or explaining need not be declared.
+## Retyped is still assisted
+
+**Provenance follows the text, not the keyboard.** Whether the agent
+committed its output, or you copied, retyped, pasted or edited it yourself,
+makes no difference: if the agent's output is in the lines you commit, the
+commit is assisted and carries the trailers. Your name as author and your
+`Signed-off-by:` stay exactly where they are -- you are still the
+accountable author; the trailers only say where the text came from.
+
+The one-question test, before every commit:
+
+> **Would these lines look like this if the agent had never answered?**
+> No → declare it.
+
+| Situation | Assisted? |
+| --- | --- |
+| The agent commits its own output | yes -- the agent declares it |
+| You apply a file, snippet or patch the agent proposed, by hand | **yes** -- same `Provenance-Id` as the session, or `declare --reported-by manual` |
+| You take the agent's draft and rework it | **yes**, as long as any of its output survives in the file |
+| You start from the agent's draft and end up rewriting every line | no -- the final text is yours |
+| The agent only searched, explained or reviewed; you wrote the lines | no -- need not be declared |
+| A colleague's suggestion, a Stack Overflow snippet | not RFC 0005 -- license and attribution rules apply as before |
+
+Why AI output is treated differently from a colleague or Stack Overflow:
+a model repeats its mistakes. When one model is found to have a systematic
+bug pattern, the recall drill (`prov query`) has to find **every** place its
+output landed, across all contributors -- and an undeclared line is exactly
+the line it cannot find.
+
+Declaring is not a confession. There is no quota and no penalty for a high
+AI share; the only commit that harms the project is the one that hides its
+origin. List in the manifest only files whose committed content still
+contains AI output.
 
 ## Layout
 

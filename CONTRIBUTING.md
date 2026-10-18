@@ -204,8 +204,8 @@ intentionally branch-specific and never cross between them:
 - Each branch owns its own `.github/workflows/` *files* — not the
   directory as a whole, which legitimately exists on both. `develop`'s CI
   files (`develop-build-test.yml`, `develop-netbsd-build-test.yml`,
-  `guard-branch-purity.yml`, `legacy-cflags-canary.yml`,
-  `racoon-hooks.yml`) and `main`'s
+  `develop-provenance.yml`, `guard-branch-purity.yml`,
+  `legacy-cflags-canary.yml`, `racoon-hooks.yml`) and `main`'s
   (`build-test.yml`, `guard-tree-purity.yml`, `netbsd-build-test.yml`,
   `openssl-deprecation-canary.yml`) are named so their sets never collide
   on a shared path, and neither branch's set is meant to reach the other.
@@ -242,7 +242,39 @@ or plain-text patches so they can be reviewed and tested.
 
 This project is maintained by a single maintainer.
 Development, code review, and documentation are supported
-by AI tooling (Claude by Anthropic / Claude Code).
+by AI tooling (Claude Code, OpenCode).
 
 Contributions and bug reports from human collaborators
 are very welcome — see the issue tracker.
+
+AI tools are welcome. You remain the author and are accountable for every
+line. An AI agent may commit for you, with you as author and itself as
+committer, but never adds `Signed-off-by:` or `Co-Authored-By:`.
+
+If AI output is part of a commit, it is recorded (RFC 0005, on `main` under
+`docs/rfcs/`):
+
+```
+Assisted-by: <profile>@r<N> [analysis tools]
+AI-Scope: <docs|tests|build|ci|packaging|refactor|code>[, …]
+Provenance-Id: <id>
+```
+
+**Retyped is still assisted:** provenance follows the text, not the
+keyboard. If you apply an agent's proposal by hand -- copied, retyped or
+edited -- the commit still carries these trailers, under your name and your
+sign-off. Before each commit ask: *would these lines look like this if the
+agent had never answered?* If not, declare it. `.provenance/README.md`
+("Retyped is still assisted") has the cases and the reason.
+
+`python3 tools/prov.py declare` writes the matching manifest under
+`.provenance/manifests/` and prints these lines. Before merge, approve the
+work in your own terminal with `python3 tools/prov.py attest --test "make
+check"`: it adds your `Signed-off-by:` and writes an approval commit
+signed with your SSH key (listed in `.provenance/allowed_signers`).
+`python3 tools/prov.py verify` runs the same check as CI
+(`develop-provenance.yml`). Pull requests into `develop` are merged with
+merge commits only: rebase- and squash-merge recreate commits without your
+signature. See `.provenance/README.md` for profiles, confidential models,
+signing setup, the agent's git identity, and the extra rules for
+security-critical paths.

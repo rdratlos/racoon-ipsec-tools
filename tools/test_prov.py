@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from contextlib import redirect_stdout
 from unittest import mock
@@ -34,6 +35,10 @@ import prov  # noqa: E402
 
 SRC_PROV = os.path.join(os.path.dirname(HERE), ".provenance")
 HUMAN = "Signed-off-by: Jane Doe <jane@example.org>"
+# attest refuses to run while any of the policy's agent markers is set; the
+# tests run attest as the human, so they clear all of them.
+with open(os.path.join(SRC_PROV, "policy.toml"), "rb") as _f:
+    AGENT_MARKERS = set(tomllib.load(_f)["attestation"]["agent_env"])
 AGENT_ENV = {"GIT_COMMITTER_NAME": "Claude Code",
              "GIT_COMMITTER_EMAIL": "agent@agents.invalid"}
 
@@ -95,7 +100,7 @@ class Repo:
         self.write(".provenance/allowed_signers", f"{email} {pub[0]} {pub[1]}\n")
 
     def attest(self, *argv, env_extra=None):
-        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+        env = {k: v for k, v in os.environ.items() if k not in AGENT_MARKERS}
         env.update(env_extra or {})
         buf = io.StringIO()
         with mock.patch.dict(os.environ, env, clear=True), redirect_stdout(buf):
