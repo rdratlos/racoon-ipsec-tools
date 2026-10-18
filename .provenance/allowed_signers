@@ -4,3 +4,4 @@
 # One line per accountable human. Changes are policy changes: review them.
 # Add the maintainer's key before Phase 1, e.g.:
 #   reimth@etik.com sk-ssh-ed25519@openssh.com AAAA... yubikey-5
+reimth@etik.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJi0ZUP/1ByGi5kukdOjtV55PMnCzb8eAJYTDDwVCh6i openpgp:0xAC0B1632EC51EF00
