@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261017T122645Z-d45fea29",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261018T145537Z",
+  "commits": [
+    {
+      "patch_id": "91f75f454ee21bc7884618679da33ad4a5c2ca05",
+      "subject": "provenance: Phase 1 groundwork -- baseline, contributor docs, agent markers"
+    },
+    {
+      "patch_id": "e27e38e6e1b23a2d41a90be1e6eb9f4de16d157a",
+      "subject": "provenance: Configure Claude agent rules and update Claude Code settings"
+    },
+    {
+      "patch_id": "eed3a150a0312cfeeb65dea2aef41b6e676d4ca6",
+      "subject": "provenance: \"Retyped is still assisted\" -- declare hand-applied AI output"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:3dc7d3a196ddcdbc0901ce3cf616bc6ef109858e5652870d4f84cdeca22b3328",
+    "duration_s": 4.457
+  }
+}
