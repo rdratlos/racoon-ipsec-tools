@@ -149,6 +149,9 @@ human approval is a separate, signed commit written by `prov attest` (§4a).
 - `AI-Scope` is QEMU's idea: what kind of change the AI output is. It
   drives policy (§6) and makes review triage cheap.
 - Other trailers (e.g. `Claude-Session:`) are allowed and ignored.
+- A free-text `Assisted-by:` (no profile reference) is accepted only on a
+  guest's fork pull request, until the maintainer's intake replaces it
+  (§11). On branches in this repository it fails.
 
 **Commit identities — the pair in Git's two fields.** The human of the
 pair is the **author** of record; the agent may appear as **committer**:
@@ -242,12 +245,11 @@ Rules:
   self-reporting weakness explicit rather than hiding it.
 - **Silent substitution.** If an `api`-reported model differs from the
   profile role's model, a provider, router or moving alias swapped it.
-  `verify` warns (or fails, per policy); `config`/`manual` mismatches fail —
+  `verify` warns; `config`/`manual` mismatches fail —
   change the profile instead.
 - **`human_review.statement = "pending"`** is what an agent writes when it
   runs `declare`. The manifest stays as the agent wrote it; approval is the
-  separate attestation (§4a). (Where `attestation.required = false`,
-  `verify` instead fails on `pending` until the human edits it.)
+  separate attestation (§4a).
 - Manifests are **immutable** once merged, like profiles.
 - Schema: `.provenance/schema/manifest-v1.schema.json` (JSON Schema
   Draft 2020-12). `schema_version` is frozen per major version, the same
@@ -269,16 +271,13 @@ change after review. `prov attest` replaces it with one deliberate act:
    duration and a SHA-256 digest of the output are recorded (the log itself
    stays local, `--test-log`). Without `--test` the statement is `reviewed`.
 3. **Shows** the sessions, commits and diffstat, and asks for confirmation.
-4. **DCO** per `attestation.dco`:
-   - `rebase-signoff` (**policy b, racoon**) — adds the human's
-     `Signed-off-by:` to every commit in the range by a message-only
-     rewrite: trees, author and committer (names, e-mails, dates) are kept,
-     so the agent stays recorded as committer and diffs are unchanged.
-     Leading commits that already carry the sign-off are left untouched; a
-     signed commit that must be rewritten is re-signed by the attester.
-   - `approval-commit` (**policy a**) — no rewrite; the signed approval
-     commit carries the `Signed-off-by:` for the whole series. Intended for
-     projects where review records, not the DCO, carry the certification.
+4. **DCO** — adds the human's `Signed-off-by:` to every commit in the
+   range by a message-only rewrite: trees, author and committer (names,
+   e-mails, dates) are kept, so the agent stays recorded as committer and
+   diffs are unchanged. Leading commits that already carry the sign-off are
+   left untouched; a signed commit that must be rewritten is re-signed by
+   the attester. (An earlier draft also offered an `approval-commit` mode
+   without rewrite; no one used it, and it was dropped, §11.6.)
 5. **Writes** `.provenance/attestations/<YYYY>/<Provenance-Id>/<time>.json`
    and commits it **signed** (`git commit -S`):
 
@@ -309,11 +308,23 @@ attestation; attestation files are immutable once merged, like manifests.
 SSH-signed by a key listed in `.provenance/allowed_signers`
 (`gpg.ssh.allowedSignersFile` format), and the signing principal must equal
 `reviewer`. `verify` reads the allowed signers from the **base** of the
-range, so a change cannot admit its own key (bootstrap: if the base has no
-signers, the change's own file is used with a warning). A key on a hardware
+range, so a change cannot admit its own key. (While the base had no
+signers at all, the change's own file was used with a warning; this
+bootstrap rule served once, for the pull request that added the first
+maintainer key, and is replaced by a plain "no signers at base" error,
+§11.6.) A key on a hardware
 token — FIDO2 `sk-` keys, or an OpenPGP card serving SSH through gpg-agent
 — with touch required proves human presence; the agent never holds the
 key. The agent-environment check in step 1 is only a speed bump.
+
+**Maintainer workstation.** Signing and verifying approvals needs Git
+≥ 2.34 (SSH signing; `user.signingkey` as a path to a `.pub` file, since
+the inline `key::` form needs Git ≥ 2.35), OpenSSH ≥ 8.2 (`ssh-keygen -Y`
+including `find-principals`), Python ≥ 3.11 (`tomllib`) and, for an
+OpenPGP key served through gpg-agent, GnuPG ≥ 2.2. These are requirements
+of the workstation that attests, not of racoon's target platforms: racoon
+still builds and runs down to Ubuntu Bionic (Git 2.17, OpenSSH 7.6,
+Python 3.6), which simply cannot attest.
 
 **Rebasing and merging.** A rebase creates new commit objects and drops
 signatures. Patch-ids are unchanged, so the human re-signs while rebasing
@@ -357,10 +368,11 @@ and makes the record reviewable alongside the code it describes.
   instead.
 - **Withheld models stay out of critical paths.** Nobody outside the
   owning organisation could act on a recall of a model they cannot name.
-- **AI-assisted commits need a human `Signed-off-by:`** (policy b), or a
-  signed-off approval commit (policy a).
-- **`[attestation]`** — `required`, `require_signature`, `allowed_signers`,
-  `dco` (`rebase-signoff` | `approval-commit`), `agent_env` (§4a).
+- **AI-assisted commits need a human `Signed-off-by:`**, added by
+  `prov attest` (§4a).
+- **`[attestation]`** — `allowed_signers`, `agent_env` (§4a). Attestation
+  and its signature are always required; there is no switch to turn either
+  off (§11.6).
 
 ### 7. Capture: adapters per harness
 
@@ -405,8 +417,11 @@ reporting in `schema_cross_check.py`'s `[OK  ]`/`[WARN]`/`[FAIL]` style.
 - `prov declare --contrib <id>@r<N>:<role>[=file,…] … --scope …` — writes
   and stages a manifest, prints trailers. `--statement pending` for agents.
 - `prov attest [--range BASE..HEAD] [--test CMD] [--test-log FILE]` —
-  the human approval (§4a): tests, sign-off per policy, signed approval
-  commit.
+  the human approval (§4a): tests, sign-off, signed approval commit.
+- `prov intake --pr <N>` — the maintainer's intake of a guest pull request
+  (§11.3): fetches it onto a branch in this repository, creates or reuses a
+  maintainer-owned profile mirroring the guest's statement, rewrites commit
+  messages (and an AI author) into canonical form, writes the manifest.
 - `prov query --model RE | --family F | --profile ID [--blame]
   [--include-legacy]` — the recall drill. `--blame` counts surviving lines
   per commit and file at a revision. `--include-legacy` maps pre-baseline
@@ -425,7 +440,8 @@ policy):
   approval commits with throw-away SSH keys. Always blocking: a broken
   checker must never silently pass everything.
 - `verify` — `prov verify` over the PR's merge-base..head or the push range.
-  Non-blocking (`continue-on-error`) in Phase 0, blocking from Phase 1.
+  Non-blocking (`continue-on-error`) in Phase 0, blocking from Phase 1 —
+  except on guest fork pull requests, where it is advisory (§11.4).
 
 Merges into `develop` use **merge commits only**. GitHub's squash-merge
 concatenates commit messages and can mangle trailers; both squash- and
@@ -437,10 +453,144 @@ both for `develop` in the repository settings once `verify` blocks.
 | Phase | Content | Exit criterion |
 | --- | --- | --- |
 | 0 | RFC, schemas, policy, seed profiles, `prov`, CI (verify non-blocking) | self-tests green; recall drill runs on real history |
-| 1 | `CONTRIBUTING.md` section (Appendix A); maintainer key in `allowed_signers`; `verify` blocking; remove `.claude` rewrite hook; agent git identity (author = human, committer = agent); merge commits only | one month of maintainer sessions attested and passing |
+| 1 | `CONTRIBUTING.md` section (Appendix A); maintainer key in `allowed_signers`; `verify` blocking; remove `.claude` rewrite hook; agent git identity (author = human, committer = agent); merge commits only; guest intake and advisory fork mode (§11.3, §11.4); simplification (§11.6) | one month of maintainer sessions attested and passing |
 | 2 | Claude Code adapter | `declare` output produced without manual steps |
 | 3 | OpenCode adapter; harness-config cross-check | multi-agent session recorded with roles |
-| 4 | First formal recall drill (Acceptance criteria) before inviting outside contributors | drill report filed as an Issue |
+| 4 | First formal recall drill (Acceptance criteria) before actively inviting outside contributors; single guest PRs taken via intake (§11.3) do not wait for it | drill report filed as an Issue |
+
+### 11. Guest contributions
+
+#### 11.1 Principle
+
+**Strict where the maintainer works, light where guests work.** The
+accountability that matters is at merge time, and the merger is the
+maintainer. A guest therefore owes one honest statement; the maintainer
+turns it into the structured record and attests it. Every merge into
+`develop` still passes the full `verify`.
+
+The kernel goes further in the same direction: since July 2026 it asks
+contributors only for `Assisted-by: LLM` and drops the model altogether.
+This project keeps the model, but lets a guest name it in free text and
+does the structuring itself.
+
+#### 11.2 What a guest provides
+
+Human-only contribution: nothing. No trailer, no profile, no manifest.
+
+AI-assisted contribution: one free-text sentence, in the pull request
+description or as a trailer, naming tools, models and what they were used
+for:
+
+```
+Assisted-by: Claude Code (Opus), review by GPT-5
+```
+
+plus the guest's own `Signed-off-by:` (DCO for their provenance). A guest
+never creates profiles, manifests or attestations and never runs `declare`
+or `attest`. A guest's statement is `model_reported_by = "manual"` by
+definition; formalising it would not make it more trustworthy.
+
+The same rule as for everyone applies: **retyped is still assisted**. Text
+an agent wrote counts even if the guest copied or reworked it by hand.
+
+#### 11.3 Intake (maintainer side)
+
+An AI-assisted guest pull request is **never merged with the merge
+button**. The maintainer takes it in through a pull request from a branch
+in this repository, which supersedes the guest's ("supersedes #N"), so that
+it passes the blocking `verify` (§11.4). `prov intake` (§8):
+
+1. fetches the guest's commits onto a branch in this repository;
+2. creates a profile with `owner = <maintainer>` that mirrors the guest's
+   statement, or reuses an existing one (for example the contributor kit's
+   profile, Appendix C);
+3. rewrites the commit messages into canonical form (profile reference,
+   `AI-Scope`, `Provenance-Id`). Trees, the committer and the guest's
+   `Signed-off-by:` are kept. If the guest's agent recorded itself as
+   **author**, intake sets the guest as author: §2 makes the accountable
+   human the author of record, so this corrects the record rather than
+   altering it;
+4. writes the manifest with `model_reported_by = "manual"`. Where the guest
+   gave no per-file detail, `files` lists every file the guest's commits
+   change: an upper bound, like legacy attribution, and stated as such.
+
+The maintainer then reviews, runs `prov attest` and merges the intake pull
+request with a merge commit. The guest stays author of every commit.
+
+The free-text trailer of §11.2 is therefore **not** valid on branches in
+this repository: `verify` rejects it there (§2). The recall drill loses
+per-file precision for such commits; `manual` says so honestly.
+
+Critical paths (§6) are unchanged: guest AI `code` in a critical path needs
+a `reviewer` contribution from a different model family. If the guest's
+statement does not include one, the maintainer runs the dissimilar review
+before attesting. That review is a contribution under the **maintainer's**
+profile in the same manifest (each contribution carries its own `profile`),
+so the commits carry two `Assisted-by:` lines, one per profile (§2).
+`withheld` is not available to guests: the owner resolving the reference
+would be the maintainer.
+
+Human-only guest pull requests carry no trailers; `verify` passes them, and
+they may be merged directly.
+
+#### 11.4 CI behaviour
+
+| Context | `verify` |
+| --- | --- |
+| Branch in this repository, PR to `develop` | blocking, full rules |
+| Fork PR (`head.repo != github.repository`) | advisory: always green; the job summary thanks the guest, says the maintainer completes the record at intake, and lists the findings without enforcing them |
+| Push to `develop` | blocking over the pushed range: detects a guest PR merged without intake |
+
+- Findings on forks that would be hard failures in this repository (for
+  example an AI identity in `Signed-off-by:`) stay warnings there and are
+  corrected at intake.
+- The `self-test` job stays blocking for everyone.
+- No labels or other write operations from fork pull requests: those would
+  need `pull_request_target`, which runs with write access in the base
+  repository's context and must never be combined with checking out or
+  executing a fork's code. The rule in §11.3 (no merge button for
+  AI-assisted guest PRs) and the blocking push check replace a label.
+
+#### 11.5 Profile references for guest contributions
+
+Two options were considered.
+
+| | A. `prov intake` creates a maintainer-owned profile | B. `profile` optional when `model_reported_by = "manual"` |
+| --- | --- | --- |
+| Manifest schema v1 | unchanged | change: `profile` is required per contribution today |
+| Trailer grammar (§2) | unchanged | needs a profile-less form |
+| Substitution check, dissimilarity (G7) | unchanged | substitution skipped; family must be required in the manifest `model` block |
+| `withheld` | n/a for guests | undefined without a profile |
+| Immutable files | more profile revisions | fewer |
+| Special cases in `verify` | none | several |
+
+**Adopted: A.** `manifest-v1.schema.json` requires `profile` for every
+contribution and `verify` enforces the `<id>@r<N>` form in the trailer, so
+B would be a schema change plus new special cases. A keeps every invariant;
+the cost is more profile files, which is cheaper than more rules.
+
+#### 11.6 Simplification
+
+Options that no one uses are removed from `policy.toml`, `prov.py`, the
+tests and the documentation, in the implementation pull request for this
+section (not in the Phase 1 groundwork):
+
+| Option | Reason |
+| --- | --- |
+| `attestation.dco = "approval-commit"` (former policy a) | racoon uses the rebase sign-off |
+| `attestation.required = false` and its "pending fails" path | not used |
+| `attestation.require_signature = false` | the signature is the control |
+| `substitution = "fail"` | fixed to `warn`; reintroduce on demand |
+
+The bootstrap rule for `allowed_signers` (§4a) is replaced by a plain
+error "no signers at base" once the first maintainer key is on `develop`.
+
+#### 11.7 Documentation
+
+`.provenance/README.md` gains the guest and intake procedure and the
+maintainer workstation setup (SSH signing, including an OpenPGP key served
+through gpg-agent, minimum versions, and a table of common signing errors);
+`CONTRIBUTING.md` carries the short form (Appendix A).
 
 ## Alternatives considered
 
@@ -491,9 +641,11 @@ both for `develop` in the repository settings once `verify` blocks.
 - **False confidence from self-reporting.** Mitigation: `model_reported_by`,
   the Non-goals statement, and a recall drill that measures what the
   records actually deliver.
-- **Contributor friction** deters occasional contributors. Mitigation:
-  human-only commits need nothing; `declare` prints everything; adapters
-  remove the manual step.
+- **Contributor friction** deters occasional contributors, or makes them
+  hide AI use. Mitigation: human-only commits need nothing; a guest gives
+  one sentence and the maintainer carries the structure (§11); for
+  maintainers, `declare` prints everything and adapters remove the manual
+  step.
 - **Profile sprawl** with twenty contributors. Mitigation: profiles describe
   setups, not sessions; owners retire old ones with a `status = "retired"`
   revision.
@@ -518,12 +670,15 @@ both for `develop` in the repository settings once `verify` blocks.
   reference, or publish the model?
 - Should `docs` and `tests` scopes in critical paths also require
   dissimilar review? (Currently: no — only `code` and `refactor`.)
-- Substitution: keep `warn`, or `fail` once adapters report `api` models
-  reliably?
+- Substitution is fixed to `warn` (§11.6). Reintroduce `fail` once
+  adapters report `api` models reliably?
 - Is a per-file `files` list enough, or do we want line ranges for the
   first few sessions to measure how often AI and human edits interleave?
 - OpenCode's environment marker for `attestation.agent_env` (to be verified;
-  only `CLAUDECODE` is listed today).
+  `CLAUDECODE` and `AI_AGENT` are listed today).
+- `prov intake`: how much of the guest's free text can be mapped
+  automatically to an existing profile, and how much stays a manual
+  decision at intake?
 - OpenPGP (`gpg.format = openpgp`) approval signatures in addition to SSH,
   with a keyring in the repository? SSH keys served by an OpenPGP card via
   gpg-agent already work.
@@ -535,13 +690,14 @@ both for `develop` in the repository settings once `verify` blocks.
 - [ ] `tools/test_prov.py` covers every rule in §2, §4 and §6 with a passing
       and a failing case; `self-test` job blocking in CI.
 - [ ] A commit with `Co-Authored-By: <AI>`, an AI `Signed-off-by:`, a
-      non-canonical trailer key, a free-text `Assisted-by:`, a missing
-      manifest, or a `pending` review fails `verify`.
+      non-canonical trailer key, a free-text `Assisted-by:` on a branch in
+      this repository, a missing manifest, or a missing attestation fails
+      `verify`.
 - [ ] AI `code` in a critical path without a dissimilar-family reviewer
       fails; with one, passes.
 - [ ] Modifying or deleting a merged profile revision, manifest or
       attestation fails.
-- [ ] `prov attest` adds the sign-off (policy b) without changing trees,
+- [ ] `prov attest` adds the sign-off without changing trees,
       author or committer; a signed approval commit by an allowed key
       passes `verify`; an unsigned approval, a key added by the change
       itself, a diff changed after approval, an unattested follow-up
@@ -552,6 +708,14 @@ both for `develop` in the repository settings once `verify` blocks.
       duration recorded in an Issue.
 - [ ] `CONTRIBUTING.md` defines the trailers (Appendix A) and points to
       `.provenance/README.md`.
+- [ ] A guest fork pull request with a free-text `Assisted-by:` gets a
+      green, advisory `verify` with a job summary of what intake will add;
+      the same trailer on a branch in this repository fails.
+- [ ] `prov intake` turns a guest pull request into an in-repository
+      branch that passes `verify` after `prov attest`, keeping the guest
+      as author and their `Signed-off-by:`.
+- [ ] A push to `develop` that contains a guest's AI-assisted commits
+      without intake fails `verify`.
 
 ---
 
@@ -562,6 +726,21 @@ both for `develop` in the repository settings once `verify` blocks.
 > AI tools are welcome. You remain the author and are accountable for every
 > line. An AI agent may commit for you, with you as author and itself as
 > committer, but never adds `Signed-off-by:` or `Co-Authored-By:`.
+>
+> **Retyped is still assisted:** provenance follows the text, not the
+> keyboard. Before each commit ask: *would these lines look like this if
+> the agent had never answered?* If not, say so.
+>
+> ### Guest contributions (pull requests from a fork)
+>
+> If an AI tool helped, write one sentence in the pull request (or as a
+> trailer) naming the tools, the models and what they did, e.g.
+> `Assisted-by: Claude Code (Opus), review by GPT-5`, and sign off your
+> commits as usual (`git commit -s`). That is all: the maintainer turns it
+> into the project's provenance record when taking your pull request in.
+> The provenance check on your pull request is advisory and stays green.
+>
+> ### Maintainers and regular contributors
 >
 > If AI output is part of a commit, it is recorded (RFC 0005):
 >
@@ -592,3 +771,82 @@ manifest exists:
 
 This is the baseline the manifests must improve on: file-level scope,
 every model known, no unmapped entries.
+
+## Appendix C: contributor kit (informative)
+
+> Informative, not normative. The kit is an adapter in the sense of §7: it
+> may be rewritten whenever the harness changes. The normative parts are
+> the profile format (§3), the manifest (§4) and the guest rules (§11).
+
+### C.1 Purpose
+
+A contributor who works with an AI harness and has little C experience
+cannot judge the code the agent produces, yet as its author (§2) is
+accountable for it. The kit addresses that quality gap first. Provenance
+data is a by-product of using it, so the honest path is also the cheapest
+one (§11.1).
+
+### C.2 Contents
+
+| Part | Role |
+| --- | --- |
+| Agent definitions: implementer and reviewer, models pinned, reviewer from a different family than the implementer | Maps directly onto profile roles (§3, §7); gives the contributor an independent review they cannot perform themselves |
+| Project rules file | Build and test commands, conventions, the `critical.paths` with the instruction to stop and warn before changing them |
+| Pre-PR check | Runs `make check` (and sanitizer builds where available), keeps the log locally |
+| PR text generator | Produces the pull request description from the session: the one-sentence statement (§11.2), scope, changed files, test result, and a marker if a critical path was touched |
+| PR template | Fixed headings for the above, so the maintainer's intake (§11.3) starts from structured input |
+
+Two placement constraints follow from the tree-separation policy:
+
+- **One rules file.** `.claude/CLAUDE.md` already holds the agent rules on
+  `develop`. A second file (for example a root `AGENTS.md`, which would be
+  a shared path and travel to `main`) must not duplicate it: one file is
+  the source, the other only points to it.
+- **PR template on `main`.** GitHub reads `.github/PULL_REQUEST_TEMPLATE.md`
+  from the default branch, which is `main`. The guest statement belongs in
+  that file, changed on `main`.
+
+### C.3 The kit is itself a profile
+
+The kit's setup is described once, in this repository, as a maintained
+profile (for example `opencode-pair@r1`). A contributor who uses the kit
+unchanged references that profile in the pull request text; at intake the
+maintainer reuses it and creates no new profile (§11.3, step 2). A
+contributor who deviates from the kit gives the free-text statement of
+§11.2 instead. Whether the contributor really ran the kit's models remains
+self-reported (`config` or `manual`, §4).
+
+### C.4 Limits and benefits
+
+- **Self-reporting.** The kit cannot prove which model ran locally. It
+  makes accurate reporting easy; it does not verify it.
+- **Critical paths.** The kit cannot make up for missing C experience in
+  attack-surface code. It flags such changes early; the maintainer's intake
+  review (§6, §11.3) is the control, and is stricter for such pull requests
+  than for `docs` or `tests`.
+- **Dissimilar review built in.** Because the kit's reviewer is from a
+  different model family than its implementer, a kit session already
+  satisfies G7 for critical paths, and the maintainer's intake shrinks
+  accordingly.
+- **Access.** A kit that needs a commercial API excludes some contributors.
+  A variant with locally runnable open-weights models is needed, with its
+  own profile and an honest note on reduced review quality.
+- **Verification of harness hooks.** Hook and plugin points of the harness
+  must be checked against its current documentation before the kit relies
+  on them (§7). Nothing in this appendix fixes them.
+
+### C.5 Staged introduction
+
+1. After §11 is implemented: the project rules file and the guest
+   statement in the PR template. No tooling.
+2. Phase 3: agent definitions, pre-PR check, PR text generator, kit
+   profile.
+3. Observe at least a few guest pull requests before extending the kit. If
+   guests do not adopt step 1, more tooling will not help.
+
+### C.6 Reuse
+
+The structure is deliberately not racoon-specific: agent roles, project
+rules file, pre-PR checks and a generated pull request text. The same
+layout can serve as a template for in-house harness setups; only the
+profile content, critical-path list and checks change.
