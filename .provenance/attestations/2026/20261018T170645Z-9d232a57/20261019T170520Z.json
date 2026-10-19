@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261018T170645Z-9d232a57",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261019T170520Z",
+  "commits": [
+    {
+      "patch_id": "6d645ffb38fa3140893c44f75d6ff5e66ce08924",
+      "subject": "provenance: guest contributions and intake (RFC 0005 \u00a711)"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:32ae1180557f0d2eea5c412b0a5e48af6b3a15f6e6699da45a0024126064ea5b",
+    "duration_s": 6.163
+  }
+}
