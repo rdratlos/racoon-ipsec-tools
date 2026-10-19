@@ -6,9 +6,8 @@
 #   verify     -- trailers, manifests, attestations (signed approval commits,
 #                 checked with ssh-keygen against .provenance/allowed_signers
 #                 at the base) and policy over the commits a
-#                 PR/push introduces. Phase 0: NON-blocking (continue-on-error)
-#                 so the rules can be tuned on real traffic. Phase 1 removes
-#                 continue-on-error (RFC 0005, Rollout).
+#                 PR/push introduces. Blocking since Phase 1 (RFC 0005,
+#                 Rollout); Phase 0 ran it with continue-on-error.
 #                 Pull requests from a fork (guests, RFC 0005 §11.4) run in
 #                 advisory mode: always green, findings go to the job summary
 #                 and are resolved at the maintainer's intake. Branches in
@@ -41,7 +40,6 @@ jobs:
   verify:
     name: Provenance of introduced commits
     runs-on: ubuntu-latest
-    continue-on-error: true     # Phase 0 only -- see header
     steps:
       - name: "Checkout (full history: baseline ancestry and blame)"
         uses: actions/checkout@v4

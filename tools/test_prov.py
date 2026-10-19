@@ -42,6 +42,13 @@ HUMAN = "Signed-off-by: Jane Doe <jane@example.org>"
 # tests run attest as the human, so they clear all of them.
 with open(os.path.join(SRC_PROV, "policy.toml"), "rb") as _f:
     AGENT_MARKERS = set(tomllib.load(_f)["attestation"]["agent_env"])
+# Throw-away repositories get their identities from their own config or from
+# the test itself, never from the caller: a maintainer whose environment sets
+# GIT_AUTHOR_*/GIT_COMMITTER_* (as .provenance/README.md recommends) must see
+# the same results as CI.
+for _var in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE",
+             "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE"):
+    os.environ.pop(_var, None)
 AGENT_ENV = {"GIT_COMMITTER_NAME": "Claude Code",
              "GIT_COMMITTER_EMAIL": "agent@agents.invalid"}
 
