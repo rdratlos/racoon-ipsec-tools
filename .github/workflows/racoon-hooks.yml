@@ -17,7 +17,7 @@ jobs:
     name: shellcheck (POSIX sh)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: shellcheck src/racoon/scripts
         # --severity=warning: every SC3043 ('local' is not POSIX) and
         # SC2034 (cross-file variable use the sourced library reads) is
@@ -40,7 +40,7 @@ jobs:
       matrix:
         shell: [dash, bash]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: install ${{ matrix.shell }}
         run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.shell }}
       - name: run test suite under ${{ matrix.shell }}
@@ -57,7 +57,7 @@ jobs:
     name: tests/hooks (NetBSD /bin/sh)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: run test suite inside a NetBSD VM
         uses: vmactions/netbsd-vm@v1
         with:

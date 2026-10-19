@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261019T203746Z-d98c0604",
+  "created": "2026-10-19T20:37:46Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "config",
+      "files": [
+        ".github/workflows/develop-build-test.yml",
+        ".github/workflows/develop-netbsd-build-test.yml",
+        ".github/workflows/develop-netbsd-full-check.yml",
+        ".github/workflows/develop-provenance.yml",
+        ".github/workflows/guard-branch-purity.yml",
+        ".github/workflows/legacy-cflags-canary.yml",
+        ".github/workflows/racoon-hooks.yml"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "reimth@etik.com",
+    "statement": "pending"
+  },
+  "session": {
+    "ref": "https://claude.ai/code/session_011jVeo4D8sHByAusu9CKSLg"
+  }
+}

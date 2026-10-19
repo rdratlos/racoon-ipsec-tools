@@ -30,7 +30,7 @@ jobs:
     name: prov.py self-tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install jsonschema
         run: pip install --quiet jsonschema
@@ -44,7 +44,7 @@ jobs:
     continue-on-error: true     # Phase 0 only -- see header
     steps:
       - name: "Checkout (full history: baseline ancestry and blame)"
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
