@@ -41,12 +41,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
 
       - name: Build on NetBSD 10
-        uses: cross-platform-actions/action@v0.27.0
+        uses: cross-platform-actions/action@v1.6.0
         with:
           operating_system: netbsd
           architecture: x86_64
