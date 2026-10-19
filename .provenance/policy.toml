@@ -17,9 +17,9 @@ baseline = "b509568eae7357d8d724ef38139abe180c28ccc8"
 # AI-assisted commits must carry a human Signed-off-by.
 require_signoff_on_assisted = true
 
-# What to do when a manifest's api-reported model differs from the model its
-# profile role declares (silent substitution by a provider/router/alias).
-substitution = "warn"            # "warn" | "fail"
+# A manifest's api-reported model that differs from its profile role's model
+# (silent substitution by a provider, router or moving alias) is a warning;
+# configured or declared mismatches fail. Not a switch (RFC 0005 §11.6).
 
 [trailers]
 assisted = "Assisted-by"         # canonical spelling; other casings fail
@@ -69,26 +69,21 @@ require_dissimilar_review_for_scopes = ["code", "refactor"]
 forbid_withheld_in_critical = true
 
 [attestation]
-# Every AI-assisted session needs a human attestation (`prov attest`): a
-# signed approval commit whose attestation file lists the reviewed commits by
-# `git patch-id --stable`. A reviewed diff changed afterwards fails verify.
-required = true
-
+# Every AI-assisted session needs a human attestation (`prov attest`), always:
+# attest adds the human's Signed-off-by to every commit in the range
+# (message-only rewrite; trees, author and committer stay as they were) and
+# writes a signed approval commit whose attestation file lists the reviewed
+# commits by `git patch-id --stable`. A reviewed diff changed afterwards
+# fails verify. There is no switch to turn attestation or its signature off
+# (RFC 0005 §11.6).
+#
 # The approval commit must be SSH-signed by a key listed in allowed_signers
 # (git's gpg.ssh.allowedSignersFile format: "<email> <key-type> <key>").
 # The file is read from the BASE of the verified range, so a change cannot
-# admit its own key. Keys on a hardware token (OpenPGP card via gpg-agent,
-# FIDO2 "sk-" keys) prove human presence; the agent never holds the key.
-require_signature = true
+# admit its own key; a base without signers fails. Keys on a hardware token
+# (OpenPGP card via gpg-agent, FIDO2 "sk-" keys) prove human presence; the
+# agent never holds the key.
 allowed_signers = ".provenance/allowed_signers"
-
-# DCO handling:
-#   "rebase-signoff"  (policy b) -- attest adds the human's Signed-off-by to
-#                     every commit in the range (message-only rewrite; trees,
-#                     author and committer stay as they were).
-#   "approval-commit" (policy a) -- the signed approval commit carries the
-#                     Signed-off-by for the whole series; no rewrite.
-dco = "rebase-signoff"
 
 # attest refuses to run when one of these environment variables is set: a
 # speed bump against an agent attesting its own work, not a security control

@@ -267,6 +267,14 @@ sign-off. Before each commit ask: *would these lines look like this if the
 agent had never answered?* If not, declare it. `.provenance/README.md`
 ("Retyped is still assisted") has the cases and the reason.
 
+**Guest contributions** (pull requests from a fork): if an AI tool helped,
+write one sentence in the pull request naming the tools, the models and
+what they did (e.g. `Assisted-by: Claude Code (Opus), review by GPT-5`) and
+sign off your commits as usual (`git commit -s`). That is all -- the
+maintainer completes the provenance record when taking the pull request in,
+and the provenance check on your pull request is advisory and stays green.
+The rest of this section is for maintainers and regular contributors.
+
 `python3 tools/prov.py declare` writes the matching manifest under
 `.provenance/manifests/` and prints these lines. Before merge, approve the
 work in your own terminal with `python3 tools/prov.py attest --test "make

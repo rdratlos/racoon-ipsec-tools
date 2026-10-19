@@ -9,9 +9,12 @@ real .provenance/ directory (policy, schemas, profiles) with the baseline
 cleared, makes commits, and checks that `prov verify` accepts or rejects
 them for the right reason. No network, no fixtures outside this file.
 
-ProvTests covers trailers, manifests and policy with attestation switched
-off; AttestTests switches it on and signs approval commits with throw-away
-SSH keys (needs ssh-keygen, as git's SSH signing does).
+Attestation is always required, so every repository signs approval commits
+with throw-away SSH keys (needs ssh-keygen, as git's SSH signing does).
+ProvTests covers trailers, manifests and policy: a case that should pass is
+attested first, a case that should fail is checked for its own reason.
+AttestTests covers `prov attest` and the signature rules, GuestTests the
+advisory mode for fork pull requests and `prov intake` (RFC 0005 §11).
 
 Run:  python3 -m unittest -v tools/test_prov.py
 """
@@ -44,7 +47,7 @@ AGENT_ENV = {"GIT_COMMITTER_NAME": "Claude Code",
 
 
 class Repo:
-    def __init__(self, attest=False, dco="rebase-signoff", signers=True):
+    def __init__(self, signers=True):
         self.dir = tempfile.mkdtemp(prefix="prov-test-")
         self.git("init", "-q", "-b", "develop")
         self.git("config", "user.name", "Jane Doe")
@@ -59,20 +62,16 @@ class Repo:
         with open(pol) as f:
             text = f.read()
         text = re.sub(r'^baseline = ".*"$', 'baseline = ""', text, flags=re.M)
-        text = re.sub(r'^required = true$', f'required = {str(attest).lower()}',
-                      text, flags=re.M)
-        text = re.sub(r'^dco = ".*"$', f'dco = "{dco}"', text, flags=re.M)
         with open(pol, "w") as f:
             f.write(text)
         self.keys = {}
-        if attest:
-            self.git("config", "gpg.format", "ssh")
-            # a host-wide gpg.ssh.program may point elsewhere; tests use
-            # plain ssh-keygen, as CI does
-            self.git("config", "gpg.ssh.program", "ssh-keygen")
-            self.use_key("jane")
-            if signers:
-                self.allow("jane")
+        self.git("config", "gpg.format", "ssh")
+        # a host-wide gpg.ssh.program may point elsewhere; tests sign with
+        # plain ssh-keygen, as CI does
+        self.git("config", "gpg.ssh.program", "ssh-keygen")
+        self.use_key("jane")
+        if signers:
+            self.allow("jane")
         self.git("add", "-A")
         self.write("README", "base\n")
         self.commit("initial", trailers=[HUMAN])
@@ -130,11 +129,18 @@ class Repo:
         extra = ["--author", author] if author else []
         self.git("commit", "-q", *extra, "-F", "-", stdin=msg, env=env)
 
-    def verify(self, rng=None):
+    def verify(self, *argv, rng=None):
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = prov.main(["-C", self.dir, "verify",
-                            "--range", rng or f"{self.base}..HEAD"])
+                            "--range", rng or f"{self.base}..HEAD", *argv])
+        return rc, buf.getvalue()
+
+    def intake(self, *argv):
+        buf = io.StringIO()
+        with redirect_stdout(buf), mock.patch("sys.stderr", buf):
+            rc = prov.main(["-C", self.dir, "intake",
+                            "--range", f"{self.base}..HEAD", *argv])
         return rc, buf.getvalue()
 
     def query(self, *argv):
@@ -156,6 +162,8 @@ class ProvTests(unittest.TestCase):
         self.r.cleanup()
 
     def assertPass(self):
+        rc, out = self.r.attest()
+        self.assertEqual(rc, 0, out)
         rc, out = self.r.verify()
         self.assertEqual(rc, 0, out)
         return out
@@ -268,13 +276,6 @@ class ProvTests(unittest.TestCase):
         self.assertIn("[WARN]", out)
         self.assertIn("provider substitution?", out)
 
-    def test_pending_review_fails(self):
-        self.r.write("src/x.c", "int x;\n")
-        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
-                            "--scope", "code", "--statement", "pending")
-        self.r.commit("agent-prepared", tr + [HUMAN])
-        self.assertFail("statement is 'pending'")
-
     # -- critical paths -------------------------------------------------
 
     def test_critical_code_without_dissimilar_review_fails(self):
@@ -370,7 +371,7 @@ class ProvTests(unittest.TestCase):
 
 
 class AttestTests(unittest.TestCase):
-    """prov attest + verify with attestation required (policy b by default)."""
+    """prov attest + verify: sign-off, signed approval, patch-id binding."""
 
     def setUp(self):
         self.r = None
@@ -380,7 +381,7 @@ class AttestTests(unittest.TestCase):
             self.r.cleanup()
 
     def repo(self, **kw):
-        self.r = Repo(attest=True, **kw)
+        self.r = Repo(**kw)
         return self.r
 
     def agent_session(self, path="src/x.c", text="int x;\n", subject="agent change"):
@@ -405,7 +406,7 @@ class AttestTests(unittest.TestCase):
         rc, out = self.verify()
         self.assertEqual(rc, 0, out)
         self.assertIn("approved by a signed human attestation", out)
-        # policy b: sign-off added, agent kept as committer, author is human
+        # sign-off added, agent kept as committer, author is human
         agent = r.git("rev-parse", "HEAD~1").strip()
         self.assertIn(HUMAN, r.git("show", "-s", "--format=%B", agent))
         self.assertEqual(r.git("show", "-s", "--format=%cn", agent).strip(),
@@ -509,15 +510,25 @@ class AttestTests(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("not signed by an allowed key", out)
 
-    def test_bootstrap_signers_from_change_warns(self):
+    def test_no_signers_at_base_fails(self):
+        # the key added by the change itself never counts, not even once
         r = self.repo(signers=False)
         r.allow("jane")
         r.commit("add maintainer key", [HUMAN])
         self.agent_session()
         self.assertEqual(r.attest()[0], 0)
         rc, out = self.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("no signers at the base", out)
+
+    def test_signature_check_ignores_local_gpg_ssh_program(self):
+        r = self.repo()
+        self.agent_session()
+        self.assertEqual(r.attest()[0], 0)
+        # a caller's own verification program must not decide the result
+        r.git("config", "gpg.ssh.program", "false")
+        rc, out = self.verify()
         self.assertEqual(rc, 0, out)
-        self.assertIn("bootstrap", out)
 
     def test_ai_author_fails(self):
         r = self.repo()
@@ -544,15 +555,133 @@ class AttestTests(unittest.TestCase):
         rc, out = self.verify()
         self.assertEqual(rc, 0, out)
 
-    def test_policy_a_signoff_on_approval_commit_only(self):
-        r = self.repo(dco="approval-commit")
-        self.agent_session()
-        agent = r.head()
-        self.assertEqual(r.attest()[0], 0)
-        self.assertEqual(r.git("rev-parse", "HEAD~1").strip(), agent)  # no rewrite
-        self.assertNotIn("Signed-off-by", r.git("show", "-s", "--format=%B", agent))
-        rc, out = self.verify()
+
+GUEST = "Signed-off-by: Gus Guest <gus@example.org>"
+GUEST_STATEMENT = "Claude Code (Opus) wrote the fix, I reviewed and tested it"
+
+
+class GuestTests(unittest.TestCase):
+    """Guest fork pull requests: advisory verify, maintainer intake."""
+
+    def setUp(self):
+        self.r = Repo()
+
+    def tearDown(self):
+        self.r.cleanup()
+
+    def guest_commits(self, path="src/x.c"):
+        """Two guest commits as they arrive from a fork: free-text statement,
+        the guest's agent as author of one, a vendor co-author line."""
+        r = self.r
+        r.write(path, "int x;\n")
+        r.commit("guest: fix", ["Assisted-by: Claude Code (Opus)",
+                                "Co-Authored-By: Claude <noreply@anthropic.com>",
+                                GUEST], author="Claude <noreply@anthropic.com>")
+        r.write("tests/t.c", "int t;\n")
+        r.commit("guest: test", [GUEST], author="Gus Guest <gus@example.org>")
+
+    def test_advisory_mode_is_green_and_writes_summary(self):
+        self.guest_commits()
+        summary = os.path.join(self.r.dir + "-keys", "summary.md")
+        rc, out = self.r.verify("--advisory", "--summary", summary)
         self.assertEqual(rc, 0, out)
+        self.assertIn("[NOTE]", out)
+        self.assertNotIn("[FAIL]", out)
+        text = open(summary).read()
+        self.assertIn("Thank you", text)
+        self.assertIn("profile reference", text)
+        # the same commits on a branch in this repository fail
+        self.assertEqual(self.r.verify()[0], 1)
+
+    def test_intake_then_attest_passes(self):
+        r = self.r
+        self.guest_commits()
+        originals = r.git("rev-list", "--reverse", f"{r.base}..HEAD").split()
+        g = prov.Git(r.dir)
+        before = [g.patch_id(c) for c in originals]
+        rc, out = r.intake("--guest-statement", GUEST_STATEMENT, "--scope", "code, tests",
+                           "--new-profile", "guest-gus", "--owner", "jane",
+                           "--role", "implementer=anthropic-claude:claude-opus-5-5",
+                           "--author", "Gus Guest <gus@example.org>")
+        self.assertEqual(rc, 0, out)
+        rc, out = r.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("not covered by a valid attestation", out)
+        self.assertEqual(r.attest()[0], 0)
+        rc, out = r.verify()
+        self.assertEqual(rc, 0, out)
+
+        # intake commit, two rebuilt guest commits, approval commit
+        series = r.git("rev-list", "--reverse", f"{r.base}..HEAD").split()
+        self.assertEqual(len(series), 4)
+        intake, fix, test = series[:3]
+        self.assertIn(".provenance/profiles/guest-gus/r1.toml",
+                      r.git("show", "--name-only", "--format=", intake))
+        self.assertIn(GUEST_STATEMENT, r.git("show", "-s", "--format=%B", intake))
+        msg = r.git("show", "-s", "--format=%B", fix)
+        self.assertIn("Assisted-by: guest-gus@r1", msg)
+        self.assertIn(GUEST, msg)
+        self.assertNotIn("Co-Authored-By", msg)
+        self.assertNotIn("Claude Code (Opus)", msg)
+        for c in (fix, test):
+            self.assertEqual(r.git("show", "-s", "--format=%an <%ae>", c).strip(),
+                             "Gus Guest <gus@example.org>")
+        # the guest's diffs are untouched: same patch-ids
+        self.assertEqual([prov.Git(r.dir).patch_id(c) for c in (fix, test)], before)
+
+    def test_intake_reuses_profile(self):
+        r = self.r
+        self.guest_commits()
+        rc, out = r.intake("--guest-statement", GUEST_STATEMENT, "--scope", "code",
+                           "--profile", "claude-opus@r1",
+                           "--author", "Gus Guest <gus@example.org>")
+        self.assertEqual(rc, 0, out)
+        intake = r.git("rev-list", "--reverse", f"{r.base}..HEAD").split()[0]
+        self.assertNotIn("profiles/", r.git("show", "--name-only", "--format=", intake))
+        self.assertEqual(r.attest()[0], 0)
+        self.assertEqual(r.verify()[0], 0)
+
+    def test_intake_refuses_ai_author_without_guest(self):
+        r = self.r
+        self.guest_commits()
+        head = r.head()
+        rc, out = r.intake("--guest-statement", GUEST_STATEMENT, "--scope", "code",
+                           "--profile", "claude-opus@r1")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("name an AI as author", out)
+        self.assertEqual(r.head(), head)
+
+    def test_intake_critical_path_needs_dissimilar_review(self):
+        r = self.r
+        self.guest_commits(path="src/racoon/isakmp.c")
+        args = ["--guest-statement", "Qwen3-Coder via OpenCode", "--scope", "code",
+                "--new-profile", "guest-qwen", "--owner", "jane",
+                "--role", "implementer=alibaba-qwen:Qwen/Qwen3-Coder-480B-A35B-Instruct",
+                "--author", "Gus Guest <gus@example.org>"]
+        guest_tip = r.head()
+        self.assertEqual(r.intake(*args)[0], 0)
+        self.assertEqual(r.attest()[0], 0)
+        rc, out = r.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("requires a 'reviewer' contribution", out)
+        # the maintainer runs a review with a model of another family
+        r.git("reset", "-q", "--hard", guest_tip)
+        rc, out = r.intake(*args, "--reviewed-by", "opencode-pair@r1")
+        self.assertEqual(rc, 0, out)
+        msg = r.git("show", "-s", "--format=%B", "HEAD")
+        self.assertIn("Assisted-by: opencode-pair@r1", msg)
+        self.assertEqual(r.attest()[0], 0)
+        rc, out = r.verify()
+        self.assertEqual(rc, 0, out)
+
+    def test_intake_refuses_guest_provenance_changes(self):
+        r = self.r
+        r.write(".provenance/profiles/mine/r1.toml", "x = 1\n")
+        r.commit("guest adds a profile", [GUEST])
+        rc, out = r.intake("--guest-statement", GUEST_STATEMENT, "--scope", "code",
+                           "--profile", "claude-opus@r1")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("change .provenance/", out)
 
 
 if __name__ == "__main__":

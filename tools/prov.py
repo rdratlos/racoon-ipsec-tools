@@ -26,6 +26,7 @@ Subcommands:
   verify   check trailers, manifests, profiles and policy over a commit range
   declare  write a manifest for the current work and print the trailers
   attest   human approval: sign-off, test evidence, signed approval commit
+  intake   maintainer: turn a guest pull request into a provenance record
   query    find commits/files a model or profile contributed to (recall drill)
 
 Tool-neutral by design: no subcommand depends on Claude Code, OpenCode or any
@@ -64,10 +65,16 @@ EMAIL_RE = re.compile(r"\s*<[^>]*>\s*")
 # reporting
 
 class Report:
-    def __init__(self, quiet=False):
+    """advisory: failures are findings for the maintainer's intake (guest
+    fork pull requests, RFC 0005 §11.4), printed as [NOTE] and kept for a
+    summary; they do not fail the run."""
+
+    def __init__(self, quiet=False, advisory=False):
         self.fails = 0
         self.warns = 0
         self.quiet = quiet
+        self.advisory = advisory
+        self.findings = []
 
     def ok(self, msg):
         if not self.quiet:
@@ -75,11 +82,13 @@ class Report:
 
     def warn(self, msg):
         self.warns += 1
+        self.findings.append(msg)
         print(f"[WARN] {msg}")
 
     def fail(self, msg):
         self.fails += 1
-        print(f"[FAIL] {msg}")
+        self.findings.append(msg)
+        print(f"[{'NOTE' if self.advisory else 'FAIL'}] {msg}")
 
 
 # --------------------------------------------------------------------------
@@ -374,9 +383,6 @@ def verify_commits(git, report, policy, commits, base=None, head="HEAD"):
         baseline = None
     need_signoff = policy.get("enforcement", {}).get(
         "require_signoff_on_assisted", True)
-    acfg = policy.get("attestation", {})
-    if acfg.get("required") and acfg.get("dco") == "approval-commit":
-        need_signoff = False    # policy (a): the approval commit carries it
 
     sessions = {}   # provid -> {"commits": [...], "files": set(), "scopes": set()}
     checked = exempt = assisted = 0
@@ -483,13 +489,10 @@ def verify_commits(git, report, policy, commits, base=None, head="HEAD"):
     report.ok(f"{checked} commit(s) checked, {assisted} AI-assisted, "
               f"{exempt} exempt (at or before baseline)")
 
-    signers = None
-    if acfg.get("required") and sessions:
-        signers = allowed_signers_text(git, report, policy, base, head)
+    signers = allowed_signers_text(git, report, policy, base) if sessions else None
     for pid, s in sorted(sessions.items()):
         verify_session(git, report, policy, pid, s)
-        if acfg.get("required"):
-            verify_attestation(git, report, policy, pid, s, head, signers)
+        verify_attestation(git, report, policy, pid, s, head, signers)
 
 
 def verify_session(git, report, policy, pid, s):
@@ -498,12 +501,6 @@ def verify_session(git, report, policy, pid, s):
     except json.JSONDecodeError:
         return
     before = report.fails
-    sub_mode = policy.get("enforcement", {}).get("substitution", "warn")
-    if (mdoc.get("human_review", {}).get("statement") == "pending"
-            and not policy.get("attestation", {}).get("required")):
-        report.fail(f"manifest {pid}: human_review.statement is 'pending' -- "
-                    f"the accountable human must review and set it to "
-                    f"'reviewed' or 'reviewed-and-tested' before merge")
     crit = policy.get("critical", {})
     writers_critical = []   # (contribution, family)
     reviewers = []
@@ -534,8 +531,7 @@ def verify_session(git, report, policy, pid, s):
             msg = (f"{where}: model '{model.get('id')}' differs from profile "
                    f"{ref} role '{role['name']}' ('{role['model_id']}')")
             if contrib.get("model_reported_by") == "api":
-                (report.fail if sub_mode == "fail" else report.warn)(
-                    msg + " -- provider substitution?")
+                report.warn(msg + " -- provider substitution?")
             else:
                 report.fail(msg + " -- configured/declared model must match "
                             "the profile; create a new profile revision")
@@ -572,19 +568,22 @@ def attestation_path(pid, attested):
     return f"{PROV_DIR}/attestations/{pid[:4]}/{pid}/{attested}.json"
 
 
-def allowed_signers_text(git, report, policy, base, head):
+def allowed_signers_text(git, report, policy, base):
     """Allowed signers come from the BASE of the range, so a change cannot
-    admit its own key. Bootstrap: no file at base -> the change's own file,
-    with a warning."""
+    admit its own key. No base, or no signers there: None (every approval
+    then fails)."""
     path = policy.get("attestation", {}).get(
         "allowed_signers", f"{PROV_DIR}/allowed_signers")
-    text = git.show(base, path) if base else None
+    if base is None:
+        report.fail(f"{path}: no base revision to read allowed signers from "
+                    f"-- verify a range BASE..HEAD")
+        return None
+    text = git.show(base, path)
     if text is None or not _signer_lines(text):
-        text = git.show(head, path)
-        if text is not None and _signer_lines(text):
-            report.warn(f"{path}: not present (or empty) at the base of the "
-                        f"range -- bootstrap: using the change's own file")
-    return text if text and _signer_lines(text) else None
+        report.fail(f"{path}: no signers at the base of the range ({base[:12]}) "
+                    f"-- a maintainer key must be on the base branch first")
+        return None
+    return text
 
 
 def _signer_lines(text):
@@ -600,7 +599,10 @@ def commit_signature(git, sha, signers_text):
         f.write(signers_text or "")
         tmp = f.name
     try:
-        out = git.out("-c", f"gpg.ssh.allowedSignersFile={tmp}", "log", "-1",
+        # verify with plain ssh-keygen whatever the caller configured: a
+        # local gpg.ssh.program could reject good or accept bad signatures
+        out = git.out("-c", "gpg.ssh.program=ssh-keygen",
+                      "-c", f"gpg.ssh.allowedSignersFile={tmp}", "log", "-1",
                       "--format=%G?%x00%GS", sha, check=False)
     finally:
         os.unlink(tmp)
@@ -626,7 +628,6 @@ def session_attestations(git, head, pid):
 
 
 def verify_attestation(git, report, policy, pid, s, head, signers):
-    acfg = policy.get("attestation", {})
     tcfg = policy.get("trailers", {})
     ai_res = [re.compile(p, re.I) for p in tcfg.get("ai_identity_patterns", [])]
     before = report.fails
@@ -639,26 +640,17 @@ def verify_attestation(git, report, policy, pid, s, head, signers):
         if any(r.search(doc.get("reviewer", "")) for r in ai_res):
             report.fail(f"{where}: reviewer '{doc.get('reviewer')}' is an AI identity")
             continue
-        if acfg.get("require_signature", True):
-            if signers is None:
-                report.fail(f"{where}: no allowed signers configured "
-                            f"({acfg.get('allowed_signers', '.provenance/allowed_signers')})")
-                continue
-            status, principal = commit_signature(git, sha, signers)
-            if status != "G":
-                report.fail(f"{where}: approval commit is not signed by an "
-                            f"allowed key (signature status '{status}')")
-                continue
-            if principal != doc.get("reviewer"):
-                report.fail(f"{where}: signed by '{principal}', but reviewer is "
-                            f"'{doc.get('reviewer')}'")
-                continue
-        if acfg.get("dco") == "approval-commit":
-            sobs = [v for k, v in git.trailers(sha) if k.lower() == "signed-off-by"]
-            if not any(doc.get("reviewer", "") in v for v in sobs):
-                report.fail(f"{where}: dco = approval-commit requires the "
-                            f"reviewer's Signed-off-by on the approval commit")
-                continue
+        if signers is None:
+            continue    # reported once by allowed_signers_text()
+        status, principal = commit_signature(git, sha, signers)
+        if status != "G":
+            report.fail(f"{where}: approval commit is not signed by an "
+                        f"allowed key (signature status '{status}')")
+            continue
+        if principal != doc.get("reviewer"):
+            report.fail(f"{where}: signed by '{principal}', but reviewer is "
+                        f"'{doc.get('reviewer')}'")
+            continue
         for entry in doc.get("commits", []):
             approved[entry["patch_id"]] = doc.get("statement")
 
@@ -682,9 +674,34 @@ def default_range(git, policy):
     return f"{base}..HEAD" if base else "HEAD"
 
 
+ADVISORY_SUMMARY = """\
+### AI provenance (RFC 0005)
+
+Thank you for your contribution! This check is advisory for pull requests
+from a fork and stays green.
+
+If an AI tool helped with this change, please make sure the pull request
+says so in one sentence (tools, models, what they did), for example
+`Assisted-by: Claude Code (Opus), review by GPT-5`, and that your commits
+carry your own `Signed-off-by:`. The maintainer completes the project's
+provenance record when taking the pull request in (`prov intake`).
+"""
+
+
+def write_summary(path, report):
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(ADVISORY_SUMMARY)
+        if report.findings:
+            f.write("\nFindings the maintainer will resolve at intake:\n\n")
+            for msg in report.findings:
+                f.write(f"- {msg}\n")
+        else:
+            f.write("\nNo findings.\n")
+
+
 def cmd_verify(args):
     git = Git(args.repo)
-    report = Report(args.quiet)
+    report = Report(args.quiet, advisory=args.advisory)
     policy = load_policy(git, report)
     if policy is None:
         return 1
@@ -699,6 +716,12 @@ def cmd_verify(args):
     verify_tree(git, report, policy, head)
     verify_immutability(git, report, base, head)
     verify_commits(git, report, policy, git.commits(rng), base=base, head=head)
+    if args.summary:
+        write_summary(args.summary, report)
+    if args.advisory:
+        print(f"prov verify (advisory): {report.fails} finding(s) for intake, "
+              f"{report.warns} warning(s) -- not enforced")
+        return 0
     print(f"prov verify: {report.fails} failure(s), {report.warns} warning(s)")
     return 1 if report.fails else 0
 
@@ -931,10 +954,8 @@ def cmd_attest(args):
         for c in cs:
             print(f"    {c[:12]} {git.subject(c)}")
     print(git.out("diff", "--stat", f"{commits[0]}^", "HEAD"))
-    dco = acfg.get("dco", "rebase-signoff")
-    if dco == "rebase-signoff":
-        print(f"Your Signed-off-by will be added to {len(commits)} commit(s) "
-              f"in {rng} (message-only rewrite).")
+    print(f"Your Signed-off-by will be added to {len(commits)} commit(s) "
+          f"in {rng} (message-only rewrite).")
     if sys.stdin.isatty() and not args.yes:
         if input("Type 'attest' to sign this approval: ").strip() != "attest":
             _err("not confirmed; nothing changed")
@@ -945,8 +966,7 @@ def cmd_attest(args):
 
     # 6. DCO, then the signed approval commit
     signoff = f"Signed-off-by: {name} <{email}>"
-    if dco == "rebase-signoff":
-        add_signoff(git, commits, signoff)
+    add_signoff(git, commits, signoff)
     import time
     while True:   # one attestation per session and second: wait out a clash
         now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -977,8 +997,7 @@ def cmd_attest(args):
            f"bound by git patch-id (RFC 0005).\n"
            + (f"Tests: {tests['command']} (exit 0)\n" if tests else "")
            + f"\n{signoff}\n")
-    sign = ["-S"] if acfg.get("require_signature", True) else []
-    p = git.run("commit", "-q", *sign, "-F", "-", stdin=msg, check=False)
+    p = git.run("commit", "-q", "-S", "-F", "-", stdin=msg, check=False)
     if p.returncode != 0:
         git.run("reset", "-q", "--", *written, check=False)
         for w in written:
@@ -986,13 +1005,261 @@ def cmd_attest(args):
         _err("signing the approval commit failed -- configure commit signing "
              "(git config gpg.format ssh; git config user.signingkey <key>) "
              f"and retry.\n{p.stderr.strip()}")
-        if dco == "rebase-signoff":
-            _err("note: Signed-off-by was already added; `git reflog` shows "
-                 "the previous HEAD if you want to undo that")
+        _err("note: Signed-off-by was already added; `git reflog` shows "
+             "the previous HEAD if you want to undo that")
         return 1
     print(f"prov attest: signed approval commit "
           f"{git.out('rev-parse', '--short', 'HEAD').strip()} written "
           f"({', '.join(written)})")
+    return 0
+
+
+# --------------------------------------------------------------------------
+# intake
+
+def _intake_err(msg):
+    print(f"prov intake: {msg}", file=sys.stderr)
+
+
+def _toml_str(value):
+    return json.dumps(value, ensure_ascii=False)   # valid TOML basic string
+
+
+def profile_toml(pid, owner, harness, description, roles):
+    lines = ["# Maintainer-owned profile mirroring a guest contribution's "
+             "statement (RFC 0005 §11.3).",
+             'schema_version = "1.0"', f"id = {_toml_str(pid)}", "revision = 1",
+             f"harness = {_toml_str(harness)}", f"owner = {_toml_str(owner)}",
+             'status = "active"']
+    if description:
+        lines.append(f"description = {_toml_str(description)}")
+    for name, family, model_id in roles:
+        lines += ["", "[[roles]]", f"name = {_toml_str(name)}",
+                  f"model_family = {_toml_str(family)}",
+                  f"model_id = {_toml_str(model_id)}", 'disclosure = "public"']
+    return "\n".join(lines) + "\n"
+
+
+def tree_with(git, tree, blobs):
+    """`tree` with the files {path: blob} added, via a throw-away index."""
+    import tempfile
+    fd, index = tempfile.mkstemp(prefix="prov-index-")
+    os.close(fd)
+    os.unlink(index)
+    env = dict(os.environ, GIT_INDEX_FILE=index)
+    try:
+        git.run("read-tree", tree, env=env)
+        for path, blob in sorted(blobs.items()):
+            git.run("update-index", "--add", "--cacheinfo",
+                    f"100644,{blob},{path}", env=env)
+        return git.out("write-tree", env=env).strip()
+    finally:
+        if os.path.exists(index):
+            os.unlink(index)
+
+
+def canonical_message(git, msg, drop, trailers):
+    """Replace the message's trailer block: lines for which drop(key, value)
+    is true go (with their continuation lines), `trailers` come first, the
+    rest -- the guest's Signed-off-by among them -- is kept in order."""
+    text = msg.rstrip("\n")
+    body, sep, last = text.rpartition("\n\n")
+    if not (sep and git.out("interpret-trailers", "--parse", stdin=msg).strip()):
+        body, last = text, ""
+    kept, skip = [], False
+    for line in last.splitlines():
+        if line[:1].isspace():
+            if not skip:
+                kept.append(line)
+            continue
+        key, _, value = line.partition(":")
+        skip = drop(key.strip(), value.strip())
+        if not skip:
+            kept.append(line)
+    return body + "\n\n" + "\n".join(trailers + kept) + "\n"
+
+
+def cmd_intake(args):
+    git = Git(args.repo)
+    report = Report()
+    policy = load_policy(git, report)
+    if policy is None:
+        return 1
+    tcfg = policy["trailers"]
+    ai_res = [re.compile(p, re.I) for p in tcfg.get("ai_identity_patterns", [])]
+    scopes = [x.strip() for x in args.scope.split(",") if x.strip()]
+    bad = set(scopes) - set(tcfg["allowed_scopes"])
+    if bad or not scopes:
+        _intake_err(f"bad --scope; allowed: {', '.join(tcfg['allowed_scopes'])}")
+        return 2
+    if git.out("status", "--porcelain", "--untracked-files=no").strip():
+        _intake_err("working tree has uncommitted changes")
+        return 2
+
+    # 1. the guest's commits, on a branch in this repository
+    label = args.session_ref
+    if args.pr:
+        branch = f"intake/pr-{args.pr}"
+        git.run("fetch", "-q", args.remote, f"pull/{args.pr}/head:{branch}")
+        git.run("checkout", "-q", branch)
+        base = git.out("merge-base", args.base, "HEAD").strip()
+        rng = f"{base}..HEAD"
+        label = label or f"pull request #{args.pr}"
+    elif args.range and ".." in args.range:
+        rng = args.range
+        base, head = rng.split("..", 1)
+        if git.out("rev-parse", head or "HEAD").strip() != \
+                git.out("rev-parse", "HEAD").strip():
+            _intake_err("the range must end at HEAD")
+            return 2
+    else:
+        _intake_err("give --pr N or --range BASE..HEAD")
+        return 2
+    label = label or rng
+    if git.out("rev-list", "--merges", rng).strip():
+        _intake_err("the guest's commits contain merges; rebase them onto the "
+                    "base first (intake needs a linear series)")
+        return 2
+    commits = git.commits(rng)
+    if not commits:
+        _intake_err(f"no commits in {rng}")
+        return 2
+    changed = set()
+    for c in commits:
+        changed |= git.changed_files(c)
+    if any(f.startswith(f"{PROV_DIR}/") for f in changed):
+        _intake_err(f"the guest's commits change {PROV_DIR}/; intake writes the "
+                    f"provenance record itself -- drop those changes first")
+        return 2
+
+    # 2. authors: the accountable human, never the guest's agent
+    fix_author = None
+    if args.author:
+        m = re.match(r"^\s*(.+?)\s*<([^>]+)>\s*$", args.author)
+        if not m or any(r.search(args.author) for r in ai_res):
+            _intake_err(f"--author '{args.author}' must be 'Name <email>' of a human")
+            return 2
+        fix_author = (m.group(1), m.group(2))
+    ai_authored = [c for c in commits
+                   if any(r.search("{} <{}>".format(*git.ident(c)["author"]))
+                          for r in ai_res)]
+    if ai_authored and not fix_author:
+        _intake_err("these commits name an AI as author; give the guest with "
+                    "--author 'Name <email>': "
+                    + ", ".join(c[:12] for c in ai_authored))
+        return 2
+
+    # 3. profile: reuse, or a new maintainer-owned mirror of the statement
+    new_files = {}
+    if args.profile:
+        ref = args.profile
+        text = _read(git, profile_path(ref)) if PROFILE_RE.match(ref) else None
+        if text is None:
+            _intake_err(f"profile {ref} not found")
+            return 2
+        profile = tomllib.loads(text)
+    else:
+        if not (args.new_profile and args.owner and args.role):
+            _intake_err("give --profile ID@rN, or --new-profile ID --owner OWNER "
+                        "--role NAME=FAMILY:MODEL_ID [--role ...]")
+            return 2
+        ref = f"{args.new_profile}@r1"
+        if not PROFILE_RE.match(ref) or _read(git, profile_path(ref)) is not None:
+            _intake_err(f"profile {ref} is not a valid new profile id")
+            return 2
+        roles = []
+        for spec in args.role:
+            m = re.match(r"^([a-z][a-z0-9-]*)=([a-z0-9][a-z0-9-]*):(.+)$", spec)
+            if not m:
+                _intake_err(f"bad --role '{spec}' (want NAME=FAMILY:MODEL_ID)")
+                return 2
+            roles.append(m.groups())
+        text = profile_toml(args.new_profile, args.owner, args.harness,
+                            args.description, roles)
+        profile = tomllib.loads(text)
+        new_files[profile_path(ref)] = text
+
+    # 4. manifest: manual, every changed file as an upper bound
+    files = sorted(changed)
+    contributions = [{"profile": ref, "role": r["name"],
+                      "model": {"family": r["model_family"], "id": r["model_id"]},
+                      "model_reported_by": "manual",
+                      "files": [] if r["name"] == "reviewer" else files}
+                     for r in profile["roles"]]
+    refs = [ref]
+    for rref in args.reviewed_by:
+        rtext = _read(git, profile_path(rref)) if PROFILE_RE.match(rref) else None
+        role = profile_role(tomllib.loads(rtext), "reviewer") if rtext else None
+        if role is None:
+            _intake_err(f"--reviewed-by {rref}: no such profile with a "
+                        f"'reviewer' role")
+            return 2
+        contributions.append({"profile": rref, "role": "reviewer",
+                              "model": {"family": role["model_family"],
+                                        "id": role["model_id"]},
+                              "model_reported_by": "config", "files": []})
+        refs.append(rref)
+    now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+    pid = f"{now.strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}"
+    reviewer = git.out("config", "user.email", check=False).strip()
+    if not reviewer:
+        _intake_err("git user.email must be set (the maintainer)")
+        return 2
+    manifest = {"schema_version": "1.0", "provenance_id": pid,
+                "created": now.isoformat().replace("+00:00", "Z"),
+                "contributions": contributions,
+                "human_review": {"reviewer": reviewer, "statement": "pending"},
+                "session": {"ref": label}}
+    new_files[manifest_path(pid)] = json.dumps(manifest, indent=2) + "\n"
+
+    # 5. intake commit on the base, then the guest's commits rebuilt on it:
+    #    original trees plus the provenance files, so every diff -- and its
+    #    patch-id -- is unchanged
+    blobs = {path: git.out("hash-object", "-w", "--stdin", stdin=text).strip()
+             for path, text in new_files.items()}
+    base_tree = git.out("rev-parse", f"{base}^{{tree}}").strip()
+    msg = (f"provenance: intake of {label}\n\n"
+           f"Guest statement: {args.guest_statement}\n\n"
+           f"Profile {ref} ({'reused' if args.profile else 'new, mirrors the statement'}), "
+           f"manifest {pid}, model_reported_by = manual (RFC 0005 §11.3).\n")
+    parent = git.out("commit-tree", tree_with(git, base_tree, blobs), "-p", base,
+                     stdin=msg).strip()
+    new_trailers = ([f"{tcfg['assisted']}: {r}" for r in refs]
+                    + [f"{tcfg['scope']}: {', '.join(scopes)}",
+                       f"{tcfg['provenance']}: {pid}"])
+    ours = {tcfg["assisted"].lower(), tcfg["scope"].lower(),
+            tcfg["provenance"].lower()}
+
+    def drop(key, value):
+        k = key.lower()
+        return k in ours or (k in ("signed-off-by", "co-authored-by")
+                             and any(r.search(value) for r in ai_res))
+
+    for c in commits:
+        f = git.out("show", "-s", "--date=raw",
+                    "--format=%an%x00%ae%x00%ad%x00%cn%x00%ce%x00%cd", c)
+        an, ae, ad, cn, ce, cd = f.rstrip("\n").split("\x00")
+        if c in ai_authored:
+            an, ae = fix_author
+        env = dict(os.environ, GIT_AUTHOR_NAME=an, GIT_AUTHOR_EMAIL=ae,
+                   GIT_AUTHOR_DATE=ad, GIT_COMMITTER_NAME=cn,
+                   GIT_COMMITTER_EMAIL=ce, GIT_COMMITTER_DATE=cd)
+        tree = tree_with(git, git.out("rev-parse", f"{c}^{{tree}}").strip(), blobs)
+        new_msg = canonical_message(git, git.message(c), drop, new_trailers)
+        parent = git.out("commit-tree", tree, "-p", parent, stdin=new_msg,
+                         env=env).strip()
+    # unlike attest's message-only rewrite, the trees change (provenance
+    # files added): move the branch and update index and working tree
+    git.run("reset", "-q", "--keep", parent)
+
+    print(f"prov intake: {len(commits)} guest commit(s) from {label} rebuilt on "
+          f"an intake commit")
+    print(f"  profile   {ref}" + ("" if args.profile else "  (new)"))
+    print(f"  manifest  {manifest_path(pid)}  (files: {len(files)}, manual)")
+    if ai_authored:
+        print(f"  author set to {fix_author[0]} <{fix_author[1]}> on "
+              f"{len(ai_authored)} commit(s)")
+    print(f"next: review, then  python3 tools/prov.py attest --range {base}..HEAD")
     return 0
 
 
@@ -1120,6 +1387,12 @@ def main(argv=None):
     v = sub.add_parser("verify", help="check provenance over a commit range")
     v.add_argument("--range", help="git revision range, e.g. origin/develop..HEAD")
     v.add_argument("-q", "--quiet", action="store_true", help="only WARN/FAIL")
+    v.add_argument("--advisory", action="store_true",
+                   help="guest fork pull request: report findings for intake, "
+                        "exit 0 (RFC 0005 §11.4)")
+    v.add_argument("--summary", metavar="FILE",
+                   help="append a Markdown summary for guests (e.g. "
+                        "$GITHUB_STEP_SUMMARY); used with --advisory")
     v.set_defaults(func=cmd_verify)
 
     d = sub.add_parser("declare", help="write a manifest, print trailers")
@@ -1154,6 +1427,34 @@ def main(argv=None):
     a.add_argument("--yes", action="store_true",
                    help="confirm without a terminal prompt")
     a.set_defaults(func=cmd_attest)
+
+    i = sub.add_parser("intake", help="maintainer: take in a guest pull "
+                       "request (RFC 0005 §11.3)")
+    src = i.add_mutually_exclusive_group(required=True)
+    src.add_argument("--pr", type=int, metavar="N",
+                     help="fetch pull request N into branch intake/pr-N")
+    src.add_argument("--range", help="guest commits BASE..HEAD, already checked out")
+    i.add_argument("--remote", default="origin")
+    i.add_argument("--base", default="origin/develop",
+                   help="branch the pull request targets (with --pr)")
+    i.add_argument("--guest-statement", required=True, metavar="TEXT",
+                   help="the guest's own words on AI use, recorded verbatim")
+    i.add_argument("--scope", required=True, help="comma-separated AI-Scope")
+    i.add_argument("--profile", metavar="ID@rN", help="reuse an existing profile")
+    i.add_argument("--new-profile", metavar="ID",
+                   help="create ID@r1 mirroring the statement")
+    i.add_argument("--owner", help="new profile: owner (the maintainer)")
+    i.add_argument("--role", action="append", metavar="NAME=FAMILY:MODEL_ID",
+                   help="new profile: one role; repeat")
+    i.add_argument("--harness", default="guest", help="new profile: harness")
+    i.add_argument("--description", help="new profile: description")
+    i.add_argument("--reviewed-by", action="append", default=[], metavar="ID@rN",
+                   help="add the 'reviewer' role of this profile (dissimilar "
+                        "review run by the maintainer)")
+    i.add_argument("--author", metavar="'NAME <EMAIL>'",
+                   help="the guest, for commits whose author is an AI")
+    i.add_argument("--session-ref", help="label for the manifest and intake commit")
+    i.set_defaults(func=cmd_intake)
 
     q = sub.add_parser("query", help="find what a model/profile contributed")
     g = q.add_argument_group("selector (at least one)")

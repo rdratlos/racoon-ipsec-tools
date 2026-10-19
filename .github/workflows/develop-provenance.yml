@@ -9,6 +9,10 @@
 #                 PR/push introduces. Phase 0: NON-blocking (continue-on-error)
 #                 so the rules can be tuned on real traffic. Phase 1 removes
 #                 continue-on-error (RFC 0005, Rollout).
+#                 Pull requests from a fork (guests, RFC 0005 §11.4) run in
+#                 advisory mode: always green, findings go to the job summary
+#                 and are resolved at the maintainer's intake. Branches in
+#                 this repository and pushes to develop get the full rules.
 
 name: AI provenance
 
@@ -52,11 +56,17 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
           PUSH_BEFORE: ${{ github.event.before }}
           PUSH_AFTER: ${{ github.sha }}
         run: |
           set -euo pipefail
           ZERO="0000000000000000000000000000000000000000"
+          MODE=()
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$PR_HEAD_REPO" != "$THIS_REPO" ]; then
+            MODE=(--advisory --summary "$GITHUB_STEP_SUMMARY")
+          fi
           if [ "$EVENT_NAME" = "pull_request" ]; then
             BASE=$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA")
             RANGE="${BASE}..${PR_HEAD_SHA}"
@@ -65,4 +75,4 @@ jobs:
           else
             RANGE="${PUSH_BEFORE}..${PUSH_AFTER}"
           fi
-          python3 tools/prov.py verify --range "$RANGE"
+          python3 tools/prov.py verify --range "$RANGE" "${MODE[@]}"

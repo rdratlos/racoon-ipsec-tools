@@ -73,16 +73,13 @@ key**. The attestation lists each commit by `git patch-id --stable`:
 - further commits of the same session need a further `attest`.
 
 One-time setup: an SSH signing key (preferably on a hardware token) and its
-public key in `.provenance/allowed_signers`:
-
-```sh
-git config gpg.format ssh
-git config user.signingkey ~/.ssh/id_ed25519_sk.pub
-```
+public key in `.provenance/allowed_signers` -- see "Maintainer workstation"
+below, including how to use an existing OpenPGP key.
 
 CI reads `allowed_signers` from the **base** of a change, so a pull request
-cannot admit its own key. Merge into `develop` with merge commits: GitHub's
-rebase- and squash-merge recreate commits without your signature.
+cannot admit its own key; a base without signers fails. Merge into
+`develop` with merge commits: GitHub's rebase- and squash-merge recreate
+commits without your signature.
 
 ## Retyped is still assisted
 
@@ -117,6 +114,112 @@ Declaring is not a confession. There is no quota and no penalty for a high
 AI share; the only commit that harms the project is the one that hides its
 origin. List in the manifest only files whose committed content still
 contains AI output.
+
+## Guest contributions (pull requests from a fork)
+
+**Strict where the maintainer works, light where guests work** (RFC 0005
+§11). A guest whose pull request contains AI output writes one sentence in
+the pull request, or as a trailer, naming tools, models and what they did --
+for example `Assisted-by: Claude Code (Opus), review by GPT-5` -- and signs
+off their own commits. Nothing else: no profile, manifest, `declare` or
+`attest`. On fork pull requests `verify` is advisory: it stays green and
+lists in the job summary what the maintainer will complete. Human-only
+guest pull requests need nothing and may be merged directly.
+
+### Intake (maintainer)
+
+An AI-assisted guest pull request is never merged with the merge button.
+Take it in through a branch in this repository instead:
+
+```sh
+python3 tools/prov.py intake --pr 151 \
+    --guest-statement "Claude Code (Opus) wrote the fix, review by GPT-5" \
+    --scope code,tests \
+    --new-profile guest-jdoe --owner rdratlos \
+    --role implementer=anthropic-claude:claude-opus-5-5 \
+    --author "J. Doe <jdoe@example.org>"        # only if an agent was author
+```
+
+`intake` fetches the pull request into `intake/pr-<N>`, then
+
+1. writes an **intake commit** on the base: a maintainer-owned profile
+   mirroring the statement (`--new-profile`; or reuse one with
+   `--profile ID@rN`, e.g. a contributor-kit profile) and a manifest with
+   `model_reported_by = "manual"` listing every file the guest changed (an
+   upper bound, stated as such);
+2. rebuilds the guest's commits on it: original trees plus those files, so
+   every diff and patch-id is unchanged; free-text `Assisted-by:`,
+   `AI-Scope:`, `Provenance-Id:` and AI `Co-Authored-By:`/`Signed-off-by:`
+   lines are replaced by canonical trailers; the guest's own
+   `Signed-off-by:` stays; a commit whose author is an AI gets the guest
+   (`--author`) as author of record.
+
+For guest `code` in a critical path, run a review with a model from another
+family yourself and add it with `--reviewed-by <profile>@rN` (the commits
+then carry one `Assisted-by:` per profile). Then review, `prov attest`, push
+the branch, open a pull request that says "supersedes #N", and merge it with
+a merge commit. `intake` refuses guest commits that change `.provenance/`.
+
+## Maintainer workstation
+
+Attesting needs Git >= 2.34, OpenSSH >= 8.2, Python >= 3.11 (and GnuPG >= 2.2
+for an OpenPGP key). That is the workstation that signs approvals, not a
+platform racoon supports: racoon still builds and runs down to Ubuntu Bionic,
+which cannot attest.
+
+### SSH signing with an existing OpenPGP key (gpg-agent)
+
+gpg-agent can serve your OpenPGP signing (sub)key as an SSH key, so you keep
+one key. Tested with Git 2.34 and later.
+
+```sh
+# 1. signing (sub)key [S]: fingerprint and keygrip
+gpg -K --with-subkey-fingerprint --with-keygrip <you@example.org>
+FPR=<fingerprint of the [S] key>; KEYGRIP=<its keygrip>
+
+# 2. public key as an SSH file ("!" = exactly this subkey, even without [A])
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+gpg --export-ssh-key "${FPR}"'!' > ~/.ssh/git-signing.pub
+
+# 3. gpg-agent as ssh-agent for this key
+echo enable-ssh-support >> ~/.gnupg/gpg-agent.conf
+echo "$KEYGRIP" >> ~/.gnupg/sshcontrol
+gpgconf --kill gpg-agent
+cat >> ~/.bashrc <<'EOF'
+export GPG_TTY=$(tty)
+export SSH_AUTH_SOCK="$(gpgconf --list-dirs agent-ssh-socket)"
+gpg-connect-agent updatestartuptty /bye >/dev/null
+EOF
+. ~/.bashrc; ssh-add -L          # must show the key from step 2
+
+# 4. git, in this repository only (OpenPGP signing elsewhere is unaffected)
+git config gpg.format ssh
+git config user.signingkey ~/.ssh/git-signing.pub   # a path: works from Git 2.34
+git config gpg.ssh.allowedSignersFile "$(git rev-parse --show-toplevel)/.provenance/allowed_signers"
+
+# 5. the allowed_signers line, added by a reviewed commit on develop
+printf '%s %s %s\n' <you@example.org> "$(cut -d' ' -f1,2 ~/.ssh/git-signing.pub)" \
+    "openpgp:0x${FPR: -16}"
+
+# 6. test
+git commit --allow-empty -S -m "signing test" && git log -1 --format='%G? %GS'
+git reset --hard HEAD~1          # expected above: "G <you@example.org>"
+```
+
+Use a path for `user.signingkey`: the inline `key::ssh-ed25519 ...` form
+needs Git >= 2.35, and Git 2.34 reads it as a file name.
+
+| Message | Cause |
+| --- | --- |
+| `Couldn't get agent socket?` | `SSH_AUTH_SOCK` not set in this shell (step 3) |
+| `Couldn't find key in agent?` | keygrip missing from `sshcontrol`, or another subkey's |
+| `agent refused operation?` | gpg-agent cannot show pinentry here: `gpg-connect-agent updatestartuptty /bye`; on a headless machine install `pinentry-curses` |
+| `Couldn't load public key ...` followed by the key text | `user.signingkey` is not read as a key: quotes in the stored value, or `key::` on Git 2.34 -- use the path form |
+| `%G?` is `U` | e-mail in `allowed_signers` does not match the key |
+| `%G?` is `N`, or an `allowedSignersFile` error | the path from step 4 is wrong, or the file has no line for the key yet |
+
+`prov verify` always checks signatures with plain `ssh-keygen`, whatever
+`gpg.ssh.program` you configured for signing.
 
 ## Layout
 
