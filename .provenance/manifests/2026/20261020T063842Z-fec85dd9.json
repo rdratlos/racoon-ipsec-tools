@@ -12,6 +12,7 @@
       },
       "model_reported_by": "config",
       "files": [
+        ".github/workflows/schema-validate.yml",
         "AGENTS.md",
         "CLAUDE.md"
       ]
