@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261020T224807Z-a6402ae0",
+  "created": "2026-10-20T22:48:07Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "config",
+      "files": [
+        ".github/scripts/emit-sarif-annotations.js",
+        ".github/workflows/develop-build-test.yml",
+        ".github/workflows/develop-netbsd-build-test.yml",
+        ".github/workflows/guard-branch-purity.yml",
+        ".github/workflows/legacy-cflags-canary.yml",
+        ".github/workflows/racoon-hooks.yml",
+        "CONTRIBUTING.md"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "noreply@anthropic.com",
+    "statement": "pending"
+  }
+}

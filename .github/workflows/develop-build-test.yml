@@ -29,8 +29,9 @@ name: CI Build & Test (develop)
 on:
   push: {}
   pull_request: {}
-  schedule:
-    - cron: '0 4 * * *'
+  # No schedule: here. GitHub only fires schedule triggers from the default
+  # branch (main), so one in this develop-only file never ran. main's
+  # scheduled-dispatch.yml starts this workflow on develop nightly instead.
   workflow_dispatch:
     inputs:
       branch:
@@ -42,48 +43,110 @@ permissions:
   checks: write   # required to publish the dedicated tri-state check run
 
 jobs:
+  # Decides what this run tests and where its results go. Tested is always
+  # the exact commit the event is about, never a branch name looked up
+  # again (a fork's branch name does not exist here, or names a different
+  # branch of this repository):
+  #   push/schedule        github.sha
+  #   pull_request, fork   the PR head SHA; the token is read-only, so
+  #                        results go to the job summary, not check runs
+  #   pull_request, same   skipped: the push event of that branch already
+  #     repository         tests the identical SHA and publishes its checks
+  #   workflow_dispatch    the tip of the requested branch
   resolve-ref:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       ref: ${{ steps.ref.outputs.ref }}
-      sha: ${{ steps.sha.outputs.sha }}
+      sha: ${{ steps.ref.outputs.sha || steps.sha.outputs.sha }}
+      label: ${{ steps.ref.outputs.label }}
+      run: ${{ steps.ref.outputs.run }}
+      publish-checks: ${{ steps.ref.outputs.publish-checks }}
     steps:
-      # Branch names are untrusted input (a fork chooses its own): they reach
-      # scripts only through env, never as ${{ }} expressions inside code.
-      - name: Resolve target ref
+      - name: Resolve target
         id: ref
+        # Branch names are untrusted input (a fork chooses its own): they
+        # reach scripts only through env, never as ${{ }} inside code.
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
           INPUT_BRANCH: ${{ inputs.branch }}
-          HEAD_REF: ${{ github.head_ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ -n "$INPUT_BRANCH" ]; then
-            echo "ref=$INPUT_BRANCH" >> "$GITHUB_OUTPUT"
-          elif [ -n "$HEAD_REF" ]; then
-            echo "ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=${REF_NAME:-develop}" >> "$GITHUB_OUTPUT"
+          run=true
+          publish=true
+          case "$EVENT_NAME" in
+            workflow_dispatch)
+              # sha comes from the checkout below
+              ref=$INPUT_BRANCH
+              label=$INPUT_BRANCH
+              ;;
+            pull_request)
+              ref=$PR_HEAD_SHA
+              sha=$PR_HEAD_SHA
+              label="$PR_HEAD_REPO:$PR_HEAD_REF"
+              if [ "$PR_HEAD_REPO" = "$THIS_REPO" ]; then
+                run=false
+              else
+                publish=false
+              fi
+              ;;
+            *)
+              ref=$GITHUB_SHA
+              sha=$GITHUB_SHA
+              label=$REF_NAME
+              ;;
+          esac
+          # Dependabot runs get a read-only token unless granted more;
+          # report through the job summary like a fork.
+          if [ "$ACTOR" = "dependabot[bot]" ]; then
+            publish=false
           fi
-      - name: Checkout resolved ref
+          {
+            echo "ref=$ref"
+            echo "sha=${sha:-}"
+            echo "label=$label"
+            echo "run=$run"
+            echo "publish-checks=$publish"
+          } >> "$GITHUB_OUTPUT"
+      - name: Checkout requested branch
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/checkout@v5
         with:
           ref: ${{ steps.ref.outputs.ref }}
-      - name: Resolve target sha
+          persist-credentials: false
+      - name: Resolve branch tip
         id: sha
+        if: github.event_name == 'workflow_dispatch'
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Report CI target
         env:
-          TARGET_REF: ${{ steps.ref.outputs.ref }}
-          TARGET_SHA: ${{ steps.sha.outputs.sha }}
+          TARGET_LABEL: ${{ steps.ref.outputs.label }}
+          TARGET_SHA: ${{ steps.ref.outputs.sha || steps.sha.outputs.sha }}
+          RUN: ${{ steps.ref.outputs.run }}
+          PUBLISH: ${{ steps.ref.outputs.publish-checks }}
         run: |
-          echo "### CI target" >> "$GITHUB_STEP_SUMMARY"
-          echo "- branch: \`$TARGET_REF\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- sha: \`$TARGET_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### CI target"
+            echo "- source: \`$TARGET_LABEL\`"
+            echo "- sha: \`$TARGET_SHA\`"
+            if [ "$RUN" != "true" ]; then
+              echo "- skipped: the push run for this branch tests the same commit"
+            elif [ "$PUBLISH" != "true" ]; then
+              echo "- results: job summaries only (read-only token, no check runs)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # Delegate build + test to the shared reusable workflow.
   ci:
     needs: resolve-ref
-    uses: rdratlos/shared-ci/.github/workflows/ccpp-autotools.yml@main
+    if: needs.resolve-ref.outputs.run == 'true'
+    uses: rdratlos/shared-ci/.github/workflows/ccpp-autotools.yml@claude/loving-rubin-99e64p
     with:
       ref: ${{ needs.resolve-ref.outputs.ref }}
       # racoon-ipsec-tools requires these runtime libraries at build time.
@@ -177,14 +240,16 @@ jobs:
     name: 'Annotate compiler diagnostics'
     needs: [resolve-ref, ci]
     runs-on: ubuntu-latest
-    if: always()
+    if: always() && needs.resolve-ref.outputs.run == 'true'
     permissions:
+      contents: read
       checks: write
     steps:
       - name: Checkout (for the shared annotation script)
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.resolve-ref.outputs.ref }}
+          persist-credentials: false
 
       - name: Download build tree
         uses: actions/download-artifact@v7
@@ -206,25 +271,33 @@ jobs:
         uses: actions/github-script@v8
         env:
           TARGET_SHA: ${{ needs.resolve-ref.outputs.sha }}
+          PUBLISH_CHECKS: ${{ needs.resolve-ref.outputs.publish-checks }}
         with:
           script: |
-            const { collectFindings, publishAnnotations } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/emit-sarif-annotations.js`);
+            const { collectFindings, publishAnnotations, emitWorkflowAnnotations } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/emit-sarif-annotations.js`);
             const sha = process.env.TARGET_SHA || context.sha;
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const repoRoot = `${process.env.GITHUB_WORKSPACE}/build-extracted`;
 
             const findings = collectFindings(repoRoot, repoRoot);
 
-            await publishAnnotations({
-              github, context, core, findings,
+            const report = {
               checkName: 'CI: compiler diagnostics (develop)',
+              sha,
               sha,
               title: findings.length ? `${findings.length} diagnostic(s) found` : 'No diagnostics',
               summary: (findings.length
                 ? `${findings.length} compiler diagnostic(s) from this build's SARIF output.`
                 : 'No SARIF diagnostics captured for this build (either a clean build, or this toolchain does not support `-fdiagnostics-format=sarif-file`, i.e. GCC < 13).')
                 + `\n\n[Full workflow run](${runUrl})`,
-            });
+            };
+            if (process.env.PUBLISH_CHECKS === 'true') {
+              await publishAnnotations({ github, context, core, findings, ...report });
+            } else {
+              // Read-only token (fork pull request, Dependabot): no check
+              // run; the same result as workflow annotations and summary.
+              await emitWorkflowAnnotations({ core, findings, ...report });
+            }
 
   # Publish the tri-state check run (RED / ORANGE / GREEN), mirroring
   # main's build-test.yml publish-tristate job.
@@ -232,8 +305,9 @@ jobs:
     name: 'Publish tri-state check'
     needs: [resolve-ref, ci]
     runs-on: ubuntu-latest
-    if: always()
+    if: always() && needs.resolve-ref.outputs.run == 'true'
     permissions:
+      contents: read
       checks: write
 
     steps:
@@ -244,6 +318,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.resolve-ref.outputs.ref }}
+          persist-credentials: false
 
       # Build outputs carry text the tested code can influence (test names,
       # Valgrind messages): like the branch name, they enter the script
@@ -251,8 +326,9 @@ jobs:
       - name: Publish check
         uses: actions/github-script@v8
         env:
-          TARGET_REF: ${{ needs.resolve-ref.outputs.ref }}
+          TARGET_LABEL: ${{ needs.resolve-ref.outputs.label }}
           TARGET_SHA: ${{ needs.resolve-ref.outputs.sha }}
+          PUBLISH_CHECKS: ${{ needs.resolve-ref.outputs.publish-checks }}
           BUILD_RESULT: ${{ needs.ci.outputs.build-result }}
           UNIT_TEST_RESULT: ${{ needs.ci.outputs.unit-test-result }}
           VALGRIND_RESULT: ${{ needs.ci.outputs.valgrind-result }}
@@ -261,26 +337,45 @@ jobs:
           COMPILE_RESULT: ${{ needs.ci.outputs.compile-result }}
           BUILD_SECONDS: ${{ needs.ci.outputs.build-duration-seconds }}
           TEST_SECONDS: ${{ needs.ci.outputs.test-duration-seconds }}
+          VALGRIND_SECONDS: ${{ needs.ci.outputs.valgrind-duration-seconds }}
           TEST_SUMMARY: ${{ needs.ci.outputs.test-summary }}
         with:
           script: |
-            const { buildBasenameIndex, publishAnnotations } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/emit-sarif-annotations.js`);
-            const branch = process.env.TARGET_REF;
+            const { buildBasenameIndex, publishAnnotations, emitWorkflowAnnotations } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/emit-sarif-annotations.js`);
+            const branch = process.env.TARGET_LABEL;
             const sha = process.env.TARGET_SHA || context.payload.pull_request?.head?.sha || context.sha;
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
 
-            const buildResult = process.env.BUILD_RESULT || 'success';
-            const testResult  = process.env.UNIT_TEST_RESULT || 'success';
+            // Fork pull requests and Dependabot runs get a read-only token:
+            // each result then goes to workflow annotations and this job's
+            // summary instead of a check run.
+            const publish = process.env.PUBLISH_CHECKS === 'true';
+            const report = (r) => publish
+              ? publishAnnotations({ github, context, core, sha, findings: [], ...r })
+              : emitWorkflowAnnotations({ core, findings: [], ...r });
+
+            // An empty result means the stage never reported (setup
+            // failure, cancellation): unknown, never a silent success.
+            const buildResult = process.env.BUILD_RESULT || 'unknown';
+            const testResult  = process.env.UNIT_TEST_RESULT || 'unknown';
 
             let conclusion, title, summary;
             if (buildResult === 'failure') {
               conclusion = 'failure';
               title = 'Build failed';
               summary = 'The project build (`make`) failed. See the Build step logs.';
+            } else if (buildResult !== 'success') {
+              conclusion = 'failure';
+              title = 'Build did not complete';
+              summary = 'The build produced no result (setup failure or cancellation). See the workflow run.';
             } else if (testResult === 'failure') {
               conclusion = 'neutral';
               title = 'Build OK — unit tests failed (or an expected-skip check failed)';
               summary = 'The project built successfully, but `make check`/check-expected-skips.sh reported a problem.';
+            } else if (testResult !== 'success') {
+              conclusion = 'neutral';
+              title = 'Build OK — unit tests did not run';
+              summary = 'The project built, but the unit tests produced no result (setup failure or cancellation). See the Test job.';
             } else {
               conclusion = 'success';
               title = 'Build and tests passed';
@@ -299,15 +394,7 @@ jobs:
               `[Full workflow run](${runUrl})`
             ].join('\n');
 
-            await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              name: 'CI: build & test (develop)',
-              head_sha: sha,
-              status: 'completed',
-              conclusion,
-              output: { title, summary, text }
-            });
+            await report({ checkName: 'CI: build & test (develop)', conclusion, title, summary, text });
 
             const valgrindResult = process.env.VALGRIND_RESULT || '';
 
@@ -362,11 +449,9 @@ jobs:
               `[Full workflow run](${runUrl})`
             ].filter(Boolean).join('\n');
 
-            await publishAnnotations({
-              github, context, core,
+            await report({
               findings: vgFindings,
               checkName: 'CI: valgrind (develop)',
-              sha,
               title: vgTitle,
               summary: vgSummary,
               text: vgText,
@@ -374,10 +459,11 @@ jobs:
             });
 
             // Rich overall check, same pattern as main's build-test.yml.
-            const configureResult = process.env.CONFIGURE_RESULT || 'success';
-            const compileResult   = process.env.COMPILE_RESULT || 'success';
+            const configureResult = process.env.CONFIGURE_RESULT || '';
+            const compileResult   = process.env.COMPILE_RESULT || '';
             const buildSeconds    = process.env.BUILD_SECONDS || '';
             const testSeconds     = process.env.TEST_SECONDS || '';
+            const valgrindSeconds = process.env.VALGRIND_SECONDS || '';
             const testSummaryRaw  = (process.env.TEST_SUMMARY || '').trim();
 
             const icon = (r) => ({
@@ -394,10 +480,10 @@ jobs:
             ];
 
             let overallConclusion, overallLabel;
-            if (configureResult === 'failure' || compileResult === 'failure') {
+            if (buildResult !== 'success' || configureResult === 'failure' || compileResult === 'failure') {
               overallConclusion = 'failure';
               overallLabel = 'FAILURE';
-            } else if (testResult === 'failure' || valgrindResult === 'failure') {
+            } else if (testResult !== 'success' || valgrindResult === 'failure') {
               overallConclusion = 'neutral';
               overallLabel = 'WARNING';
             } else {
@@ -420,6 +506,7 @@ jobs:
               '### Timing',
               `- Build (Configure + Compile): ${buildSeconds || '?'}s`,
               `- Unit tests: ${testSeconds || '?'}s`,
+              `- Valgrind: ${valgrindSeconds ? valgrindSeconds + 's' : 'not run'}`,
               '',
               '### Test counts',
               testSummaryRaw || '_test-command did not report counts._',
@@ -427,21 +514,17 @@ jobs:
               `[Full workflow run](${runUrl}) (artifacts are listed near the bottom of that page)`
             ].join('\n');
 
-            await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              name: 'CI: overall (develop)',
-              head_sha: sha,
-              status: 'completed',
+            await report({
+              checkName: 'CI: overall (develop)',
               conclusion: overallConclusion,
-              output: {
-                title: `${overallLabel}: ${stageRows.filter(r => r[1] === '❌').map(r => r[0]).join(', ') || 'all stages green'}`,
-                summary: `Overall: **${overallLabel}**. See the stage table for per-stage results.`,
-                text: overallText
-              }
+              title: `${overallLabel}: ${stageRows.filter(r => r[1] === '❌').map(r => r[0]).join(', ')
+                || (overallLabel === 'SUCCESS' ? 'all stages green' : 'a stage reported no result')}`,
+              summary: `Overall: **${overallLabel}**. See the stage table for per-stage results.`,
+              text: overallText,
             });
 
-            await core.summary
+            // Without check runs, report() already wrote it to the summary.
+            if (publish) await core.summary
               .addHeading('CI: overall (develop) — ' + overallLabel)
               .addRaw(overallText, true)
               .write();

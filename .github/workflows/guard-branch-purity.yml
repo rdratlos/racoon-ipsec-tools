@@ -58,11 +58,13 @@ jobs:
             CHANGED=$(git diff --name-only "$RANGE")
           fi
 
-          # Main-owned paths: main's own workflow files. Keep this in
+          # Main-owned paths: main's own workflow files, plus
+          # .github/dependabot.yml (Dependabot reads it only from the
+          # default branch, main). Keep this in
           # sync with guard-tree-purity.yml on main, which enforces the
           # mirror list. .claude/ is intentionally NOT in this list --
           # develop owns it, so it belongs here, not on the forbidden side.
-          FORBIDDEN_RE='^(\.github/workflows/build-test\.yml$|\.github/workflows/guard-tree-purity\.yml$|\.github/workflows/netbsd-build-test\.yml$|\.github/workflows/openssl-deprecation-canary\.yml$)'
+          FORBIDDEN_RE='^(\.github/workflows/build-test\.yml$|\.github/workflows/guard-tree-purity\.yml$|\.github/workflows/netbsd-build-test\.yml$|\.github/workflows/openssl-deprecation-canary\.yml$|\.github/workflows/scheduled-dispatch\.yml$|\.github/dependabot\.yml$)'
 
           OFFENDING=$(printf '%s\n' "$CHANGED" | grep -E "$FORBIDDEN_RE" || true)
 

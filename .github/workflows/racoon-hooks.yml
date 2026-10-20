@@ -12,6 +12,9 @@ on:
       - 'tests/hooks/**'
       - '.github/workflows/racoon-hooks.yml'
 
+permissions:
+  contents: read
+
 jobs:
   shellcheck:
     name: shellcheck (POSIX sh)

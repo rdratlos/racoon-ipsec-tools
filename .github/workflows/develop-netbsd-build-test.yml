@@ -54,7 +54,12 @@ jobs:
 
       - name: Build on NetBSD 10
         uses: cross-platform-actions/action@v1.6.0
+        # The dispatch input reaches the VM as an env var, not as a ${{ }}
+        # expression spliced into the script below.
+        env:
+          ENABLE_SANITIZER: ${{ github.event.inputs.enable_sanitizer }}
         with:
+          environment_variables: ENABLE_SANITIZER
           operating_system: netbsd
           architecture: x86_64
           # NetBSD 10.0 is the latest stable release available in the action.
@@ -84,7 +89,7 @@ jobs:
             # on push/pull_request/schedule that input doesn't exist at all
             # (empty string), which takes the enabled branch below.
             # ------------------------------------------------------------------
-            if [ "${{ github.event.inputs.enable_sanitizer }}" = "false" ]; then
+            if [ "${ENABLE_SANITIZER:-}" = "false" ]; then
               export SAN_CFLAGS=""
               export SAN_LDFLAGS=""
               echo "=== Sanitizer: disabled (explicit workflow_dispatch opt-out) ==="
