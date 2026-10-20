@@ -1,0 +1,39 @@
+# Scheduled runs for develop's workflows.
+#
+# GitHub fires schedule triggers only from the default branch (main), so a
+# schedule: in a develop-only workflow never runs. This main-owned file
+# starts those workflows on develop through workflow_dispatch instead
+# (events from GITHUB_TOKEN do not start workflows, except
+# workflow_dispatch and repository_dispatch).
+
+name: Scheduled develop runs
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # nightly: develop-build-test.yml
+    - cron: '0 6 * * 1'   # weekly: legacy-cflags-canary.yml
+  workflow_dispatch: {}
+
+permissions:
+  actions: write   # gh workflow run
+
+jobs:
+  dispatch:
+    name: Dispatch develop workflows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start workflows on develop
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
+        run: |
+          set -euo pipefail
+          run() { gh workflow run "$@" --repo "$GITHUB_REPOSITORY" --ref develop; }
+          # A manual dispatch starts both.
+          if [ "$EVENT_NAME" != schedule ] || [ "$CRON" = '0 4 * * *' ]; then
+            run develop-build-test.yml -f branch=develop
+          fi
+          if [ "$EVENT_NAME" != schedule ] || [ "$CRON" = '0 6 * * 1' ]; then
+            run legacy-cflags-canary.yml
+          fi

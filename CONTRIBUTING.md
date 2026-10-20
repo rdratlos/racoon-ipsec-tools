@@ -204,10 +204,12 @@ intentionally branch-specific and never cross between them:
 - Each branch owns its own `.github/workflows/` *files* — not the
   directory as a whole, which legitimately exists on both. `develop`'s CI
   files (`develop-build-test.yml`, `develop-netbsd-build-test.yml`,
+  `develop-netbsd-full-check.yml`, `develop-provenance.yml`,
   `guard-branch-purity.yml`, `legacy-cflags-canary.yml`,
-  `racoon-hooks.yml`) and `main`'s
-  (`build-test.yml`, `guard-tree-purity.yml`, `netbsd-build-test.yml`,
-  `openssl-deprecation-canary.yml`) are named so their sets never collide
+  `racoon-hooks.yml`) and `main`'s (`build-test.yml`,
+  `guard-tree-purity.yml`, `netbsd-build-test.yml`,
+  `openssl-deprecation-canary.yml`, `scheduled-dispatch.yml`, plus
+  `.github/dependabot.yml`) are named so their sets never collide
   on a shared path, and neither branch's set is meant to reach the other.
   `develop-build-test.yml` exists here — rather than `develop` just
   relying on `main`'s `build-test.yml` — because GitHub Actions only
