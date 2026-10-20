@@ -35,26 +35,35 @@ jobs:
     steps:
       - name: Resolve target ref
         id: ref
+        # Branch names are untrusted input (a fork chooses its own): they
+        # reach scripts only through env, never as ${{ }} inside code.
+        env:
+          INPUT_BRANCH: ${{ inputs.branch }}
+          HEAD_REF: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ -n "${{ inputs.branch }}" ]; then
-            echo "ref=${{ inputs.branch }}" >> $GITHUB_OUTPUT
-          elif [ -n "${{ github.head_ref }}" ]; then
-            echo "ref=${{ github.head_ref }}" >> $GITHUB_OUTPUT
+          if [ -n "$INPUT_BRANCH" ]; then
+            echo "ref=$INPUT_BRANCH" >> "$GITHUB_OUTPUT"
+          elif [ -n "$HEAD_REF" ]; then
+            echo "ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
           else
-            echo "ref=${{ github.ref_name || 'develop' }}" >> $GITHUB_OUTPUT
+            echo "ref=${REF_NAME:-develop}" >> "$GITHUB_OUTPUT"
           fi
       - name: Checkout resolved ref
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ steps.ref.outputs.ref }}
       - name: Resolve target sha
         id: sha
-        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Report CI target
+        env:
+          TARGET_REF: ${{ steps.ref.outputs.ref }}
+          TARGET_SHA: ${{ steps.sha.outputs.sha }}
         run: |
-          echo "### CI target" >> $GITHUB_STEP_SUMMARY
-          echo "- branch: \`${{ steps.ref.outputs.ref }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- sha: \`${{ steps.sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "### CI target" >> "$GITHUB_STEP_SUMMARY"
+          echo "- branch: \`$TARGET_REF\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- sha: \`$TARGET_SHA\`" >> "$GITHUB_STEP_SUMMARY"
 
   # Delegate build + test to the shared reusable workflow.
   ci:
@@ -156,12 +165,12 @@ jobs:
       checks: write
     steps:
       - name: Checkout (for the shared annotation script)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ needs.resolve-ref.outputs.ref }}
 
       - name: Download build tree
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: build-tree
           path: build-tree-download
@@ -177,11 +186,13 @@ jobs:
           rm -rf build-tree-download
 
       - name: Publish annotations
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
+        env:
+          TARGET_SHA: ${{ needs.resolve-ref.outputs.sha }}
         with:
           script: |
             const { collectFindings, publishAnnotations } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/emit-sarif-annotations.js`);
-            const sha = '${{ needs.resolve-ref.outputs.sha }}' || context.sha;
+            const sha = process.env.TARGET_SHA || context.sha;
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const repoRoot = `${process.env.GITHUB_WORKSPACE}/build-extracted`;
 
@@ -213,26 +224,41 @@ jobs:
       # "vmbuf.c", no directory) back to a real repo path -- see
       # buildBasenameIndex() in the shared annotation script below.
       - name: Checkout (for Valgrind annotation path resolution)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ needs.resolve-ref.outputs.ref }}
 
       - name: Publish check
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
+        # Build outputs carry text the tested code can influence (test
+        # names, Valgrind messages): like the branch name, they enter the
+        # script only through env.
+        env:
+          TARGET_REF: ${{ needs.resolve-ref.outputs.ref }}
+          TARGET_SHA: ${{ needs.resolve-ref.outputs.sha }}
+          BUILD_RESULT: ${{ needs.ci.outputs.build-result }}
+          UNIT_TEST_RESULT: ${{ needs.ci.outputs.unit-test-result }}
+          VALGRIND_RESULT: ${{ needs.ci.outputs.valgrind-result }}
+          VALGRIND_SUMMARY: ${{ needs.ci.outputs.valgrind-summary }}
+          CONFIGURE_RESULT: ${{ needs.ci.outputs.configure-result }}
+          COMPILE_RESULT: ${{ needs.ci.outputs.compile-result }}
+          BUILD_SECONDS: ${{ needs.ci.outputs.build-duration-seconds }}
+          TEST_SECONDS: ${{ needs.ci.outputs.test-duration-seconds }}
+          TEST_SUMMARY: ${{ needs.ci.outputs.test-summary }}
         with:
           script: |
             const { buildBasenameIndex, publishAnnotations } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/emit-sarif-annotations.js`);
-            const branch = '${{ needs.resolve-ref.outputs.ref }}';
+            const branch = process.env.TARGET_REF;
             // Use the sha that resolve-ref actually checked out and tested,
             // not context.sha (which on workflow_dispatch is the dispatching
             // ref's tip, not necessarily the target branch).
-            const sha = '${{ needs.resolve-ref.outputs.sha }}' || context.payload.pull_request?.head?.sha || context.sha;
+            const sha = process.env.TARGET_SHA || context.payload.pull_request?.head?.sha || context.sha;
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
 
-            const buildResult = '${{ needs.ci.outputs.build-result || 'success' }}';
+            const buildResult = process.env.BUILD_RESULT || 'success';
             // Unit-test result alone, excluding Valgrind — Valgrind gets its
             // own check run below so its outcome isn't folded into this one.
-            const testResult  = '${{ needs.ci.outputs.unit-test-result || 'success' }}';
+            const testResult  = process.env.UNIT_TEST_RESULT || 'success';
 
             let conclusion, title, summary;
             if (buildResult === 'failure') {
@@ -275,7 +301,7 @@ jobs:
             // policy requires `make check-valgrind` to be green, and that
             // needs a separate signal instead of being folded into the
             // build/test conclusion above.
-            const valgrindResult = '${{ needs.ci.outputs.valgrind-result }}';
+            const valgrindResult = process.env.VALGRIND_RESULT || '';
 
             let vgConclusion, vgTitle, vgSummary;
             if (valgrindResult === 'failure') {
@@ -303,7 +329,7 @@ jobs:
             let vgFindings = [];
             let vgUnplaced = 0;
             try {
-              const parsed = JSON.parse(`${{ needs.ci.outputs.valgrind-summary || '[]' }}`);
+              const parsed = JSON.parse(process.env.VALGRIND_SUMMARY || '[]');
               const basenameIndex = buildBasenameIndex(process.env.GITHUB_WORKSPACE, ['.c', '.h']);
               for (const f of parsed) {
                 if (!f.file) { vgUnplaced++; continue; }
@@ -348,11 +374,11 @@ jobs:
             // stage, in addition to (not replacing) the two check runs
             // above -- those names may already be wired into branch
             // protection, so this is purely additive.
-            const configureResult = '${{ needs.ci.outputs.configure-result || 'success' }}';
-            const compileResult   = '${{ needs.ci.outputs.compile-result || 'success' }}';
-            const buildSeconds    = '${{ needs.ci.outputs.build-duration-seconds }}';
-            const testSeconds     = '${{ needs.ci.outputs.test-duration-seconds }}';
-            const testSummaryRaw  = `${{ needs.ci.outputs.test-summary }}`.trim();
+            const configureResult = process.env.CONFIGURE_RESULT || 'success';
+            const compileResult   = process.env.COMPILE_RESULT || 'success';
+            const buildSeconds    = process.env.BUILD_SECONDS || '';
+            const testSeconds     = process.env.TEST_SECONDS || '';
+            const testSummaryRaw  = (process.env.TEST_SUMMARY || '').trim();
 
             const icon = (r) => ({
               success: '✅', failure: '❌', skipped: '⏭️'

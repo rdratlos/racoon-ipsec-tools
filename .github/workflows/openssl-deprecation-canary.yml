@@ -51,26 +51,35 @@ jobs:
     steps:
       - name: Resolve target ref
         id: ref
+        # Branch names are untrusted input (a fork chooses its own): they
+        # reach scripts only through env, never as ${{ }} inside code.
+        env:
+          INPUT_BRANCH: ${{ inputs.branch }}
+          HEAD_REF: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ -n "${{ inputs.branch }}" ]; then
-            echo "ref=${{ inputs.branch }}" >> $GITHUB_OUTPUT
-          elif [ -n "${{ github.head_ref }}" ]; then
-            echo "ref=${{ github.head_ref }}" >> $GITHUB_OUTPUT
+          if [ -n "$INPUT_BRANCH" ]; then
+            echo "ref=$INPUT_BRANCH" >> "$GITHUB_OUTPUT"
+          elif [ -n "$HEAD_REF" ]; then
+            echo "ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
           else
-            echo "ref=${{ github.ref_name || 'develop' }}" >> $GITHUB_OUTPUT
+            echo "ref=${REF_NAME:-develop}" >> "$GITHUB_OUTPUT"
           fi
       - name: Checkout resolved ref
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ steps.ref.outputs.ref }}
       - name: Resolve target sha
         id: sha
-        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Report canary target
+        env:
+          TARGET_REF: ${{ steps.ref.outputs.ref }}
+          TARGET_SHA: ${{ steps.sha.outputs.sha }}
         run: |
-          echo "### Canary target" >> $GITHUB_STEP_SUMMARY
-          echo "- branch: \`${{ steps.ref.outputs.ref }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- sha: \`${{ steps.sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "### Canary target" >> "$GITHUB_STEP_SUMMARY"
+          echo "- branch: \`$TARGET_REF\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- sha: \`$TARGET_SHA\`" >> "$GITHUB_STEP_SUMMARY"
 
   canary:
     needs: resolve-ref
@@ -103,8 +112,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Annotate readiness status
+        env:
+          CANARY_RESULT: ${{ needs.canary.outputs.result }}
         run: |
-          if [ "${{ needs.canary.outputs.result }}" = "success" ]; then
+          if [ "$CANARY_RESULT" = "success" ]; then
             echo "::notice title=4.0 Readiness::All tracked checks pass. If the readiness tracker is green, the RSA*->EVP_PKEY migration may be complete -- consider promoting it to a hard gate and closing the migration issue."
           else
             echo "::notice title=4.0 Readiness::See the compile results in the canary job summary. Regression of reintroduced deprecated *calls* is guarded separately by the normal -Werror build."
@@ -140,7 +151,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download compile logs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: openssl-canary-logs
           path: compile-logs
@@ -171,17 +182,23 @@ jobs:
       checks: write
 
     steps:
+      # The compile results carry text the compiled code can influence: like
+      # the branch name, they enter the script only through env.
       - name: Publish check runs
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
+        env:
+          TARGET_REF: ${{ needs.resolve-ref.outputs.ref }}
+          TARGET_SHA: ${{ needs.resolve-ref.outputs.sha }}
+          CANARY_RESULTS: ${{ needs.canary.outputs.results }}
         with:
           script: |
-            const branch = '${{ needs.resolve-ref.outputs.ref }}';
-            const sha = '${{ needs.resolve-ref.outputs.sha }}' || context.payload.pull_request?.head?.sha || context.sha;
+            const branch = process.env.TARGET_REF;
+            const sha = process.env.TARGET_SHA || context.payload.pull_request?.head?.sha || context.sha;
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
 
             let results = [];
             try {
-              results = JSON.parse(`${{ needs.canary.outputs.results || '[]' }}`);
+              results = JSON.parse(process.env.CANARY_RESULTS || '[]');
             } catch (e) {
               core.warning(`Failed to parse canary results JSON: ${e}`);
             }
