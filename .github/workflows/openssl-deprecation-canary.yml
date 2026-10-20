@@ -83,7 +83,7 @@ jobs:
 
   canary:
     needs: resolve-ref
-    uses: rdratlos/shared-ci/.github/workflows/ccpp-target-compile.yml@main
+    uses: rdratlos/shared-ci/.github/workflows/ccpp-target-compile.yml@claude/zealous-johnson-yu8x6g
     with:
       ref: ${{ needs.resolve-ref.outputs.ref }}
       project-deps: 'libssl-dev libfl-dev libkrb5-dev libldap2-dev libpam0g-dev linux-headers-generic libcrypt-dev'
