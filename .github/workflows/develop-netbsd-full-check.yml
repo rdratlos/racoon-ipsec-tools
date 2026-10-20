@@ -91,7 +91,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
 
@@ -113,7 +113,7 @@ jobs:
       # by hand.
       - name: Fetch current guard scripts (dispatch only)
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           sparse-checkout: |
@@ -124,20 +124,22 @@ jobs:
 
       - name: Overlay current guard scripts onto checked-out source (dispatch only)
         if: github.event_name == 'workflow_dispatch'
+        env:
+          DISPATCH_REF: ${{ github.event.inputs.branch || github.ref }}
         run: |
           set -euo pipefail
           if [ ! -f _guard-overlay/test/check-netbsd-parity.sh ] || \
              [ ! -f _guard-overlay/test/netbsd-parity-baseline.yml ]; then
-            echo "::error::_guard-overlay is missing the guard scripts -- the ref this workflow was dispatched from (${{ github.sha }}) doesn't have them either. Dispatch from a ref that includes test/check-netbsd-parity.sh and test/netbsd-parity-baseline.yml." >&2
+            echo "::error::_guard-overlay is missing the guard scripts -- the ref this workflow was dispatched from ($GITHUB_SHA) doesn't have them either. Dispatch from a ref that includes test/check-netbsd-parity.sh and test/netbsd-parity-baseline.yml." >&2
             exit 1
           fi
           cp _guard-overlay/test/check-netbsd-parity.sh test/check-netbsd-parity.sh
           cp _guard-overlay/test/netbsd-parity-baseline.yml test/netbsd-parity-baseline.yml
           rm -rf _guard-overlay
-          echo "=== Guard scripts overlaid from ${{ github.sha }} onto '${{ github.event.inputs.branch || github.ref }}' source ==="
+          echo "=== Guard scripts overlaid from $GITHUB_SHA onto '$DISPATCH_REF' source ==="
 
       - name: Build and gate on NetBSD 10
-        uses: cross-platform-actions/action@v0.27.0
+        uses: cross-platform-actions/action@v1.6.0
         with:
           operating_system: netbsd
           architecture: x86_64
