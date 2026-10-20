@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261020T204438Z-656ef2f2",
+  "created": "2026-10-20T20:44:38Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        "docs/research/rfc0005-phase3-model-identity.md",
+        "docs/research/rfc0005-phase3/provprobe-plugin.js",
+        "docs/research/rfc0005-phase3/q1_trailer_history.py",
+        "docs/research/rfc0005-phase3/q4_claude_code.sh",
+        "docs/research/rfc0005-phase3/q4_opencode.sh",
+        "docs/research/rfc0005-phase3/router_mock.py"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "reimth@etik.com",
+    "statement": "pending"
+  },
+  "session": {
+    "ref": "https://claude.ai/code/session_01M3aJTejPezBDxwmvEt8jqz"
+  }
+}
