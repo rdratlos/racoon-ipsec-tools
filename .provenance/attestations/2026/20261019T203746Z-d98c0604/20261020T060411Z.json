@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261019T203746Z-d98c0604",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261020T060411Z",
+  "commits": [
+    {
+      "patch_id": "364d768bb1193735268bb7716152ba8338ad763d",
+      "subject": "ci: Node 24 actions; untrusted values into scripts only via env"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:9d43990f2b8a82b70d234362a2a94ed236238b24d89b4aadb7ccaa83eb2ccd99",
+    "duration_s": 6.802
+  }
+}
