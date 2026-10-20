@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261019T202845Z-05cd4508",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261020T055929Z",
+  "commits": [
+    {
+      "patch_id": "2b68798038ffa9c7f2e6e1d4495de74eb11e43cb",
+      "subject": "provenance: make verify blocking; isolate self-tests from the caller's identity"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:6e5540dbacc6e61a78c762efa1aa98b0bafe62ef39d1cb03b454ef54ccae9ccd",
+    "duration_s": 6.882
+  }
+}
