@@ -83,7 +83,7 @@ jobs:
   # Delegate build + test to the shared reusable workflow.
   ci:
     needs: resolve-ref
-    uses: rdratlos/shared-ci/.github/workflows/ccpp-autotools.yml@main
+    uses: rdratlos/shared-ci/.github/workflows/ccpp-autotools.yml@claude/zealous-johnson-yu8x6g
     with:
       ref: ${{ needs.resolve-ref.outputs.ref }}
       # racoon-ipsec-tools requires these runtime libraries at build time.
