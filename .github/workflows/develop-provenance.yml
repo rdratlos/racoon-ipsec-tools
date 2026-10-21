@@ -3,6 +3,10 @@
 # Two jobs, two failure modes:
 #   self-test  -- tools/prov.py's own tests. Blocking: a broken checker must
 #                 never silently pass everything.
+#   harness    -- tools/harness_cross_check.py (RFC 0005 §7, Phase 3): the
+#                 model pins in .opencode/ and .claude/ must match the
+#                 .provenance profiles; a pinned model cannot drift from
+#                 the record silently. Blocking.
 #   verify     -- trailers, manifests, attestations (signed approval commits,
 #                 checked with ssh-keygen against .provenance/allowed_signers
 #                 at the base) and policy over the commits a
@@ -36,6 +40,15 @@ jobs:
 
       - name: python3 -m unittest tools/test_prov.py
         run: python3 -m unittest -v tools/test_prov.py
+
+  harness:
+    name: Harness config vs profiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: tools/harness_cross_check.py
+        run: python3 tools/harness_cross_check.py --rev HEAD
 
   verify:
     name: Provenance of introduced commits
