@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261020T224807Z-a6402ae0",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261022T215234Z",
+  "commits": [
+    {
+      "patch_id": "0a5931cf28f9758c7231a807e83d6e437cb56dda",
+      "subject": "ci: test the event's commit, report fork PRs without check runs"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:7e0ab604f8d14ad2bb6839742d56257d6f4549147832461aef6b3ae99e39a918",
+    "duration_s": 6.958
+  }
+}

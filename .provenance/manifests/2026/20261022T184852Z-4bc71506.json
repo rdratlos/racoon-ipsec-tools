@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261022T184852Z-4bc71506",
+  "created": "2026-10-22T18:48:52Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "manual",
+      "files": [".github/workflows/develop-build-test.yml"]
+    }
+  ],
+  "human_review": {
+    "reviewer": "reimth@etik.com",
+    "statement": "reviewed-and-tested"
+  }
+}
