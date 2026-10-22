@@ -343,6 +343,38 @@ class ProvTests(unittest.TestCase):
         self.assertEqual(c["observed"][0]["id"], "KITCH-Coder")
         self.assertEqual(c["observed"][0]["deployment"], "qwen-prod")
 
+    def test_evidence_capture_log_api_and_router_merge(self):
+        # the alias equals the profile pin, so no substitution warning is
+        # due; the deployment names (hosted_vllm/..., Qwen3-Flash) are
+        # recorded in observed for a human to review and belong to Phase 3
+        # router-profile work.
+        self.r.write("src/x.c", "int x;\n")
+        ev = self._capture_log("cap.jsonl", [
+            {"requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {
+                 "x-litellm-model-name": "hosted_vllm/Qwen3-FP8",
+                 "x-litellm-model-id": "e8071ad2",
+                 "x-litellm-model-api-base": "http://host:30022/v1",
+                 "body:router_model_name": "Qwen3-Flash"}}])
+        tr = self.r.declare("--contrib",
+                            "opencode-kitch@r1:implementer=src/x.c",
+                            "--scope", "code",
+                            "--evidence", f"capture-log:{ev}")
+        self.r.commit("alias plus deployment", tr + [HUMAN])
+        out = self.r.attest()[1]   # model id matches the pin: no WARN yet
+        self.assertEqual(self.r.verify()[0], 0, out)
+        self.assertNotIn("[WARN]", out)
+        pid = [t.split(": ", 1)[1] for t in tr if
+               t.startswith("Provenance-Id")][0]
+        c = self._manifest(pid)["contributions"][0]
+        self.assertEqual(c["model_reported_by"], "api")  # api outranks router
+        ids = sorted(o["id"] for o in c["observed"])
+        self.assertIn("KITCH-Coder", ids)
+        self.assertIn("hosted_vllm/Qwen3-FP8", ids)
+        self.assertIn("Qwen3-Flash", ids)
+        self.assertNotIn("e8071ad2", ids)          # opaque hash dropped
+        self.assertNotIn("http://host:30022/v1", ids)  # URLs are not models
+
     def test_evidence_capture_log_router_substitution_warns(self):
         self.r.write("src/x.c", "int x;\n")
         ev = self._capture_log("cap.jsonl", [

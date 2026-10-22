@@ -13,9 +13,16 @@ upstream change: `prov declare --evidence capture-log:FILE` turns it into
 model_reported_by = api (plain provider) or router (deployment headers seen).
 
 Usage:
-  python3 tools/provcap-proxy.py --listen 127.0.0.1:8787 \
+  python3 tools/provcap-proxy.py --listen localhost:8787 \
       --upstream https://router.example.org/v1 --log capture.jsonl
-  # then point the harness at http://127.0.0.1:8787/v1
+  # then point the harness at http://localhost:8787/v1
+
+Point the harness at "localhost", not "127.0.0.1": corporate no_proxy
+lists typically contain "localhost" verbatim but only CIDR-style loopback
+("127.0.0.0/8"), which many env-proxy matchers do not expand -- the
+harness would then send us to the web proxy (Squid answers 503/403 for
+loopback targets). "localhost" matches in both string- and CIDR-aware
+matchers.
 
 Log format: JSON lines, one object per completion request:
   {"at", "path", "requested", "response_model", "deployments": {...},
@@ -31,6 +38,7 @@ import argparse
 import datetime
 import json
 import re
+import ssl
 import sys
 import threading
 import urllib.error
@@ -38,10 +46,20 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DEPLOYMENT_RE = re.compile(r"^(x-[\w-]*(model|deployment|call)[\w-]*)$", re.I)
+# some routers report the serving deployment in the JSON body instead of
+# headers (observed: KITCH adds "router_model_name" alongside the stable
+# alias in "model")
+BODY_DEPLOYMENT_RE = re.compile(r"^[\w.-]*(router|deployment)[\w.-]*$", re.I)
 CALL_ID_HEADERS = ("x-litellm-call-id", "x-routify-call-id", "x-request-id")
 PROXY_HEADERS = {"host", "connection", "content-length", "accept-encoding"}
 
 lock = threading.Lock()
+
+# Honour the environment proxy for the upstream hop (an internal endpoint
+# may only be reachable through it); 127.0.0.1 is never proxied, so the
+# client -> proxy hop cannot loop. TLS verification stays ON by default;
+# --insecure documents an unverified capture hop.
+_opener = urllib.request.build_opener(urllib.request.HTTPSHandler())
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -85,7 +103,7 @@ class Handler(BaseHTTPRequestHandler):
             "status": None,
         }
         try:
-            with urllib.request.urlopen(req) as resp:
+            with _opener.open(req) as resp:
                 resp_body = resp.read()
                 entry["status"] = resp.status
                 for k, v in resp.headers.items():
@@ -95,7 +113,8 @@ class Handler(BaseHTTPRequestHandler):
                     entry["response_body_truncated"] = \
                         resp_body[:4096].decode("utf-8", "replace")
                 else:
-                    entry["response_model"] = _response_model(resp_body)
+                    entry["response_model"], body_dep = _response_model(resp_body)
+                    entry["deployments"].update(body_dep)
                 self.send_response(resp.status)
                 for k, v in resp.headers.items():
                     if k.lower() not in ("transfer-encoding", "connection"):
@@ -131,38 +150,61 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _response_model(body):
+    """Return (model, deployments) as reported in the response body."""
+    deployments = {}
     if not body:
-        return None
+        return None, deployments
     if body[:1] == b"{":
         try:
-            return json.loads(body).get("model")
+            doc = json.loads(body)
         except (json.JSONDecodeError, UnicodeDecodeError):
-            return None
+            return None, deployments
+        for k, v in doc.items():
+            if BODY_DEPLOYMENT_RE.match(k) and isinstance(v, str) \
+                    and k != "model":
+                deployments["body:" + k] = v
+        return doc.get("model"), deployments
     # SSE stream: the model appears on each data: line; take the first.
     for line in body.split(b"\n"):
         line = line.strip()
         if line.startswith(b"data:") and b"{" in line:
             try:
-                return json.loads(line[5:].strip()).get("model")
+                doc = json.loads(line[5:].strip())
             except (json.JSONDecodeError, UnicodeDecodeError):
                 continue
-    return None
+            for k, v in doc.items():
+                if BODY_DEPLOYMENT_RE.match(k) and isinstance(v, str) \
+                        and k != "model":
+                    deployments["body:" + k] = v
+            return doc.get("model"), deployments
+    return None, deployments
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
-    ap.add_argument("--listen", default="127.0.0.1:8787")
+    ap.add_argument("--listen", default="localhost:8787",
+                    help='host:port; keep "localhost" unless you know your '
+                         "clients' no_proxy handles it (see module docstring)")
     ap.add_argument("--upstream", required=True,
                     help="base URL to forward to, e.g. https://api.example/v1")
     ap.add_argument("--log", default="provcap.jsonl")
     ap.add_argument("--log-bodies", action="store_true",
                     help="log truncated response bodies instead of parsing "
                          "the model field (contains prompt echoes; off by default)")
+    ap.add_argument("--insecure", action="store_true",
+                    help="skip upstream TLS verification (untrusted internal "
+                         "CA; the capture hop then proves nothing about the "
+                         "endpoint's identity)")
     args = ap.parse_args(argv)
     host, _, port = args.listen.partition(":")
     Handler.upstream = args.upstream
     Handler.log_path = args.log
     Handler.log_bodies = args.log_bodies
+    global _opener
+    if args.insecure:
+        ctx = ssl._create_unverified_context()
+        _opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=ctx))
     srv = ThreadingHTTPServer((host, int(port)), Handler)
     print(f"provcap-proxy: http://{host}:{port} -> {args.upstream}, "
           f"log {args.log}", file=sys.stderr)

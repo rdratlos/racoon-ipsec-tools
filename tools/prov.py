@@ -786,8 +786,14 @@ def _load_evidence(specs, contributions):
         if fmt == "capture-log":
             headers = models = 0
             for e in lines:
-                dep = {k: v for k, v in (e.get("deployments") or {}).items()
-                       if "model" in k or "deployment" in k}
+                dep = {}
+                for k, v in (e.get("deployments") or {}).items():
+                    if k == "x-litellm-model-id":
+                        continue  # opaque instance hash, not a model id
+                    if ("model" in k or "deployment" in k) \
+                            and not v.startswith(("http://", "https://")):
+                        dep[k] = v
+                api = e.get("response_model")
                 if dep:
                     headers += 1
                     name = (e.get("requested")
@@ -795,9 +801,16 @@ def _load_evidence(specs, contributions):
                     add(name, "router",
                         deployment=dep.get("x-litellm-model-name")
                         or next(iter(dep.values())))
-                elif e.get("response_model"):
+                    if api:
+                        # router served an alias; the deployment names it
+                        # reported go to observed so verify_session can
+                        # flag substitution against the profile pins
+                        for v in sorted(set(dep.values())):
+                            if v != api:
+                                add(v, "router")
+                if api:
                     models += 1
-                    add(e["response_model"], "api")
+                    add(api, "api")
             if headers and not models:
                 for c in contributions:
                     if c["model_reported_by"] == "config":
