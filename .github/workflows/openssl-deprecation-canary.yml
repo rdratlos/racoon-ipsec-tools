@@ -43,47 +43,109 @@ on:
         required: true
 
 jobs:
+  # Decides what this run tests and where its results go. Tested is always
+  # the exact commit the event is about, never a branch name looked up
+  # again (a fork's branch name does not exist here, or names a different
+  # branch of this repository):
+  #   push/schedule        github.sha
+  #   pull_request, fork   the PR head SHA; the token is read-only, so
+  #                        results go to the job summary, not check runs
+  #   pull_request, same   skipped: the push event of that branch already
+  #     repository         tests the identical SHA and publishes its checks
+  #   workflow_dispatch    the tip of the requested branch
   resolve-ref:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       ref: ${{ steps.ref.outputs.ref }}
-      sha: ${{ steps.sha.outputs.sha }}
+      sha: ${{ steps.ref.outputs.sha || steps.sha.outputs.sha }}
+      label: ${{ steps.ref.outputs.label }}
+      run: ${{ steps.ref.outputs.run }}
+      publish-checks: ${{ steps.ref.outputs.publish-checks }}
     steps:
-      - name: Resolve target ref
+      - name: Resolve target
         id: ref
         # Branch names are untrusted input (a fork chooses its own): they
         # reach scripts only through env, never as ${{ }} inside code.
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
           INPUT_BRANCH: ${{ inputs.branch }}
-          HEAD_REF: ${{ github.head_ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ -n "$INPUT_BRANCH" ]; then
-            echo "ref=$INPUT_BRANCH" >> "$GITHUB_OUTPUT"
-          elif [ -n "$HEAD_REF" ]; then
-            echo "ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=${REF_NAME:-develop}" >> "$GITHUB_OUTPUT"
+          run=true
+          publish=true
+          case "$EVENT_NAME" in
+            workflow_dispatch)
+              # sha comes from the checkout below
+              ref=$INPUT_BRANCH
+              label=$INPUT_BRANCH
+              ;;
+            pull_request)
+              ref=$PR_HEAD_SHA
+              sha=$PR_HEAD_SHA
+              label="$PR_HEAD_REPO:$PR_HEAD_REF"
+              if [ "$PR_HEAD_REPO" = "$THIS_REPO" ]; then
+                run=false
+              else
+                publish=false
+              fi
+              ;;
+            *)
+              ref=$GITHUB_SHA
+              sha=$GITHUB_SHA
+              label=$REF_NAME
+              ;;
+          esac
+          # Dependabot runs get a read-only token unless granted more;
+          # report through the job summary like a fork.
+          if [ "$ACTOR" = "dependabot[bot]" ]; then
+            publish=false
           fi
-      - name: Checkout resolved ref
+          {
+            echo "ref=$ref"
+            echo "sha=${sha:-}"
+            echo "label=$label"
+            echo "run=$run"
+            echo "publish-checks=$publish"
+          } >> "$GITHUB_OUTPUT"
+      - name: Checkout requested branch
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/checkout@v5
         with:
           ref: ${{ steps.ref.outputs.ref }}
-      - name: Resolve target sha
+          persist-credentials: false
+      - name: Resolve branch tip
         id: sha
+        if: github.event_name == 'workflow_dispatch'
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Report canary target
+      - name: Report CI target
         env:
-          TARGET_REF: ${{ steps.ref.outputs.ref }}
-          TARGET_SHA: ${{ steps.sha.outputs.sha }}
+          TARGET_LABEL: ${{ steps.ref.outputs.label }}
+          TARGET_SHA: ${{ steps.ref.outputs.sha || steps.sha.outputs.sha }}
+          RUN: ${{ steps.ref.outputs.run }}
+          PUBLISH: ${{ steps.ref.outputs.publish-checks }}
         run: |
-          echo "### Canary target" >> "$GITHUB_STEP_SUMMARY"
-          echo "- branch: \`$TARGET_REF\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- sha: \`$TARGET_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Canary target"
+            echo "- source: \`$TARGET_LABEL\`"
+            echo "- sha: \`$TARGET_SHA\`"
+            if [ "$RUN" != "true" ]; then
+              echo "- skipped: the push run for this branch tests the same commit"
+            elif [ "$PUBLISH" != "true" ]; then
+              echo "- results: job summaries only (read-only token, no check runs)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   canary:
     needs: resolve-ref
-    uses: rdratlos/shared-ci/.github/workflows/ccpp-target-compile.yml@main
+    if: needs.resolve-ref.outputs.run == 'true'
+    uses: rdratlos/shared-ci/.github/workflows/ccpp-target-compile.yml@2a397883257287d8d68e0f66aae45eceeb368fa6 # v1.0.0
     with:
       ref: ${{ needs.resolve-ref.outputs.ref }}
       project-deps: 'libssl-dev libfl-dev libkrb5-dev libldap2-dev libpam0g-dev linux-headers-generic libcrypt-dev'
@@ -177,7 +239,7 @@ jobs:
     name: 'Publish canary checks'
     needs: [resolve-ref, canary]
     runs-on: ubuntu-latest
-    if: always()
+    if: always() && needs.resolve-ref.outputs.run == 'true'
     permissions:
       checks: write
 
@@ -187,14 +249,38 @@ jobs:
       - name: Publish check runs
         uses: actions/github-script@v8
         env:
-          TARGET_REF: ${{ needs.resolve-ref.outputs.ref }}
+          TARGET_LABEL: ${{ needs.resolve-ref.outputs.label }}
           TARGET_SHA: ${{ needs.resolve-ref.outputs.sha }}
+          PUBLISH_CHECKS: ${{ needs.resolve-ref.outputs.publish-checks }}
           CANARY_RESULTS: ${{ needs.canary.outputs.results }}
         with:
           script: |
-            const branch = process.env.TARGET_REF;
+            const branch = process.env.TARGET_LABEL;
             const sha = process.env.TARGET_SHA || context.payload.pull_request?.head?.sha || context.sha;
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            // Fork pull requests and Dependabot runs get a read-only token:
+            // the results then go to this job's summary, not check runs.
+            const publish = process.env.PUBLISH_CHECKS === 'true';
+            const report = async (name, conclusion, output) => {
+              if (publish) {
+                await github.rest.checks.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name,
+                  head_sha: sha,
+                  status: 'completed',
+                  conclusion,
+                  output,
+                });
+                return;
+              }
+              await core.summary
+                .addHeading(`${name}: ${conclusion}`, 3)
+                .addRaw(`**${output.title}**\n\n${output.summary}\n\n${output.text}\n\n`, true)
+                .addRaw('(not published as a check run: read-only token)\n', true)
+                .write();
+            };
 
             let results = [];
             try {
@@ -236,15 +322,7 @@ jobs:
               `[Full workflow run](${runUrl})`
             ].join('\n');
 
-            await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              name: 'CI: OpenSSL 4.0 canary (regression guard)',
-              head_sha: sha,
-              status: 'completed',
-              conclusion: guardConclusion,
-              output: { title: guardTitle, summary: guardSummary, text: guardText }
-            });
+            await report('CI: OpenSSL 4.0 canary (regression guard)', guardConclusion, { title: guardTitle, summary: guardSummary, text: guardText });
 
             // Readiness tracker: informational only. It is expected to be
             // RED until the RSA*->EVP_PKEY migration lands, so it must
@@ -273,12 +351,4 @@ jobs:
               `[Full workflow run](${runUrl})`
             ].join('\n');
 
-            await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              name: 'CI: OpenSSL 4.0 canary (readiness tracker)',
-              head_sha: sha,
-              status: 'completed',
-              conclusion: trackerConclusion,
-              output: { title: trackerTitle, summary: trackerSummary, text: trackerText }
-            });
+            await report('CI: OpenSSL 4.0 canary (readiness tracker)', trackerConclusion, { title: trackerTitle, summary: trackerSummary, text: trackerText });

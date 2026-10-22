@@ -1,0 +1,24 @@
+# Dependabot reads this file only from the default branch (main), so it
+# lives here for both lines: one entry per branch, because main and
+# develop own different workflow files (CONTRIBUTING.md, tree-separation
+# policy). Each update is a pull request whose CI runs on the new
+# version before it lands -- including the SHA pin of
+# rdratlos/shared-ci's reusable workflows.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

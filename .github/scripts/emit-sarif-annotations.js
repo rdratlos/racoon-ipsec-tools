@@ -188,4 +188,38 @@ async function publishAnnotations({
   return counts;
 }
 
-module.exports = { findSarifFiles, buildBasenameIndex, collectFindings, publishAnnotations };
+// Same contract as publishAnnotations, for runs whose token cannot write
+// check runs (fork pull requests, Dependabot): the result goes to the
+// job summary, and findings become workflow-command annotations. GitHub
+// shows at most 10 of those per level per step, so the summary carries
+// the full count.
+async function emitWorkflowAnnotations({
+  core, findings, checkName, title, summary, text,
+  conclusionIfClean = 'success', conclusion: conclusionOverride,
+}) {
+  const counts = { failure: 0, warning: 0, notice: 0 };
+  for (const f of findings) counts[f.annotation_level] = (counts[f.annotation_level] || 0) + 1;
+
+  const conclusion = conclusionOverride || (counts.failure > 0 ? 'failure' : conclusionIfClean);
+  const emit = { failure: core.error, warning: core.warning, notice: core.notice };
+  for (const f of findings) {
+    (emit[f.annotation_level] || core.notice)(f.message, {
+      title: f.title, file: f.path, startLine: f.start_line, endLine: f.end_line,
+    });
+  }
+
+  await core.summary
+    .addHeading(`${checkName}: ${conclusion}`, 3)
+    .addRaw(`**${title}**\n\n${summary}\n\n`, true)
+    .addRaw(text ? `${text}\n\n` : '', true)
+    .addRaw(`${findings.length} finding(s): ${counts.failure} error, ` +
+      `${counts.warning} warning, ${counts.notice} notice ` +
+      '(not published as a check run: read-only token).\n', true)
+    .write();
+
+  return counts;
+}
+
+module.exports = {
+  findSarifFiles, buildBasenameIndex, collectFindings, publishAnnotations, emitWorkflowAnnotations,
+};
