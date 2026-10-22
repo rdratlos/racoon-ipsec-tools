@@ -100,7 +100,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - name: Checkout requested branch
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.ref.outputs.ref }}
           persist-credentials: false
@@ -228,13 +228,13 @@ jobs:
       checks: write
     steps:
       - name: Checkout (for the shared annotation script)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve-ref.outputs.ref }}
           persist-credentials: false
 
       - name: Download build tree
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: build-tree
           path: build-tree-download
@@ -250,7 +250,7 @@ jobs:
           rm -rf build-tree-download
 
       - name: Publish annotations
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           TARGET_SHA: ${{ needs.resolve-ref.outputs.sha }}
           PUBLISH_CHECKS: ${{ needs.resolve-ref.outputs.publish-checks }}
@@ -297,13 +297,13 @@ jobs:
       # "vmbuf.c", no directory) back to a real repo path -- see
       # buildBasenameIndex() in the shared annotation script below.
       - name: Checkout (for Valgrind annotation path resolution)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve-ref.outputs.ref }}
           persist-credentials: false
 
       - name: Publish check
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         # Build outputs carry text the tested code can influence (test
         # names, Valgrind messages): like the branch name, they enter the
         # script only through env.
