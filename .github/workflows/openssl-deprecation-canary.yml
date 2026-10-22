@@ -116,7 +116,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - name: Checkout requested branch
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.ref.outputs.ref }}
           persist-credentials: false
@@ -213,7 +213,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download compile logs
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: openssl-canary-logs
           path: compile-logs
@@ -247,7 +247,7 @@ jobs:
       # The compile results carry text the compiled code can influence: like
       # the branch name, they enter the script only through env.
       - name: Publish check runs
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           TARGET_LABEL: ${{ needs.resolve-ref.outputs.label }}
           TARGET_SHA: ${{ needs.resolve-ref.outputs.sha }}
