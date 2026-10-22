@@ -145,7 +145,7 @@ jobs:
   canary:
     needs: resolve-ref
     if: needs.resolve-ref.outputs.run == 'true'
-    uses: rdratlos/shared-ci/.github/workflows/ccpp-target-compile.yml@2a397883257287d8d68e0f66aae45eceeb368fa6 # v1.0.0
+    uses: rdratlos/shared-ci/.github/workflows/ccpp-target-compile.yml@19beb34926db91ef506153558429698b47770b19 # shared-ci#5 (test, not a release)
     with:
       ref: ${{ needs.resolve-ref.outputs.ref }}
       project-deps: 'libssl-dev libfl-dev libkrb5-dev libldap2-dev libpam0g-dev linux-headers-generic libcrypt-dev'
