@@ -40,6 +40,7 @@ Requires Python >= 3.11 (tomllib) and, for `verify`, the jsonschema package.
 import argparse
 import datetime
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -758,10 +759,15 @@ def _load_evidence(specs, contributions):
       edits and the configured model -> trust config, observed only.
 
     Returns {"observed": [{"id", "trust", "role", "deployment",
-    "requests"}]} (role None = unknown, applies to every contribution) or
-    {"error": msg}.
+    "requests"}], "capture": {...}} (role None = unknown, applies to
+    every contribution) or {"error": msg}. "capture" is present when at
+    least one capture log was read: digest per log, entry count, the
+    endpoints the log observed, and the first/last entry timestamp --
+    observations only; a field the log never recorded stays absent.
     """
     observed, seen = [], set()
+    capture = {"digests": {}, "requests": 0, "endpoints": set(),
+               "first_at": None, "last_at": None}
 
     def add(model_id, trust, role=None, deployment=None):
         if not model_id:
@@ -779,13 +785,28 @@ def _load_evidence(specs, contributions):
             return {"error": f"bad --evidence '{spec}' "
                              f"(want {'|'.join(EVIDENCE_FORMATS)}:PATH)"}
         try:
-            with open(path, encoding="utf-8") as f:
-                lines = [json.loads(l) for l in f if l.strip()]
+            with open(path, "rb") as f:
+                raw = f.read()
+            lines = [json.loads(l) for l in raw.decode("utf-8").splitlines()
+                     if l.strip()]
         except (OSError, json.JSONDecodeError) as e:
             return {"error": f"evidence {path}: {e}"}
         if fmt == "capture-log":
+            capture["digests"][os.path.abspath(path)] = \
+                "sha256:" + hashlib.sha256(raw).hexdigest()
+            capture["requests"] += len(lines)
             headers = models = 0
             for e in lines:
+                if e.get("endpoint"):
+                    capture["endpoints"].add(e["endpoint"])
+                at = e.get("at")
+                if at:
+                    if (not capture["first_at"]
+                            or at < capture["first_at"]):
+                        capture["first_at"] = at
+                    if (not capture["last_at"]
+                            or at > capture["last_at"]):
+                        capture["last_at"] = at
                 dep = {}
                 for k, v in (e.get("deployments") or {}).items():
                     if k == "x-litellm-model-id":
@@ -824,7 +845,10 @@ def _load_evidence(specs, contributions):
                       if e.get("type") == "message" and e.get("model")}
             for m in sorted(models):
                 add(m, "config")
-    return {"observed": observed}
+    out = {"observed": observed}
+    if capture["digests"]:
+        out["capture"] = capture
+    return out
 
 
 def cmd_declare(args):
@@ -924,6 +948,25 @@ def cmd_declare(args):
     }
     if args.session_ref:
         doc["session"] = {"ref": args.session_ref}
+    cap = evidence.get("capture")
+    if cap:
+        session = doc.setdefault("session", {})
+        if len(cap["digests"]) == 1:
+            session["capture"] = {
+                "log_digest": next(iter(cap["digests"].values()))}
+        else:  # several logs: digest of the sorted per-file digests
+            blob = "\n".join(f"{d}  {p}" for p, d in
+                             sorted(cap["digests"].items()))
+            session["capture"] = {
+                "log_digest": "sha256:"
+                              + hashlib.sha256(blob.encode()).hexdigest()}
+        session["capture"]["requests"] = cap["requests"]
+        if cap["endpoints"]:
+            session["capture"]["endpoints"] = sorted(cap["endpoints"])
+        if cap["first_at"]:
+            session["capture"]["window"] = [cap["first_at"],
+                                            cap["last_at"]]
+        doc_version = "2.0"
     path = manifest_path(pid)
     full = os.path.join(git.root, path)
     if os.path.exists(full):

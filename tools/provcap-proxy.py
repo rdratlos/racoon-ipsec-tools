@@ -26,7 +26,11 @@ matchers.
 
 Log format: JSON lines, one object per completion request:
   {"at", "path", "requested", "response_model", "deployments": {...},
-   "call_id", "status"}
+   "call_id", "status", "endpoint"}
+"endpoint" is the origin (scheme://host[:port]) the upstream hop finally
+reached -- what we observed, not what was configured (an env proxy may
+rewrite it). It stays absent when the connection failed or the proxy ran
+an older version; declare then records no endpoints, never a guess.
 
 Deployment headers recognised (LiteLLM-style names, RFC 0005 Q4):
   x-litellm-model-id, x-litellm-model-name, x-litellm-deployment,
@@ -42,6 +46,7 @@ import ssl
 import sys
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -60,6 +65,17 @@ lock = threading.Lock()
 # client -> proxy hop cannot loop. TLS verification stays ON by default;
 # --insecure documents an unverified capture hop.
 _opener = urllib.request.build_opener(urllib.request.HTTPSHandler())
+
+
+def _origin(url):
+    """scheme://host[:port] of a URL, or None if unparseable."""
+    try:
+        u = urllib.parse.urlsplit(url)
+        if not u.scheme or not u.netloc:
+            return None
+        return f"{u.scheme}://{u.netloc}"
+    except ValueError:
+        return None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -101,11 +117,13 @@ class Handler(BaseHTTPRequestHandler):
             "deployments": {},
             "call_id": call_id,
             "status": None,
+            "endpoint": None,
         }
         try:
             with _opener.open(req) as resp:
                 resp_body = resp.read()
                 entry["status"] = resp.status
+                entry["endpoint"] = _origin(resp.geturl() or url)
                 for k, v in resp.headers.items():
                     if DEPLOYMENT_RE.match(k):
                         entry["deployments"][k.lower()] = v
@@ -124,6 +142,7 @@ class Handler(BaseHTTPRequestHandler):
         except urllib.error.HTTPError as e:
             resp_body = e.read()
             entry["status"] = e.code
+            entry["endpoint"] = _origin(e.url or url)
             for k, v in e.headers.items():
                 if DEPLOYMENT_RE.match(k):
                     entry["deployments"][k.lower()] = v

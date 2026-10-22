@@ -303,6 +303,52 @@ class ProvTests(unittest.TestCase):
                 f.write(json.dumps(e) + "\n")
         return path
 
+    def test_evidence_capture_log_binds_session_capture(self):
+        import hashlib
+        self.r.write("src/x.c", "int x;\n")
+        ev = self._capture_log("cap.jsonl", [
+            {"at": "2026-10-22T09:00:00Z", "requested": "KITCH-Coder",
+             "endpoint": "https://kitch.example.org",
+             "response_model": "KITCH-Coder", "deployments": {}},
+            {"at": "2026-10-22T09:05:00Z", "requested": "KITCH-Coder",
+             "endpoint": "https://kitch.example.org",
+             "response_model": "KITCH-Coder", "deployments": {}}])
+        tr = self.r.declare("--contrib",
+                            "opencode-kitch@r1:implementer=src/x.c",
+                            "--scope", "code",
+                            "--evidence", f"capture-log:{ev}")
+        self.r.commit("capture binding", tr + [HUMAN])
+        self.assertPass()
+        pid = [t.split(": ", 1)[1] for t in tr if
+               t.startswith("Provenance-Id")][0]
+        cap = self._manifest(pid)["session"]["capture"]
+        with open(ev, "rb") as f:
+            self.assertEqual(
+                cap["log_digest"],
+                "sha256:" + hashlib.sha256(f.read()).hexdigest())
+        self.assertEqual(cap["requests"], 2)
+        self.assertEqual(cap["endpoints"], ["https://kitch.example.org"])
+        self.assertEqual(cap["window"], ["2026-10-22T09:00:00Z",
+                                          "2026-10-22T09:05:00Z"])
+
+    def test_evidence_capture_log_without_endpoints_stays_honest(self):
+        # old proxy logs have no endpoint field: no endpoints key at all,
+        # never a guess from the proxy's own --upstream config.
+        self.r.write("src/x.c", "int x;\n")
+        ev = self._capture_log("cap.jsonl", [
+            {"requested": "M", "response_model": "M", "deployments": {}}])
+        tr = self.r.declare("--contrib",
+                            "opencode-kitch@r1:implementer=src/x.c",
+                            "--scope", "code",
+                            "--evidence", f"capture-log:{ev}")
+        self.r.commit("no endpoint", tr + [HUMAN])
+        self.assertPass()
+        pid = [t.split(": ", 1)[1] for t in tr if
+               t.startswith("Provenance-Id")][0]
+        cap = self._manifest(pid)["session"]["capture"]
+        self.assertNotIn("endpoints", cap)
+        self.assertNotIn("window", cap)
+
     def test_evidence_capture_log_api_rewrites_model(self):
         self.r.write("src/x.c", "int x;\n")
         ev = self._capture_log("cap.jsonl", [

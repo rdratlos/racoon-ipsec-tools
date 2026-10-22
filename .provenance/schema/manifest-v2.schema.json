@@ -5,7 +5,13 @@
   "description": "v2 adds router-mediated model identity: model_reported_by gains 'router' (a gateway answered, the backend deployment is only known from its headers) and a contribution may carry 'observed', the model ids a capture log saw on the wire. Everything expressible in v1 is expressible here; v1 manifests stay valid forever.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "provenance_id", "created", "contributions", "human_review"],
+  "required": [
+    "schema_version",
+    "provenance_id",
+    "created",
+    "contributions",
+    "human_review"
+  ],
   "properties": {
     "schema_version": {
       "const": "2.0",
@@ -23,12 +29,17 @@
     "contributions": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/contribution" }
+      "items": {
+        "$ref": "#/$defs/contribution"
+      }
     },
     "human_review": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["reviewer", "statement"],
+      "required": [
+        "reviewer",
+        "statement"
+      ],
       "properties": {
         "reviewer": {
           "type": "string",
@@ -36,7 +47,11 @@
           "description": "The accountable human: e-mail address as used in Signed-off-by, or GitHub handle."
         },
         "statement": {
-          "enum": ["pending", "reviewed", "reviewed-and-tested"],
+          "enum": [
+            "pending",
+            "reviewed",
+            "reviewed-and-tested"
+          ],
           "description": "pending: written by an agent or before review; verify fails until the accountable human changes it. An AI can prepare the record but never complete the attestation."
         }
       }
@@ -53,6 +68,43 @@
         "ref": {
           "type": "string",
           "description": "Optional opaque session reference (e.g. a tool session URL). Informational only; may not be resolvable by others."
+        },
+        "capture": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Binding of the capture-proxy evidence log a manifest was declared from, recorded by declare --evidence capture-log:PATH. Observations, not claims about backends: endpoints is what the capture proxy's upstream hop finally reached (an env proxy may rewrite it), window is the first/last entry timestamp the proxy wrote. A field the log never recorded stays absent, never guessed.",
+          "required": [
+            "log_digest",
+            "requests"
+          ],
+          "properties": {
+            "log_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "description": "Digest of the evidence log at declare time (sha256 of the file; with several logs, of the sorted per-file digest lines). Proves which log backs this manifest without publishing its contents."
+            },
+            "requests": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Log entries (proxied requests) at declare time."
+            },
+            "endpoints": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Origins (scheme://host[:port]) the proxy observed serving responses, deduplicated."
+            },
+            "window": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "[first, last] entry timestamps, UTC."
+            }
+          }
         }
       }
     },
@@ -65,7 +117,13 @@
     "contribution": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["profile", "role", "model", "model_reported_by", "files"],
+      "required": [
+        "profile",
+        "role",
+        "model",
+        "model_reported_by",
+        "files"
+      ],
       "properties": {
         "profile": {
           "type": "string",
@@ -77,22 +135,34 @@
           "pattern": "^[a-z][a-z0-9-]*$",
           "description": "Role name as defined in the referenced profile (implementer, reviewer, ...)."
         },
-        "model": { "$ref": "#/$defs/model" },
+        "model": {
+          "$ref": "#/$defs/model"
+        },
         "model_reported_by": {
-          "enum": ["api", "router", "config", "manual"],
+          "enum": [
+            "api",
+            "router",
+            "config",
+            "manual"
+          ],
           "description": "api: model id as returned by the provider; router: a gateway sat between harness and provider, the id is the router's label or deployment name and only the deployment headers say what actually answered; config: as configured in the harness; manual: declared by hand."
         },
         "observed": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/observation" },
+          "items": {
+            "$ref": "#/$defs/observation"
+          },
           "description": "Model identities a capture proxy or harness log saw for this contribution. Optional; absent means no capture evidence. Does not replace model_reported_by: observations from a harness log are config-trust, only router deployment headers or a provider response body approach api-trust."
         },
         "files": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 },
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
           "description": "Repository paths whose committed content contains output of this contribution. Empty for review-only roles."
         }
       }
@@ -100,7 +170,9 @@
     "observation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id"],
+      "required": [
+        "id"
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -112,7 +184,10 @@
           "description": "Deployment name or id from a router header (e.g. x-litellm-model-name), when the observation came from a gateway."
         },
         "source": {
-          "enum": ["capture-proxy", "harness-log"],
+          "enum": [
+            "capture-proxy",
+            "harness-log"
+          ],
           "description": "Where the observation came from. capture-proxy: provcap-proxy.py saw the response; harness-log: a plugin/session log recorded the configured model."
         },
         "requests": {
@@ -125,7 +200,10 @@
     "model": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["family", "id"],
+      "required": [
+        "family",
+        "id"
+      ],
       "properties": {
         "family": {
           "type": "string",

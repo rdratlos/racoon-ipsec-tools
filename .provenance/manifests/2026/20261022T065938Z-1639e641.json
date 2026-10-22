@@ -51,6 +51,14 @@
     "statement": "pending"
   },
   "session": {
-    "ref": "opencode:provcap-live-20261022"
+    "ref": "opencode:provcap-live-20261022",
+    "capture": {
+      "log_digest": "sha256:cd01fa11086f18876de35358c293fe46ba2acc4e21115b19d2c7451058d8f6d1",
+      "requests": 207,
+      "window": [
+        "2026-10-22T06:51:58Z",
+        "2026-10-22T10:30:21Z"
+      ]
+    }
   }
 }
