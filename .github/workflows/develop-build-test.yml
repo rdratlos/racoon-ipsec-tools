@@ -146,7 +146,7 @@ jobs:
   ci:
     needs: resolve-ref
     if: needs.resolve-ref.outputs.run == 'true'
-    uses: rdratlos/shared-ci/.github/workflows/ccpp-autotools.yml@claude/loving-rubin-99e64p
+    uses: rdratlos/shared-ci/.github/workflows/ccpp-autotools.yml@2a397883257287d8d68e0f66aae45eceeb368fa6 # v1.0.0
     with:
       ref: ${{ needs.resolve-ref.outputs.ref }}
       # racoon-ipsec-tools requires these runtime libraries at build time.
