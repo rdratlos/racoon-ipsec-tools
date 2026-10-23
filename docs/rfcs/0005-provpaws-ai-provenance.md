@@ -243,6 +243,23 @@ Rules:
 - **`model_reported_by`** — `api` (the provider said so), `config` (the
   harness was configured so), `manual` (declared by hand). This makes the
   self-reporting weakness explicit rather than hiding it.
+- **Routers (schema 2.0).** When a router or gateway sits between the
+  harness and the model, `api` alone is not enough: the response names the
+  *router's model group* (`KITCH-Coder`, `gpt-4`), not the served
+  deployment. Schema 2.0 adds `model_reported_by = "router"` and an
+  optional `observed` list per contribution — deployment names and
+  per-request counts collected by a capture proxy (§7) or session log.
+  Entries with a deployment carry it in `deployment`; an entry without
+  one records a model name seen without deployment evidence (a response
+  `model`, or a configured pin — the latter `observed`-only, never
+  trust-raising). Opaque values — instance-id hashes, URLs — are not
+  observations; recall cannot match on them, the evidence parser drops
+  them.
+  `observed` is advisory: it never substitutes for the profile model, it
+  documents what the session saw so a recall can match on the deployment
+  name. A manifest with a non-empty `observed`, or with `router` trust,
+  must declare `schema_version = "2.0"`; `verify` warns on both (provider
+  or router served something other than the profile pins).
 - **Silent substitution.** If an `api`-reported model differs from the
   profile role's model, a provider, router or moving alias swapped it.
   `verify` warns; `config`/`manual` mismatches fail —
@@ -254,7 +271,11 @@ Rules:
 - Schema: `.provenance/schema/manifest-v1.schema.json` (JSON Schema
   Draft 2020-12). `schema_version` is frozen per major version, the same
   discipline as `RACOONCTL_STATUS_SCHEMA_VERSION`: a breaking change is a
-  new `manifest-v2` file, and v1 records stay valid forever.
+  new `manifest-v2` file, and v1 records stay valid forever. The additive
+  fields above (router trust, `observed`) are schema
+  `.provenance/schema/manifest-v2.schema.json`, written as
+  `schema_version = "2.0"`; `verify` selects the validator from the
+  manifest's own `schema_version`.
 
 ### 4a. Attestation — the human approval (`prov attest`)
 
@@ -393,6 +414,25 @@ is to call it (or produce identical output):
   configuration (per-agent model pinning maps directly onto profile roles)
   and its plugin/event mechanism. *Hook points to be verified when Phase 3
   starts.*
+- **Capture proxy** (Phase 3): `tools/provcap-proxy.py`, a pass-through
+  HTTP server between harness and provider/router that logs per request
+  what was asked, what the response body claims answered, and the
+  router's deployment headers (LiteLLM-style `x-litellm-*`, plus
+  body-embedded names like `router_model_name`). Its JSONL log is
+  `declare --evidence capture-log:PATH`: plain response models give
+  `api` trust, deployment evidence gives `router` trust and fills
+  `observed`. The log path is contributor-supplied and advisory, like
+  `observed` itself: `verify` re-checks evidence only against the commit
+  tree it covers, never by re-reading the log — a contributor who wants
+  the file auditable stores it next to the manifest. Strongest evidence
+  a contributor can collect without an
+  upstream change — the provider's own words, not the harness's config.
+  Operational notes, both learned the hard way: the harness must be
+  pointed at `localhost`, not `127.0.0.1` (corporate `no_proxy` lists
+  often carry only CIDR-form loopback, which env-proxy matchers need not
+  expand — requests then detour into the web proxy and die); and the
+  proxy's own upstream hop must *honor* `http_proxy`/`https_proxy`,
+  because the provider may be reachable only through it.
 - **Config cross-check** (Phase 3): CI compares harness configuration in
   the repository (`.opencode/`, `.claude/`) against the profiles it claims,
   so a pinned model cannot drift silently from the record.
@@ -416,6 +456,11 @@ reporting in `schema_cross_check.py`'s `[OK  ]`/`[WARN]`/`[FAIL]` style.
   key of the reviewer (allowed signers read at `A`).
 - `prov declare --contrib <id>@r<N>:<role>[=file,…] … --scope …` — writes
   and stages a manifest, prints trailers. `--statement pending` for agents.
+  `--evidence capture-log:PATH` (proxy log; raises `model_reported_by` to
+  `api`/`router`, fills `observed`, forces schema 2.0) or
+  `--evidence opencode-session:PATH` (session log; `observed` only — a
+  harness log without provider responses proves nothing about who
+  answered).
 - `prov attest [--range BASE..HEAD] [--test CMD] [--test-log FILE]` —
   the human approval (§4a): tests, sign-off, signed approval commit.
 - `prov intake --pr <N>` — the maintainer's intake of a guest pull request
@@ -455,7 +500,7 @@ both for `develop` in the repository settings once `verify` blocks.
 | 0 | RFC, schemas, policy, seed profiles, `prov`, CI (verify non-blocking) | self-tests green; recall drill runs on real history |
 | 1 | `CONTRIBUTING.md` section (Appendix A); maintainer key in `allowed_signers`; `verify` blocking; remove `.claude` rewrite hook; agent git identity (author = human, committer = agent); merge commits only; guest intake and advisory fork mode (§11.3, §11.4); simplification (§11.6) | one month of maintainer sessions attested and passing |
 | 2 | Claude Code adapter | `declare` output produced without manual steps |
-| 3 | OpenCode adapter; harness-config cross-check | multi-agent session recorded with roles |
+| 3 | OpenCode adapter; harness-config cross-check | multi-agent session recorded with roles; **open**: router deployments (observed) can only be *declared*, not proven, until a capture proxy exists for the router in use |
 | 4 | First formal recall drill (Acceptance criteria) before actively inviting outside contributors; single guest PRs taken via intake (§11.3) do not wait for it | drill report filed as an Issue |
 
 ### 11. Guest contributions
