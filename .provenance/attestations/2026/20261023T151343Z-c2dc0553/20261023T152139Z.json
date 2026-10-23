@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261023T151343Z-c2dc0553",
+  "reviewer": "thomas.reim@airbus.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261023T152139Z",
+  "commits": [
+    {
+      "patch_id": "38c9eee9746afcc6a77518ffecedbd170fcf2547",
+      "subject": "docs: RFC 0005 OpenCode pairing provenance QA review pack"
+    }
+  ],
+  "tests": {
+    "command": "python3.11 -m unittest tools.test_prov",
+    "exit": 0,
+    "log_digest": "sha256:0848f993115b6e73a7c7ae6b51977ae38d4bf055290cf1dd0bed5eedf9ae1038",
+    "duration_s": 15.137
+  }
+}
