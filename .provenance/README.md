@@ -228,7 +228,7 @@ needs Git >= 2.35, and Git 2.34 reads it as a file name.
 | `policy.toml` | baseline, allowed scopes, critical paths, rules | reviewed like code |
 | `schema/*.schema.json` | manifest and profile schemas (v1, frozen) | new major = new file |
 | `profiles/<id>/r<N>.toml` | which model per role in a setup | **immutable**; change = `r<N+1>` |
-| `manifests/<YYYY>/<id>.json` | one per AI-assisted session | **immutable** |
+| `manifests/<YYYY>/<id>.json` | one per AI-assisted session; may bind a capture log by `session.capture.log_digest` | **immutable** |
 | `attestations/<YYYY>/<id>/<time>.json` | human approval, in a signed commit | **immutable** |
 | `allowed_signers` | SSH keys allowed to sign approvals | reviewed like code |
 | `legacy-map.toml` | maps pre-policy free-text trailers for `query` | editable |
@@ -249,3 +249,62 @@ python3 tools/prov.py query --model 'qwen3-coder' --blame --include-legacy
 
 lists every commit and file a model contributed to and how many of its lines
 survive at `HEAD`.
+
+## Running a captured session
+
+A *captured session* is a normal AI-assisted session that additionally
+records **what the API and router actually answered** -- so the manifest can
+say what was *observed*, not only what was *configured*. Two independent
+capture sources feed `prov declare --evidence`; each proves a different
+trust level (`model_reported_by`). Use the capture proxy for the strong
+`api` / `router` evidence; the OpenCode plugin alone only ever sees the
+configured model and so yields `config`.
+
+**1. Capture proxy (strongest evidence -- what answered behind the router).**
+
+```sh
+# start the loopback proxy; TLS verification stays ON by default
+python3 tools/provcap-proxy.py \
+    --listen localhost:8787 \
+    --upstream https://router.example.org/v1 \
+    --log capture.jsonl
+```
+
+Point the harness at `http://localhost:8787/v1` -- **`localhost`, never
+`127.0.0.1`**: corporate `no_proxy` lists carry `localhost` verbatim but
+often only the CIDR `127.0.0.0/8`, which many env-proxy matchers do not
+expand, so the harness would otherwise send loopback to the web proxy
+(`503`/`403`). Each completion is appended to `capture.jsonl` as one JSON
+object with the requested model, the response-claimed model, any router
+deployment headers, and the `endpoint` origin the upstream hop finally
+reached (observed, not configured; absent when the connection failed --
+declare then records no endpoint, never a guess).
+
+**2. OpenCode plugin (harness side -- configured model and edited files).**
+
+`.opencode/plugin/provpaws-capture.ts` writes one JSON-lines log per session
+under `.provpaws/sessions/` (git-ignored working data). It only ever sees the
+*configured* model, so it is `config` evidence: good for the file-touch list,
+never on its own proof of what answered.
+
+**3. Declare, binding the evidence into the manifest (schema v2):**
+
+```sh
+python3 tools/prov.py declare --schema-version 2.0 --statement pending \
+    --session-ref opencode:provcap-live-20261022 \
+    --evidence capture-log:capture.jsonl \
+    --evidence opencode-session:.provpaws/sessions/opencode-<id>.jsonl \
+    --contrib <profile>@r<N>:implementer=src/racoon/isakmp.c \
+    --scope code > /tmp/trailers
+git commit -t /tmp/trailers
+```
+
+`capture-log:` raises `model_reported_by` to `api` (plain provider) or, when
+deployment headers were seen, `router` (which needs schema v2). The manifest
+then carries a `session.capture` block recording the log's `log_digest`, the
+request count, the observed window and endpoints -- a **digest**, never the
+log itself. Capture logs stay local working data: `verify` re-checks a
+manifest against the digest, so the full log does not have to be committed or
+kept; the raw capture may live in your scratch directory and be discarded
+once declared.
+
