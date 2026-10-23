@@ -124,6 +124,13 @@ class Repo:
             f.write(text)
         self.git("add", path)
 
+    def write_new(self, path, text):
+        full = os.path.join(self.dir, path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w") as f:
+            f.write(text)
+        self.git("add", path)
+
     def declare(self, *argv):
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -282,6 +289,229 @@ class ProvTests(unittest.TestCase):
         out = self.assertPass()
         self.assertIn("[WARN]", out)
         self.assertIn("provider substitution?", out)
+
+    def _manifest(self, pid):
+        year = pid[:4]
+        with open(os.path.join(self.r.dir, ".provenance", "manifests",
+                               year, f"{pid}.json")) as f:
+            return json.load(f)
+
+    def _capture_log(self, name, entries):
+        path = os.path.join(self.r.dir + "-keys", name)
+        with open(path, "w") as f:
+            for e in entries:
+                f.write(json.dumps(e) + "\n")
+        return path
+
+    def test_evidence_capture_log_binds_session_capture(self):
+        import hashlib
+        self.r.write("src/x.c", "int x;\n")
+        ev = self._capture_log("cap.jsonl", [
+            {"at": "2026-10-22T09:00:00Z", "requested": "KITCH-Coder",
+             "endpoint": "https://kitch.example.org",
+             "response_model": "KITCH-Coder", "deployments": {}},
+            {"at": "2026-10-22T09:05:00Z", "requested": "KITCH-Coder",
+             "endpoint": "https://kitch.example.org",
+             "response_model": "KITCH-Coder", "deployments": {}}])
+        tr = self.r.declare("--contrib",
+                            "opencode-kitch@r1:implementer=src/x.c",
+                            "--scope", "code",
+                            "--evidence", f"capture-log:{ev}")
+        self.r.commit("capture binding", tr + [HUMAN])
+        self.assertPass()
+        pid = [t.split(": ", 1)[1] for t in tr if
+               t.startswith("Provenance-Id")][0]
+        cap = self._manifest(pid)["session"]["capture"]
+        with open(ev, "rb") as f:
+            self.assertEqual(
+                cap["log_digest"],
+                "sha256:" + hashlib.sha256(f.read()).hexdigest())
+        self.assertEqual(cap["requests"], 2)
+        self.assertEqual(cap["endpoints"], ["https://kitch.example.org"])
+        self.assertEqual(cap["window"], ["2026-10-22T09:00:00Z",
+                                          "2026-10-22T09:05:00Z"])
+
+    def test_evidence_capture_log_without_endpoints_stays_honest(self):
+        # old proxy logs have no endpoint field: no endpoints key at all,
+        # never a guess from the proxy's own --upstream config.
+        self.r.write("src/x.c", "int x;\n")
+        ev = self._capture_log("cap.jsonl", [
+            {"requested": "M", "response_model": "M", "deployments": {}}])
+        tr = self.r.declare("--contrib",
+                            "opencode-kitch@r1:implementer=src/x.c",
+                            "--scope", "code",
+                            "--evidence", f"capture-log:{ev}")
+        self.r.commit("no endpoint", tr + [HUMAN])
+        self.assertPass()
+        pid = [t.split(": ", 1)[1] for t in tr if
+               t.startswith("Provenance-Id")][0]
+        cap = self._manifest(pid)["session"]["capture"]
+        self.assertNotIn("endpoints", cap)
+        self.assertNotIn("window", cap)
+
+    def test_evidence_capture_log_api_rewrites_model(self):
+        self.r.write("src/x.c", "int x;\n")
+        ev = self._capture_log("cap.jsonl", [
+            {"requested": "claude-opus-5-5",
+             "response_model": "claude-opus-4-1-2408"}])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code",
+                            "--evidence", f"capture-log:{ev}")
+        self.r.commit("api evidence", tr + [HUMAN])
+        out = self.assertPass()
+        self.assertIn("[WARN]", out)   # substitution: api trust may differ
+        self.assertIn("provider substitution?", out)
+        pid = [t.split(": ", 1)[1] for t in tr if
+               t.startswith("Provenance-Id")][0]
+        doc = self._manifest(pid)
+        self.assertEqual(doc["schema_version"], "2.0")  # observed forces v2
+        c = doc["contributions"][0]
+        self.assertEqual(c["model"]["id"], "claude-opus-4-1-2408")
+        self.assertEqual(c["model_reported_by"], "api")
+        self.assertEqual([o["id"] for o in c["observed"]],
+                         ["claude-opus-4-1-2408"])
+
+    def test_evidence_capture_log_router_evidence(self):
+        self.r.write("src/x.c", "int x;\n")
+        ev = self._capture_log("cap.jsonl", [
+            {"requested": "KITCH-Coder", "response_model": None,
+             "deployments": {"x-litellm-model-name": "qwen-prod"}}])
+        tr = self.r.declare("--contrib",
+                            "opencode-kitch@r1:implementer=src/x.c",
+                            "--scope", "code",
+                            "--evidence", f"capture-log:{ev}")
+        self.r.commit("router evidence", tr + [HUMAN])
+        out = self.assertPass()   # model matches the profile: no WARN
+        pid = [t.split(": ", 1)[1] for t in tr if
+               t.startswith("Provenance-Id")][0]
+        c = self._manifest(pid)["contributions"][0]
+        self.assertEqual(c["model_reported_by"], "router")
+        self.assertEqual(c["observed"][0]["id"], "KITCH-Coder")
+        self.assertEqual(c["observed"][0]["deployment"], "qwen-prod")
+
+    def test_evidence_capture_log_api_and_router_merge(self):
+        # the alias equals the profile pin, so no substitution warning is
+        # due; the deployment names (hosted_vllm/..., Qwen3-Flash) are
+        # recorded in observed for a human to review and belong to Phase 3
+        # router-profile work.
+        self.r.write("src/x.c", "int x;\n")
+        ev = self._capture_log("cap.jsonl", [
+            {"requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {
+                 "x-litellm-model-name": "hosted_vllm/Qwen3-FP8",
+                 "x-litellm-model-id": "e8071ad2",
+                 "x-litellm-model-api-base": "http://host:30022/v1",
+                 "body:router_model_name": "Qwen3-Flash"}}])
+        tr = self.r.declare("--contrib",
+                            "opencode-kitch@r1:implementer=src/x.c",
+                            "--scope", "code",
+                            "--evidence", f"capture-log:{ev}")
+        self.r.commit("alias plus deployment", tr + [HUMAN])
+        out = self.r.attest()[1]   # model id matches the pin: no WARN yet
+        self.assertEqual(self.r.verify()[0], 0, out)
+        self.assertNotIn("[WARN]", out)
+        pid = [t.split(": ", 1)[1] for t in tr if
+               t.startswith("Provenance-Id")][0]
+        c = self._manifest(pid)["contributions"][0]
+        self.assertEqual(c["model_reported_by"], "api")  # api outranks router
+        ids = sorted(o["id"] for o in c["observed"])
+        self.assertIn("KITCH-Coder", ids)
+        self.assertIn("hosted_vllm/Qwen3-FP8", ids)
+        self.assertIn("Qwen3-Flash", ids)
+        self.assertNotIn("e8071ad2", ids)          # opaque hash dropped
+        self.assertNotIn("http://host:30022/v1", ids)  # URLs are not models
+
+    def test_evidence_capture_log_router_substitution_warns(self):
+        self.r.write("src/x.c", "int x;\n")
+        ev = self._capture_log("cap.jsonl", [
+            {"requested": "KITCH-Coder", "response_model": None,
+             "deployments": {"x-litellm-model-name": "qwen-prod"}}])
+        tr = self.r.declare("--contrib",
+                            "opencode-kitch@r1:implementer=src/x.c",
+                            "--scope", "code", "--reported-by", "router",
+                            "--model", "implementer=some-other-model",
+                            "--evidence", f"capture-log:{ev}")
+        self.r.commit("router substituted", tr + [HUMAN])
+        out = self.assertPass()
+        self.assertIn("router served a deployment other than the profile",
+                      out)
+
+    def test_evidence_capture_log_requested_only_fails(self):
+        self.r.write("src/x.c", "int x;\n")
+        ev = self._capture_log("cap.jsonl", [{"requested": "claude-opus-5-5"}])
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            with redirect_stdout(io.StringIO()):
+                rc = prov.main(["-C", self.r.dir, "declare", "--contrib",
+                                "claude-opus@r1:implementer=src/x.c",
+                                "--scope", "code",
+                                "--evidence", f"capture-log:{ev}"])
+        self.assertEqual(rc, 2)
+        self.assertIn("prove nothing", err.getvalue())
+
+    def test_evidence_opencode_session_config_trust(self):
+        self.r.write("src/x.c", "int x;\n")
+        ev = self._capture_log("s.jsonl", [
+            {"type": "message", "model": "KITCH-Coder"},
+            {"type": "edit", "file": "src/x.c"}])
+        tr = self.r.declare("--contrib",
+                            "opencode-kitch@r1:implementer=src/x.c",
+                            "--scope", "code",
+                            "--evidence", f"opencode-session:{ev}")
+        self.r.commit("session log", tr + [HUMAN])
+        self.assertPass()
+        pid = [t.split(": ", 1)[1] for t in tr if
+               t.startswith("Provenance-Id")][0]
+        doc = self._manifest(pid)
+        self.assertEqual(doc["schema_version"], "2.0")  # 'observed' forces v2
+        c = doc["contributions"][0]
+        self.assertEqual(c["model_reported_by"], "config")
+        self.assertEqual([o["id"] for o in c["observed"]], ["KITCH-Coder"])
+
+    def test_evidence_bad_format_fails(self):
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            with redirect_stdout(io.StringIO()):
+                rc = prov.main(["-C", self.r.dir, "declare", "--contrib",
+                                "claude-opus@r1:implementer=src/x.c",
+                                "--scope", "code",
+                                "--evidence", "syslog:/dev/null"])
+        self.assertEqual(rc, 2)
+        self.assertIn("bad --evidence", err.getvalue())
+
+    def test_router_reported_by_without_evidence_fails(self):
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            with redirect_stdout(io.StringIO()):
+                rc = prov.main(["-C", self.r.dir, "declare", "--contrib",
+                                "claude-opus@r1:implementer=src/x.c",
+                                "--scope", "code", "--reported-by", "router"])
+        self.assertEqual(rc, 2)
+        self.assertIn("needs capture-log evidence", err.getvalue())
+
+    def test_router_reported_by_v2_without_evidence_passes_verify(self):
+        # --schema-version 2.0 alone legitimises the router value; with the
+        # profile model unchanged verify has nothing to warn about
+        self.r.write("src/x.c", "int x;\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--reported-by", "router",
+                            "--schema-version", "2.0")
+        self.r.commit("router by hand", tr + [HUMAN])
+        self.assertPass()
+
+    def test_router_in_v1_doc_fails_validation(self):
+        # a hand-edited v1 manifest must not smuggle in the v2 'router'
+        self.r.write("src/x.c", "int x;\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code")
+        pid = [t.split(": ", 1)[1] for t in tr if
+               t.startswith("Provenance-Id")][0]
+        rel = f".provenance/manifests/{pid[:4]}/{pid}.json"
+        with open(os.path.join(self.r.dir, rel)) as f:
+            doc = json.load(f)
+        doc["contributions"][0]["model_reported_by"] = "router"
+        with open(os.path.join(self.r.dir, rel), "w") as f:
+            json.dump(doc, f)
+        self.r.git("add", rel)
+        self.r.commit("smuggled router", tr + [HUMAN])
+        self.assertFail("is not one of")
 
     # -- critical paths -------------------------------------------------
 

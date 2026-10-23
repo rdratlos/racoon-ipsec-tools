@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261022T065938Z-1639e641",
+  "reviewer": "thomas.reim@airbus.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261023T085213Z",
+  "commits": [
+    {
+      "patch_id": "ffe5c67762d2332dbb78ddbd5b240a1047bde70a",
+      "subject": "provenance: document how to run a captured session"
+    }
+  ],
+  "tests": {
+    "command": "python3.11 -m unittest tools.test_prov",
+    "exit": 0,
+    "log_digest": "sha256:57c3ec27c48f639f156b8130e55f8a59d4671e56fe3bf2a3600053c716566500",
+    "duration_s": 19.77
+  }
+}

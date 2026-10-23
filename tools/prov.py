@@ -40,6 +40,7 @@ Requires Python >= 3.11 (tomllib) and, for `verify`, the jsonschema package.
 import argparse
 import datetime
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -211,10 +212,14 @@ def load_schema(git, name):
 
 def validator_for(schema):
     try:
-        from jsonschema import Draft202012Validator
+        # jsonschema >= 4.0 (what CI installs); the Ubuntu system package
+        # 3.x has no Draft202012Validator and would mis-validate silently.
+        import jsonschema
+        if not hasattr(jsonschema, "Draft202012Validator"):
+            return None
+        return jsonschema.Draft202012Validator(schema)
     except ImportError:
         return None
-    return Draft202012Validator(schema)
 
 
 def schema_errors(validator, doc):
@@ -254,11 +259,14 @@ def verify_tree(git, report, policy, head):
         report.fail(f"{PROV_DIR}/schema: profile/manifest schema missing")
         return
     aschema = load_schema(git, "attestation-v1.schema.json")
+    m2schema = load_schema(git, "manifest-v2.schema.json")
     pv, mv = validator_for(pschema), validator_for(mschema)
     av = validator_for(aschema) if aschema else None
+    mv2 = validator_for(m2schema) if m2schema else None
     if pv is None:
-        report.fail("jsonschema not installed (pip install jsonschema, or "
-                    "apt install python3-jsonschema)")
+        report.fail("jsonschema >= 4.0 with Draft202012Validator required "
+                    "(pip install 'jsonschema>=4'; the Ubuntu system "
+                    "package 3.x is too old)")
         return
 
     tree = git.ls_tree(head, f"{PROV_DIR}/")
@@ -297,7 +305,10 @@ def verify_tree(git, report, policy, head):
             except json.JSONDecodeError as e:
                 report.fail(f"{path}: invalid JSON: {e}")
                 continue
-            errs = schema_errors(mv, doc)
+            if doc.get("schema_version") == "2.0" and mv2 is not None:
+                errs = schema_errors(mv2, doc)
+            else:
+                errs = schema_errors(mv, doc)
             for e in errs:
                 report.fail(f"{path}: {e}")
             if errs:
@@ -532,6 +543,9 @@ def verify_session(git, report, policy, pid, s):
                    f"{ref} role '{role['name']}' ('{role['model_id']}')")
             if contrib.get("model_reported_by") == "api":
                 report.warn(msg + " -- provider substitution?")
+            elif contrib.get("model_reported_by") == "router":
+                report.warn(msg + " -- router served a deployment other "
+                            "than the profile pins")
             else:
                 report.fail(msg + " -- configured/declared model must match "
                             "the profile; create a new profile revision")
@@ -729,6 +743,114 @@ def cmd_verify(args):
 # --------------------------------------------------------------------------
 # declare
 
+EVIDENCE_FORMATS = ("capture-log", "opencode-session")
+
+
+def _load_evidence(specs, contributions):
+    """Parse --evidence files into trust levels and observed models.
+
+    Specs are FORMAT:PATH, FORMAT in EVIDENCE_FORMATS:
+
+    - capture-log (tools/provcap-proxy.py JSONL): the response says which
+      model answered -> trust api; router deployment headers -> trust
+      router, and the header model ids go to observed. A log of only
+      requested models proves nothing.
+    - opencode-session (the OpenCode capture plugin JSONL): harness-side
+      edits and the configured model -> trust config, observed only.
+
+    Returns {"observed": [{"id", "trust", "role", "deployment",
+    "requests"}], "capture": {...}} (role None = unknown, applies to
+    every contribution) or {"error": msg}. "capture" is present when at
+    least one capture log was read: digest per log, entry count, the
+    endpoints the log observed, and the first/last entry timestamp --
+    observations only; a field the log never recorded stays absent.
+    """
+    observed, seen = [], set()
+    capture = {"digests": {}, "requests": 0, "endpoints": set(),
+               "first_at": None, "last_at": None}
+
+    def add(model_id, trust, role=None, deployment=None):
+        if not model_id:
+            return
+        key = (model_id, trust, role, deployment)
+        if key in seen:
+            return
+        seen.add(key)
+        observed.append({"id": model_id, "trust": trust, "role": role,
+                         "deployment": deployment, "requests": 1})
+
+    for spec in specs or []:
+        fmt, _, path = spec.partition(":")
+        if fmt not in EVIDENCE_FORMATS or not path:
+            return {"error": f"bad --evidence '{spec}' "
+                             f"(want {'|'.join(EVIDENCE_FORMATS)}:PATH)"}
+        try:
+            with open(path, "rb") as f:
+                raw = f.read()
+            lines = [json.loads(l) for l in raw.decode("utf-8").splitlines()
+                     if l.strip()]
+        except (OSError, json.JSONDecodeError) as e:
+            return {"error": f"evidence {path}: {e}"}
+        if fmt == "capture-log":
+            capture["digests"][os.path.abspath(path)] = \
+                "sha256:" + hashlib.sha256(raw).hexdigest()
+            capture["requests"] += len(lines)
+            headers = models = 0
+            for e in lines:
+                if e.get("endpoint"):
+                    capture["endpoints"].add(e["endpoint"])
+                at = e.get("at")
+                if at:
+                    if (not capture["first_at"]
+                            or at < capture["first_at"]):
+                        capture["first_at"] = at
+                    if (not capture["last_at"]
+                            or at > capture["last_at"]):
+                        capture["last_at"] = at
+                dep = {}
+                for k, v in (e.get("deployments") or {}).items():
+                    if k == "x-litellm-model-id":
+                        continue  # opaque instance hash, not a model id
+                    if ("model" in k or "deployment" in k) \
+                            and not v.startswith(("http://", "https://")):
+                        dep[k] = v
+                api = e.get("response_model")
+                if dep:
+                    headers += 1
+                    name = (e.get("requested")
+                            or next(iter(dep.values())))
+                    add(name, "router",
+                        deployment=dep.get("x-litellm-model-name")
+                        or next(iter(dep.values())))
+                    if api:
+                        # router served an alias; the deployment names it
+                        # reported go to observed so verify_session can
+                        # flag substitution against the profile pins
+                        for v in sorted(set(dep.values())):
+                            if v != api:
+                                add(v, "router")
+                if api:
+                    models += 1
+                    add(api, "api")
+            if headers and not models:
+                for c in contributions:
+                    if c["model_reported_by"] == "config":
+                        c["model_reported_by"] = "router"
+            if not headers and not models:
+                return {"error": f"evidence {path}: no response model or "
+                                 "deployment headers seen; requested-only "
+                                 "captures prove nothing"}
+        else:  # opencode-session
+            models = {e.get("model") for e in lines
+                      if e.get("type") == "message" and e.get("model")}
+            for m in sorted(models):
+                add(m, "config")
+    out = {"observed": observed}
+    if capture["digests"]:
+        out["capture"] = capture
+    return out
+
+
 def cmd_declare(args):
     git = Git(args.repo)
     report = Report()
@@ -741,6 +863,13 @@ def cmd_declare(args):
         print(f"prov declare: unknown scope(s) {', '.join(sorted(bad))}",
               file=sys.stderr)
         return 2
+
+    has_router_ev = any(e.startswith("capture-log:")
+                        for e in args.evidence or [])
+    if args.schema_version == "2.0":
+        doc_version = "2.0"      # explicit v2, or forced below by observations
+    else:
+        doc_version = "1.0"
 
     contributions, refs = [], []
     for spec in args.contrib:
@@ -761,9 +890,15 @@ def cmd_declare(args):
             return 2
         model = {"family": role["model_family"], "id": role["model_id"]}
         reported = args.reported_by
+        if (reported == "router" and doc_version != "2.0"
+                and not has_router_ev):
+            print("prov declare: --reported-by router needs capture-log "
+                  "evidence and --schema-version 2.0", file=sys.stderr)
+            return 2
         if args.model and role_name in dict(x.split("=", 1) for x in args.model):
             model["id"] = dict(x.split("=", 1) for x in args.model)[role_name]
-            reported = "api"
+            if reported not in ("router",):
+                reported = "api"   # the provider answered with this id
         contributions.append({
             "profile": ref, "role": role_name, "model": model,
             "model_reported_by": reported,
@@ -780,8 +915,32 @@ def cmd_declare(args):
         print("prov declare: --reviewer required (no git user.email)",
               file=sys.stderr)
         return 2
+
+    evidence = _load_evidence(args.evidence, contributions)
+    if evidence.get("error"):
+        print(f"prov declare: {evidence['error']}", file=sys.stderr)
+        return 2
+    if evidence["observed"] and doc_version == "1.0":
+        doc_version = "2.0"      # 'observed' exists only in schema v2
+    for obs in evidence["observed"]:
+        if obs["trust"] == "api":
+            for c in contributions:
+                if obs["role"] in (None, c["role"]):
+                    c["model"]["id"] = obs["id"]
+                    c["model_reported_by"] = "api"
+        for c in contributions:
+            if obs["role"] not in (None, c["role"]):
+                continue
+            entry = {"id": obs["id"],
+                     **({"deployment": obs["deployment"]}
+                        if obs.get("deployment") else {}),
+                     "requests": obs["requests"]}
+            c.setdefault("observed", [])
+            if entry not in c["observed"]:
+                c["observed"].append(entry)
+
     doc = {
-        "schema_version": "1.0",
+        "schema_version": doc_version,
         "provenance_id": pid,
         "created": now.isoformat().replace("+00:00", "Z"),
         "contributions": contributions,
@@ -789,6 +948,25 @@ def cmd_declare(args):
     }
     if args.session_ref:
         doc["session"] = {"ref": args.session_ref}
+    cap = evidence.get("capture")
+    if cap:
+        session = doc.setdefault("session", {})
+        if len(cap["digests"]) == 1:
+            session["capture"] = {
+                "log_digest": next(iter(cap["digests"].values()))}
+        else:  # several logs: digest of the sorted per-file digests
+            blob = "\n".join(f"{d}  {p}" for p, d in
+                             sorted(cap["digests"].items()))
+            session["capture"] = {
+                "log_digest": "sha256:"
+                              + hashlib.sha256(blob.encode()).hexdigest()}
+        session["capture"]["requests"] = cap["requests"]
+        if cap["endpoints"]:
+            session["capture"]["endpoints"] = sorted(cap["endpoints"])
+        if cap["first_at"]:
+            session["capture"]["window"] = [cap["first_at"],
+                                            cap["last_at"]]
+        doc_version = "2.0"
     path = manifest_path(pid)
     full = os.path.join(git.root, path)
     if os.path.exists(full):
@@ -1405,10 +1583,18 @@ def main(argv=None):
                    choices=["pending", "reviewed", "reviewed-and-tested"],
                    help="use pending when an agent runs declare")
     d.add_argument("--reported-by", default="config",
-                   choices=["config", "manual"],
-                   help="how the profile models were established")
+                   choices=["config", "manual", "router"],
+                   help="how the profile models were established; router "
+                        "needs capture-log evidence (schema v2)")
+    d.add_argument("--schema-version", default="1.0", choices=["1.0", "2.0"],
+                   help="manifest schema version to write")
     d.add_argument("--model", action="append", metavar="ROLE=MODEL_ID",
                    help="api-reported model for a role (records substitution)")
+    d.add_argument("--evidence", action="append", metavar="FORMAT:PATH",
+                   help="capture evidence: capture-log:PATH raises "
+                        "model_reported_by to api or router, "
+                        "opencode-session:PATH records observed models; "
+                        "repeatable")
     d.add_argument("--tool", action="append", default=[],
                    help="analysis tool for the Assisted-by line (coccinelle, ...)")
     d.add_argument("--session-ref", help="opaque session reference")

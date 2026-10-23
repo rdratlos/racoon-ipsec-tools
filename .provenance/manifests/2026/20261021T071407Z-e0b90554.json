@@ -1,0 +1,107 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261021T071407Z-e0b90554",
+  "created": "2026-10-21T07:14:07Z",
+  "contributions": [
+    {
+      "profile": "opencode-pair@r1",
+      "role": "implementer",
+      "model": {
+        "family": "alibaba-qwen",
+        "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+      },
+      "model_reported_by": "config",
+      "files": [
+        "tools/prov.py"
+      ]
+    },
+    {
+      "profile": "opencode-pair@r1",
+      "role": "implementer",
+      "model": {
+        "family": "alibaba-qwen",
+        "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+      },
+      "model_reported_by": "config",
+      "files": [
+        "tools/test_prov.py"
+      ]
+    },
+    {
+      "profile": "opencode-pair@r1",
+      "role": "implementer",
+      "model": {
+        "family": "alibaba-qwen",
+        "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+      },
+      "model_reported_by": "config",
+      "files": [
+        "tools/harness_cross_check.py"
+      ]
+    },
+    {
+      "profile": "opencode-pair@r1",
+      "role": "implementer",
+      "model": {
+        "family": "alibaba-qwen",
+        "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+      },
+      "model_reported_by": "config",
+      "files": [
+        "tools/provcap-proxy.py"
+      ]
+    },
+    {
+      "profile": "opencode-pair@r1",
+      "role": "implementer",
+      "model": {
+        "family": "alibaba-qwen",
+        "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+      },
+      "model_reported_by": "config",
+      "files": [
+        ".opencode/plugin/provpaws-capture.ts"
+      ]
+    },
+    {
+      "profile": "opencode-pair@r1",
+      "role": "implementer",
+      "model": {
+        "family": "alibaba-qwen",
+        "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+      },
+      "model_reported_by": "config",
+      "files": [
+        ".provenance/schema/manifest-v2.schema.json"
+      ]
+    },
+    {
+      "profile": "opencode-pair@r1",
+      "role": "implementer",
+      "model": {
+        "family": "alibaba-qwen",
+        "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+      },
+      "model_reported_by": "config",
+      "files": [
+        ".github/workflows/develop-provenance.yml"
+      ]
+    },
+    {
+      "profile": "opencode-pair@r1",
+      "role": "reviewer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-sonnet-5"
+      },
+      "model_reported_by": "config",
+      "files": [
+        ".github/workflows/develop-provenance.yml"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "thomas.reim@airbus.com",
+    "statement": "reviewed-and-tested"
+  }
+}
