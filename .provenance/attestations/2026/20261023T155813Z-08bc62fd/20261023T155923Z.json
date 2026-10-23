@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261023T155813Z-08bc62fd",
+  "reviewer": "thomas.reim@airbus.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261023T155923Z",
+  "commits": [
+    {
+      "patch_id": "fb31786781d13e6809b2c842ed6a4c1f2ec99865",
+      "subject": "docs: add prov-procedure usability findings to RFC 0005 review"
+    }
+  ],
+  "tests": {
+    "command": "python3.11 -m unittest tools.test_prov",
+    "exit": 0,
+    "log_digest": "sha256:e1b917c2b30cc2af5728a93114385ed4ab6d13038f4b1b31889c3bf3fe15ba27",
+    "duration_s": 16.356
+  }
+}
