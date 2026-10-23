@@ -207,3 +207,56 @@ when the named commit is absent from history.
 5. Grep the evidence log and git history to confirm `provcap.jsonl` / `.provpaws/`
    are not committed and contain no auth headers/keys (and note redaction is not
    yet test-enforced — expected gap).
+
+## 8. Tooling usability: the declare/attest/commit procedure is a friction point
+
+Honest observation from this very commit (`eba1d50`, docs-only): the commit and its
+manifest were correct on the **third** attempt. That is a real usability signal,
+not just tooling noise. Two tracking issues already exist upstream —
+[`#165` guided declaration for humans](https://github.com/rdratlos/racoon-ipsec-tools/issues/165)
+and
+[`#168` rebasing an attested branch / parallel work](https://github.com/rdratlos/racoon-ipsec-tools/issues/168)
+— and both match what was hit here.
+
+What actually cost effort:
+
+1. **`prov.py` silently needs Python 3.11+.** A bare `python3 tools/prov.py …` on
+   3.10 dies with `ModuleNotFoundError: No module named 'tomllib'` — a confusing
+   message that says nothing about the real cause. It needs a guarded, explicit
+   error (or a shebang/version check), otherwise every first encounter wastes a
+   cycle.
+2. **`prov declare` and `git commit` are two steps with a manual handoff.** The
+   README shows `declare … > /tmp/trailers` then `git commit -t /tmp/trailers`;
+   passing trailers through a file is easy to get wrong and has no atomicity (the
+   first attempt here failed on flag syntax *after* the manifest was already
+   staged, leaving a half-staged tree).
+3. **Signer setup is not self-explaining.** A first `-S` commit fails with
+   `agent refused operation`; the fix (gpg-agent ssh socket /
+   `gpg-connect-agent updatestartuptty /bye`) is not documented in
+   `.provenance/README.md`. The one-time SSH-signing setup exists, but not the
+   recovery.
+4. **Identity is a multi-step manual dance.** The agent-committer rule
+   (author = human, committer = `<harness>` / `agent@agents.invalid`) must be
+   exported by hand on every commit, and the `Signed-off-by` / `attest` human-only
+   step is easy to skip — which is exactly why `prov verify` reports the
+   predictable "AI-assisted commit without a human `Signed-off-by`" / "not covered
+   by a valid attestation" failures for a fresh declare.
+5. **The mental model is implicit.** Nothing in the procedure states, in one
+   place: the agent declares `--statement pending` and commits (no SoB); the human
+   then `attest`s (adds SoB + signs); rebase needs `--gpg-sign`; `verify` is the
+   read-only agent-side check. Each rule is correct, the sequence and the "who does
+   which step when" are not discoverable from a single source.
+
+These are ergonomics, not design flaws — the workflow *works* and `verify`
+correctly separates the agent-possible from the human-required steps (that
+separation is good). But "correct and non-obvious" is precisely what makes a
+procedure uninviting for the human half of the pair. Concrete, low-risk
+candidates (echoing #165/#168, not a design):
+
+- a `prov.py` version guard with a clear "requires Python ≥ 3.11" message;
+- document the ssh-agent recovery one-liner in `.provenance/README.md`;
+- document the recommended local range `--range "$(git merge-base
+  origin/develop HEAD)..HEAD"` (#168 §3) so local `verify` matches CI;
+- consider a `prov declare` that also stages the manifest **and** emits a ready
+  `git commit -F` recipe (or an interactive/adopt path, #165) to collapse the
+  handoff.

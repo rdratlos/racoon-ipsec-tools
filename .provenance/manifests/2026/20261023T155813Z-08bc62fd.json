@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261023T155813Z-08bc62fd",
+  "created": "2026-10-23T15:58:13Z",
+  "contributions": [
+    {
+      "profile": "opencode-kitch@r1",
+      "role": "implementer",
+      "model": {
+        "family": "kitch",
+        "id": "KITCH-Coder"
+      },
+      "model_reported_by": "config",
+      "files": [
+        "docs/research/rfc0005-opencode-pairing-review/honest-prototype-implementation-report.md"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "thomas.reim@airbus.com",
+    "statement": "pending"
+  }
+}
