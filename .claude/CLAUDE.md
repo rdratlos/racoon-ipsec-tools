@@ -5,6 +5,9 @@
 Every commit that contains your output is recorded; CI (`develop-provenance.yml`)
 checks it.
 
+- **Guiding Principles.** Read provenance principles in file .provenance/PRINCIPLES.md.
+  Especially section Rules for Agents. Make sure that you have a thorough understanding
+  of the principles and their strategic rationale.
 - **Identity.** Commit with the human as author and yourself as committer.
   The committer comes from `.claude/settings.json`; the author from the
   contributor's own `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL` (cloud environment
