@@ -71,7 +71,13 @@ the model:
 
 List a reviewer role only for a model that actually ran in the session.
 
-Then you review the branch and approve it, in your own terminal:
+The agent pushes its own branch and opens a pull request; it never
+pushes to `develop` or `main`. Then you review the branch and approve
+it, in your own terminal, **before the merge**. `attest` adds your
+`Signed-off-by:` by rewriting commit messages. On a branch that is
+normal; on `develop` or `main` it would need a force-push. So `attest`
+refuses a range with a commit that is already on a remote `develop` or
+`main`.
 
 ```sh
 BASE=$(git merge-base origin/develop HEAD)     # as CI does; see below
