@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261028T133521Z-d3b2878e",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261028T150553Z",
+  "commits": [
+    {
+      "patch_id": "ab81f676ff60116d4a7c1d72799c641d7715cd19",
+      "subject": "racoon.conf.5: describe CRL lookup in the certificate directory"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:644af966b63dbf59470866915e6741b550722036d7d0e9e10584fff57d204300",
+    "duration_s": 6.095
+  }
+}
