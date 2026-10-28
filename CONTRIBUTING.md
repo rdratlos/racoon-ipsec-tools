@@ -199,8 +199,13 @@ GitHub CI/workflow location; `develop`: where day-to-day feature and test
 work happens), not a small delta of each other — so some paths are
 intentionally branch-specific and never cross between them:
 
-- `.claude/` (Claude Code developer tooling) is `develop`-owned and must
-  never appear on `main`.
+- `.claude/` (Claude Code developer tooling), `.opencode/` (OpenCode
+  developer tooling) and `doc/dev/` (developer documentation, including
+  the detailed agent rules `doc/dev/agent-rules.md`) are `develop`-owned
+  and must never appear on `main`.
+- The agent entry points `AGENTS.md` and `CLAUDE.md` and the provenance
+  principles `.provenance/PRINCIPLES.md` are shared and kept identical on
+  both branches: change them on both in the same step.
 - Each branch owns its own `.github/workflows/` *files* — not the
   directory as a whole, which legitimately exists on both. `develop`'s CI
   files (`develop-build-test.yml`, `develop-netbsd-build-test.yml`,
@@ -249,8 +254,9 @@ by AI tooling (Claude Code, OpenCode).
 Contributions and bug reports from human collaborators
 are very welcome — see the issue tracker.
 
-AI tools are welcome. You remain the author and are accountable for every
-line. An AI agent may commit for you, with you as author and itself as
+AI tools are welcome. Read `.provenance/PRINCIPLES.md` first: it says
+what provenance is for and what it must not become. You remain the author
+and are accountable for every line. An AI agent may commit for you, with you as author and itself as
 committer, but never adds `Signed-off-by:` or `Co-Authored-By:`.
 
 If AI output is part of a commit, it is recorded (RFC 0005, on `main` under

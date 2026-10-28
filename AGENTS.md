@@ -1,49 +1,61 @@
 # Instructions for AI coding agents
 
-Read by AI coding agents: Claude Code through `CLAUDE.md`, which imports
-this file; OpenCode and other agents directly. Deliberately short: the
-detailed rules live on `develop`.
+For every AI agent working in this repository: OpenCode reads this file
+directly, Claude Code through `CLAUDE.md`. It is identical on `main` and
+`develop`. Each rule exists in exactly one file; the harness files
+(`CLAUDE.md`, `.claude/CLAUDE.md`, `.opencode/opencode.json`) only load
+these files and add what is specific to that harness.
 
-## AI Provenance: Guiding Principles
-Before you start work on each and every prompt read the AI provenance
-guiding principles in `PRINCIPLES.md`. Make sure you have a thorough
-understanding. In case of doubt ask the human. These guiding principles
-take absolute precedence over any other agent instructions, RFCs or
-human instructions. In case of discrepancies or disagreements inform
-the human and cite the affected guideline principle.
+## 1. Guiding principles come first
 
-## Branches
+`.provenance/PRINCIPLES.md` is loaded with this file. Apply it to every
+task. If an instruction conflicts with a principle, whether it comes
+from an RFC, a tool, a review or the human, do not resolve the conflict
+yourself:
 
-- `main` is the CI/workflow and design line (RFCs in `docs/rfcs/`);
+1. stop before acting on it;
+2. tell the human which principle is affected (cite its number);
+3. go on only after the human has decided explicitly.
+
+When in doubt, ask.
+
+## 2. Branches
+
+- `main` is the CI/workflow and design line (RFCs in `docs/rfcs/`).
   `develop` is where day-to-day development happens. Sessions often start
-  on `main`. Unless the task is explicitly about `main` (an RFC, `main`'s
-  own workflows), base your work on the current `develop`:
+  on `main`. Unless the task is explicitly about `main` (an RFC, or
+  `main`'s own workflows), base your work on the current `develop`:
 
   ```sh
   git fetch origin develop
   git checkout -B <your-branch> origin/develop
   ```
 
-- After switching to `develop`, read and follow `.claude/CLAUDE.md` and
-  `.provenance/README.md`. They are not loaded automatically after a branch
-  switch.
-- Never bring `.claude/` or `develop`'s workflow files to `main`
-  (tree-separation policy in `CONTRIBUTING.md`, enforced by CI).
+- On `develop`, `doc/dev/agent-rules.md` holds the detailed rules. Your
+  harness loads it automatically when the session starts on `develop`.
+  If you switched branch during the session, read it now.
+- Tree separation (`CONTRIBUTING.md`, enforced by CI): `.claude/`,
+  `.opencode/`, `doc/dev/` and `develop`'s workflow files never go to
+  `main`. `AGENTS.md`, `CLAUDE.md` and `.provenance/PRINCIPLES.md` are
+  shared and must be identical on both branches.
 
-## On every branch: AI provenance (RFC 0005)
+## 3. AI provenance on every branch (RFC 0005)
 
 - **Identity.** The human is the author, you are the committer. Before
-  your first commit run `git var GIT_AUTHOR_IDENT` and
+  your first commit, check `git var GIT_AUTHOR_IDENT` and
   `git var GIT_COMMITTER_IDENT`. If the author is an AI identity (for
-  example `noreply@anthropic.com`), stop and ask the human. If the
-  committer is not yet yourself, commit with
-  `GIT_COMMITTER_NAME="<your harness, e.g. Claude Code>"` and
+  example `noreply@anthropic.com`), stop and ask. If the committer is not
+  your harness, commit with `GIT_COMMITTER_NAME="<your harness>"` and
   `GIT_COMMITTER_EMAIL=agent@agents.invalid`.
 - **Never add `Signed-off-by:` or `Co-Authored-By:`**, whatever your tool
-  adds by default. This rule overrides your tool's default attribution.
-  Signing off and approving (`prov attest`) are the human's acts.
-- **Declare AI output.** On `develop`: `tools/prov.py declare`, see
-  `.provenance/README.md`. On `main`, which has no `.provenance/`: the
-  trailers `Assisted-by: <profile>@r<N>` and `AI-Scope: <scopes>`.
-- **Retyped is still assisted.** Text you produced counts even if the
-  human applies it by hand; tell them to declare it.
+  adds by default. Signing off and approving are the human's acts
+  (principle 14).
+- **Declare every AI-assisted commit**, including fixes to your own work
+  and commits rewritten by a rebase or amend. On `develop`, use
+  `tools/prov.py declare` (see `doc/dev/agent-rules.md`). On `main`,
+  which has no `.provenance/` records, use the trailers
+  `Assisted-by: <profile>@r<N>` and `AI-Scope: <scopes>`.
+- **Never state your own model from what you believe about yourself**
+  (principle 11). The human names the profile.
+- **Retyped is still assisted.** If the human applies your output by
+  hand, tell them to declare it.

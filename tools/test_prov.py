@@ -196,6 +196,19 @@ class ProvTests(unittest.TestCase):
         out = self.assertPass()
         self.assertIn("1 AI-assisted", out)
 
+    def test_declare_without_reported_by_records_manual(self):
+        # PRINCIPLES.md 11 and 12: a model that no tool has read is a
+        # declaration, so the record must not claim "config".
+        self.r.write("src/x.c", "int x;\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code")
+        pid = [t.split(": ", 1)[1] for t in tr if t.startswith("Provenance-Id")][0]
+        with open(os.path.join(self.r.dir, ".provenance", "manifests", pid[:4],
+                               pid + ".json"), encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertEqual([c["model_reported_by"] for c in doc["contributions"]],
+                         ["manual"])
+
     # -- trailer rules --------------------------------------------------
 
     def test_co_authored_by_ai_fails(self):
@@ -440,6 +453,16 @@ class AttestTests(unittest.TestCase):
         self.agent_session()
         before = r.head()
         rc, _ = r.attest(env_extra={"CLAUDECODE": "1"})
+        self.assertEqual(rc, 2)
+        self.assertEqual(r.head(), before)
+
+    def test_attest_refused_in_opencode_session(self):
+        # PRINCIPLES.md 14: OpenCode sets OPENCODE=1 for its tool processes
+        # (OpenCode 1.19.3); attest must refuse there as in Claude Code.
+        r = self.repo()
+        self.agent_session()
+        before = r.head()
+        rc, _ = r.attest(env_extra={"OPENCODE": "1"})
         self.assertEqual(rc, 2)
         self.assertEqual(r.head(), before)
 

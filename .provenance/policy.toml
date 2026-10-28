@@ -88,5 +88,7 @@ allowed_signers = ".provenance/allowed_signers"
 # attest refuses to run when one of these environment variables is set: a
 # speed bump against an agent attesting its own work, not a security control
 # (the signature is). CLAUDECODE is set by Claude Code; AI_AGENT is also set
-# in Claude Code cloud sessions. Add OpenCode's marker once verified.
-agent_env = ["CLAUDECODE", "AI_AGENT"]
+# in Claude Code cloud sessions. OPENCODE is set by OpenCode for its tool
+# processes (verified with OpenCode 1.19.3, which also sets the generic
+# AGENT=1; that name is too unspecific to refuse on).
+agent_env = ["CLAUDECODE", "AI_AGENT", "OPENCODE"]
