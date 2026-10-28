@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261028T092752Z-34f78c7a",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261028T094747Z",
+  "commits": [
+    {
+      "patch_id": "b4d77512a6c09b7ced36dce78ae70e295bac8e0a",
+      "subject": "docs: one rule set for all agents, guiding principles loaded automatically"
+    },
+    {
+      "patch_id": "554f3069429f0f54d96d97d1697fa9831569f515",
+      "subject": "provenance: attest refuses in OpenCode sessions (agent_env += OPENCODE)"
+    },
+    {
+      "patch_id": "dda3660a86e85d7ff2ffc43e0802ae2e9560d799",
+      "subject": "provenance: declare records \"manual\" unless a tool read the model"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:175b505e56fcfe424dfcb7b3acdce3c6c1bb0b761259483224affb0c7457c0e1",
+    "duration_s": 7.579
+  }
+}
