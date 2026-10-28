@@ -59,6 +59,8 @@ ATTEST_PATH_RE = re.compile(
     r"^\.provenance/attestations/([0-9]{4})/([0-9]{8}T[0-9]{6}Z-[0-9a-f]{8})/"
     r"([0-9]{8}T[0-9]{6}Z)\.json$")
 EMAIL_RE = re.compile(r"\s*<[^>]*>\s*")
+# integration branches that only take merges of attested pull requests
+PUBLISHED_BRANCHES = ("develop", "main")
 
 
 # --------------------------------------------------------------------------
@@ -912,6 +914,20 @@ def cmd_attest(args):
     if not commits:
         _err(f"no commits in {rng}")
         return 2
+    # attest rewrites messages: a commit already on a published integration
+    # branch could only be replaced by a force-push. Attest on the branch,
+    # before the merge.
+    published = [r for r in git.out("for-each-ref", "--format=%(refname)",
+                                    "refs/remotes").split()
+                 if r.rsplit("/", 1)[-1] in PUBLISHED_BRANCHES]
+    for c in commits:
+        on = [r for r in published if git.is_ancestor(c, r)]
+        if on:
+            _err(f"{c[:12]} is already on {on[0][len('refs/remotes/'):]}; "
+                 f"attest rewrites commits, which a published branch only "
+                 f"takes by force-push. Attest on your branch before the "
+                 f"merge (pull request); see .provenance/README.md.")
+            return 2
 
     # 3. what still needs approval
     sessions = {}

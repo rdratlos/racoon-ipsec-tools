@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261028T154143Z-b6f8ae0a",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261028T165338Z",
+  "commits": [
+    {
+      "patch_id": "aa320d9689ae1781f98b55aefd43194aeaa0ff95",
+      "subject": "docs: agents never push to develop or main; attest before the merge"
+    },
+    {
+      "patch_id": "d9ffbad10350996edfd1a23fac73c1eb3cb55be4",
+      "subject": "provenance: attest refuses commits already on develop or main"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:3d45d6af3d8066b9c20dbfcb14d2037ef3e9e8b6e249e6e5081e8ec635d63ceb",
+    "duration_s": 7.21
+  }
+}

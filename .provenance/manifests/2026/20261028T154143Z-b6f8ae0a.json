@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261028T154143Z-b6f8ae0a",
+  "created": "2026-10-28T15:41:43Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        ".provenance/README.md",
+        "AGENTS.md",
+        "doc/dev/agent-rules.md",
+        "tools/prov.py",
+        "tools/test_prov.py"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "reimth@etik.com",
+    "statement": "pending"
+  },
+  "session": {
+    "ref": "https://claude.ai/code/session_01M3aJTejPezBDxwmvEt8jqz"
+  }
+}

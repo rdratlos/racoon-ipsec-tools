@@ -456,6 +456,31 @@ class AttestTests(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertEqual(r.head(), before)
 
+    def test_attest_refuses_commits_already_on_develop_or_main(self):
+        # attest rewrites commit messages; for a commit already on a
+        # published develop or main that needs a force-push. Refuse and
+        # say why, before anything is rewritten.
+        for branch in ("develop", "main"):
+            with self.subTest(branch=branch):
+                r = self.repo()
+                self.agent_session()
+                r.git("update-ref", f"refs/remotes/origin/{branch}", "HEAD")
+                before = r.head()
+                rc, out = r.attest()
+                self.assertEqual(rc, 2, out)
+                self.assertEqual(r.head(), before)
+                r.cleanup()
+                self.r = None
+
+    def test_attest_allows_commits_not_yet_on_develop(self):
+        # A published develop or main that only contains the base does not
+        # block attesting the branch on top of it.
+        r = self.repo()
+        self.agent_session()
+        r.git("update-ref", "refs/remotes/origin/develop", r.base)
+        rc, out = r.attest()
+        self.assertEqual(rc, 0, out)
+
     def test_attest_refused_in_opencode_session(self):
         # PRINCIPLES.md 14: OpenCode sets OPENCODE=1 for its tool processes
         # (OpenCode 1.19.3); attest must refuse there as in Claude Code.

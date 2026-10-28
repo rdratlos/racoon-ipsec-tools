@@ -60,8 +60,16 @@ human `Signed-off-by:` and "not covered by a valid attestation". Report
 anything else, or any check you could not run (for example, no
 `ssh-keygen`), as such. Do not present it as passed.
 
+Push only your own branch (`git push -u origin <your-branch>`) and open
+a pull request into `develop`. The human attests on that branch; only
+then is it merged.
+
 ## Never
 
+- Push to `develop` or `main`, even if the server lets you: the
+  credentials you run with may bypass branch protection. An unattested
+  commit on `develop` can only be attested with a force-push
+  (principles 10, 14).
 - Run `prov attest`, sign commits (`git commit -S`, `rebase --gpg-sign`)
   or use the human's signing key, even when the key is technically
   reachable, for example through a cached agent socket (principle 14).
