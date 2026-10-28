@@ -70,6 +70,13 @@ then is it merged.
   credentials you run with may bypass branch protection. An unattested
   commit on `develop` can only be attested with a force-push
   (principles 10, 14).
+- Merge or approve a pull request, even if your credentials allow it.
+  The repository requires no second-account approval: the human's
+  signed attestation is the approval, and the merge follows it
+  (principle 14).
+- Commit a change without the trailers. `verify` fails a commit that
+  changes files and whose committer is an agent identity
+  (`agent@agents.invalid`) but that carries no `Assisted-by:`.
 - Run `prov attest`, sign commits (`git commit -S`, `rebase --gpg-sign`)
   or use the human's signing key, even when the key is technically
   reachable, for example through a cached agent socket (principle 14).
