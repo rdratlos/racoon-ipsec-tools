@@ -5,7 +5,15 @@ repository**, in a tool-neutral format that lives with the code. The design
 and its rationale are in `docs/rfcs/0005-provpaws-ai-provenance.md` (on
 `main`). This file is the short version for contributors.
 
+**Read [`PRINCIPLES.md`](PRINCIPLES.md) first.** It states why provenance
+exists, what it must not become, and how agents and humans work with it.
+Where this file and the principles disagree, the principles win. Raise the
+conflict with the maintainer instead of resolving it yourself.
+
 ## The rule in one paragraph
+
+Provenance is optional unless someone needs it (principle 2). This project
+needs it, so the rules below apply to every commit on `develop`.
 
 A human is always the author and the only one who signs off; the agent may
 appear as **committer**. If AI output ends up in a commit, it carries three
@@ -46,20 +54,42 @@ Git identity for agent commits -- author = you, committer = the agent:
 export GIT_AUTHOR_NAME="Your Name" GIT_AUTHOR_EMAIL="you@example.org"
 export GIT_COMMITTER_NAME="Claude Code" GIT_COMMITTER_EMAIL="agent@agents.invalid"
 
-python3 tools/prov.py declare --statement pending \
-    --contrib opencode-pair@r1:implementer=src/racoon/isakmp.c,test/test_isakmp.c \
-    --contrib opencode-pair@r1:reviewer \
+python3 tools/prov.py declare --statement pending --reported-by manual \
+    --contrib <profile>@r<N>:implementer=src/racoon/isakmp.c,test/test_isakmp.c \
     --scope code,tests  > /tmp/trailers
 git commit -t /tmp/trailers        # no Signed-off-by: that is yours to add
 ```
 
-Then you review the branch and approve it, in your own terminal (attest
-refuses to run inside a Claude Code session):
+You name the profile and role for the session; the agent does not pick
+them from what it believes its own model is (principle 11). Use
+`--reported-by manual` until a tool reads the model:
+- `config` only when a tool read the model from the harness configuration;
+- `api` or `router` only with `--evidence` (principle 12).
+
+List a reviewer role only for a model that actually ran in the session.
+
+Then you review the branch and approve it, in your own terminal:
 
 ```sh
-python3 tools/prov.py attest --range origin/develop..HEAD --test "make check"
-python3 tools/prov.py verify --range origin/develop..HEAD    # what CI runs
+BASE=$(git merge-base origin/develop HEAD)     # as CI does; see below
+python3 tools/prov.py attest --range "$BASE..HEAD" --test "make check"
+python3 tools/prov.py verify --range "$BASE..HEAD"    # what CI runs
 ```
+
+Use the merge base, not `origin/develop` itself. Once `develop` has moved
+on, `origin/develop..HEAD` reports the records merged there in the meantime
+as "deleted" (#168).
+
+**Keep the approval key out of the agent's reach** (principle 14). `attest`
+refuses to run when `CLAUDECODE` or `AI_AGENT` is set, so it is blocked in
+Claude Code sessions. OpenCode is not detected yet. That check is only a
+speed bump; the control is the key. An agent that runs under your account
+(OpenCode, a local CLI) can use a signing key that a gpg-agent or ssh-agent
+holds in its cache. So:
+- use a separate approval key, and list only that key in `allowed_signers`;
+- require touch for every signature (a FIDO2 `ed25519-sk` key with
+  `verify-required`, or an OpenPGP card with a signature touch policy);
+- do not let the agent cache it.
 
 `attest` runs the tests (exit 0 required for `reviewed-and-tested`), shows
 what you approve, adds your Signed-off-by to every commit in the range
@@ -68,7 +98,10 @@ what you approve, adds your Signed-off-by to every commit in the range
 key**. The attestation lists each commit by `git patch-id --stable`:
 
 - a later rebase keeps the approval valid, if you re-sign while rebasing
-  (`git rebase --gpg-sign`, or `commit.gpgsign = true`);
+  (`git rebase --gpg-sign`, or `commit.gpgsign = true`), unless the new base
+  changed a reviewed hunk or its context lines. That changes the patch-id
+  even without a conflict; `verify` then reports "diff changed after
+  approval": attest again (#168);
 - any change to a reviewed diff invalidates it: attest again;
 - further commits of the same session need a further `attest`.
 
@@ -225,6 +258,7 @@ needs Git >= 2.35, and Git 2.34 reads it as a file name.
 
 | Path | What | Mutability |
 | --- | --- | --- |
+| `PRINCIPLES.md` | guiding principles for humans and agents; identical on `main` and `develop` | approved; changed only by the maintainer's decision |
 | `policy.toml` | baseline, allowed scopes, critical paths, rules | reviewed like code |
 | `schema/*.schema.json` | manifest and profile schemas (v1, frozen) | new major = new file |
 | `profiles/<id>/r<N>.toml` | which model per role in a setup | **immutable**; change = `r<N+1>` |

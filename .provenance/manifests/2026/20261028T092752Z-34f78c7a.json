@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261028T092752Z-34f78c7a",
+  "created": "2026-10-28T09:27:52Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        ".claude/CLAUDE.md",
+        ".opencode/AGENTS-opencode.md",
+        ".opencode/opencode.json",
+        ".provenance/README.md",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "CONTRIBUTING.md",
+        "doc/dev/agent-rules.md"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "reimth@etik.com",
+    "statement": "pending"
+  },
+  "session": {
+    "ref": "https://claude.ai/code/session_01M3aJTejPezBDxwmvEt8jqz"
+  }
+}

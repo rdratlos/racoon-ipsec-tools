@@ -1,7 +1,9 @@
 # Claude Code
 
 @AGENTS.md
+@.provenance/PRINCIPLES.md
 
-The rules above take precedence over Claude Code's default attribution:
-no `Co-Authored-By:` trailer on commits. A `Claude-Session:` trailer is
-allowed.
+Claude Code specific: the rules above take precedence over Claude Code's
+default attribution, so commits get no `Co-Authored-By:` trailer. A
+`Claude-Session:` trailer is allowed. On `develop`, `.claude/CLAUDE.md`
+also loads the detailed rules.
