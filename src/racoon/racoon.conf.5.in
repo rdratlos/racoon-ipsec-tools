@@ -223,6 +223,62 @@ will search this directory if a certificate or certificate request is received.
 If you run with privilege separation,
 .Xr racoon 8
 will refuse to use a certificate stored outside of this directory.
+.Pp
+The same directory is the place for certificate revocation lists (CRLs).
+When
+.Xr racoon 8
+verifies a peer's certificate, it asks OpenSSL to check a CRL for every
+certificate in the chain.
+OpenSSL looks a CRL up only under the name
+.Pa hash.rN ,
+where
+.Ar hash
+is the hash of the CRL issuer's name (as printed by
+.Ic openssl crl -hash )
+and
+.Ar N
+counts from 0.
+A CRL stored under any other name, such as
+.Pa ca.crl ,
+is not found.
+Run
+.Ic openssl rehash
+(or
+.Ic c_rehash )
+on the directory to create these names as symbolic links to the files
+ending in
+.Pa .crl
+or
+.Pa .pem .
+CRLs contained in the file named by
+.Ic ca_type
+are used as well.
+.Xr racoon 8
+never downloads CRLs itself, and it does not use CRLs that a peer
+sends in a CERT payload.
+.Pp
+If no CRL is found for a certificate,
+.Xr racoon 8
+logs the warning
+.Dq unable to get certificate CRL
+and accepts the certificate.
+If a CRL is found but its nextUpdate time has passed, it logs
+.Dq CRL has expired ,
+rejects the peer's certificate and the phase 1 negotiation fails.
+A CRL must therefore be replaced before its nextUpdate time.
+The directory is read again for each verification, so a replaced CRL
+takes effect without a restart.
+Running
+.Ic openssl rehash
+again is only needed when a CRL file is added, removed or renamed, or
+when its issuer changes.
+A CRL may be a symbolic link to a file maintained elsewhere, for example
+by the CA.
+The link target must be readable by the user
+.Xr racoon 8
+runs as and, if
+.Ic chroot
+is used, must resolve inside the chroot.
 .It Ic path backupsa Ar file ;
 Specifies a file to which SA information negotiated by
 racoon should be stored.
