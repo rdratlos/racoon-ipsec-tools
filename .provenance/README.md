@@ -79,6 +79,12 @@ normal; on `develop` or `main` it would need a force-push. So `attest`
 refuses a range with a commit that is already on a remote `develop` or
 `main`.
 
+Your attestation is the approval: the repository requires no GitHub
+review from a second account. You merge after attesting; the agent never
+merges or approves. A commit that changes files and whose committer is
+an agent identity must carry the trailers. `verify` fails it otherwise,
+so an undeclared agent commit cannot pass as human work.
+
 ```sh
 BASE=$(git merge-base origin/develop HEAD)     # as CI does; see below
 python3 tools/prov.py attest --range "$BASE..HEAD" --test "make check"

@@ -188,6 +188,24 @@ class ProvTests(unittest.TestCase):
         self.r.commit("human change", [HUMAN])
         self.assertPass()
 
+    def test_agent_committed_change_without_trailers_fails(self):
+        # A commit an agent created that changes files is AI output; it
+        # cannot pass as human work just because the trailers are missing
+        # (AGENTS.md: declare every AI-assisted commit; PRINCIPLES.md 12).
+        for name in ("Claude Code", "OpenCode"):
+            with self.subTest(committer=name):
+                self.r.write("src/x.c", f"int x; /* {name} */\n")
+                self.r.commit("undeclared agent change", [HUMAN], env={
+                    "GIT_COMMITTER_NAME": name,
+                    "GIT_COMMITTER_EMAIL": "agent@agents.invalid"})
+                self.assertFail("committed by an agent")
+                self.r.git("reset", "-q", "--hard", "HEAD~1")
+
+    def test_agent_committed_empty_commit_passes(self):
+        # No change, no AI output in the tree: nothing to declare.
+        self.r.git("commit", "-q", "--allow-empty", "-m", "empty", env=AGENT_ENV)
+        self.assertPass()
+
     def test_assisted_commit_passes(self):
         self.r.write("src/x.c", "int x;\n")
         tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
