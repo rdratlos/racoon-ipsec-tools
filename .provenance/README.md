@@ -61,10 +61,13 @@ git commit -t /tmp/trailers        # no Signed-off-by: that is yours to add
 ```
 
 You name the profile and role for the session; the agent does not pick
-them from what it believes its own model is (principle 11). Use
-`--reported-by manual` until a tool reads the model:
+them from what it believes its own model is (principle 11).
+`--reported-by manual` is the default, and stays right until a tool reads
+the model:
 - `config` only when a tool read the model from the harness configuration;
-- `api` or `router` only with `--evidence` (principle 12).
+- `api` (set by `--model ROLE=ID`) only when a tool read that id from
+  the provider's response, never from what the agent says about itself
+  (principle 12).
 
 List a reviewer role only for a model that actually ran in the session.
 

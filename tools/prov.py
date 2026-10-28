@@ -1404,9 +1404,11 @@ def main(argv=None):
     d.add_argument("--statement", default="reviewed-and-tested",
                    choices=["pending", "reviewed", "reviewed-and-tested"],
                    help="use pending when an agent runs declare")
-    d.add_argument("--reported-by", default="config",
+    d.add_argument("--reported-by", default="manual",
                    choices=["config", "manual"],
-                   help="how the profile models were established")
+                   help="how the profile models were established: manual "
+                        "(declared; the default) or config (read by a tool "
+                        "from the harness configuration)")
     d.add_argument("--model", action="append", metavar="ROLE=MODEL_ID",
                    help="api-reported model for a role (records substitution)")
     d.add_argument("--tool", action="append", default=[],

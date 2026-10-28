@@ -29,10 +29,11 @@ python3 tools/prov.py declare --statement pending --reported-by manual \
 - `declare` writes and stages the manifest and prints the trailers. Put
   them in **every** commit of the session, before any other trailers, in
   this order: `Assisted-by:`, `AI-Scope:`, `Provenance-Id:`.
-- `--reported-by manual` says that the model comes from a declaration,
-  not from a tool. Use `config` only where a tool has read the model from
-  the harness configuration, and `api` or `router` only with
-  `--evidence` (principles 11, 12).
+- `--reported-by manual` (the default) says that the model comes from a
+  declaration, not from a tool. Use `config` only where a tool has read
+  the model from the harness configuration. Do not pass `--model`: it
+  records `api`, which only a tool that read the provider's response may
+  claim (principles 11, 12).
 - `files` lists every file whose committed content contains your output,
   including docs. Keep the list up to date with later commits of the
   session. Do not list files you only read.

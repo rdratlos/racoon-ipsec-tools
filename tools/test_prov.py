@@ -196,6 +196,19 @@ class ProvTests(unittest.TestCase):
         out = self.assertPass()
         self.assertIn("1 AI-assisted", out)
 
+    def test_declare_without_reported_by_records_manual(self):
+        # PRINCIPLES.md 11 and 12: a model that no tool has read is a
+        # declaration, so the record must not claim "config".
+        self.r.write("src/x.c", "int x;\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code")
+        pid = [t.split(": ", 1)[1] for t in tr if t.startswith("Provenance-Id")][0]
+        with open(os.path.join(self.r.dir, ".provenance", "manifests", pid[:4],
+                               pid + ".json"), encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertEqual([c["model_reported_by"] for c in doc["contributions"]],
+                         ["manual"])
+
     # -- trailer rules --------------------------------------------------
 
     def test_co_authored_by_ai_fails(self):

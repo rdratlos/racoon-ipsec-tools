@@ -21,6 +21,7 @@
         "CLAUDE.md",
         "CONTRIBUTING.md",
         "doc/dev/agent-rules.md",
+        "tools/prov.py",
         "tools/test_prov.py"
       ]
     }
