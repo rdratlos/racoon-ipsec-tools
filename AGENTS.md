@@ -31,6 +31,10 @@ When in doubt, ask.
   git checkout -B <your-branch> origin/develop
   ```
 
+- **Never push to `develop` or `main`.** Push your own branch and open a
+  pull request. The human attests on that branch before the merge:
+  attesting rewrites commit messages, and `develop` and `main` do not
+  take rewritten history.
 - On `develop`, `doc/dev/agent-rules.md` holds the detailed rules. Your
   harness loads it automatically when the session starts on `develop`.
   If you switched branch during the session, read it now.
