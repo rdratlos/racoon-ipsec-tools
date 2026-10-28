@@ -443,6 +443,16 @@ class AttestTests(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertEqual(r.head(), before)
 
+    def test_attest_refused_in_opencode_session(self):
+        # PRINCIPLES.md 14: OpenCode sets OPENCODE=1 for its tool processes
+        # (OpenCode 1.19.3); attest must refuse there as in Claude Code.
+        r = self.repo()
+        self.agent_session()
+        before = r.head()
+        rc, _ = r.attest(env_extra={"OPENCODE": "1"})
+        self.assertEqual(rc, 2)
+        self.assertEqual(r.head(), before)
+
     def test_failing_tests_attest_nothing(self):
         r = self.repo()
         self.agent_session()

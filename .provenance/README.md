@@ -81,9 +81,10 @@ on, `origin/develop..HEAD` reports the records merged there in the meantime
 as "deleted" (#168).
 
 **Keep the approval key out of the agent's reach** (principle 14). `attest`
-refuses to run when `CLAUDECODE` or `AI_AGENT` is set, so it is blocked in
-Claude Code sessions. OpenCode is not detected yet. That check is only a
-speed bump; the control is the key. An agent that runs under your account
+refuses to run when one of the agent markers in `policy.toml` is set
+(`CLAUDECODE`, `AI_AGENT`, `OPENCODE`), so it is blocked in Claude Code
+and OpenCode sessions. That check is only a speed bump; the control is
+the key. An agent that runs under your account
 (OpenCode, a local CLI) can use a signing key that a gpg-agent or ssh-agent
 holds in its cache. So:
 - use a separate approval key, and list only that key in `allowed_signers`;

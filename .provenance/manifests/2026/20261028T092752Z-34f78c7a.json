@@ -16,10 +16,12 @@
         ".opencode/AGENTS-opencode.md",
         ".opencode/opencode.json",
         ".provenance/README.md",
+        ".provenance/policy.toml",
         "AGENTS.md",
         "CLAUDE.md",
         "CONTRIBUTING.md",
-        "doc/dev/agent-rules.md"
+        "doc/dev/agent-rules.md",
+        "tools/test_prov.py"
       ]
     }
   ],
