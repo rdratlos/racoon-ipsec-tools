@@ -199,8 +199,13 @@ GitHub CI/workflow location; `develop`: where day-to-day feature and test
 work happens), not a small delta of each other — so some paths are
 intentionally branch-specific and never cross between them:
 
-- `.claude/` (Claude Code developer tooling) is `develop`-owned and must
-  never appear on `main`.
+- `.claude/` (Claude Code developer tooling), `.opencode/` (OpenCode
+  developer tooling) and `doc/dev/` (developer documentation, including
+  the detailed agent rules `doc/dev/agent-rules.md`) are `develop`-owned
+  and must never appear on `main`.
+- The agent entry points `AGENTS.md` and `CLAUDE.md` and the provenance
+  principles `.provenance/PRINCIPLES.md` are shared and kept identical on
+  both branches: change them on both in the same step.
 - Each branch owns its own `.github/workflows/` *files* — not the
   directory as a whole, which legitimately exists on both. `develop`'s CI
   files (`develop-build-test.yml`, `develop-netbsd-build-test.yml`,
