@@ -389,6 +389,205 @@ class ProvTests(unittest.TestCase):
         self.assertEqual(res["unmapped_legacy"], {"Claude": 1})
 
 
+class CaptureEvidenceTests(unittest.TestCase):
+    """Capture evidence in declare/verify, written from the requirements
+    (PRINCIPLES.md 11, 12; PR #169 review): a route label is never a model,
+    counts are counted, observations never rewrite the declared setup."""
+
+    def setUp(self):
+        self.r = Repo()
+
+    def tearDown(self):
+        self.r.cleanup()
+
+    def capture(self, entries):
+        path = os.path.join(self.r.dir, "capture.jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            for e in entries:
+                f.write(json.dumps(e) + "\n")
+        return "capture-log:" + path
+
+    def manifest(self, trailers):
+        pid = [t.split(": ", 1)[1] for t in trailers
+               if t.startswith("Provenance-Id")][0]
+        with open(os.path.join(self.r.dir, ".provenance", "manifests",
+                               pid[:4], pid + ".json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    # -- declare: trust follows the evidence, not the label --------------
+
+    def test_gateway_signal_is_router_trust(self):
+        # a router answered; the id it labels itself with is not a model
+        # (principle 8), so declare must refuse to present it as api/config
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-model-name": "kitch-deploy-7"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        buf = io.StringIO()
+        with mock.patch("sys.stderr", buf):
+            rc = prov.main(["-C", self.r.dir, "declare", "--contrib",
+                            "claude-opus@r1:implementer", "--scope", "docs",
+                            "--evidence", ev])
+        self.assertEqual(rc, 2)
+        self.assertIn("router", buf.getvalue())
+
+    def test_router_evidence_declares_router_and_keeps_profile_model(self):
+        # the profile's declared setup stays in model.id; what the wire
+        # showed goes to observed[], never overwriting it
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-model-name": "kitch-deploy-7"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--reported-by", "router",
+                            "--evidence", ev)
+        doc = self.manifest(tr)
+        c = doc["contributions"][0]
+        self.assertEqual(c["model"]["id"], "claude-opus-5-5")
+        self.assertEqual(c["model_reported_by"], "router")
+        self.assertEqual([o["id"] for o in c["observed"]], ["KITCH-Coder"])
+        self.assertEqual(c["observed"][0]["deployment"], "kitch-deploy-7")
+        self.assertEqual(c["observed"][0]["source"], "capture-proxy")
+        self.assertEqual(doc["schema_version"], "2.0")
+
+    def test_plain_provider_evidence_is_api_trust(self):
+        # no gateway signal at all: the response body names the model, a
+        # tool read it (principle 11), so api trust is earned -- and the
+        # substitution check then applies to the profile
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "claude-sonnet-5", "response_model": "claude-sonnet-5",
+             "deployments": {}, "call_id": "c1", "status": 200,
+             "endpoint": "https://api.anthropic.com"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        c = self.manifest(tr)["contributions"][0]
+        self.assertEqual(c["model_reported_by"], "api")
+        self.assertEqual([o["id"] for o in c["observed"]], ["claude-sonnet-5"])
+
+    def test_requests_counted_not_assumed(self):
+        # the review found requests always 1 while 207 requests happened:
+        # each observation carries how often it was actually seen
+        entries = []
+        for i in range(5):
+            entries.append({"at": f"2026-10-28T10:0{i}:00Z",
+                            "path": "/v1/chat/completions",
+                            "requested": "m-a", "response_model": "m-a",
+                            "deployments": {}, "call_id": f"c{i}",
+                            "status": 200, "endpoint": "https://api.example"})
+        for i in range(3):
+            entries.append({"at": f"2026-10-28T10:1{i}:00Z",
+                            "path": "/v1/chat/completions",
+                            "requested": "m-b", "response_model": "m-b",
+                            "deployments": {}, "call_id": f"d{i}",
+                            "status": 200, "endpoint": "https://api.example"})
+        # not model observations: must not inflate any count
+        entries.append({"at": "2026-10-28T10:20:00Z", "path": "/v1/models",
+                        "requested": None, "response_model": None,
+                        "deployments": {}, "call_id": "h1", "status": 200,
+                        "endpoint": "https://api.example"})
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code",
+                            "--evidence", self.capture(entries))
+        doc = self.manifest(tr)
+        c = doc["contributions"][0]
+        by_id = {o["id"]: o["requests"] for o in c["observed"]}
+        self.assertEqual(by_id, {"m-a": 5, "m-b": 3})
+        self.assertEqual(doc["session"]["capture"]["requests"], 8)
+
+    def test_capture_binding_records_endpoints_never_guesses(self):
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "m", "response_model": "m", "deployments": {},
+             "call_id": "c1", "status": 200},
+            {"at": "2026-10-28T10:05:00Z", "path": "/v1/chat/completions",
+             "requested": "m", "response_model": "m", "deployments": {},
+             "call_id": "c2", "status": 200},
+        ])
+        doc = self.manifest(self.r.declare(
+            "--contrib", "claude-opus@r1:implementer=src/x.c", "--scope", "code",
+            "--evidence", ev))
+        cap = doc["session"]["capture"]
+        self.assertTrue(cap["log_digest"].startswith("sha256:"))
+        self.assertEqual(cap["requests"], 2)
+        self.assertNotIn("endpoints", cap)    # old proxy: absent, never guessed
+        self.assertEqual(cap["window"], ["2026-10-28T10:00:00Z",
+                                         "2026-10-28T10:05:00Z"])
+
+    # -- verify: reads observations, honest about what it cannot map ------
+
+    def _declare_router(self, deployment="kitch-deploy-7"):
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-model-name": deployment},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        return self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                              "--scope", "code", "--reported-by", "router",
+                              "--evidence", ev)
+
+    def test_verify_accepts_observed_record(self):
+        # every observed identity maps to a disclosed model: no warnings
+        self.r.write("src/x.c", "int x;\n")
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "claude-opus-5-5", "response_model": "claude-opus-5-5",
+             "deployments": {"x-litellm-model-name": "claude-opus-5-5"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--reported-by", "router",
+                            "--evidence", ev)
+        self.r.commit("router session", tr + [HUMAN])
+        rc, out = self.r.attest()
+        self.assertEqual(rc, 0, out)
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("[WARN]", out)
+
+    def test_unmapped_deployment_warns_not_fails(self):
+        # a deployment no profile discloses is not a contradiction: the
+        # release may be undisclosed; honesty says WARN, not FAIL (12, 13)
+        self.r.write("src/x.c", "int x;\n")
+        self.r.commit("router session", self._declare_router() + [HUMAN])
+        rc, out = self.r.attest()
+        self.assertEqual(rc, 0, out)
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("[WARN]", out)
+        self.assertIn("kitch-deploy-7", out)
+
+    def test_observed_in_v1_manifest_fails(self):
+        # a manifest that smuggles v2 content (observed[], "router") into a
+        # v1 envelope is rejected by schema validation (additionalProperties
+        # and enum), and verify_session does not crash on it (principle 12)
+        self.r.write("src/x.c", "int x;\n")
+        tr = self._declare_router()
+        self.r.commit("router session", tr + [HUMAN])
+        rc, out = self.r.attest()
+        self.assertEqual(rc, 0, out)
+        pid = [t.split(": ", 1)[1] for t in tr if t.startswith("Provenance-Id")][0]
+        mpath = os.path.join(self.r.dir, ".provenance", "manifests", pid[:4],
+                             pid + ".json")
+        with open(mpath, encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["schema_version"] = "1.0"
+        with open(mpath, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        self.r.git("add", ".")
+        self.r.git("commit", "-q", "--amend", "--no-edit")
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("Additional properties are not allowed", out)
+        self.assertIn("'router' is not one of", out)
+
+
 
 class AttestTests(unittest.TestCase):
     """prov attest + verify: sign-off, signed approval, patch-id binding."""

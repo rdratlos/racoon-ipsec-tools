@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261028T225246Z-83ed1301",
+  "created": "2026-10-28T22:52:46Z",
+  "contributions": [
+    {
+      "profile": "opencode-kitch@r1",
+      "role": "implementer",
+      "model": {
+        "family": "kitch",
+        "id": "KITCH-Coder"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        ".opencode/plugin/provpaws-capture.ts",
+        ".provenance/schema/manifest-v2.schema.json",
+        "tools/prov.py",
+        "tools/provcap-proxy.py",
+        "tools/test_prov.py"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "thomas.reim@airbus.com",
+    "statement": "pending"
+  }
+}
