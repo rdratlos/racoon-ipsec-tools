@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261021T071407Z-e0b90554",
+  "reviewer": "thomas.reim@airbus.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261022T061742Z",
+  "commits": [
+    {
+      "patch_id": "96d35c64e265e53e34405ae36b99b4a046006058",
+      "subject": "provenance: OpenCode pairing capture, schema v2 and evidence plumbing"
+    }
+  ],
+  "tests": {
+    "command": "python3.11 -m unittest tools.test_prov",
+    "exit": 0,
+    "log_digest": "sha256:87427b02792a26f99e4b85fbb8f83cc12a17d7142ac58f4f89a38c861c231c1b",
+    "duration_s": 18.405
+  }
+}

@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rdratlos/racoon-ipsec-tools/.provenance/schema/manifest-v2.schema.json",
+  "title": "racoon AI provenance manifest v2 (RFC 0005 \"provpaws\")",
+  "description": "v2 adds router-mediated model identity: model_reported_by gains 'router' (a gateway answered, the backend deployment is only known from its headers) and a contribution may carry 'observed', the model ids a capture log saw on the wire. Everything expressible in v1 is expressible here; v1 manifests stay valid forever.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "provenance_id",
+    "created",
+    "contributions",
+    "human_review"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "2.0",
+      "description": "Frozen per major version. A breaking change creates manifest-v3.schema.json; v1 and v2 records stay valid forever."
+    },
+    "provenance_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$",
+      "description": "UTC timestamp plus random suffix. Must equal the manifest file name stem and the Provenance-Id trailer value."
+    },
+    "created": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "contributions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/contribution"
+      }
+    },
+    "human_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer",
+        "statement"
+      ],
+      "properties": {
+        "reviewer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The accountable human: e-mail address as used in Signed-off-by, or GitHub handle."
+        },
+        "statement": {
+          "enum": [
+            "pending",
+            "reviewed",
+            "reviewed-and-tested"
+          ],
+          "description": "pending: written by an agent or before review; verify fails until the accountable human changes it. An AI can prepare the record but never complete the attestation."
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Digest of a privately kept session log. Proves a log existed without publishing prompts or transcripts."
+        },
+        "ref": {
+          "type": "string",
+          "description": "Optional opaque session reference (e.g. a tool session URL). Informational only; may not be resolvable by others."
+        },
+        "capture": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Binding of the capture-proxy evidence log a manifest was declared from, recorded by declare --evidence capture-log:PATH. Observations, not claims about backends: endpoints is what the capture proxy's upstream hop finally reached (an env proxy may rewrite it), window is the first/last entry timestamp the proxy wrote. A field the log never recorded stays absent, never guessed.",
+          "required": [
+            "log_digest",
+            "requests"
+          ],
+          "properties": {
+            "log_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "description": "Digest of the evidence log at declare time (sha256 of the file; with several logs, of the sorted per-file digest lines). Proves which log backs this manifest without publishing its contents."
+            },
+            "requests": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Log entries (proxied requests) at declare time."
+            },
+            "endpoints": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Origins (scheme://host[:port]) the proxy observed serving responses, deduplicated."
+            },
+            "window": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "[first, last] entry timestamps, UTC."
+            }
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "maxLength": 2000
+    }
+  },
+  "$defs": {
+    "contribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "role",
+        "model",
+        "model_reported_by",
+        "files"
+      ],
+      "properties": {
+        "profile": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*@r[1-9][0-9]*$",
+          "description": "Profile reference <id>@r<N>, resolving to .provenance/profiles/<id>/r<N>.toml."
+        },
+        "role": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Role name as defined in the referenced profile (implementer, reviewer, ...)."
+        },
+        "model": {
+          "$ref": "#/$defs/model"
+        },
+        "model_reported_by": {
+          "enum": [
+            "api",
+            "router",
+            "config",
+            "manual"
+          ],
+          "description": "api: model id as returned by the provider; router: a gateway sat between harness and provider, the id is the router's label or deployment name and only the deployment headers say what actually answered; config: as configured in the harness; manual: declared by hand."
+        },
+        "observed": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/observation"
+          },
+          "description": "Model identities a capture proxy or harness log saw for this contribution. Optional; absent means no capture evidence. Does not replace model_reported_by: observations from a harness log are config-trust, only router deployment headers or a provider response body approach api-trust."
+        },
+        "files": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Repository paths whose committed content contains output of this contribution. Empty for review-only roles."
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Model id seen on the wire: response body 'model' field, router deployment header, or harness log entry."
+        },
+        "deployment": {
+          "type": "string",
+          "description": "Deployment name or id from a router header (e.g. x-litellm-model-name), when the observation came from a gateway."
+        },
+        "source": {
+          "enum": [
+            "capture-proxy",
+            "harness-log"
+          ],
+          "description": "Where the observation came from. capture-proxy: provcap-proxy.py saw the response; harness-log: a plugin/session log recorded the configured model."
+        },
+        "requests": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of requests this identity was seen on, when counted."
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "id"
+      ],
+      "properties": {
+        "family": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Model family used for the dissimilarity rule (e.g. anthropic-claude, alibaba-qwen)."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Model identifier, or the organisation-managed neutral reference when disclosure is withheld."
+        },
+        "snapshot": {
+          "type": "string",
+          "description": "Dated snapshot / build identifier, if the provider exposes one."
+        }
+      }
+    }
+  }
+}

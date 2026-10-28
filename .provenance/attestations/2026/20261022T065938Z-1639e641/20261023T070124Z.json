@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261022T065938Z-1639e641",
+  "reviewer": "thomas.reim@airbus.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261023T070124Z",
+  "commits": [
+    {
+      "patch_id": "b357f94483a5f788786a12745fc580aed50aca08",
+      "subject": "provenance: add session-capture manifest binding"
+    },
+    {
+      "patch_id": "f91846190be9c4819996e3d27b1509635fe89198",
+      "subject": "provenance: bind capture-log evidence into manifests (v2 session.capture)"
+    }
+  ],
+  "tests": {
+    "command": "python3.11 -m unittest tools.test_prov",
+    "exit": 0,
+    "log_digest": "sha256:e7f69764f0686d3b545f77e26f1c540963141302c904ba9a45d19d725412886e",
+    "duration_s": 19.166
+  }
+}

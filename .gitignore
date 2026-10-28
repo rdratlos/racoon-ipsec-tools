@@ -152,3 +152,9 @@ Makefile
 # /src/setkey/token.c
 # /src/setkey/parse.[ch]
 
+# AI provenance (RFC 0005 provpaws) working data: harness-side capture logs
+# (.provpaws/sessions/) and proxy capture logs. Local evidence only -- the
+# manifest binds a capture by digest, never commits the raw log.
+.provpaws/
+provcap.jsonl
+

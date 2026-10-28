@@ -1,0 +1,64 @@
+{
+  "schema_version": "2.0",
+  "provenance_id": "20261022T065938Z-1639e641",
+  "created": "2026-10-22T06:59:38Z",
+  "contributions": [
+    {
+      "profile": "opencode-kitch@r1",
+      "role": "implementer",
+      "model": {
+        "family": "kitch",
+        "id": "KITCH-Coder"
+      },
+      "model_reported_by": "api",
+      "files": [
+        "tools/prov.py",
+        "tools/provcap-proxy.py",
+        "tools/test_prov.py"
+      ],
+      "observed": [
+        {
+          "id": "KITCH-Coder",
+          "deployment": "hosted_vllm/Qwen3.8-Flash-Next-FP8",
+          "requests": 1
+        },
+        {
+          "id": "Qwen3.8-Flash-Next-NoReasoning",
+          "requests": 1
+        },
+        {
+          "id": "hosted_vllm/Qwen3.8-Flash-Next-FP8",
+          "requests": 1
+        },
+        {
+          "id": "KITCH-Coder",
+          "requests": 1
+        },
+        {
+          "id": "KITCH-Coder",
+          "deployment": "Qwen3.8-Flash-Next-NoReasoning",
+          "requests": 1
+        },
+        {
+          "id": "Qwen3.8-Flash-Next",
+          "requests": 1
+        }
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "thomas.reim@airbus.com",
+    "statement": "pending"
+  },
+  "session": {
+    "ref": "opencode:provcap-live-20261022",
+    "capture": {
+      "log_digest": "sha256:cd01fa11086f18876de35358c293fe46ba2acc4e21115b19d2c7451058d8f6d1",
+      "requests": 207,
+      "window": [
+        "2026-10-22T06:51:58Z",
+        "2026-10-22T10:30:21Z"
+      ]
+    }
+  }
+}
