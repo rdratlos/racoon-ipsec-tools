@@ -454,10 +454,67 @@ class CaptureEvidenceTests(unittest.TestCase):
         self.assertEqual(c["observed"][0]["source"], "capture-proxy")
         self.assertEqual(doc["schema_version"], "2.0")
 
-    def test_plain_provider_evidence_is_api_trust(self):
-        # no gateway signal at all: the response body names the model, a
-        # tool read it (principle 11), so api trust is earned -- and the
-        # substitution check then applies to the profile
+    def test_deployment_picked_by_name_not_by_sorting(self):
+        # a gateway response carries several headers (LiteLLM sends over a
+        # dozen); the deployment name must be picked by known name, never
+        # by sorting, so a call id or endpoint can never be recorded as a
+        # deployment (schema: 'Deployment name or id as the gateway
+        # reported it')
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {
+                 "x-litellm-call-id": "call-00abc",
+                 "x-litellm-model-id": "deploy-77",
+                 "x-litellm-model-group": "KITCH-Coder",
+                 "x-litellm-api-base": "https://api.anthropic.com",
+             },
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        c = self.manifest(self.r.declare(
+            "--contrib", "claude-opus@r1:implementer=src/x.c", "--scope", "code",
+            "--reported-by", "router", "--evidence", ev))["contributions"][0]
+        self.assertEqual(c["observed"][0]["deployment"], "deploy-77")
+
+    def test_deployment_from_body_when_no_header(self):
+        # LiteLLM puts the deployment in the response body (key "model")
+        # when send_to_v2_endpoint logs it; a gateway signal with no
+        # usable header still yields no fake deployment
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"body:litellm_model_id": "deploy-77"},             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        c = self.manifest(self.r.declare(
+            "--contrib", "claude-opus@r1:implementer=src/x.c", "--scope", "code",
+            "--reported-by", "router", "--evidence", ev))["contributions"][0]
+        self.assertEqual(c["observed"][0]["deployment"], "deploy-77")
+
+    def test_agreement_upgrades_to_api_trust(self):
+        # maintainer decision on PR #178 (option 2), case agreement: a
+        # provider answered with no gateway signal, naming exactly the
+        # declared model, so api means what the schema says; model.id
+        # stays unchanged
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "claude-opus-5-5", "response_model": "claude-opus-5-5",
+             "deployments": {}, "call_id": "c1", "status": 200,
+             "endpoint": "https://api.anthropic.com"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        c = self.manifest(tr)["contributions"][0]
+        self.assertEqual(c["model_reported_by"], "api")
+        self.assertEqual(c["model"]["id"], "claude-opus-5-5")
+        self.assertEqual([o["id"] for o in c["observed"]], ["claude-opus-5-5"])
+
+    def test_disagreement_keeps_declared_and_warns_on_verify(self):
+        # maintainer decision on PR #178 (option 2), case disagreement: the
+        # response named another model, so no upgrade happens (the record
+        # would otherwise claim the provider reported it: principles 11,
+        # 12); the observation goes to observed[] and verify calls out the
+        # substitution explicitly
+        self.r.write("src/x.c", "int x;\n")
         ev = self.capture([
             {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
              "requested": "claude-sonnet-5", "response_model": "claude-sonnet-5",
@@ -467,8 +524,27 @@ class CaptureEvidenceTests(unittest.TestCase):
         tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
                             "--scope", "code", "--evidence", ev)
         c = self.manifest(tr)["contributions"][0]
-        self.assertEqual(c["model_reported_by"], "api")
+        self.assertEqual(c["model_reported_by"], "manual")
+        self.assertEqual(c["model"]["id"], "claude-opus-5-5")
         self.assertEqual([o["id"] for o in c["observed"]], ["claude-sonnet-5"])
+        self.r.commit("provider session", tr + [HUMAN])
+        rc, out = self.r.attest()
+        self.assertEqual(rc, 0, out)
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("differs from the declared", out)
+        self.assertIn("substitution", out)
+
+    def test_router_reported_by_needs_evidence(self):
+        # a router claim must come from a tool reading gateway headers,
+        # never from typing (principles 11, 12)
+        buf = io.StringIO()
+        with mock.patch("sys.stderr", buf):
+            rc = prov.main(["-C", self.r.dir, "declare", "--contrib",
+                            "claude-opus@r1:implementer", "--scope", "docs",
+                            "--reported-by", "router"])
+        self.assertEqual(rc, 2)
+        self.assertIn("--evidence", buf.getvalue())
 
     def test_requests_counted_not_assumed(self):
         # the review found requests always 1 while 207 requests happened:

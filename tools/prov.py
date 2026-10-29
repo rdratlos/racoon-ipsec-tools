@@ -569,6 +569,12 @@ def verify_session(git, report, policy, pid, s):
         # itself contradicts. A v1 envelope with observed[] is rejected by
         # schema validation before this point, so no version check here.
         obs = contrib.get("observed", [])
+        differing = sorted({str(o["id"]) for o in obs
+                            if o.get("id") and o["id"] != model.get("id")})
+        if differing:
+            report.warn(f"{where}: observed '{', '.join(differing)}' differs "
+                        f"from the declared '{model.get('id')}' -- "
+                        f"substitution?")
         unmapped = []
         for o in obs:
             for dep in (o.get("deployment"), o.get("id")):
@@ -777,6 +783,12 @@ def cmd_verify(args):
 CAPTURE_SKIP_PATHS = ("/health", "/models", "/v1/models")
 GATEWAY_DEPLOYMENT_PREFIXES = ("x-litellm-", "x-routify-")
 GATEWAY_DEPLOYMENT_BODY = "body:"
+# a deployment header carries a deployment name; other headers of the same
+# gateways carry ids or endpoints that must never be read as one
+DEPLOYMENT_HEADER_SUFFIXES = ("-deployment", "-model", "-model-name",
+                              "-model-id")
+DEPLOYMENT_BODY_KEYS = ("model", "model_id", "model_name", "litellm_model_id",
+                        "router_model", "router_model_id", "router_model_name")
 
 
 def read_capture(path):
@@ -802,10 +814,30 @@ def read_capture(path):
                 continue
             entries.append(e)
 
-    def is_gateway(dep):
+    def is_gateway(e):
+        # a gateway response may carry no deployment header at all (the
+        # gateway answered directly); the proxy records the upstream URL
+        # as endpoint
         return any(k.lower().startswith(GATEWAY_DEPLOYMENT_PREFIXES)
                    or k.lower().startswith(GATEWAY_DEPLOYMENT_BODY)
-                   for k in dep)
+                   for k in (e.get("deployments") or {})) \
+            or str(e.get("endpoint", "")).startswith("litellm://")
+
+    def deployment_value(dep):
+        """Deployment name from a gateway, picked by known name order so a
+        call id or endpoint can never win by sorting first (schema v2:
+        'Deployment as the gateway reported it')."""
+        low = {k.lower(): v for k, v in dep.items()}
+        for key in DEPLOYMENT_BODY_KEYS:
+            v = low.get(GATEWAY_DEPLOYMENT_BODY + key)
+            if isinstance(v, str) and v:
+                return v
+        for suffix in DEPLOYMENT_HEADER_SUFFIXES:
+            for k, v in sorted(low.items()):
+                if k.startswith(GATEWAY_DEPLOYMENT_PREFIXES) \
+                        and k.endswith(suffix) and isinstance(v, str) and v:
+                    return v
+        return None
 
     obs, seen, at = [], {}, []
     for e in entries:
@@ -814,18 +846,10 @@ def read_capture(path):
         if isinstance(entry_at, str):
             at.append(entry_at)
         ident = e.get("response_model")
-        if ident is None and dep:
-            ident = next((v for k, v in sorted(dep.items())
-                          if k.lower().startswith(GATEWAY_DEPLOYMENT_PREFIXES)),
-                         None)
         if not ident:
             continue    # request that never reported an identity: not counted
-        gateway = is_gateway(dep)
-        deployment = None
-        if gateway:
-            deployment = next((v for k, v in sorted(dep.items())
-                               if k.lower().startswith(GATEWAY_DEPLOYMENT_PREFIXES)
-                               and "model-id" not in k.lower()), None)
+        gateway = is_gateway(e)
+        deployment = deployment_value(dep) if gateway else None
         key = (str(ident), str(deployment) if deployment else None, gateway)
         if key in seen:
             obs[seen[key]]["requests"] += 1
@@ -860,6 +884,16 @@ def evidence_trust(ev):
     return "router" if any(o["trusted"] == "router" for o in usable) else "api"
 
 
+def evidence_agrees(ev, declared_id):
+    """True only if at least one observation came from a provider response
+    with no gateway signal and every such observation names exactly the
+    declared model id; a gateway observation says nothing about the
+    provider's own word (maintainer decision on PR #178, option 2)."""
+    direct = [o for o in ev["observations"]
+              if o["source"] == "capture-proxy" and o["trusted"] == "api"]
+    return bool(direct) and all(o["id"] == declared_id for o in direct)
+
+
 def cmd_declare(args):
     git = Git(args.repo)
     report = Report()
@@ -881,6 +915,11 @@ def cmd_declare(args):
             and args.reported_by != "router":
         print("prov declare: the capture log shows gateway deployment headers, "
               "which is a router observation; pass --reported-by router",
+              file=sys.stderr)
+        return 2
+    if args.reported_by == "router" and not evidence:
+        print("prov declare: --reported-by router needs --evidence: a router "
+              "claim must come from a tool, never from typing (principles 11, 12)",
               file=sys.stderr)
         return 2
     scopes = [s.strip() for s in args.scope.split(",") if s.strip()]
@@ -921,10 +960,12 @@ def cmd_declare(args):
             contrib["observed"] = [
                 {k: v for k, v in o.items() if k != "trusted"}
                 for o in evidence["observations"]]
-            if evidence_trust(evidence) == "api" and reported == "manual":
-                # a provider answered with no gateway signal: what the
-                # response body said is stronger than a declaration
-                # (principle 11) and the substitution check applies
+            if evidence_agrees(evidence, model["id"]) and reported == "manual":
+                # a provider answered, with no gateway signal, naming
+                # exactly the declared model: api then means exactly what
+                # the schema says, "model id as returned by the provider";
+                # on disagreement model stays as declared and verify warns
+                # about the substitution (maintainer decision on PR #178)
                 contrib["model_reported_by"] = "api"
         contributions.append(contrib)
         if ref not in refs:

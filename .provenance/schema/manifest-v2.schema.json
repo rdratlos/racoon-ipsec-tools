@@ -171,29 +171,41 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "id"
+        "source"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "id"
+          ]
+        },
+        {
+          "required": [
+            "deployment"
+          ]
+        }
       ],
       "properties": {
         "id": {
           "type": "string",
           "minLength": 1,
-          "description": "Model id seen on the wire: response body 'model' field, router deployment header, or harness log entry."
+          "description": "Model id as a provider response body named it, or a gateway named it. A route label is not a model id and a configured model is an expectation, not an observation: neither belongs here. Optional; at least one of id or deployment is required."
         },
         "deployment": {
           "type": "string",
-          "description": "Deployment name or id from a router header (e.g. x-litellm-model-name), when the observation came from a gateway."
+          "description": "Deployment name or id as the gateway reported it (e.g. the value of x-litellm-model-id), when the observation came from a gateway."
         },
         "source": {
           "enum": [
             "capture-proxy",
             "harness-log"
           ],
-          "description": "Where the observation came from. capture-proxy: provcap-proxy.py saw the response; harness-log: a plugin/session log recorded the configured model."
+          "description": "Where the observation came from. capture-proxy: provcap-proxy.py saw the response; harness-log: a plugin or session log recorded what the harness used."
         },
         "requests": {
           "type": "integer",
           "minimum": 1,
-          "description": "Number of requests this identity was seen on, when counted."
+          "description": "Requests this observation covers, counted by the tool that wrote it: for capture-proxy, proxied requests that reported this identity (health and model-list calls excluded); for harness-log, log entries naming it."
         }
       }
     },
