@@ -86,7 +86,7 @@
             "requests": {
               "type": "integer",
               "minimum": 0,
-              "description": "Log entries (proxied requests) at declare time."
+              "description": "Completion requests in the log at declare time (model-list and health calls are not counted)."
             },
             "endpoints": {
               "type": "array",
@@ -204,7 +204,7 @@
         "requests": {
           "type": "integer",
           "minimum": 1,
-          "description": "Requests this observation covers, counted by the tool that wrote it: for capture-proxy, proxied requests that reported this identity (health and model-list calls excluded); for harness-log, log entries naming it."
+          "description": "Requests this observation covers, counted by the tool that wrote it: for capture-proxy, proxied completion requests that reported this identity (health and model-list calls excluded)."
         }
       }
     },
