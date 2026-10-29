@@ -37,6 +37,12 @@ When in doubt, ask.
   take rewritten history.
 - **Never merge or approve a pull request**, even if your credentials
   allow it. Merging is the human's act, after attesting (principle 14).
+- **Never edit or delete a comment or review you did not write**, and
+  never rewrite someone else's pull request or issue description: reply
+  instead. You may correct your own comments; say what you changed.
+  Agents and humans may act through the same GitHub account, so GitHub
+  cannot tell who wrote what, and an overwritten review loses the record
+  (principle 12).
 - On `develop`, `doc/dev/agent-rules.md` holds the detailed rules. Your
   harness loads it automatically when the session starts on `develop`.
   If you switched branch during the session, read it now.
