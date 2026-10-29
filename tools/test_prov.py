@@ -416,9 +416,23 @@ class CaptureEvidenceTests(unittest.TestCase):
 
     # -- declare: trust follows the evidence, not the label --------------
 
-    def test_gateway_signal_is_router_trust(self):
-        # a router answered; the id it labels itself with is not a model
-        # (principle 8), so declare must refuse to present it as api/config
+    def test_gateway_signal_sets_router_itself(self):
+        # a tool read the gateway signal, so declare concludes router
+        # itself instead of making the caller retype it (principle 9)
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-model-name": "kitch-deploy-7"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        c = self.manifest(tr)["contributions"][0]
+        self.assertEqual(c["model_reported_by"], "router")
+
+    def test_config_reported_by_contradicts_gateway_evidence(self):
+        # an explicit flag that contradicts what the tool read is refused
+        # (principles 11, 12)
         ev = self.capture([
             {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
              "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
@@ -429,9 +443,9 @@ class CaptureEvidenceTests(unittest.TestCase):
         with mock.patch("sys.stderr", buf):
             rc = prov.main(["-C", self.r.dir, "declare", "--contrib",
                             "claude-opus@r1:implementer", "--scope", "docs",
-                            "--evidence", ev])
+                            "--reported-by", "config", "--evidence", ev])
         self.assertEqual(rc, 2)
-        self.assertIn("router", buf.getvalue())
+        self.assertIn("config", buf.getvalue())
 
     def test_router_evidence_declares_router_and_keeps_profile_model(self):
         # the profile's declared setup stays in model.id; what the wire

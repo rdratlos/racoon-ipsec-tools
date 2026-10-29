@@ -916,12 +916,17 @@ def cmd_declare(args):
         except OSError as e:
             print(f"prov declare: cannot read evidence log: {e}", file=sys.stderr)
             return 2
-    if evidence and evidence_trust(evidence) == "router" \
-            and args.reported_by != "router":
-        print("prov declare: the capture log shows gateway deployment headers, "
-              "which is a router observation; pass --reported-by router",
-              file=sys.stderr)
-        return 2
+    if evidence and evidence_trust(evidence) == "router":
+        # a tool read the gateway signal; make it state its conclusion
+        # instead of making the caller retype it (principle 9); only an
+        # explicitly contradicting flag is refused (principles 11, 12)
+        if args.reported_by == "config":
+            print("prov declare: the capture log shows gateway deployment "
+                  f"headers, which contradicts --reported-by {args.reported_by}",
+                  file=sys.stderr)
+            return 2
+        args.reported_by = "router"
+        print("prov declare: capture log shows a gateway: recorded as router")
     if args.reported_by == "router" and not evidence:
         print("prov declare: --reported-by router needs --evidence: a router "
               "claim must come from a tool, never from typing (principles 11, 12)",
