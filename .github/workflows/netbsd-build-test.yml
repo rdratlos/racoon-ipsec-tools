@@ -41,12 +41,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
 
       - name: Build on NetBSD 10
-        uses: cross-platform-actions/action@v1.6.0
+        uses: cross-platform-actions/action@v1.7.0
         # The dispatch input reaches the VM as an env var, not as a ${{ }}
         # expression spliced into the script below.
         env:
