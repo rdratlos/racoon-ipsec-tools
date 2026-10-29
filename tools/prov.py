@@ -837,6 +837,7 @@ def read_capture(path):
         return None
 
     obs, seen, at = [], {}, []
+    gateway_seen = False
     for e in entries:
         dep = e.get("deployments") or {}
         entry_at = e.get("at")
@@ -844,8 +845,10 @@ def read_capture(path):
             at.append(entry_at)
         ident = e.get("response_model")
         gateway = is_gateway(e)
+        gateway_seen = gateway_seen or gateway
         deployment = deployment_value(dep) if gateway else None
-        if gateway and ident and str(ident) == str(e.get("requested", "")):
+        if gateway and ident and str(ident).casefold() \
+                == str(e.get("requested", "")).casefold():
             # the gateway echoed the route label back as the response model;
             # a route label is not a model id (principle 8), so record only
             # the deployment and leave id out
@@ -877,16 +880,17 @@ def read_capture(path):
         cap["window"] = [min(at), max(at)]
     elif len(at) == 1:
         cap["window"] = [at[0], at[0]]
-    return {"observations": obs, "capture": cap}
+    return {"observations": obs, "capture": cap, "gateway": gateway_seen}
 
 
 def evidence_trust(ev):
     """api = a provider answered with no gateway signal at all; router = a
-    gateway deployment signal was seen; None = no usable evidence."""
+    gateway signal was seen anywhere in the log, even on an entry that
+    yielded no observation; None = no usable evidence."""
     usable = [o for o in ev["observations"] if o["source"] == "capture-proxy"]
-    if not usable:
+    if not usable and not ev.get("gateway"):
         return None
-    return "router" if any(o["trusted"] == "router" for o in usable) else "api"
+    return "router" if ev.get("gateway") else "api"
 
 
 def evidence_agrees(ev, declared_id):
@@ -966,7 +970,7 @@ def cmd_declare(args):
             "model_reported_by": reported,
             "files": sorted({f for f in (files or "").split(",") if f}),
         }
-        if evidence:
+        if evidence and evidence["observations"]:
             contrib["observed"] = [
                 {k: v for k, v in o.items() if k != "trusted"}
                 for o in evidence["observations"]]

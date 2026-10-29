@@ -193,7 +193,7 @@
         },
         "deployment": {
           "type": "string",
-          "description": "Deployment name or id as the gateway reported it (e.g. the value of x-litellm-model-id), when the observation came from a gateway."
+          "description": "Deployment name as the gateway reported it (for example x-litellm-model-name or the body's router_model_name), when the observation came from a gateway. An instance id or hash is not a deployment name."
         },
         "source": {
           "enum": [

@@ -414,6 +414,95 @@ class CaptureEvidenceTests(unittest.TestCase):
                                pid[:4], pid + ".json"), encoding="utf-8") as f:
             return json.load(f)
 
+    def validate_v2(self, doc):
+        # derived from the schema, not from the code (principle 15)
+        with open(os.path.join(HERE, "..", ".provenance", "schema",
+                               "manifest-v2.schema.json"),
+                  encoding="utf-8") as f:
+            v = prov.validator_for(json.load(f))
+        self.assertIsNotNone(v, "jsonschema not installed")
+        self.assertEqual(prov.schema_errors(v, doc), [])
+
+    def test_validate_v2(self):
+        doc = {"schema_version": "2.0",
+               "provenance_id": "20261017T120000Z-01234567", "created": "t",
+               "contributions": [{"profile": "a@r1", "role": "implementer",
+                                  "model": {"family": "f", "id": "m"},
+                                  "model_reported_by": "manual", "files": [],
+                                  "observed": [{"source": "capture-proxy",
+                                                "requests": 1, "id": "m"}]}],
+               "human_review": {"reviewer": "jane@example.org",
+                                "statement": "pending"}}
+        self.validate_v2(doc)
+
+    def test_no_observed_key_when_log_yields_nothing(self):
+        # the schema requires minItems 1 on observed (schema v2), so a log
+        # whose entries can say nothing honestly must yield no observed key
+        # at all, never an empty list (principle 12)
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-call-id": "a1",
+                             "x-litellm-model-id": "e8071ad2",
+                             "x-litellm-model-group": "KITCH-Coder"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        doc = self.manifest(tr)
+        self.assertNotIn("observed", doc["contributions"][0])
+        self.validate_v2(doc)
+
+    def test_mixed_gateway_log_never_gives_api(self):
+        # a gateway signal anywhere in the log forces router trust, even on
+        # an entry that was dropped for lack of an honest observation
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-call-id": "a1",
+                             "x-litellm-model-id": "e8071ad2"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+            {"at": "2026-10-28T10:01:00Z", "path": "/v1/messages",
+             "requested": "claude-opus-5-5", "response_model": "claude-opus-5-5",
+             "deployments": {}, "call_id": "c2", "status": 200,
+             "endpoint": "https://api.anthropic.com"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        c = self.manifest(tr)["contributions"][0]
+        self.assertEqual(c["model_reported_by"], "router")
+
+    def test_nameless_gateway_entry_still_gives_router(self):
+        # a log of only the name-less gateway entry: no observation, but
+        # the tool did see a gateway (principle 12: router, not manual)
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-call-id": "a1"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        c = self.manifest(tr)["contributions"][0]
+        self.assertEqual(c["model_reported_by"], "router")
+        self.assertNotIn("observed", c)
+
+    def test_route_echo_case_insensitive(self):
+        # a route echoed in any spelling is still a route label, never a
+        # model id (principle 8)
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "kitch-coder",
+             "deployments": {"x-litellm-model-name": "kitch-deploy-7"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        c = self.manifest(tr)["contributions"][0]
+        self.assertEqual(c["observed"],
+                         [{"source": "capture-proxy", "requests": 1,
+                           "deployment": "kitch-deploy-7"}])
+
     # -- declare: trust follows the evidence, not the label --------------
 
     def test_gateway_signal_sets_router_itself(self):
