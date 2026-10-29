@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261029T092310Z-756aa08b",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261029T092645Z",
+  "commits": [
+    {
+      "patch_id": "769cb319704fa17a9a14f65a1332cb48c0591231",
+      "subject": "docs: agents never edit or delete comments they did not write"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:43f9c219b70089659c240a12e62a45380d53b8386530b8e528547597af2c214e",
+    "duration_s": 7.518
+  }
+}
