@@ -785,10 +785,8 @@ GATEWAY_DEPLOYMENT_PREFIXES = ("x-litellm-", "x-routify-")
 GATEWAY_DEPLOYMENT_BODY = "body:"
 # a deployment header carries a deployment name; other headers of the same
 # gateways carry ids or endpoints that must never be read as one
-DEPLOYMENT_HEADER_SUFFIXES = ("-deployment", "-model", "-model-name",
-                              "-model-id")
-DEPLOYMENT_BODY_KEYS = ("model", "model_id", "model_name", "litellm_model_id",
-                        "router_model", "router_model_id", "router_model_name")
+DEPLOYMENT_HEADER_SUFFIXES = ("-deployment", "-model", "-model-name")
+DEPLOYMENT_BODY_KEYS = ("model_name", "router_model", "router_model_name")
 
 
 def read_capture(path):
@@ -820,8 +818,7 @@ def read_capture(path):
         # as endpoint
         return any(k.lower().startswith(GATEWAY_DEPLOYMENT_PREFIXES)
                    or k.lower().startswith(GATEWAY_DEPLOYMENT_BODY)
-                   for k in (e.get("deployments") or {})) \
-            or str(e.get("endpoint", "")).startswith("litellm://")
+                   for k in (e.get("deployments") or {}))
 
     def deployment_value(dep):
         """Deployment name from a gateway, picked by known name order so a
@@ -846,16 +843,24 @@ def read_capture(path):
         if isinstance(entry_at, str):
             at.append(entry_at)
         ident = e.get("response_model")
-        if not ident:
-            continue    # request that never reported an identity: not counted
         gateway = is_gateway(e)
         deployment = deployment_value(dep) if gateway else None
-        key = (str(ident), str(deployment) if deployment else None, gateway)
+        if gateway and ident and str(ident) == str(e.get("requested", "")):
+            # the gateway echoed the route label back as the response model;
+            # a route label is not a model id (principle 8), so record only
+            # the deployment and leave id out
+            ident = None
+        if not ident and deployment is None:
+            continue    # nothing this entry can say honestly
+        key = (str(ident) if ident else None,
+               str(deployment) if deployment else None, gateway)
         if key in seen:
             obs[seen[key]]["requests"] += 1
         else:
             seen[key] = len(obs)
-            o = {"id": str(ident), "source": "capture-proxy", "requests": 1}
+            o = {"source": "capture-proxy", "requests": 1}
+            if ident:
+                o["id"] = str(ident)
             if deployment is not None:
                 o["deployment"] = str(deployment)
             o["trusted"] = "router" if gateway else "api"

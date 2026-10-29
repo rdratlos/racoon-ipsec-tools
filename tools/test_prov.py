@@ -449,7 +449,7 @@ class CaptureEvidenceTests(unittest.TestCase):
         c = doc["contributions"][0]
         self.assertEqual(c["model"]["id"], "claude-opus-5-5")
         self.assertEqual(c["model_reported_by"], "router")
-        self.assertEqual([o["id"] for o in c["observed"]], ["KITCH-Coder"])
+        self.assertNotIn("id", c["observed"][0])
         self.assertEqual(c["observed"][0]["deployment"], "kitch-deploy-7")
         self.assertEqual(c["observed"][0]["source"], "capture-proxy")
         self.assertEqual(doc["schema_version"], "2.0")
@@ -465,30 +465,33 @@ class CaptureEvidenceTests(unittest.TestCase):
              "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
              "deployments": {
                  "x-litellm-call-id": "call-00abc",
-                 "x-litellm-model-id": "deploy-77",
+                 "x-litellm-model-id": "a1b2c3d4-7777",
                  "x-litellm-model-group": "KITCH-Coder",
                  "x-litellm-api-base": "https://api.anthropic.com",
+                 "x-litellm-model-name": "claude-deploy-7",
              },
              "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
         ])
         c = self.manifest(self.r.declare(
             "--contrib", "claude-opus@r1:implementer=src/x.c", "--scope", "code",
             "--reported-by", "router", "--evidence", ev))["contributions"][0]
-        self.assertEqual(c["observed"][0]["deployment"], "deploy-77")
+        self.assertEqual(c["observed"][0]["deployment"], "claude-deploy-7")
 
     def test_deployment_from_body_when_no_header(self):
-        # LiteLLM puts the deployment in the response body (key "model")
-        # when send_to_v2_endpoint logs it; a gateway signal with no
-        # usable header still yields no fake deployment
+        # a gateway may put the deployment name in the response body
+        # (router_model) instead of a header; a body-only entry still yields
+        # the deployment, and the route echo never becomes an id
         ev = self.capture([
             {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
              "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
-             "deployments": {"body:litellm_model_id": "deploy-77"},             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+             "deployments": {"body:router_model": "qwen-deploy-9"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
         ])
         c = self.manifest(self.r.declare(
             "--contrib", "claude-opus@r1:implementer=src/x.c", "--scope", "code",
             "--reported-by", "router", "--evidence", ev))["contributions"][0]
-        self.assertEqual(c["observed"][0]["deployment"], "deploy-77")
+        self.assertEqual(c["observed"][0]["deployment"], "qwen-deploy-9")
+        self.assertNotIn("id", c["observed"][0])
 
     def test_agreement_upgrades_to_api_trust(self):
         # maintainer decision on PR #178 (option 2), case agreement: a
@@ -545,6 +548,26 @@ class CaptureEvidenceTests(unittest.TestCase):
                             "--reported-by", "router"])
         self.assertEqual(rc, 2)
         self.assertIn("--evidence", buf.getvalue())
+
+    def test_route_echo_records_deployment_not_id(self):
+        # KITCH echoes the route label as the response model; a route label
+        # is not a model id (principle 8), so the observation carries only
+        # the deployment the gateway named, and the two requests merge
+        entries = [
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-model-name": "Qwen3.8-Flash-Next-FP8"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ] * 2
+        entries[1] = dict(entries[0], at="2026-10-28T10:01:00Z", call_id="c2")
+        ev = self.capture(entries)
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--reported-by", "router",
+                            "--evidence", ev)
+        c = self.manifest(tr)["contributions"][0]
+        self.assertEqual(c["observed"], [
+            {"source": "capture-proxy", "requests": 2,
+             "deployment": "Qwen3.8-Flash-Next-FP8"}])
 
     def test_requests_counted_not_assumed(self):
         # the review found requests always 1 while 207 requests happened:

@@ -154,7 +154,7 @@
           "items": {
             "$ref": "#/$defs/observation"
           },
-          "description": "Model identities a capture proxy or harness log saw for this contribution. Optional; absent means no capture evidence. Does not replace model_reported_by: observations from a harness log are config-trust, only router deployment headers or a provider response body approach api-trust."
+          "description": "Model identities a capture proxy saw for this contribution. Optional; absent means no capture evidence. Does not replace model_reported_by: an observation taken through a gateway is config-trust at best; only a provider response body naming the model, with no gateway signal, supports api-trust."
         },
         "files": {
           "type": "array",
@@ -197,10 +197,9 @@
         },
         "source": {
           "enum": [
-            "capture-proxy",
-            "harness-log"
+            "capture-proxy"
           ],
-          "description": "Where the observation came from. capture-proxy: provcap-proxy.py saw the response; harness-log: a plugin or session log recorded what the harness used."
+          "description": "Where the observation came from. capture-proxy: provcap-proxy.py saw the response."
         },
         "requests": {
           "type": "integer",
