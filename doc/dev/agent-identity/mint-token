@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Mint a GitHub App installation token for racoon-opencode.
+
+Runs as the key-owning user (ghapp), never as the agent's user. Prints the
+token on stdout. Reuses a cached token until 5 minutes before it expires.
+Standard library plus the openssl CLI only.
+"""
+import base64, calendar, json, os, subprocess, sys, time, urllib.request
+
+CONF = os.environ.get("RACOON_APP_CONF", "/etc/racoon-opencode/app.json")
+# app.json: {"client_id": "Iv23...", "installation_id": 12345678,
+#            "key": "/etc/racoon-opencode/app.pem",
+#            "repo": "racoon-ipsec-tools"}
+CACHE = os.path.expanduser("~/.cache/racoon-opencode-token.json")
+PERMISSIONS = {"contents": "write", "pull_requests": "write",
+               "issues": "write", "metadata": "read"}
+
+
+def b64(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def jwt(client_id, key):
+    now = int(time.time())
+    head = b64(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+    body = b64(json.dumps({"iat": now - 60, "exp": now + 540,
+                           "iss": client_id}).encode())
+    sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", key],
+                         input=f"{head}.{body}".encode(),
+                         capture_output=True, check=True).stdout
+    return f"{head}.{body}.{b64(sig)}"
+
+
+def cached():
+    try:
+        with open(CACHE) as f:
+            c = json.load(f)
+        if c["expires"] - time.time() > 300:
+            return c["token"]
+    except (OSError, ValueError, KeyError):
+        pass
+    return None
+
+
+def mint(conf):
+    req = urllib.request.Request(
+        f"https://api.github.com/app/installations/"
+        f"{conf['installation_id']}/access_tokens",
+        method="POST",
+        data=json.dumps({"repositories": [conf["repo"]],
+                         "permissions": PERMISSIONS}).encode(),
+        headers={"Authorization": f"Bearer {jwt(conf['client_id'], conf['key'])}",
+                 "Accept": "application/vnd.github+json",
+                 "X-GitHub-Api-Version": "2022-11-28"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        res = json.load(r)
+    expires = calendar.timegm(time.strptime(res["expires_at"],
+                                            "%Y-%m-%dT%H:%M:%SZ"))
+    os.makedirs(os.path.dirname(CACHE), mode=0o700, exist_ok=True)
+    fd = os.open(CACHE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump({"token": res["token"], "expires": expires}, f)
+    return res["token"]
+
+
+def main():
+    with open(CONF) as f:
+        conf = json.load(f)
+    print(cached() or mint(conf))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:  # git shows stderr; never print the key
+        print(f"mint-token: {e}", file=sys.stderr)
+        sys.exit(1)

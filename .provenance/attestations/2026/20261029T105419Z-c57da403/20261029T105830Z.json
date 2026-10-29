@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261029T105419Z-c57da403",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261029T105830Z",
+  "commits": [
+    {
+      "patch_id": "39c14c3b99973583ac79d382874cef6a1b90c0e6",
+      "subject": "Give agents their own GitHub App identity as committer"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:705ef2b48e6e3900cd7f744e437d200bf8afd875aa211bc3d0e1fca6494c1394",
+    "duration_s": 7.275
+  }
+}

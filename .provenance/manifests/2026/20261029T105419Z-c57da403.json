@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261029T105419Z-c57da403",
+  "created": "2026-10-29T10:54:19Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        ".opencode/AGENTS-opencode.md",
+        ".provenance/README.md",
+        ".provenance/policy.toml",
+        "AGENTS.md",
+        "doc/dev/agent-identity.md",
+        "doc/dev/agent-identity/gh",
+        "doc/dev/agent-identity/git-credential-racoon",
+        "doc/dev/agent-identity/mint-token",
+        "doc/dev/agent-rules.md",
+        "tools/test_prov.py"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "noreply@anthropic.com",
+    "statement": "pending"
+  }
+}

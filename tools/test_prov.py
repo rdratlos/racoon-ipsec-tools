@@ -192,12 +192,18 @@ class ProvTests(unittest.TestCase):
         # A commit an agent created that changes files is AI output; it
         # cannot pass as human work just because the trailers are missing
         # (AGENTS.md: declare every AI-assisted commit; PRINCIPLES.md 12).
-        for name in ("Claude Code", "OpenCode"):
+        # An agent's GitHub App bot (doc/dev/agent-identity.md) is an
+        # agent identity too.
+        for name, email in (
+                ("Claude Code", "agent@agents.invalid"),
+                ("OpenCode", "agent@agents.invalid"),
+                ("racoon-opencode[bot]",
+                 "12345678+racoon-opencode[bot]@users.noreply.github.com")):
             with self.subTest(committer=name):
                 self.r.write("src/x.c", f"int x; /* {name} */\n")
                 self.r.commit("undeclared agent change", [HUMAN], env={
                     "GIT_COMMITTER_NAME": name,
-                    "GIT_COMMITTER_EMAIL": "agent@agents.invalid"})
+                    "GIT_COMMITTER_EMAIL": email})
                 self.assertFail("committed by an agent")
                 self.r.git("reset", "-q", "--hard", "HEAD~1")
 
@@ -610,6 +616,20 @@ class AttestTests(unittest.TestCase):
                        "--scope", "code", "--statement", "pending")
         r.commit("agent as author", tr + [HUMAN],
                  author="Claude <noreply@anthropic.com>")
+        rc, out = self.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("is an AI identity", out)
+
+    def test_app_bot_author_fails(self):
+        # The human is the author, never the agent's GitHub App bot
+        # (AGENTS.md §3; doc/dev/agent-identity.md).
+        r = self.repo()
+        r.write("src/x.c", "int x;\n")
+        tr = r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                       "--scope", "code", "--statement", "pending")
+        r.commit("bot as author", tr + [HUMAN], author=(
+            "racoon-opencode[bot] "
+            "<12345678+racoon-opencode[bot]@users.noreply.github.com>"))
         rc, out = self.verify()
         self.assertEqual(rc, 1, out)
         self.assertIn("is an AI identity", out)

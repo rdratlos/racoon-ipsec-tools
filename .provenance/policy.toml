@@ -30,7 +30,9 @@ allowed_scopes = ["docs", "tests", "build", "ci", "packaging", "refactor", "code
 # Trailers carrying an AI identity in Signed-off-by or Co-Authored-By fail,
 # as does an AI author. A commit whose committer is an AI identity and that
 # changes files must carry Assisted-by. agents.invalid is the committer
-# address agents use (AGENTS.md).
+# address agents use (AGENTS.md); an agent's GitHub App bot, such as
+# racoon-opencode[bot] <ID+racoon-opencode[bot]@users.noreply.github.com>,
+# is matched by its harness name.
 # Case-insensitive regular expressions, matched against the trailer value
 # or identity.
 ai_identity_patterns = [

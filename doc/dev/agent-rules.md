@@ -76,7 +76,8 @@ then is it merged.
   (principle 14).
 - Commit a change without the trailers. `verify` fails a commit that
   changes files and whose committer is an agent identity
-  (`agent@agents.invalid`) but that carries no `Assisted-by:`.
+  (`agent@agents.invalid`, or an agent's GitHub App bot) but that carries
+  no `Assisted-by:`.
 - Run `prov attest`, sign commits (`git commit -S`, `rebase --gpg-sign`)
   or use the human's signing key, even when the key is technically
   reachable, for example through a cached agent socket (principle 14).

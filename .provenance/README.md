@@ -41,7 +41,10 @@ Git identity for agent commits -- author = you, committer = the agent:
 
 - **Committer** is the same for everyone and comes with the repository for
   Claude Code (`.claude/settings.json`, `env`). Other harnesses set
-  `GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL` the same way.
+  `GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL` the same way. A harness with
+  its own GitHub App commits as that app's bot, so the committer matches
+  the identity that pushes and comments; OpenCode uses `racoon-opencode`
+  (`doc/dev/agent-identity.md`).
 - **Author** is yours and never in the repository: set
   `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL` in your own configuration -- the
   environment variables of your Claude Code cloud environment, or `env` in
