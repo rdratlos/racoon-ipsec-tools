@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261029T092310Z-756aa08b",
+  "created": "2026-10-29T09:23:10Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        "AGENTS.md"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "reimth@etik.com",
+    "statement": "pending"
+  },
+  "session": {
+    "ref": "https://claude.ai/code/session_01M3aJTejPezBDxwmvEt8jqz"
+  }
+}
