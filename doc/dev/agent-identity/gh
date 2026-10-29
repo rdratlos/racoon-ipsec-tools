@@ -1,0 +1,5 @@
+#!/bin/sh
+# gh wrapper: every call runs as racoon-opencode[bot].
+GH_TOKEN=$(sudo -n -u ghapp /usr/local/libexec/mint-token) || exit 1
+export GH_TOKEN
+exec /usr/bin/gh "$@"

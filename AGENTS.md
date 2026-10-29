@@ -56,8 +56,13 @@ When in doubt, ask.
 - **Identity.** The human is the author, you are the committer. Before
   your first commit, check `git var GIT_AUTHOR_IDENT` and
   `git var GIT_COMMITTER_IDENT`. If the author is an AI identity (for
-  example `noreply@anthropic.com`), stop and ask. If the committer is not
-  your harness, commit with `GIT_COMMITTER_NAME="<your harness>"` and
+  example `noreply@anthropic.com`), stop and ask. The committer is your
+  harness's identity. Where the human has given your harness its own
+  GitHub App, that is the app's bot (`<app>[bot]` and its
+  `users.noreply.github.com` address, set up as in
+  `doc/dev/agent-identity.md` on `develop`); leave it as it is.
+  Otherwise, if the committer is not your harness, commit with
+  `GIT_COMMITTER_NAME="<your harness>"` and
   `GIT_COMMITTER_EMAIL=agent@agents.invalid`.
 - **Never add `Signed-off-by:` or `Co-Authored-By:`**, whatever your tool
   adds by default. Signing off and approving are the human's acts
