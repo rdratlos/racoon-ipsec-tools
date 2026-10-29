@@ -421,6 +421,14 @@ def verify_commits(git, report, policy, commits, base=None, head="HEAD"):
         if not ass:
             if scope or prov:
                 report.fail(f"{short}: {k_scope}/{k_prov} without {k_ass}")
+            # an agent that committed a change produced AI output: it must
+            # be declared (an empty commit carries none)
+            cn, ce = git.ident(c)["committer"]
+            if (any(r.search(f"{cn} <{ce}>") for r in ai_res)
+                    and git.changed_files(c)):
+                report.fail(f"{short}: committed by an agent ('{cn} <{ce}>') "
+                            f"but has no {k_ass} trailer -- declare it "
+                            f"(tools/prov.py declare)")
             continue
         assisted += 1
 

@@ -27,8 +27,12 @@ scope = "AI-Scope"
 provenance = "Provenance-Id"
 allowed_scopes = ["docs", "tests", "build", "ci", "packaging", "refactor", "code"]
 
-# Trailers carrying an AI identity in Signed-off-by or Co-Authored-By fail.
-# Case-insensitive regular expressions, matched against the trailer value.
+# Trailers carrying an AI identity in Signed-off-by or Co-Authored-By fail,
+# as does an AI author. A commit whose committer is an AI identity and that
+# changes files must carry Assisted-by. agents.invalid is the committer
+# address agents use (AGENTS.md).
+# Case-insensitive regular expressions, matched against the trailer value
+# or identity.
 ai_identity_patterns = [
   "noreply@anthropic\\.com",
   "@openai\\.com",
@@ -38,6 +42,7 @@ ai_identity_patterns = [
   "\\bgpt-?[0-9]",
   "\\bgemini\\b",
   "\\bqwen",
+  "@agents\\.invalid",
 ]
 
 [critical]

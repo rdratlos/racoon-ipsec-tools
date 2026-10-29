@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261028T172026Z-24e02341",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261029T061929Z",
+  "commits": [
+    {
+      "patch_id": "6f21fbdc911a4401f82a43e67d9281abb4d4dbe2",
+      "subject": "docs: agents never merge or approve a pull request"
+    },
+    {
+      "patch_id": "e17e30aa3030fb902bccfc6f68900a1890d842aa",
+      "subject": "provenance: verify fails undeclared changes committed by an agent"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:7e9e017a0c46e728b6d3f20eb9d246d5df7b3187cb8024e37e4c0c0b949db7d3",
+    "duration_s": 8.151
+  }
+}
