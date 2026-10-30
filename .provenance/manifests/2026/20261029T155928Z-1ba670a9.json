@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261029T155928Z-1ba670a9",
+  "created": "2026-10-29T15:59:28Z",
+  "contributions": [
+    {
+      "profile": "opencode-kitch@r1",
+      "role": "implementer",
+      "model": {
+        "family": "kitch",
+        "id": "KITCH-Coder"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        ".provenance/schema/manifest-v2.schema.json",
+        "tools/prov.py",
+        "tools/test_prov.py"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "thomas.reim@airbus.com",
+    "statement": "pending"
+  }
+}

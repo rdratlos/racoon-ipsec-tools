@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261029T164230Z-f2996fe6",
+  "reviewer": "thomas.reim@airbus.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261030T001449Z",
+  "commits": [
+    {
+      "patch_id": "10a607d7c64699461a795d117cc99f6b0502e8ae",
+      "subject": "prov: declare concludes router from gateway evidence itself"
+    }
+  ],
+  "tests": {
+    "command": "python3.11 -m unittest tools.test_prov",
+    "exit": 0,
+    "log_digest": "sha256:6b1389fdf40090d7934d8955c1d5cfe5e6a280d3adfa7229005be59179845e71",
+    "duration_s": 20.013
+  }
+}

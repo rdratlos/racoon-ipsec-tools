@@ -413,6 +413,408 @@ class ProvTests(unittest.TestCase):
         self.assertEqual(res["unmapped_legacy"], {"Claude": 1})
 
 
+class CaptureEvidenceTests(unittest.TestCase):
+    """Capture evidence in declare/verify, written from the requirements
+    (PRINCIPLES.md 11, 12; PR #169 review): a route label is never a model,
+    counts are counted, observations never rewrite the declared setup."""
+
+    def setUp(self):
+        self.r = Repo()
+
+    def tearDown(self):
+        self.r.cleanup()
+
+    def capture(self, entries):
+        path = os.path.join(self.r.dir, "capture.jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            for e in entries:
+                f.write(json.dumps(e) + "\n")
+        return "capture-log:" + path
+
+    def manifest(self, trailers):
+        pid = [t.split(": ", 1)[1] for t in trailers
+               if t.startswith("Provenance-Id")][0]
+        with open(os.path.join(self.r.dir, ".provenance", "manifests",
+                               pid[:4], pid + ".json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    def validate_v2(self, doc):
+        # derived from the schema, not from the code (principle 15)
+        with open(os.path.join(HERE, "..", ".provenance", "schema",
+                               "manifest-v2.schema.json"),
+                  encoding="utf-8") as f:
+            v = prov.validator_for(json.load(f))
+        self.assertIsNotNone(v, "jsonschema not installed")
+        self.assertEqual(prov.schema_errors(v, doc), [])
+
+    def test_validate_v2(self):
+        doc = {"schema_version": "2.0",
+               "provenance_id": "20261017T120000Z-01234567", "created": "t",
+               "contributions": [{"profile": "a@r1", "role": "implementer",
+                                  "model": {"family": "f", "id": "m"},
+                                  "model_reported_by": "manual", "files": [],
+                                  "observed": [{"source": "capture-proxy",
+                                                "requests": 1, "id": "m"}]}],
+               "human_review": {"reviewer": "jane@example.org",
+                                "statement": "pending"}}
+        self.validate_v2(doc)
+
+    def test_no_observed_key_when_log_yields_nothing(self):
+        # the schema requires minItems 1 on observed (schema v2), so a log
+        # whose entries can say nothing honestly must yield no observed key
+        # at all, never an empty list (principle 12)
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-call-id": "a1",
+                             "x-litellm-model-id": "e8071ad2",
+                             "x-litellm-model-group": "KITCH-Coder"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        doc = self.manifest(tr)
+        self.assertNotIn("observed", doc["contributions"][0])
+        self.validate_v2(doc)
+
+    def test_mixed_gateway_log_never_gives_api(self):
+        # a gateway signal anywhere in the log forces router trust, even on
+        # an entry that was dropped for lack of an honest observation
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-call-id": "a1",
+                             "x-litellm-model-id": "e8071ad2"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+            {"at": "2026-10-28T10:01:00Z", "path": "/v1/messages",
+             "requested": "claude-opus-5-5", "response_model": "claude-opus-5-5",
+             "deployments": {}, "call_id": "c2", "status": 200,
+             "endpoint": "https://api.anthropic.com"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        c = self.manifest(tr)["contributions"][0]
+        self.assertEqual(c["model_reported_by"], "router")
+        self.assertEqual(c["model"]["id"], "claude-opus-5-5")
+
+    def test_nameless_gateway_entry_still_gives_router(self):
+        # a log of only the name-less gateway entry: no observation, but
+        # the tool did see a gateway (principle 12: router, not manual)
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-call-id": "a1"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        c = self.manifest(tr)["contributions"][0]
+        self.assertEqual(c["model_reported_by"], "router")
+        self.assertNotIn("observed", c)
+
+    def test_route_echo_case_insensitive(self):
+        # a route echoed in any spelling is still a route label, never a
+        # model id (principle 8)
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "kitch-coder",
+             "deployments": {"x-litellm-model-name": "kitch-deploy-7"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        c = self.manifest(tr)["contributions"][0]
+        self.assertEqual(c["observed"],
+                         [{"source": "capture-proxy", "requests": 1,
+                           "deployment": "kitch-deploy-7"}])
+
+    # -- declare: trust follows the evidence, not the label --------------
+
+    def test_gateway_signal_sets_router_itself(self):
+        # a tool read the gateway signal, so declare concludes router
+        # itself instead of making the caller retype it (principle 9)
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-model-name": "kitch-deploy-7"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        c = self.manifest(tr)["contributions"][0]
+        self.assertEqual(c["model_reported_by"], "router")
+
+    def test_config_reported_by_contradicts_gateway_evidence(self):
+        # an explicit flag that contradicts what the tool read is refused
+        # (principles 11, 12)
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-model-name": "kitch-deploy-7"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        buf = io.StringIO()
+        with mock.patch("sys.stderr", buf):
+            rc = prov.main(["-C", self.r.dir, "declare", "--contrib",
+                            "claude-opus@r1:implementer", "--scope", "docs",
+                            "--reported-by", "config", "--evidence", ev])
+        self.assertEqual(rc, 2)
+        self.assertIn("config", buf.getvalue())
+
+    def test_router_evidence_declares_router_and_keeps_profile_model(self):
+        # the profile's declared setup stays in model.id; what the wire
+        # showed goes to observed[], never overwriting it
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-model-name": "kitch-deploy-7"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--reported-by", "router",
+                            "--evidence", ev)
+        doc = self.manifest(tr)
+        c = doc["contributions"][0]
+        self.assertEqual(c["model"]["id"], "claude-opus-5-5")
+        self.assertEqual(c["model_reported_by"], "router")
+        self.assertNotIn("id", c["observed"][0])
+        self.assertEqual(c["observed"][0]["deployment"], "kitch-deploy-7")
+        self.assertEqual(c["observed"][0]["source"], "capture-proxy")
+        self.assertEqual(doc["schema_version"], "2.0")
+
+    def test_deployment_picked_by_name_not_by_sorting(self):
+        # a gateway response carries several headers (LiteLLM sends over a
+        # dozen); the deployment name must be picked by known name, never
+        # by sorting, so a call id or endpoint can never be recorded as a
+        # deployment (schema: 'Deployment name or id as the gateway
+        # reported it')
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {
+                 "x-litellm-call-id": "call-00abc",
+                 "x-litellm-model-id": "a1b2c3d4-7777",
+                 "x-litellm-model-group": "KITCH-Coder",
+                 "x-litellm-api-base": "https://api.anthropic.com",
+                 "x-litellm-model-name": "claude-deploy-7",
+             },
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        c = self.manifest(self.r.declare(
+            "--contrib", "claude-opus@r1:implementer=src/x.c", "--scope", "code",
+            "--reported-by", "router", "--evidence", ev))["contributions"][0]
+        self.assertEqual(c["observed"][0]["deployment"], "claude-deploy-7")
+
+    def test_deployment_from_body_when_no_header(self):
+        # a gateway may put the deployment name in the response body
+        # (router_model) instead of a header; a body-only entry still yields
+        # the deployment, and the route echo never becomes an id
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"body:router_model": "qwen-deploy-9"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        c = self.manifest(self.r.declare(
+            "--contrib", "claude-opus@r1:implementer=src/x.c", "--scope", "code",
+            "--reported-by", "router", "--evidence", ev))["contributions"][0]
+        self.assertEqual(c["observed"][0]["deployment"], "qwen-deploy-9")
+        self.assertNotIn("id", c["observed"][0])
+
+    def test_agreement_upgrades_to_api_trust(self):
+        # maintainer decision on PR #178 (option 2), case agreement: a
+        # provider answered with no gateway signal, naming exactly the
+        # declared model, so api means what the schema says; model.id
+        # stays unchanged
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "claude-opus-5-5", "response_model": "claude-opus-5-5",
+             "deployments": {}, "call_id": "c1", "status": 200,
+             "endpoint": "https://api.anthropic.com"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        c = self.manifest(tr)["contributions"][0]
+        self.assertEqual(c["model_reported_by"], "api")
+        self.assertEqual(c["model"]["id"], "claude-opus-5-5")
+        self.assertEqual([o["id"] for o in c["observed"]], ["claude-opus-5-5"])
+
+    def test_disagreement_keeps_declared_and_warns_on_verify(self):
+        # maintainer decision on PR #178 (option 2), case disagreement: the
+        # response named another model, so no upgrade happens (the record
+        # would otherwise claim the provider reported it: principles 11,
+        # 12); the observation goes to observed[] and verify calls out the
+        # substitution explicitly
+        self.r.write("src/x.c", "int x;\n")
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "claude-sonnet-5", "response_model": "claude-sonnet-5",
+             "deployments": {}, "call_id": "c1", "status": 200,
+             "endpoint": "https://api.anthropic.com"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        c = self.manifest(tr)["contributions"][0]
+        self.assertEqual(c["model_reported_by"], "manual")
+        self.assertEqual(c["model"]["id"], "claude-opus-5-5")
+        self.assertEqual([o["id"] for o in c["observed"]], ["claude-sonnet-5"])
+        self.r.commit("provider session", tr + [HUMAN])
+        rc, out = self.r.attest()
+        self.assertEqual(rc, 0, out)
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("differs from the declared", out)
+        self.assertIn("substitution", out)
+
+    def test_router_reported_by_needs_evidence(self):
+        # a router claim must come from a tool reading gateway headers,
+        # never from typing (principles 11, 12)
+        buf = io.StringIO()
+        with mock.patch("sys.stderr", buf):
+            rc = prov.main(["-C", self.r.dir, "declare", "--contrib",
+                            "claude-opus@r1:implementer", "--scope", "docs",
+                            "--reported-by", "router"])
+        self.assertEqual(rc, 2)
+        self.assertIn("--evidence", buf.getvalue())
+
+    def test_route_echo_records_deployment_not_id(self):
+        # KITCH echoes the route label as the response model; a route label
+        # is not a model id (principle 8), so the observation carries only
+        # the deployment the gateway named, and the two requests merge
+        entries = [
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-model-name": "Qwen3.8-Flash-Next-FP8"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ] * 2
+        entries[1] = dict(entries[0], at="2026-10-28T10:01:00Z", call_id="c2")
+        ev = self.capture(entries)
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--reported-by", "router",
+                            "--evidence", ev)
+        c = self.manifest(tr)["contributions"][0]
+        self.assertEqual(c["observed"], [
+            {"source": "capture-proxy", "requests": 2,
+             "deployment": "Qwen3.8-Flash-Next-FP8"}])
+
+    def test_requests_counted_not_assumed(self):
+        # the review found requests always 1 while 207 requests happened:
+        # each observation carries how often it was actually seen
+        entries = []
+        for i in range(5):
+            entries.append({"at": f"2026-10-28T10:0{i}:00Z",
+                            "path": "/v1/chat/completions",
+                            "requested": "m-a", "response_model": "m-a",
+                            "deployments": {}, "call_id": f"c{i}",
+                            "status": 200, "endpoint": "https://api.example"})
+        for i in range(3):
+            entries.append({"at": f"2026-10-28T10:1{i}:00Z",
+                            "path": "/v1/chat/completions",
+                            "requested": "m-b", "response_model": "m-b",
+                            "deployments": {}, "call_id": f"d{i}",
+                            "status": 200, "endpoint": "https://api.example"})
+        # not model observations: must not inflate any count
+        entries.append({"at": "2026-10-28T10:20:00Z", "path": "/v1/models",
+                        "requested": None, "response_model": None,
+                        "deployments": {}, "call_id": "h1", "status": 200,
+                        "endpoint": "https://api.example"})
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code",
+                            "--evidence", self.capture(entries))
+        doc = self.manifest(tr)
+        c = doc["contributions"][0]
+        by_id = {o["id"]: o["requests"] for o in c["observed"]}
+        self.assertEqual(by_id, {"m-a": 5, "m-b": 3})
+        self.assertEqual(doc["session"]["capture"]["requests"], 8)
+
+    def test_capture_binding_records_endpoints_never_guesses(self):
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "m", "response_model": "m", "deployments": {},
+             "call_id": "c1", "status": 200},
+            {"at": "2026-10-28T10:05:00Z", "path": "/v1/chat/completions",
+             "requested": "m", "response_model": "m", "deployments": {},
+             "call_id": "c2", "status": 200},
+        ])
+        doc = self.manifest(self.r.declare(
+            "--contrib", "claude-opus@r1:implementer=src/x.c", "--scope", "code",
+            "--evidence", ev))
+        cap = doc["session"]["capture"]
+        self.assertTrue(cap["log_digest"].startswith("sha256:"))
+        self.assertEqual(cap["requests"], 2)
+        self.assertNotIn("endpoints", cap)    # old proxy: absent, never guessed
+        self.assertEqual(cap["window"], ["2026-10-28T10:00:00Z",
+                                         "2026-10-28T10:05:00Z"])
+
+    # -- verify: reads observations, honest about what it cannot map ------
+
+    def _declare_router(self, deployment="kitch-deploy-7"):
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": "KITCH-Coder",
+             "deployments": {"x-litellm-model-name": deployment},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        return self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                              "--scope", "code", "--reported-by", "router",
+                              "--evidence", ev)
+
+    def test_verify_accepts_observed_record(self):
+        # every observed identity maps to a disclosed model: no warnings
+        self.r.write("src/x.c", "int x;\n")
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "claude-opus-5-5", "response_model": "claude-opus-5-5",
+             "deployments": {"x-litellm-model-name": "claude-opus-5-5"},
+             "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--reported-by", "router",
+                            "--evidence", ev)
+        self.r.commit("router session", tr + [HUMAN])
+        rc, out = self.r.attest()
+        self.assertEqual(rc, 0, out)
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("[WARN]", out)
+
+    def test_unmapped_deployment_warns_not_fails(self):
+        # a deployment no profile discloses is not a contradiction: the
+        # release may be undisclosed; honesty says WARN, not FAIL (12, 13)
+        self.r.write("src/x.c", "int x;\n")
+        self.r.commit("router session", self._declare_router() + [HUMAN])
+        rc, out = self.r.attest()
+        self.assertEqual(rc, 0, out)
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("[WARN]", out)
+        self.assertIn("kitch-deploy-7", out)
+
+    def test_observed_in_v1_manifest_fails(self):
+        # a manifest that smuggles v2 content (observed[], "router") into a
+        # v1 envelope is rejected by schema validation (additionalProperties
+        # and enum), and verify_session does not crash on it (principle 12)
+        self.r.write("src/x.c", "int x;\n")
+        tr = self._declare_router()
+        self.r.commit("router session", tr + [HUMAN])
+        rc, out = self.r.attest()
+        self.assertEqual(rc, 0, out)
+        pid = [t.split(": ", 1)[1] for t in tr if t.startswith("Provenance-Id")][0]
+        mpath = os.path.join(self.r.dir, ".provenance", "manifests", pid[:4],
+                             pid + ".json")
+        with open(mpath, encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["schema_version"] = "1.0"
+        with open(mpath, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        self.r.git("add", ".")
+        self.r.git("commit", "-q", "--amend", "--no-edit")
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("Additional properties are not allowed", out)
+        self.assertIn("'router' is not one of", out)
+
+
 
 class AttestTests(unittest.TestCase):
     """prov attest + verify: sign-off, signed approval, patch-id binding."""

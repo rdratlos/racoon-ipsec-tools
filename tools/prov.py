@@ -40,6 +40,7 @@ Requires Python >= 3.11 (tomllib) and, for `verify`, the jsonschema package.
 import argparse
 import datetime
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -256,7 +257,10 @@ def verify_tree(git, report, policy, head):
         report.fail(f"{PROV_DIR}/schema: profile/manifest schema missing")
         return
     aschema = load_schema(git, "attestation-v1.schema.json")
+    # v2 manifests validate against the v2 schema; v1 stays valid forever
+    m2schema = load_schema(git, "manifest-v2.schema.json")
     pv, mv = validator_for(pschema), validator_for(mschema)
+    m2v = validator_for(m2schema) if m2schema else None
     av = validator_for(aschema) if aschema else None
     if pv is None:
         report.fail("jsonschema not installed (pip install jsonschema, or "
@@ -299,7 +303,14 @@ def verify_tree(git, report, policy, head):
             except json.JSONDecodeError as e:
                 report.fail(f"{path}: invalid JSON: {e}")
                 continue
-            errs = schema_errors(mv, doc)
+            ver = doc.get("schema_version") if isinstance(doc, dict) else None
+            if ver == "2.0":
+                if m2v is None:
+                    report.fail(f"{path}: manifest-v2 schema missing")
+                    continue
+                errs = schema_errors(m2v, doc)
+            else:
+                errs = schema_errors(mv, doc)
             for e in errs:
                 report.fail(f"{path}: {e}")
             if errs:
@@ -505,6 +516,21 @@ def verify_commits(git, report, policy, commits, base=None, head="HEAD"):
         verify_attestation(git, report, policy, pid, s, head, signers)
 
 
+def _deployment_known(dep, profile, policy):
+    """True when dep names a disclosed model of this profile. A policy
+    release registry could be added later; unknown stays unknown."""
+    lowered = dep.lower()
+    for role in (profile.get("roles") or []):
+        if role.get("disclosure") == "withheld":
+            continue
+        for v in (role.get("model_id"), role.get("model_family")):
+            if v and (lowered == str(v).lower()
+                      or lowered in str(v).lower()
+                      or str(v).lower() in lowered):
+                return True
+    return False
+
+
 def verify_session(git, report, policy, pid, s):
     try:
         mdoc = json.loads(s["manifest"])
@@ -545,6 +571,29 @@ def verify_session(git, report, policy, pid, s):
             else:
                 report.fail(msg + " -- configured/declared model must match "
                             "the profile; create a new profile revision")
+        # observed[] (schema 2.0): tool-read observations of what answered.
+        # An observation never rewrites the profile; a deployment no policy
+        # release names is a WARN, so verify fails only on what the record
+        # itself contradicts. A v1 envelope with observed[] is rejected by
+        # schema validation before this point, so no version check here.
+        obs = contrib.get("observed", [])
+        differing = sorted({str(o["id"]) for o in obs
+                            if o.get("id") and o["id"] != model.get("id")})
+        if differing:
+            report.warn(f"{where}: observed '{', '.join(differing)}' differs "
+                        f"from the declared '{model.get('id')}' -- "
+                        f"substitution?")
+        unmapped = []
+        for o in obs:
+            for dep in (o.get("deployment"), o.get("id")):
+                if dep and not _deployment_known(dep, profile, policy):
+                    unmapped.append(dep)
+                    break
+        if unmapped:
+            report.warn(f"{where}: observed deployment(s) "
+                        f"{', '.join(sorted(set(unmapped)))} match no "
+                        f"disclosed model in any profile: a release may be "
+                        f"undisclosed or retired (not a failure)")
 
         files = contrib.get("files", [])
         missing = sorted(set(files) - s["files"])
@@ -739,12 +788,162 @@ def cmd_verify(args):
 # --------------------------------------------------------------------------
 # declare
 
+CAPTURE_SKIP_PATHS = ("/health", "/models", "/v1/models")
+GATEWAY_DEPLOYMENT_PREFIXES = ("x-litellm-", "x-routify-")
+GATEWAY_DEPLOYMENT_BODY = "body:"
+# a deployment header carries a deployment name; other headers of the same
+# gateways carry ids or endpoints that must never be read as one
+DEPLOYMENT_HEADER_SUFFIXES = ("-deployment", "-model", "-model-name")
+DEPLOYMENT_BODY_KEYS = ("model_name", "router_model", "router_model_name")
+
+
+def read_capture(path):
+    """Capture log (provcap-proxy.py) -> evidence dict. Honesty first: a
+    field the log never recorded stays absent, never inferred. Only
+    completion requests are counted; health or model-list calls are not
+    model observations (schema: 'Log entries (proxied requests)')."""
+    entries = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                e = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(e, dict):
+                continue
+            p = (e.get("path") or "").split("?")[0]
+            if any(p == s or p.startswith(s + "/") or p.endswith(s)
+                   for s in CAPTURE_SKIP_PATHS):
+                continue
+            entries.append(e)
+
+    def is_gateway(e):
+        # a gateway response may carry no deployment header at all (the
+        # gateway answered directly); the proxy records the upstream URL
+        # as endpoint
+        return any(k.lower().startswith(GATEWAY_DEPLOYMENT_PREFIXES)
+                   or k.lower().startswith(GATEWAY_DEPLOYMENT_BODY)
+                   for k in (e.get("deployments") or {}))
+
+    def deployment_value(dep):
+        """Deployment name from a gateway, picked by known name order so a
+        call id or endpoint can never win by sorting first (schema v2:
+        'Deployment as the gateway reported it')."""
+        low = {k.lower(): v for k, v in dep.items()}
+        for key in DEPLOYMENT_BODY_KEYS:
+            v = low.get(GATEWAY_DEPLOYMENT_BODY + key)
+            if isinstance(v, str) and v:
+                return v
+        for suffix in DEPLOYMENT_HEADER_SUFFIXES:
+            for k, v in sorted(low.items()):
+                if k.startswith(GATEWAY_DEPLOYMENT_PREFIXES) \
+                        and k.endswith(suffix) and isinstance(v, str) and v:
+                    return v
+        return None
+
+    obs, seen, at = [], {}, []
+    gateway_seen = False
+    for e in entries:
+        dep = e.get("deployments") or {}
+        entry_at = e.get("at")
+        if isinstance(entry_at, str):
+            at.append(entry_at)
+        ident = e.get("response_model")
+        gateway = is_gateway(e)
+        gateway_seen = gateway_seen or gateway
+        deployment = deployment_value(dep) if gateway else None
+        if gateway and ident and str(ident).casefold() \
+                == str(e.get("requested", "")).casefold():
+            # the gateway echoed the route label back as the response model;
+            # a route label is not a model id (principle 8), so record only
+            # the deployment and leave id out
+            ident = None
+        if not ident and deployment is None:
+            continue    # nothing this entry can say honestly
+        key = (str(ident) if ident else None,
+               str(deployment) if deployment else None, gateway)
+        if key in seen:
+            obs[seen[key]]["requests"] += 1
+        else:
+            seen[key] = len(obs)
+            o = {"source": "capture-proxy", "requests": 1}
+            if ident:
+                o["id"] = str(ident)
+            if deployment is not None:
+                o["deployment"] = str(deployment)
+            o["trusted"] = "router" if gateway else "api"
+            obs.append(o)
+
+    with open(path, "rb") as f:
+        digest = "sha256:" + hashlib.sha256(f.read()).hexdigest()
+    endpoints = sorted({e["endpoint"] for e in entries
+                        if isinstance(e.get("endpoint"), str) and e["endpoint"]})
+    cap = {"log_digest": digest, "requests": len(entries)}
+    if endpoints:
+        cap["endpoints"] = endpoints
+    if len(at) >= 2:
+        cap["window"] = [min(at), max(at)]
+    elif len(at) == 1:
+        cap["window"] = [at[0], at[0]]
+    return {"observations": obs, "capture": cap, "gateway": gateway_seen}
+
+
+def evidence_trust(ev):
+    """api = a provider answered with no gateway signal at all; router = a
+    gateway signal was seen anywhere in the log, even on an entry that
+    yielded no observation; None = no usable evidence."""
+    usable = [o for o in ev["observations"] if o["source"] == "capture-proxy"]
+    if not usable and not ev.get("gateway"):
+        return None
+    return "router" if ev.get("gateway") else "api"
+
+
+def evidence_agrees(ev, declared_id):
+    """True only if at least one observation came from a provider response
+    with no gateway signal and every such observation names exactly the
+    declared model id; a gateway observation says nothing about the
+    provider's own word (maintainer decision on PR #178, option 2)."""
+    direct = [o for o in ev["observations"]
+              if o["source"] == "capture-proxy" and o["trusted"] == "api"]
+    return bool(direct) and all(o["id"] == declared_id for o in direct)
+
+
 def cmd_declare(args):
     git = Git(args.repo)
     report = Report()
     policy = load_policy(git, report)
     if policy is None:
         return 1
+    evidence = None
+    if getattr(args, "evidence", None):
+        if not args.evidence.startswith("capture-log:"):
+            print("prov declare: --evidence wants capture-log:FILE",
+                  file=sys.stderr)
+            return 2
+        try:
+            evidence = read_capture(args.evidence.split(":", 1)[1])
+        except OSError as e:
+            print(f"prov declare: cannot read evidence log: {e}", file=sys.stderr)
+            return 2
+    if evidence and evidence_trust(evidence) == "router":
+        # a tool read the gateway signal; make it state its conclusion
+        # instead of making the caller retype it (principle 9); only an
+        # explicitly contradicting flag is refused (principles 11, 12)
+        if args.reported_by == "config":
+            print("prov declare: the capture log shows a gateway (deployment "
+                  "headers or body fields), which contradicts "
+                  f"--reported-by {args.reported_by}", file=sys.stderr)
+            return 2
+        args.reported_by = "router"
+        print("prov declare: capture log shows a gateway: recorded as router")
+    if args.reported_by == "router" and not evidence:
+        print("prov declare: --reported-by router needs --evidence: a router "
+              "claim must come from a tool, never from typing (principles 11, 12)",
+              file=sys.stderr)
+        return 2
     scopes = [s.strip() for s in args.scope.split(",") if s.strip()]
     bad = set(scopes) - set(policy["trailers"]["allowed_scopes"])
     if bad:
@@ -774,11 +973,23 @@ def cmd_declare(args):
         if args.model and role_name in dict(x.split("=", 1) for x in args.model):
             model["id"] = dict(x.split("=", 1) for x in args.model)[role_name]
             reported = "api"
-        contributions.append({
+        contrib = {
             "profile": ref, "role": role_name, "model": model,
             "model_reported_by": reported,
             "files": sorted({f for f in (files or "").split(",") if f}),
-        })
+        }
+        if evidence and evidence["observations"]:
+            contrib["observed"] = [
+                {k: v for k, v in o.items() if k != "trusted"}
+                for o in evidence["observations"]]
+            if evidence_agrees(evidence, model["id"]) and reported == "manual":
+                # a provider answered, with no gateway signal, naming
+                # exactly the declared model: api then means exactly what
+                # the schema says, "model id as returned by the provider";
+                # on disagreement model stays as declared and verify warns
+                # about the substitution (maintainer decision on PR #178)
+                contrib["model_reported_by"] = "api"
+        contributions.append(contrib)
         if ref not in refs:
             refs.append(ref)
 
@@ -791,7 +1002,7 @@ def cmd_declare(args):
               file=sys.stderr)
         return 2
     doc = {
-        "schema_version": "1.0",
+        "schema_version": "2.0" if evidence else "1.0",
         "provenance_id": pid,
         "created": now.isoformat().replace("+00:00", "Z"),
         "contributions": contributions,
@@ -799,6 +1010,8 @@ def cmd_declare(args):
     }
     if args.session_ref:
         doc["session"] = {"ref": args.session_ref}
+    if evidence:
+        doc.setdefault("session", {})["capture"] = evidence["capture"]
     path = manifest_path(pid)
     full = os.path.join(git.root, path)
     if os.path.exists(full):
@@ -1429,12 +1642,16 @@ def main(argv=None):
                    choices=["pending", "reviewed", "reviewed-and-tested"],
                    help="use pending when an agent runs declare")
     d.add_argument("--reported-by", default="manual",
-                   choices=["config", "manual"],
+                   choices=["config", "manual", "router"],
                    help="how the profile models were established: manual "
-                        "(declared; the default) or config (read by a tool "
-                        "from the harness configuration)")
+                        "(declared; the default), config (read by a tool "
+                        "from the harness configuration) or router (a "
+                        "gateway stands between harness and provider)")
     d.add_argument("--model", action="append", metavar="ROLE=MODEL_ID",
                    help="api-reported model for a role (records substitution)")
+    d.add_argument("--evidence", metavar="capture-log:FILE",
+                   help="capture log from provcap-proxy.py; records what a "
+                        "tool saw on the wire in observed[] (principles 11, 12)")
     d.add_argument("--tool", action="append", default=[],
                    help="analysis tool for the Assisted-by line (coccinelle, ...)")
     d.add_argument("--session-ref", help="opaque session reference")

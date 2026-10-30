@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261030T002843Z-b49295b9",
+  "reviewer": "thomas.reim@airbus.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261030T003445Z",
+  "commits": [
+    {
+      "patch_id": "38d21bf5d79d16716102dca2bacfed7931fa13ba",
+      "subject": "prov: name both gateway signals and pin the declared id"
+    }
+  ],
+  "tests": {
+    "command": "python3.11 -m unittest tools.test_prov",
+    "exit": 0,
+    "log_digest": "sha256:428ece8d5e65838c0b4c5d0998548df98743247ec298920a47d5fa4dbaec6c92",
+    "duration_s": 20.305
+  }
+}
