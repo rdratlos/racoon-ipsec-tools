@@ -471,6 +471,7 @@ class CaptureEvidenceTests(unittest.TestCase):
                             "--scope", "code", "--evidence", ev)
         c = self.manifest(tr)["contributions"][0]
         self.assertEqual(c["model_reported_by"], "router")
+        self.assertEqual(c["model"]["id"], "claude-opus-5-5")
 
     def test_nameless_gateway_entry_still_gives_router(self):
         # a log of only the name-less gateway entry: no observation, but
