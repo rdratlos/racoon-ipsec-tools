@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261102T220916Z-b22fdf5b",
+  "reviewer": "thomas.reim@airbus.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261102T221455Z",
+  "commits": [
+    {
+      "patch_id": "ed28292b2fde3fb79990d7aa06e147ef0859064f",
+      "subject": "provcap: keep framing we can honour, record every proxied request"
+    }
+  ],
+  "tests": {
+    "command": "python3.11 -m unittest tools.test_prov",
+    "exit": 0,
+    "log_digest": "sha256:373aa08a1cdb93da2d1ca553bfaf578fa4b88faf9f2240c298d5622f9521867d",
+    "duration_s": 24.513
+  }
+}
