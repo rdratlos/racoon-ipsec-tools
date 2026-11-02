@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261102T225159Z-acded4fc",
+  "reviewer": "thomas.reim@airbus.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261102T225748Z",
+  "commits": [
+    {
+      "patch_id": "1e1bd3f165314cef05c606cd33975978e67bed6d",
+      "subject": "provcap: resolve the two #178 handover items"
+    }
+  ],
+  "tests": {
+    "command": "python3.11 -m unittest tools.test_prov",
+    "exit": 0,
+    "log_digest": "sha256:04c3b550c5b5889f060b9bdf6ade2bccc7169f0e239f49783e8dd23c97f6a8a7",
+    "duration_s": 25.269
+  }
+}
