@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261102T225159Z-acded4fc",
+  "reviewer": "thomas.reim@airbus.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261102T231339Z",
+  "commits": [
+    {
+      "patch_id": "52fe59491ea653ea07e25e6289f9d01fcd340c9c",
+      "subject": "provcap: make the mixed-gateway model.id test catch an overwrite"
+    },
+    {
+      "patch_id": "ff51ed56f16091f835998069a9149b847072a0c3",
+      "subject": "provcap: drop the repeated 'gateway' in the gateway-contradiction message"
+    }
+  ],
+  "tests": {
+    "command": "python3.11 -m unittest tools.test_prov",
+    "exit": 0,
+    "log_digest": "sha256:6177d1a7fffc5ed1b62120fabc77cd6cbc54c61be528de6f24807a060116dbea",
+    "duration_s": 25.275
+  }
+}
