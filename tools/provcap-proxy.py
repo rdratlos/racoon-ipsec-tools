@@ -40,6 +40,7 @@ Deployment headers recognised (LiteLLM-style names, RFC 0005 Q4):
 
 import argparse
 import datetime
+import http.client
 import json
 import re
 import ssl
@@ -62,11 +63,21 @@ OWN_CALL_ID_KEY = "proxy_call_id"
 BODY_SCAN_LIMIT = 1 << 20
 MAX_LOGGED_HEADERS = 100
 PROXY_HEADERS = {"host", "connection", "content-length", "accept-encoding"}
-# this server answers HTTP/1.0 and ends a body by closing the connection,
-# so the upstream's own framing must not be copied to the client: a copied
-# framing is a promise the proxy cannot keep (observed: a plain client hung
-# on both a chunked stream and a Content-Length response)
-RESPONSE_DROP = frozenset({"transfer-encoding", "connection", "content-length"})
+# this server speaks HTTP/1.0 (Handler.protocol_version), so every response
+# it sends is terminated by the close of the connection. The upstream's own
+# framing must not be copied to the client: a copied framing is a promise
+# the proxy cannot keep (observed: a plain client hung on both a chunked
+# stream and a Content-Length response), and a framing header we claim to
+# offer but cannot honour is worse than none. An HTTP/1.1 client that reads
+# until the close sees exactly the bytes we copied: RFC 7230 3.3.3/3.3.4
+# (a response with no framing ends at the server's close), and "Connection:
+# close", which send_response() adds for a 1.0 server, tells it the close
+# is coming (RFC 9112 6.1). Copying the upstream's framing instead, or
+# claiming a framing we do not send, tells the client it may stop early:
+# observed on this code, an HTTP/1.1 client saw "Content-Length: 0" and
+# discarded the body while the capture recorded it as served
+RESPONSE_DROP = frozenset({"transfer-encoding", "connection", "content-length",
+                           "server", "date"})
 
 lock = threading.Lock()
 
@@ -140,6 +151,12 @@ class Handler(BaseHTTPRequestHandler):
     log_path = ""
     log_bodies = False
     insecure = False
+    # 1.0 on purpose: every response we serve is terminated by the close of
+    # the connection, so no framing header of the upstream is ever needed
+    # or honest to copy (RESPONSE_DROP). HTTP/1.0 clients read to the close
+    # by definition; an HTTP/1.1 client is told "Connection: close" by
+    # send_response() and then reads to the close too (see RESPONSE_DROP)
+    protocol_version = "HTTP/1.0"
 
     def log_message(self, fmt, *args):  # quiet; our own log is the record
         pass
@@ -153,10 +170,17 @@ class Handler(BaseHTTPRequestHandler):
         entirely. The identity scan stops at `scan_limit` bytes, so
         observation costs bounded memory and never delays the client beyond
         that point. The entry is written when the copy ends: a truncated
-        capture then carries the bytes seen so far, never a claim of more."""
+        capture then carries the bytes seen so far, never a claim of more.
+
+        `resp` may be a failed-status response (`urllib.error.HTTPError`,
+        which is also a response object): an upstream error is evidence
+        too, so its body is copied and scanned like any other. `status` is
+        read before the copy because a body cut short can raise, and the
+        entry must still say which response was served."""
         status = getattr(resp, "status", None)
         if status is None:
             status = resp.getcode()
+        headers = _hop_headers(resp.headers)
         if 100 <= status < 200 and status != 101:
             # an interim response (100-continue) is not the answer: it
             # carries no body (RFC 7231 6.2.1) and would be swallowed in
@@ -167,39 +191,37 @@ class Handler(BaseHTTPRequestHandler):
             # itself), and a proxy that does not forward the interim does
             # not forward its hop-by-hop Connection header either
             self._forward(resp, 0, skip_headers=True)
-            status = getattr(resp, "status", None)
-            if status is None:
-                status = resp.getcode()
-        headers = _hop_headers(resp.headers)
+            # the interim is fully consumed and the final response's
+            # status and headers are read (isFinal() above drove that);
+            # self.forwarded counts only the body that reached the client,
+            # so it stays zero for the interim here
+            status = resp.status
+            headers = _hop_headers(resp.headers)
         if not skip_headers:
             self.send_response(status)
-            framing = set()
             for k, v in resp.headers.items():
                 if k.lower() in RESPONSE_DROP:
                     continue
-                if k.lower() in ("content-length", "transfer-encoding"):
-                    framing.add(k.lower())
                 self.send_header(k, v)
-            if not framing and self.request_version == "HTTP/1.1" \
-                    and self.command != "HEAD" and not (100 <= status < 200) \
-                    and status not in (204, 304):
-                # a 1.0 upstream may answer without framing (the end of the
-                # body is its close); our 1.1 hop needs framing or the client
-                # must wait for the close, and an early close resets the
-                # socket mid-copy and loses the capture. RFC 7230 3.3.2
-                # defines these responses as length-zero, and the exemption
-                # for HEAD is RFC 7231 4.3.2
-                self.send_header("Content-Length", "0")
         self.end_headers()
         scanned = bytearray()
-        self.forwarded = 0
-        self.aborted = None
         while True:
             try:
-                chunk = resp.read(65536)
-            except OSError as e:
-                # the upstream hop broke: the client has received what it
-                # has received, and there is nothing left to forward
+                # read1, not read: read(n) tries to fill n, so it blocks
+                # until the whole body arrives and the first event of an SSE
+                # stream sits in the buffer until the stream ends, which is
+                # the buffering this copy exists to avoid (see the docstring).
+                # read1 returns what is already buffered and blocks only when
+                # nothing has arrived, so an event goes out as the upstream
+                # sends it. At the end of the body it returns b'' (never
+                # None), so the loop below still terminates.
+                chunk = resp.read1(65536)
+            except (OSError, http.client.HTTPException) as e:
+                # the upstream hop broke: OSError for a socket failure,
+                # http.client.HTTPException (IncompleteRead: it ended
+                # before its framing said the body was over) for a stream
+                # cut mid chunk. The client has received what it received,
+                # and there is nothing left to forward
                 self.aborted = "upstream: " + (str(e) or e.__class__.__name__)
                 break
             if not chunk:
@@ -210,9 +232,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk)
                 self.wfile.flush()
             except OSError as e:
-                # the client hung up (a stream it no longer wants): bytes
-                # already sent are counted, and the failure propagates so
-                # the request is not reported as served
+                # the client hung up (a stream it no longer wants): the
+                # exception propagates to _proxy, where the request is
+                # recorded with what was forwarded before the break
                 self.aborted = str(e) or e.__class__.__name__
                 raise
             self.forwarded += len(chunk)
@@ -251,6 +273,11 @@ class Handler(BaseHTTPRequestHandler):
             "status": None,
             "endpoint": None,
         }
+        # self.forwarded and self.aborted belong to the copy in _forward();
+        # initialised here so the handlers below can read them when the
+        # open failed and no copy ever happened
+        self.forwarded = 0
+        self.aborted = None
         forwarded = 0
         try:
             with _build_opener(self.insecure).open(req) as resp:
@@ -273,6 +300,9 @@ class Handler(BaseHTTPRequestHandler):
             entry["endpoint"] = _origin(e.url or url)
             entry["deployments"] = {
                 k: v for k, v in hop_headers.items() if DEPLOYMENT_RE.match(k)}
+            if not self.log_bodies:
+                entry["response_model"], body_dep = _response_model(scanned)
+                entry["deployments"].update(body_dep)
         except OSError as e:
             if self.forwarded:
                 # the client broke the copy (a stream that starts is a
@@ -281,16 +311,23 @@ class Handler(BaseHTTPRequestHandler):
                 # Nothing is sent to the client: the response already
                 # started, and the socket that broke is the one we would
                 # write the error to
-                self._record(entry, self.forwarded, str(e) or e.__class__.__name__)
+                self._record(entry, self.forwarded, self.aborted
+                             or str(e) or e.__class__.__name__)
                 return
             entry["status"] = "proxy-error"
             entry["error"] = str(e)
+            # the response cannot be proxied; send_error answers the
+            # request itself and ends this connection
             self.send_error(502, f"upstream failed: {e}")
         self._record(entry, forwarded, self.aborted)
 
     def _record(self, entry, forwarded, aborted):
-        if not forwarded:   # a response of zero bytes says nothing
-            return
+        # every proxied request is recorded, including one that reached the
+        # client with zero bytes (a 502, a 204, a stream cut before its
+        # first chunk): a failed request is evidence too, and dropping it
+        # would leave the log claiming fewer requests than the harness made
+        # (principle 12). read_capture() ignores an entry that carries
+        # nothing to say; it still counts toward what the log holds
         entry["bytes"] = forwarded
         if aborted:
             # the copy stopped early: the record holds what was seen,

@@ -817,38 +817,44 @@ def read_capture(path):
     Only completion requests are counted; health or model-list calls are
     not model observations (schema: 'Log entries (proxied requests)')."""
     entries = []
-    with open(path, encoding="utf-8") as f:
-        for i, line in enumerate(f, 1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                e = json.loads(line)
-            except json.JSONDecodeError:
-                raise CaptureLogError(
-                    f"line {i} is not a JSON object: the evidence log is "
-                    f"corrupt or was truncated mid-write")
-            if not isinstance(e, dict):
-                raise CaptureLogError(
-                    f"line {i} is a JSON {type(e).__name__}, not a log entry")
-            if not isinstance(e.get("path"), str) or not e.get("path"):
-                raise CaptureLogError(
-                    f"line {i} has no 'path': not a provcap-proxy.py entry")
-            status = e.get("status")
-            if not (status is None or isinstance(status, int)
-                    or isinstance(status, str)):
-                raise CaptureLogError(
-                    f"line {i} has an unknown 'status' shape "
-                    f"({type(status).__name__})")
-            if e.get("endpoint") is not None \
-                    and not isinstance(e["endpoint"], str):
-                raise CaptureLogError(
-                    f"line {i} has an 'endpoint' that is not a string")
-            p = e["path"].split("?")[0]
-            if any(p == s or p.startswith(s + "/") or p.endswith(s)
-                   for s in CAPTURE_SKIP_PATHS):
-                continue
-            entries.append(e)
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = list(f)
+    except UnicodeDecodeError as e:
+        raise CaptureLogError(
+            f"{path} is not valid UTF-8 at byte offset {e.start}: the "
+            f"evidence log is corrupt or was truncated mid-write") from e
+    for i, line in enumerate(lines, 1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            raise CaptureLogError(
+                f"line {i} is not a JSON object: the evidence log is "
+                f"corrupt or was truncated mid-write")
+        if not isinstance(e, dict):
+            raise CaptureLogError(
+                f"line {i} is a JSON {type(e).__name__}, not a log entry")
+        if not isinstance(e.get("path"), str) or not e.get("path"):
+            raise CaptureLogError(
+                f"line {i} has no 'path': not a provcap-proxy.py entry")
+        status = e.get("status")
+        if not (status is None or isinstance(status, int)
+                or isinstance(status, str)):
+            raise CaptureLogError(
+                f"line {i} has an unknown 'status' shape "
+                f"({type(status).__name__})")
+        if e.get("endpoint") is not None \
+                and not isinstance(e["endpoint"], str):
+            raise CaptureLogError(
+                f"line {i} has an 'endpoint' that is not a string")
+        p = e["path"].split("?")[0]
+        if any(p == s or p.startswith(s + "/") or p.endswith(s)
+               for s in CAPTURE_SKIP_PATHS):
+            continue
+        entries.append(e)
 
     def is_gateway(e):
         # a gateway response may carry no deployment header at all (the

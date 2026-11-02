@@ -839,6 +839,26 @@ class CaptureEvidenceTests(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("line 1", err)
 
+    def test_invalid_utf8_log_refused(self):
+        # a log truncated mid-write can cut a multi-byte character in half;
+        # decode must fail as a CaptureLogError (a clean refusal), not an
+        # unhandled UnicodeDecodeError traceback, and must not silently skip
+        # the unreadable line (principle 12)
+        path = os.path.join(self.r.dir, "capture.jsonl")
+        good = ('{"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",'
+                ' "response_model": "m1", "status": 200}\n')
+        with open(path, "wb") as f:
+            f.write(good.encode("utf-8"))
+            f.write('{"path": "/v1/x", "note": "café'.encode("utf-8")[:-1])
+            f.write(b"\n")
+        buf = io.StringIO()
+        with mock.patch("sys.stderr", buf):
+            rc = prov.main(["-C", self.r.dir, "declare", "--contrib",
+                            "claude-opus@r1:implementer", "--scope", "docs",
+                            "--evidence", "capture-log:" + path])
+        self.assertEqual(rc, 2)
+        self.assertIn("UTF-8", buf.getvalue())
+
     def test_non_object_line_refused(self):
         rc, err = self._declare_bad_log('[{"path": "/v1/chat/completions"}]\n')
         self.assertEqual(rc, 2)
@@ -920,31 +940,34 @@ class ProxyTests(unittest.TestCase):
         for prefix in prov.GATEWAY_DEPLOYMENT_PREFIXES:
             self.assertFalse(pp.OWN_CALL_ID_HEADER.startswith(prefix))
 
-    def test_sse_first_event_forwarded_before_body_ends(self):
-        # requirement: an SSE completion keeps streaming under capture
-        # (RFC 0005 §7); the old buffered proxy forwarded the first byte
-        # only after the whole body had arrived (measured on the deployed
-        # proxy: first byte 3.0s for a stream ending at 3.0s). A regression
-        # to buffering shows up as first >= second, not as an absolute delay
-        import importlib.util
-        import shutil
-        import socket
-        import tempfile
+    def test_sse_first_event_streams_before_upstream_ends(self):
+        # requirement: an SSE completion keeps streaming under capture, and
+        # the client receives exactly what the upstream sent (RFC 0005 §7).
+        # A regression to buffering shows up as the first event arriving only
+        # after the upstream has finished (first >= hold), not as an absolute
+        # delay, so the upstream holds its second event until the client has
+        # asked for it: a proxy that reads or writes as the events arrive
+        # hands the first one over immediately, one that buffers does not
+        # until the stream ends. A previous version of this test read from a
+        # raw socket past the framing and so accepted the "Content-Length: 0"
+        # answer that discarded the body (PR #186 review); it now uses a
+        # conforming HTTP/1.1 client against a chunked upstream, the shape a
+        # real gateway answers with
+        import http.client
         import threading
         import time
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-        spec = importlib.util.spec_from_file_location(
-            "provcap_proxy", os.path.join(HERE, "provcap-proxy.py"))
-        pp = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(pp)
-        # the client's read cannot pass the upstream's write, so the first
-        # byte must arrive within this window; a buffered proxy would hold
-        # the first byte until the whole body had arrived (measured on the
-        # deployed proxy: 3.0s for a stream that ended at 3.0s)
-        deadline = 0.3
-        up_body = b'data: {"model": "m1"}\n\n'
+        pp = self.proxy()
+        # the upstream sends one event then blocks; the client must have the
+        # first event well inside this window, or the proxy buffered
+        deadline = 2.0
+        hold = 5.0
+        first_event = b'data: {"model": "m1", "choices": []}\n\n'
+        second_event = b'data: {"done": true}\n\n'
+        full_body = first_event + second_event
         entries = []
         written = threading.Event()
+        release = threading.Event()
 
         class Capture(pp.Handler):
             # Handler.log_path is class state shared with every other test
@@ -957,27 +980,12 @@ class ProxyTests(unittest.TestCase):
                 entries.append(entry)
                 written.set()
 
-            def end_headers(self):
-                # the test's stub answers HTTP/1.0 with no framing (its
-                # close ends the body); this hop speaks 1.1, so give it
-                # its length: an unframed body on a kept connection would
-                # make the client wait for a close nobody sends, and an
-                # early close would reset the socket mid-copy and lose the
-                # capture. Real endpoints frame their answers (Content-
-                # Length or chunked), so only the stub needs this
-                buffered = b"".join(self._headers_buffer).lower()
-                if getattr(self, "code", None) == 200 \
-                        and b"content-length" not in buffered \
-                        and b"transfer-encoding" not in buffered:
-                    self.send_header("Content-Length", str(len(up_body)))
-                super().end_headers()
-
         class Upstream(BaseHTTPRequestHandler):
-            # HTTP/1.0 with no framing: the end of the body is the close,
-            # so a late event reaches the client when written. The proxy's
-            # own chunked framing must not change that (it did not: the
-            # first byte arrived before the stream ended, asserted below)
-            protocol_version = "HTTP/1.0"
+            # chunked HTTP/1.1: what a streaming gateway sends by default
+            # (and what KITCH's route is expected to speak). The first event
+            # is flushed, then the handler blocks until the client has read
+            # it; a buffering proxy would still be holding that event here
+            protocol_version = "HTTP/1.1"
 
             def do_POST(self):
                 self.rfile.read(int(self.headers.get("content-length") or 0))
@@ -987,19 +995,31 @@ class ProxyTests(unittest.TestCase):
                     # the client as the captured response
                     self.send_response(100)
                     self.end_headers()
-                    # keep the stream open long enough that a proxy
-                    # forwarding the interim would deliver it to the
-                    # client while the final answer is still coming
-                    time.sleep(0.2)
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Transfer-Encoding", "chunked")
                 self.end_headers()
-                self.wfile.write(up_body)
-                self.wfile.flush()
-                # the end of this body is the close (HTTP/1.0, no framing),
-                # and the client's read of the first byte cannot precede
-                # this write, so no sleep is needed here: the proxy's entry
-                # is written when the copy ends, and the read below waits
+
+                def chunk(body):
+                    self.wfile.write(
+                        ("%x\r\n" % len(body)).encode() + body + b"\r\n")
+                    self.wfile.flush()
+
+                try:
+                    chunk(first_event)
+                    # the client drives this: it is released only after it
+                    # has read the first event, so the timing is a client
+                    # round trip, not a wall-clock race with the clock
+                    release.wait(hold)
+                    chunk(second_event)
+                    self.wfile.write(b"0\r\n\r\n")
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    # the client hung up after the first event: the copy is
+                    # cut and the entry says so, exactly like the mid-body
+                    # break test; the streaming assertion above already holds
+                    pass
+                self.close_connection = True
 
             def log_message(self, *a):
                 pass
@@ -1022,43 +1042,35 @@ class ProxyTests(unittest.TestCase):
         for srv in (up, px):
             threading.Thread(target=srv.serve_forever, daemon=True).start()
         try:
-            s = socket.create_connection(px.server_address, timeout=10)
-            s.sendall(b'POST /v1/chat/completions HTTP/1.1\r\n'
-                      b'Host: localhost\r\nContent-Length: 15\r\n'
-                      b'Expect: 100-continue\r\n\r\n'
-                      b'{"model": "m1"}')
-            t0 = time.time()
-            first = None
-            while first is None:
-                d = s.recv(1)
-                if not d:
-                    break
-                first = time.time() - t0
-            # the first body byte is the assertion: a buffered proxy holds
-            # it until the whole body has arrived, and only then sends
-            # headers and body together; this read sees the byte the
-            # upstream wrote, so a regression lands here, not in timing
-            self.assertIsNotNone(first, "no response bytes at all")
-            self.assertLess(first, deadline,
-                            f"first byte at {first:.2f}s: the proxy buffered")
-            head = b""
-            while b"\r\n\r\n" not in head:
-                more = s.recv(4096)
-                if not more:
-                    break
-                head += more
-            # the client must see the final answer, never the interim: an
-            # interim reaches a reading client with no body attached
-            self.assertIn(b"200", head.split(b"\r\n", 1)[0])
-            self.assertNotIn(b"100", head.split(b"\r\n", 1)[0])
-            body = head.split(b"\r\n\r\n", 1)[1]
-            while len(body) < len(up_body):
-                more = s.recv(4096)
-                if not more:
-                    break
-                body += more
-            self.assertEqual(body, up_body)
-            s.close()
+            conn = http.client.HTTPConnection(
+                "localhost", px.server_address[1], timeout=10)
+            try:
+                conn.putrequest("POST", "/v1/chat/completions",
+                                skip_host=False, skip_accept_encoding=True)
+                conn.putheader("Content-Length", "15")
+                conn.putheader("Expect", "100-continue")
+                conn.endheaders(b'{"model": "m1"}')
+                resp = conn.getresponse()
+                # the client sees the final answer, never the 100-continue
+                # interim: an interim reaches a reading client with no body
+                self.assertEqual(resp.status, 200)
+                t0 = time.time()
+                first = resp.read(len(first_event))
+                first_at = time.time() - t0
+                # the first event is the whole point: it must arrive while
+                # the upstream is still blocked on the second, or the proxy
+                # buffered the stream it is meant to pass through
+                self.assertEqual(first, first_event)
+                self.assertLess(
+                    first_at, deadline,
+                    f"first event at {first_at:.2f}s (upstream still holds "
+                    f"the second for {hold}s): the proxy buffered the stream")
+                release.set()
+                rest = resp.read()
+                # the conforming client receives exactly the upstream body
+                self.assertEqual(first + rest, full_body)
+            finally:
+                conn.close()
             # the entry is written when the copy ends, so it is only
             # evidence that the streaming copy completed and recorded;
             # the entry shape itself is checked in CaptureEntryTests
@@ -1072,6 +1084,181 @@ class ProxyTests(unittest.TestCase):
         finally:
             up.shutdown()
             px.shutdown()
+
+    def _run_proxy(self, pp, handler_cls, request, path="/v1/chat/completions"):
+        # shared driver: bring up a stub upstream and a capture proxy on
+        # localhost, send `request` (method, body) to the proxy, return
+        # (conn, entries, servers). The caller reads the connection and
+        # asserts, then shuts the servers down in its finally. localhost is
+        # always bypassed by the proxy's own opener (LOCAL_NO_PROXY), so a
+        # corporate http_proxy cannot intercept this hop
+        import http.client
+        import threading
+        from http.server import ThreadingHTTPServer
+        entries = []
+
+        class Quiet(ThreadingHTTPServer):
+            daemon_threads = True
+
+        class Capture(pp.Handler):
+            def _write_entry(self, entry):
+                entries.append(entry)
+
+        up = Quiet(("localhost", 0), handler_cls)
+        Capture.upstream = "http://localhost:%d" % up.server_address[1]
+        px = Quiet(("localhost", 0), Capture)
+        for srv in (up, px):
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+        conn = http.client.HTTPConnection(
+            "localhost", px.server_address[1], timeout=10)
+        method, _, body = request
+        conn.request(method, path, body=body,
+                     headers={"Content-Type": "application/json"})
+        return conn, entries, (up, px)
+
+    def test_content_length_upstream_body_reaches_http11_client(self):
+        # regression (PR #186 review): the old code dropped the upstream's
+        # Content-Length before its framing check, so the check never fired
+        # and it always sent "Content-Length: 0" to an HTTP/1.1 client,
+        # which then discarded a body the capture recorded as served
+        from http.server import BaseHTTPRequestHandler
+        pp = self.proxy()
+        up_body = b'{"model": "m1", "choices": []}'
+
+        class Upstream(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("content-length") or 0))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(up_body)))
+                self.end_headers()
+                self.wfile.write(up_body)
+
+            def log_message(self, *a):
+                pass
+
+        conn, entries, servers = self._run_proxy(
+            pp, Upstream, ("POST", None, b'{"model": "m1"}'))
+        try:
+            resp = conn.getresponse()
+            self.assertEqual(resp.status, 200)
+            self.assertEqual(resp.read(), up_body)
+        finally:
+            conn.close()
+            for srv in servers:
+                srv.shutdown()
+
+    def test_upstream_down_records_proxy_error(self):
+        # regression (PR #186 review): with no upstream listening the old
+        # code let the failure escape _proxy before _record, so the failed
+        # call left no trace and the client saw a bare socket close
+        import http.client
+        import http.server
+        import socket
+        import threading
+        import time
+        from http.server import ThreadingHTTPServer
+        pp = self.proxy()
+        # an upstream that is not listening: connect fails at open()
+        probe = socket.socket()
+        probe.bind(("localhost", 0))
+        dead_port = probe.getsockname()[1]
+        probe.close()
+        entries = []
+
+        class Quiet(ThreadingHTTPServer):
+            daemon_threads = True
+
+        class Capture(pp.Handler):
+            def _write_entry(self, entry):
+                entries.append(entry)
+
+        Capture.upstream = "http://localhost:%d" % dead_port
+        px = Quiet(("localhost", 0), Capture)
+        threading.Thread(target=px.serve_forever, daemon=True).start()
+        conn = http.client.HTTPConnection(
+            "localhost", px.server_address[1], timeout=10)
+        try:
+            conn.request("POST", "/v1/chat/completions",
+                         body=b'{"model": "m1"}',
+                         headers={"Content-Type": "application/json"})
+            resp = conn.getresponse()
+            self.assertEqual(resp.status, 502)
+            resp.read()
+        finally:
+            conn.close()
+            px.shutdown()
+        deadline = time.time() + 5
+        while not entries and time.time() < deadline:
+            time.sleep(0.02)
+        self.assertEqual(len(entries), 1,
+                         f"a failed upstream must still be recorded, got {entries}")
+        self.assertEqual(entries[0]["status"], "proxy-error")
+        self.assertEqual(entries[0]["bytes"], 0)
+        self.assertIn("error", entries[0])
+
+    def test_upstream_break_mid_body_is_recorded_as_aborted(self):
+        # regression (PR #186 review): a chunked upstream that dies before
+        # its terminating chunk makes the upstream read raise
+        # http.client.IncompleteRead (an HTTPException, not an OSError),
+        # which the old code let escape _proxy, so a cut stream was never
+        # recorded. The record must show the copy was cut and say so, and
+        # count only what reached the client, never claim a complete response
+        import time
+        from http.server import BaseHTTPRequestHandler
+        pp = self.proxy()
+
+        class Upstream(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("content-length") or 0))
+                # a complete first chunk (framing terminator included), then
+                # the connection drops before the terminating zero-length
+                # chunk: the copy is cut mid-body
+                self.wfile.write(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+                    b"Transfer-Encoding: chunked\r\n\r\n")
+                self.wfile.flush()
+                self.wfile.write(b"7\r\ndata: a\r\n")
+                self.wfile.flush()
+                self.close_connection = True
+
+            def log_message(self, *a):
+                pass
+
+        conn, entries, servers = self._run_proxy(
+            pp, Upstream, ("POST", None, b'{"model": "m1"}'))
+        got = None
+        try:
+            resp = conn.getresponse()
+            self.assertEqual(resp.status, 200)
+            # the proxy ends its HTTP/1.0 answer when the upstream breaks,
+            # so the client's read returns at the close rather than hanging;
+            # what it got is the event the proxy managed to forward. read1
+            # hands back a buffered chunk, so the first event reaches the
+            # client before the break (read() would have discarded it)
+            try:
+                got = resp.read()
+            except Exception as e:
+                got = ("raised", type(e).__name__)
+        finally:
+            conn.close()
+            for srv in servers:
+                srv.shutdown()
+        self.assertEqual(got, b"data: a")
+        deadline = time.time() + 5
+        while not entries and time.time() < deadline:
+            time.sleep(0.02)
+        self.assertEqual(len(entries), 1, f"expected one entry, got {entries}")
+        self.assertEqual(entries[0]["status"], 200)
+        self.assertIn("abort", entries[0])
+        self.assertIn("IncompleteRead", entries[0]["abort"])
+        # the record is honest about what reached the client: the first
+        # event, and no claim of the event that never arrived
+        self.assertEqual(entries[0]["bytes"], len(b"data: a"))
 
 
 class AttestTests(unittest.TestCase):
