@@ -972,7 +972,7 @@ def cmd_declare(args):
         # instead of making the caller retype it (principle 9); only an
         # explicitly contradicting flag is refused (principles 11, 12)
         if args.reported_by == "config":
-            print("prov declare: the capture log shows a gateway (gateway "
+            print("prov declare: the capture log shows a gateway (response "
                   "headers or body fields), which contradicts "
                   f"--reported-by {args.reported_by}", file=sys.stderr)
             return 2
