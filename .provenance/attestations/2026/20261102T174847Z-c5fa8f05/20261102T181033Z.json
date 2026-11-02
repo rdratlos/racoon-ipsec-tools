@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261102T174847Z-c5fa8f05",
+  "reviewer": "thomas.reim@airbus.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261102T181033Z",
+  "commits": [
+    {
+      "patch_id": "b77c6cf78d2c7eb70c0e6a039127ae6cc236d35b",
+      "subject": "provcap: stream the response, rename our call id, refuse a corrupt log"
+    }
+  ],
+  "tests": {
+    "command": "python3.11 -m unittest tools.test_prov",
+    "exit": 0,
+    "log_digest": "sha256:edf04ddddb2377a3e469cdf2ed927fd70af68e012d78c4c022729a12bd406bab",
+    "duration_s": 22.669
+  }
+}
