@@ -495,6 +495,9 @@ class CaptureEvidenceTests(unittest.TestCase):
                             "--scope", "code", "--evidence", ev)
         c = self.manifest(tr)["contributions"][0]
         self.assertEqual(c["model_reported_by"], "router")
+        # a gateway never overwrites model.id: it stays the profile's
+        # declared model (claude-opus@r1 model_id), not the last entry's
+        # response_model, which only happens to match here
         self.assertEqual(c["model"]["id"], "claude-opus-5-5")
 
     def test_nameless_gateway_entry_still_gives_router(self):
