@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261102T222801Z-7a153bfb",
+  "created": "2026-11-02T22:28:01Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        "doc/dev/agent-rules.md"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "noreply@anthropic.com",
+    "statement": "pending"
+  }
+}

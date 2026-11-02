@@ -47,6 +47,11 @@ python3 tools/prov.py declare --statement pending --reported-by manual \
   trailers are still there (`git log --format=%B`).
 - Do not commit capture logs, transcripts or prompts (`.provpaws/`,
   `provcap.jsonl` are git-ignored).
+- In pull request descriptions, review replies and reports, name a commit
+  of your branch by its subject or its `Provenance-Id`, not by its SHA.
+  Attesting rewrites the commit messages, so every SHA from before the
+  attestation stops existing (principle 10). A SHA is fine for commits
+  already on `develop` or `main`.
 
 ## Before you push
 

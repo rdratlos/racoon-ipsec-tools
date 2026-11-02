@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261102T222801Z-7a153bfb",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261102T223103Z",
+  "commits": [
+    {
+      "patch_id": "874babe9d996d315e8862fd7658c06b3e890545c",
+      "subject": "agent-rules: cite branch commits by subject or Provenance-Id, not SHA"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:e7db371c52594a2dbf366e1a2f81af5147b8250606ed51d9e98e1c1e7ad1ab69",
+    "duration_s": 8.903
+  }
+}
