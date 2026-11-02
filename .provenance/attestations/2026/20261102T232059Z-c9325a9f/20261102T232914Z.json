@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261102T232059Z-c9325a9f",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261102T232914Z",
+  "commits": [
+    {
+      "patch_id": "cfb18ad886d05bc46aecfa7866a1ad657545f41f",
+      "subject": "prov: trailers belong in the last paragraph; verify says so"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:ea65b2ad08e30e8e1b2b8d167ad266835659471d39dc9ebe779b96d091d1fc3f",
+    "duration_s": 14.097
+  }
+}

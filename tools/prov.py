@@ -430,6 +430,20 @@ def verify_commits(git, report, policy, commits, base=None, head="HEAD"):
         prov = [v for _, v in lower.get(k_prov.lower(), [])]
 
         if not ass:
+            # a declaration git cannot see: the keys are in the message, but
+            # not in its last paragraph, the only one git reads as trailers;
+            # without this check such a commit would pass as human work
+            lines = git.message(c).splitlines()
+            misplaced = [k for k in (k_ass, k_scope, k_prov)
+                         if k.lower() not in lower and any(
+                             ln.lower().startswith(k.lower() + ":")
+                             for ln in lines)]
+            if misplaced:
+                report.fail(f"{short}: {', '.join(misplaced)} found outside "
+                            f"the trailer block -- git reads trailers only "
+                            f"from the last paragraph of the message; put "
+                            f"them there, together with any other trailers")
+                continue
             if scope or prov:
                 report.fail(f"{short}: {k_scope}/{k_prov} without {k_ass}")
             # an agent that committed a change produced AI output: it must
