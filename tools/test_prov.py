@@ -814,6 +814,264 @@ class CaptureEvidenceTests(unittest.TestCase):
         self.assertIn("Additional properties are not allowed", out)
         self.assertIn("'router' is not one of", out)
 
+    # ---- capture log shape (requirement from PR #178 deferred scope): a
+    # log this tool cannot fully read is refused, never partially believed
+    # (principle 12)
+
+    def _declare_bad_log(self, raw):
+        path = os.path.join(self.r.dir, "capture.jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(raw)
+        buf = io.StringIO()
+        with mock.patch("sys.stderr", buf):
+            rc = prov.main(["-C", self.r.dir, "declare", "--contrib",
+                            "claude-opus@r1:implementer", "--scope", "docs",
+                            "--evidence", "capture-log:" + path])
+        return rc, buf.getvalue()
+
+    def test_truncated_log_refused(self):
+        # a proxy killed mid-write leaves a last line that is not JSON;
+        # reading such a log and declaring trust from the readable part
+        # would overstate what was observed
+        rc, err = self._declare_bad_log(
+            '{"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",'
+            ' "response_model": "m1", "status": 200,\n')
+        self.assertEqual(rc, 2)
+        self.assertIn("line 1", err)
+
+    def test_non_object_line_refused(self):
+        rc, err = self._declare_bad_log('[{"path": "/v1/chat/completions"}]\n')
+        self.assertEqual(rc, 2)
+        self.assertIn("line 1", err)
+
+    def test_entry_without_path_refused(self):
+        # unknown-shape: a JSON object that is not a proxy entry means the
+        # file is not the log this reader understands
+        rc, err = self._declare_bad_log('{"something": "else"}\n')
+        self.assertEqual(rc, 2)
+        self.assertIn("path", err)
+
+    def test_empty_deployments_still_accepted(self):
+        # understood-but-empty fields are a response that says nothing, not
+        # an unreadable log: declare must still succeed
+        ev = self.capture([
+            {"at": "2026-10-28T10:00:00Z", "path": "/v1/chat/completions",
+             "requested": "KITCH-Coder", "response_model": None,
+             "deployments": {}, "proxy_call_id": "p1", "status": 200,
+             "endpoint": "https://router.example"},
+        ])
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", ev)
+        doc = self.manifest(tr)
+        self.assertNotIn("observed", doc["contributions"][0])
+
+
+class ProxyTests(unittest.TestCase):
+    """provcap-proxy.py: the proxy must pass a streaming response through
+    as it arrives (an interactive client cannot wait for the end), and its
+    own records must be distinguishable from gateway signals."""
+
+    def proxy(self):
+        # the module name has a dash, so it is loaded by path
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "provcap_proxy", os.path.join(HERE, "provcap-proxy.py"))
+        pp = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pp)
+        return pp
+
+    def test_hop_headers_stripped_from_forwarded_response(self):
+        # the proxy's own server is HTTP/1.0 with no framing of its own:
+        # copying the upstream's Transfer-Encoding or Content-Length would
+        # make the client wait for a framing that the proxy never produces
+        # (observed: a plain client hung on both a chunked stream and a
+        # Content-Length response)
+        import email.message
+        pp = self.proxy()
+        h = email.message.Message()
+        h["Transfer-Encoding"] = "chunked"
+        h["Connection"] = "close"
+        h["Content-Type"] = "text/event-stream"
+        h["Set-Cookie"] = "s=1"
+        hop = pp._hop_headers(h)
+        # the capture records the hop as it came, so nothing is dropped here
+        self.assertEqual(set(hop), {"transfer-encoding", "connection",
+                                    "content-type", "set-cookie"})
+        # what goes back to the client must drop the framings the proxy
+        # cannot honor: BaseHTTPRequestHandler is HTTP/1.0 and marks the end
+        # of the body by closing the socket, so a copied framing would be a
+        # promise it cannot keep (observed: a plain client hung on both a
+        # chunked stream and a Content-Length response)
+        self.assertIn("transfer-encoding", pp.RESPONSE_DROP)
+        self.assertIn("content-length", pp.RESPONSE_DROP)
+        self.assertIn("connection", pp.RESPONSE_DROP)
+        for keep in ("content-type", "set-cookie"):
+            self.assertNotIn(keep, pp.RESPONSE_DROP)
+
+    def test_proxy_call_id_key_is_outside_gateway_patterns(self):
+        # the proxy's own per-call id must never look like a gateway
+        # deployment signal: provcap_proxy.DEPLOYMENT_RE matches any header
+        # of the form x-*call*, which is why x-routify-call-id was renamed
+        pp = self.proxy()
+        self.assertTrue(pp.DEPLOYMENT_RE.match("x-routify-call-id"))
+        self.assertIsNone(pp.DEPLOYMENT_RE.match(pp.OWN_CALL_ID_HEADER))
+        for suffix in prov.DEPLOYMENT_HEADER_SUFFIXES:
+            self.assertFalse(pp.OWN_CALL_ID_HEADER.endswith(suffix))
+        for prefix in prov.GATEWAY_DEPLOYMENT_PREFIXES:
+            self.assertFalse(pp.OWN_CALL_ID_HEADER.startswith(prefix))
+
+    def test_sse_first_event_forwarded_before_body_ends(self):
+        # requirement: an SSE completion keeps streaming under capture
+        # (RFC 0005 §7); the old buffered proxy forwarded the first byte
+        # only after the whole body had arrived (measured on the deployed
+        # proxy: first byte 3.0s for a stream ending at 3.0s). A regression
+        # to buffering shows up as first >= second, not as an absolute delay
+        import importlib.util
+        import shutil
+        import socket
+        import tempfile
+        import threading
+        import time
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        spec = importlib.util.spec_from_file_location(
+            "provcap_proxy", os.path.join(HERE, "provcap-proxy.py"))
+        pp = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pp)
+        # the client's read cannot pass the upstream's write, so the first
+        # byte must arrive within this window; a buffered proxy would hold
+        # the first byte until the whole body had arrived (measured on the
+        # deployed proxy: 3.0s for a stream that ended at 3.0s)
+        deadline = 0.3
+        up_body = b'data: {"model": "m1"}\n\n'
+        entries = []
+        written = threading.Event()
+
+        class Capture(pp.Handler):
+            # Handler.log_path is class state shared with every other test
+            # that runs a proxy (AttestTests does), so the file cannot say
+            # which test wrote an entry. This subclass keeps its own sink:
+            # the entry read below can only be this test's
+            def _write_entry(self, entry):
+                # no super(): the inherited class attribute may point at a
+                # file another test deleted; this sink is the whole record
+                entries.append(entry)
+                written.set()
+
+            def end_headers(self):
+                # the test's stub answers HTTP/1.0 with no framing (its
+                # close ends the body); this hop speaks 1.1, so give it
+                # its length: an unframed body on a kept connection would
+                # make the client wait for a close nobody sends, and an
+                # early close would reset the socket mid-copy and lose the
+                # capture. Real endpoints frame their answers (Content-
+                # Length or chunked), so only the stub needs this
+                buffered = b"".join(self._headers_buffer).lower()
+                if getattr(self, "code", None) == 200 \
+                        and b"content-length" not in buffered \
+                        and b"transfer-encoding" not in buffered:
+                    self.send_header("Content-Length", str(len(up_body)))
+                super().end_headers()
+
+        class Upstream(BaseHTTPRequestHandler):
+            # HTTP/1.0 with no framing: the end of the body is the close,
+            # so a late event reaches the client when written. The proxy's
+            # own chunked framing must not change that (it did not: the
+            # first byte arrived before the stream ended, asserted below)
+            protocol_version = "HTTP/1.0"
+
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("content-length") or 0))
+                if self.headers.get("Expect", "").lower() == "100-continue":
+                    # a gateway that speaks 100-continue (the shape of the
+                    # deployed KITCH endpoint): the interim must not reach
+                    # the client as the captured response
+                    self.send_response(100)
+                    self.end_headers()
+                    # keep the stream open long enough that a proxy
+                    # forwarding the interim would deliver it to the
+                    # client while the final answer is still coming
+                    time.sleep(0.2)
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                self.wfile.write(up_body)
+                self.wfile.flush()
+                # the end of this body is the close (HTTP/1.0, no framing),
+                # and the client's read of the first byte cannot precede
+                # this write, so no sleep is needed here: the proxy's entry
+                # is written when the copy ends, and the read below waits
+
+            def log_message(self, *a):
+                pass
+
+        class Quiet(ThreadingHTTPServer):
+            daemon_threads = True
+
+        # the proxy honours http_proxy for the upstream hop (it must: an
+        # internal endpoint may only be reachable through it). localhost is
+        # always exempted from that hop's proxying (LOCAL_NO_PROXY), so
+        # this test measures the code whatever the environment's no_proxy
+        # says (a CIDR-style list would otherwise put our own listener
+        # behind the web proxy, and urllib does not expand a CIDR)
+        up = Quiet(("localhost", 0), Upstream)
+        # upstream is set on Capture, the class the server instantiates
+        # (Handler.upstream is class state shared with every other test
+        # that runs a proxy, which must not leak in either direction)
+        Capture.upstream = "http://localhost:%d/v1" % up.server_address[1]
+        px = Quiet(("localhost", 0), Capture)
+        for srv in (up, px):
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            s = socket.create_connection(px.server_address, timeout=10)
+            s.sendall(b'POST /v1/chat/completions HTTP/1.1\r\n'
+                      b'Host: localhost\r\nContent-Length: 15\r\n'
+                      b'Expect: 100-continue\r\n\r\n'
+                      b'{"model": "m1"}')
+            t0 = time.time()
+            first = None
+            while first is None:
+                d = s.recv(1)
+                if not d:
+                    break
+                first = time.time() - t0
+            # the first body byte is the assertion: a buffered proxy holds
+            # it until the whole body has arrived, and only then sends
+            # headers and body together; this read sees the byte the
+            # upstream wrote, so a regression lands here, not in timing
+            self.assertIsNotNone(first, "no response bytes at all")
+            self.assertLess(first, deadline,
+                            f"first byte at {first:.2f}s: the proxy buffered")
+            head = b""
+            while b"\r\n\r\n" not in head:
+                more = s.recv(4096)
+                if not more:
+                    break
+                head += more
+            # the client must see the final answer, never the interim: an
+            # interim reaches a reading client with no body attached
+            self.assertIn(b"200", head.split(b"\r\n", 1)[0])
+            self.assertNotIn(b"100", head.split(b"\r\n", 1)[0])
+            body = head.split(b"\r\n\r\n", 1)[1]
+            while len(body) < len(up_body):
+                more = s.recv(4096)
+                if not more:
+                    break
+                body += more
+            self.assertEqual(body, up_body)
+            s.close()
+            # the entry is written when the copy ends, so it is only
+            # evidence that the streaming copy completed and recorded;
+            # the entry shape itself is checked in CaptureEntryTests
+            if not written.wait(5):
+                self.fail("no capture entry written")
+            self.assertEqual(len(entries), 1,
+                             f"expected one entry, got {len(entries)}")
+            entry = entries[0]
+            self.assertEqual(entry["response_model"], "m1")
+            self.assertIn(pp.OWN_CALL_ID_KEY, entry)
+        finally:
+            up.shutdown()
+            px.shutdown()
 
 
 class AttestTests(unittest.TestCase):

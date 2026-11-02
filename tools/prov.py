@@ -789,6 +789,12 @@ def cmd_verify(args):
 # declare
 
 CAPTURE_SKIP_PATHS = ("/health", "/models", "/v1/models")
+
+
+class CaptureLogError(ValueError):
+    """The file is not a readable provcap-proxy.py log."""
+
+
 GATEWAY_DEPLOYMENT_PREFIXES = ("x-litellm-", "x-routify-")
 GATEWAY_DEPLOYMENT_BODY = "body:"
 # a deployment header carries a deployment name; other headers of the same
@@ -799,22 +805,46 @@ DEPLOYMENT_BODY_KEYS = ("model_name", "router_model", "router_model_name")
 
 def read_capture(path):
     """Capture log (provcap-proxy.py) -> evidence dict. Honesty first: a
-    field the log never recorded stays absent, never inferred. Only
-    completion requests are counted; health or model-list calls are not
-    model observations (schema: 'Log entries (proxied requests)')."""
+    field the log never recorded stays absent, never inferred, and a log
+    this tool cannot read is refused rather than answered with less
+    (principle 12): a line that is not JSON, a value that is not an entry,
+    an entry with no path, an unknown `status` shape or a non-string
+    `endpoint` means the file is not the log this reader understands, or
+    was cut short while being written; counted requests and the digest
+    would then describe a set of observations the file does not contain.
+    A line whose fields are all understood but simply empty stays
+    acceptable: that is a response the proxy recorded as saying nothing.
+    Only completion requests are counted; health or model-list calls are
+    not model observations (schema: 'Log entries (proxied requests)')."""
     entries = []
     with open(path, encoding="utf-8") as f:
-        for line in f:
+        for i, line in enumerate(f, 1):
             line = line.strip()
             if not line:
                 continue
             try:
                 e = json.loads(line)
             except json.JSONDecodeError:
-                continue
+                raise CaptureLogError(
+                    f"line {i} is not a JSON object: the evidence log is "
+                    f"corrupt or was truncated mid-write")
             if not isinstance(e, dict):
-                continue
-            p = (e.get("path") or "").split("?")[0]
+                raise CaptureLogError(
+                    f"line {i} is a JSON {type(e).__name__}, not a log entry")
+            if not isinstance(e.get("path"), str) or not e.get("path"):
+                raise CaptureLogError(
+                    f"line {i} has no 'path': not a provcap-proxy.py entry")
+            status = e.get("status")
+            if not (status is None or isinstance(status, int)
+                    or isinstance(status, str)):
+                raise CaptureLogError(
+                    f"line {i} has an unknown 'status' shape "
+                    f"({type(status).__name__})")
+            if e.get("endpoint") is not None \
+                    and not isinstance(e["endpoint"], str):
+                raise CaptureLogError(
+                    f"line {i} has an 'endpoint' that is not a string")
+            p = e["path"].split("?")[0]
             if any(p == s or p.startswith(s + "/") or p.endswith(s)
                    for s in CAPTURE_SKIP_PATHS):
                 continue
@@ -927,6 +957,9 @@ def cmd_declare(args):
             evidence = read_capture(args.evidence.split(":", 1)[1])
         except OSError as e:
             print(f"prov declare: cannot read evidence log: {e}", file=sys.stderr)
+            return 2
+        except CaptureLogError as e:
+            print(f"prov declare: evidence log: {e}", file=sys.stderr)
             return 2
     if evidence and evidence_trust(evidence) == "router":
         # a tool read the gateway signal; make it state its conclusion

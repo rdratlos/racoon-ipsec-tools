@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261102T174847Z-c5fa8f05",
+  "created": "2026-11-02T17:48:47Z",
+  "contributions": [
+    {
+      "profile": "opencode-kitch@r1",
+      "role": "implementer",
+      "model": {
+        "family": "kitch",
+        "id": "KITCH-Coder"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        ".gitignore",
+        "tools/prov.py",
+        "tools/provcap-proxy.py",
+        "tools/test_prov.py"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "349768192+racoon-opencode[bot]@users.noreply.github.com",
+    "statement": "pending"
+  }
+}
