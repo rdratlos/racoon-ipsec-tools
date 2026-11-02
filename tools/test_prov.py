@@ -487,7 +487,7 @@ class CaptureEvidenceTests(unittest.TestCase):
                              "x-litellm-model-id": "e8071ad2"},
              "call_id": "c1", "status": 200, "endpoint": "https://router.example"},
             {"at": "2026-10-28T10:01:00Z", "path": "/v1/messages",
-             "requested": "claude-opus-5-5", "response_model": "claude-opus-5-5",
+             "requested": "claude-opus-5-5", "response_model": "claude-sonnet-5",
              "deployments": {}, "call_id": "c2", "status": 200,
              "endpoint": "https://api.anthropic.com"},
         ])
@@ -496,8 +496,8 @@ class CaptureEvidenceTests(unittest.TestCase):
         c = self.manifest(tr)["contributions"][0]
         self.assertEqual(c["model_reported_by"], "router")
         # a gateway never overwrites model.id: it stays the profile's
-        # declared model (claude-opus@r1 model_id), not the last entry's
-        # response_model, which only happens to match here
+        # declared model (claude-opus@r1 model_id), even though the wire
+        # answered claude-sonnet-5, so this catches an overwrite
         self.assertEqual(c["model"]["id"], "claude-opus-5-5")
 
     def test_nameless_gateway_entry_still_gives_router(self):
