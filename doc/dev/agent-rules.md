@@ -27,8 +27,12 @@ python3 tools/prov.py declare --statement pending --reported-by manual \
 ```
 
 - `declare` writes and stages the manifest and prints the trailers. Put
-  them in **every** commit of the session, before any other trailers, in
-  this order: `Assisted-by:`, `AI-Scope:`, `Provenance-Id:`.
+  them in **every** commit of the session, in the last paragraph of the
+  message: git and `verify` read trailers only from there. Within that
+  paragraph they come before any other trailer, in this order:
+  `Assisted-by:`, `AI-Scope:`, `Provenance-Id:`. Further trailers (for
+  example `Claude-Session:`) follow in the same paragraph, with no blank
+  line in between.
 - `--reported-by manual` (the default) says that the model comes from a
   declaration, not from a tool. Use `config` only where a tool has read
   the model from the harness configuration. Do not pass `--model`: it

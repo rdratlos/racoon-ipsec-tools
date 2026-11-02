@@ -207,6 +207,37 @@ class ProvTests(unittest.TestCase):
                 self.assertFail("committed by an agent")
                 self.r.git("reset", "-q", "--hard", "HEAD~1")
 
+    def test_trailers_outside_last_paragraph_fail_with_hint(self):
+        # git reads trailers only from the last paragraph of a message
+        # (doc/dev/agent-rules.md); a declaration placed elsewhere is
+        # invisible to verify and must fail with a hint, whoever committed
+        # it, never pass as human work (PRINCIPLES.md 9, 12)
+        self.r.write("src/x.c", "int x;\n")
+        tr = "\n".join(self.r.declare(
+            "--contrib", "claude-opus@r1:implementer=src/x.c",
+            "--scope", "code"))
+        for name, msg, env in (
+                ("own paragraph, another trailer paragraph after it",
+                 f"change\n\nbody\n\n{tr}\n\nClaude-Session: https://x\n",
+                 AGENT_ENV),
+                ("before the body, human committer",
+                 f"change\n\n{tr}\n\nbody\n", None)):
+            with self.subTest(layout=name):
+                self.r.git("commit", "-q", "-F", "-", stdin=msg, env=env)
+                self.assertFail("found outside the trailer block")
+                self.r.git("reset", "-q", "--soft", "HEAD~1")
+
+    def test_trailers_with_other_trailers_in_last_paragraph_pass(self):
+        # the layout the rule asks for: our trailers first, further trailers
+        # in the same paragraph with no blank line between
+        self.r.write("src/x.c", "int x;\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code")
+        self.r.commit("assisted change",
+                      tr + ["Claude-Session: https://x", HUMAN], env=AGENT_ENV)
+        out = self.assertPass()
+        self.assertNotIn("outside the trailer block", out)
+
     def test_agent_committed_empty_commit_passes(self):
         # No change, no AI output in the tree: nothing to declare.
         self.r.git("commit", "-q", "--allow-empty", "-m", "empty", env=AGENT_ENV)
