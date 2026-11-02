@@ -152,3 +152,8 @@ Makefile
 # /src/setkey/token.c
 # /src/setkey/parse.[ch]
 
+# Python byte-code caches (tools/*.py run in place; `python -m unittest`
+# and py_compile leave these next to the sources)
+__pycache__/
+*.pyc
+
