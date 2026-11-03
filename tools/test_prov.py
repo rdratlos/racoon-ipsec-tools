@@ -1027,6 +1027,8 @@ class RuleSourceTests(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("unreviewed_field", out)
         self.assertIn("rules change in this range", out)
+        # a merged schema is frozen: changing it is a failure of its own
+        self.assertIn("manifest-v1.schema.json: modified", out)
 
     def test_schema_introduced_in_range_must_be_merged_first(self):
         schema = ".provenance/schema/manifest-v2.schema.json"
@@ -1067,6 +1069,15 @@ class RuleSourceTests(unittest.TestCase):
         rc, out = self.r.verify(rng="HEAD")
         self.assertEqual(rc, 1, out)
         self.assertIn("no base revision to read the policy and schemas", out)
+        # no --range and no upstream: the working-tree policy's baseline
+        # must not choose the range instead (principle 15)
+        self.edit(".provenance/policy.toml", 'baseline = ""',
+                  f'baseline = "{self.r.base}"')
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = prov.main(["-C", self.r.dir, "verify"])
+        self.assertEqual(rc, 1, buf.getvalue())
+        self.assertIn("no base revision", buf.getvalue())
 
 
 class ProxyTests(unittest.TestCase):

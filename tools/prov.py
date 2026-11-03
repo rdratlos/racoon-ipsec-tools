@@ -367,27 +367,28 @@ def verify_tree(git, report, policy, head, rules):
 
 
 def verify_immutability(git, report, base, head):
-    """Profile revisions and manifests are append-only records."""
+    """Profile revisions, manifests, attestations and schemas are
+    append-only: once merged, a file never changes (a schema describes
+    itself as frozen per version; a change means a new version file)."""
     if base is None:
         report.ok("no base revision: immutability check skipped")
         return
     before = git.ls_tree(base, f"{PROV_DIR}/profiles/")
-    for sub in ("manifests", "attestations"):
+    for sub in ("manifests", "attestations", "schema"):
         before.update({k: v for k, v in git.ls_tree(base, f"{PROV_DIR}/{sub}/").items()
                        if not k.endswith(".gitkeep")})
     after = git.ls_tree(head, f"{PROV_DIR}/")
     bad = 0
     for path, blob in sorted(before.items()):
         if path not in after:
-            report.fail(f"{path}: deleted (profile revisions and manifests are "
-                        f"immutable; retire a profile with a new revision)")
+            report.fail(f"{path}: deleted (records and schemas are immutable; "
+                        f"retire a profile with a new revision)")
             bad += 1
         elif after[path] != blob:
             report.fail(f"{path}: modified (create a new revision instead)")
             bad += 1
     if not bad:
-        report.ok(f"{len(before)} existing profile/manifest/attestation "
-                  f"file(s) unchanged")
+        report.ok(f"{len(before)} existing record/schema file(s) unchanged")
 
 
 def verify_commits(git, report, policy, commits, base=None, head="HEAD"):
@@ -748,13 +749,12 @@ def verify_attestation(git, report, policy, pid, s, head, signers):
                   f"by a signed human attestation")
 
 
-def default_range(git, policy):
+def default_range(git):
+    """@{upstream}..HEAD, or None: nothing is taken from the working tree,
+    whose policy could narrow the range verified (principle 15)."""
     p = git.run("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}",
                 check=False)
-    if p.returncode == 0:
-        return f"{p.stdout.strip()}..HEAD"
-    base = policy.get("enforcement", {}).get("baseline")
-    return f"{base}..HEAD" if base else "HEAD"
+    return f"{p.stdout.strip()}..HEAD" if p.returncode == 0 else None
 
 
 ADVISORY_SUMMARY = """\
@@ -788,11 +788,9 @@ def cmd_verify(args):
     # The rules (policy and schemas) come from the BASE of the range, like
     # the allowed signers: reviewed state, never the change being checked,
     # so a range cannot loosen its own rules (principle 15). A rule change
-    # takes effect once it is merged. Only the default range, when none is
-    # given, comes from the working tree (an operator setting).
-    rng = args.range
-    if rng is None:
-        rng = default_range(git, load_policy(git, report) or {})
+    # takes effect once it is merged. Without --range the range is
+    # @{upstream}..HEAD; without an upstream, a range must be passed.
+    rng = args.range or default_range(git) or "HEAD"
     head = rng.split("..")[-1].lstrip(".") if ".." in rng else rng
     head = head or "HEAD"
     base = rng.split("..")[0] if ".." in rng else None
@@ -1204,7 +1202,7 @@ def cmd_attest(args):
     if git.out("status", "--porcelain", "--untracked-files=no").strip():
         _err("working tree has uncommitted changes")
         return 2
-    rng = args.range or default_range(git, policy)
+    rng = args.range or default_range(git) or ""
     if ".." not in rng:
         _err(f"need a range BASE..HEAD (got '{rng}'); use --range")
         return 2
