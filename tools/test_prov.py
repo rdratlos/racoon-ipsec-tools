@@ -1051,7 +1051,33 @@ class RuleSourceTests(unittest.TestCase):
         self.r.commit("v2 manifest", tr + [HUMAN])
         rc, out = self.r.verify(rng=f"{base}..HEAD")
         self.assertEqual(rc, 1, out)
-        self.assertIn("merge the schema change first", out)
+        self.assertIn("manifest-v2 schema is not on the base", out)
+
+    def test_new_schema_version_introduced_in_range_must_be_merged_first(self):
+        # a version the base has never seen: the same message, not a v1
+        # validation error ("'1.0' was expected") that hides the cause
+        src = os.path.join(self.r.dir, ".provenance/schema/manifest-v2.schema.json")
+        with open(src, encoding="utf-8") as f:
+            schema = json.load(f)
+        schema["properties"]["schema_version"] = {"const": "3.0"}
+        with open(src.replace("-v2.", "-v3."), "w", encoding="utf-8") as f:
+            json.dump(schema, f)
+        self.r.write("src/x.c", "int x;\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code")
+        pid = [t.split(": ", 1)[1] for t in tr if t.startswith("Provenance-Id")][0]
+        man = f".provenance/manifests/{pid[:4]}/{pid}.json"
+        with open(os.path.join(self.r.dir, man), encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["schema_version"] = "3.0"
+        with open(os.path.join(self.r.dir, man), "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        self.r.git("add", "-A")
+        self.r.commit("schema v3 and a v3 manifest", tr + [HUMAN])
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("manifest-v3 schema is not on the base", out)
+        self.assertNotIn("'1.0' was expected", out)
 
     def test_rule_change_alone_passes_with_warning(self):
         # a range that only changes the rules, with nothing relying on them,

@@ -262,13 +262,13 @@ def verify_tree(git, report, policy, head, rules):
                     f"the base of the range ({rules[:12]})")
         return
     aschema = load_schema(git, "attestation-v1.schema.json", rules)
-    # v2 manifests validate against the v2 schema; v1 stays valid forever
-    m2schema = load_schema(git, "manifest-v2.schema.json", rules)
     # a schema the range itself adds is not reviewed state yet
     first_merge = (f"is not on the base of the range ({rules[:12]}) -- merge "
                    f"the schema change first, then the records that use it")
     pv, mv = validator_for(pschema), validator_for(mschema)
-    m2v = validator_for(m2schema) if m2schema else None
+    # a manifest validates against the schema of its own major version at
+    # the base (v1 stays valid forever); None: not on the base yet
+    mvs = {"1": mv}
     av = validator_for(aschema) if aschema else None
     if pv is None:
         report.fail("jsonschema not installed (pip install jsonschema, or "
@@ -312,13 +312,15 @@ def verify_tree(git, report, policy, head, rules):
                 report.fail(f"{path}: invalid JSON: {e}")
                 continue
             ver = doc.get("schema_version") if isinstance(doc, dict) else None
-            if ver == "2.0":
-                if m2v is None:
-                    report.fail(f"{path}: manifest-v2 schema {first_merge}")
-                    continue
-                errs = schema_errors(m2v, doc)
-            else:
-                errs = schema_errors(mv, doc)
+            major = ver.split(".")[0] if isinstance(ver, str) \
+                and re.match(r"^[0-9]+\.[0-9]+$", ver) else "1"
+            if major not in mvs:
+                ms = load_schema(git, f"manifest-v{major}.schema.json", rules)
+                mvs[major] = validator_for(ms) if ms else None
+            if mvs[major] is None:
+                report.fail(f"{path}: manifest-v{major} schema {first_merge}")
+                continue
+            errs = schema_errors(mvs[major], doc)
             for e in errs:
                 report.fail(f"{path}: {e}")
             if errs:
