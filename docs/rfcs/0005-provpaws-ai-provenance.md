@@ -254,7 +254,10 @@ Rules:
 - Schema: `.provenance/schema/manifest-v1.schema.json` (JSON Schema
   Draft 2020-12). `schema_version` is frozen per major version, the same
   discipline as `RACOONCTL_STATUS_SCHEMA_VERSION`: a breaking change is a
-  new `manifest-v2` file, and v1 records stay valid forever.
+  new `manifest-v2` file, and v1 records stay valid forever. Schema files
+  are immutable once merged, like the records they describe; a manifest
+  is validated against the schema of its own major version, read from the
+  base of the verified range (§6).
 
 ### 4a. Attestation — the human approval (`prov attest`)
 
@@ -308,7 +311,8 @@ attestation; attestation files are immutable once merged, like manifests.
 SSH-signed by a key listed in `.provenance/allowed_signers`
 (`gpg.ssh.allowedSignersFile` format), and the signing principal must equal
 `reviewer`. `verify` reads the allowed signers from the **base** of the
-range, so a change cannot admit its own key. (While the base had no
+range, so a change cannot admit its own key; the same holds for the policy
+and the schemas (§6). (While the base had no
 signers at all, the change's own file was used with a warning; this
 bootstrap rule served once, for the pull request that added the first
 maintainer key, and is replaced by a plain "no signers at base" error,
@@ -352,8 +356,20 @@ and makes the record reviewable alongside the code it describes.
 
 ### 6. Policy (`.provenance/policy.toml`)
 
+- **Rules come from the base.** `verify` reads `policy.toml`, the schemas
+  and `allowed_signers` from the base of the verified range — reviewed
+  state, never the change being checked (`.provenance/PRINCIPLES.md`,
+  principle 15). A range therefore cannot loosen its own rules, for
+  example by moving the baseline onto its own commits or adding a scope it
+  uses. A rule change takes effect once it is merged: it goes into a pull
+  request of its own, ahead of the one that relies on it (a new schema
+  version, then the first manifest that uses it). `verify` warns when a
+  range changes the rules, so the maintainer sees the change before
+  attesting; a range without a base fails.
 - **`enforcement.baseline`** — commits at or before this commit are exempt;
   Phase 0 sets it to `develop`'s tip, so no existing commit is touched.
+  Like every rule it is read from the base; it only marks the exemption
+  boundary and never chooses the range `verify` checks.
 - **`critical.paths`** — attack-surface and privilege-boundary code: IKE
   parsing (`isakmp*.c`, `ipsec_doi.c`, `oakley.c`), crypto
   (`crypto_openssl.c`, `openssl_compat.c`), `privsep.c`, `admin.c`,
@@ -406,14 +422,18 @@ Single-file Python ≥ 3.11 (stdlib `tomllib`; `jsonschema` for `verify`),
 reporting in `schema_cross_check.py`'s `[OK  ]`/`[WARN]`/`[FAIL]` style.
 
 - `prov verify --range A..B` — schemas and path/ID consistency of all
-  profiles and manifests; immutability against `A`; for each commit in the
+  profiles and manifests; immutability of profiles, manifests,
+  attestations and schemas against `A`; for each commit in the
   range after the baseline: trailer spelling, AI identities, profile
   resolution in the commit's own tree, scope, sign-off, manifest presence;
   per session: role/model/family match against the profile, substitution,
   `files` ⊆ files changed by the session's commits, dissimilarity,
   withheld-in-critical; with attestation required: every commit's patch-id
   covered by an attestation whose approval commit is signed by an allowed
-  key of the reviewer (allowed signers read at `A`).
+  key of the reviewer. Policy, schemas and allowed signers are read at
+  `A` (§6); a range that changes them gets a warning. Without `--range`,
+  `verify` checks `@{upstream}..HEAD`; nothing is taken from the working
+  tree.
 - `prov declare --contrib <id>@r<N>:<role>[=file,…] … --scope …` — writes
   and stages a manifest, prints trailers. `--statement pending` for agents.
 - `prov attest [--range BASE..HEAD] [--test CMD] [--test-log FILE]` —
@@ -435,7 +455,7 @@ reporting in `schema_cross_check.py`'s `[OK  ]`/`[WARN]`/`[FAIL]` style.
 `develop-provenance.yml` (develop-owned, named per the tree-separation
 policy):
 
-- `self-test` — `python3 -m unittest tools/test_prov.py`: 35 tests in
+- `self-test` — `python3 -m unittest tools/test_prov.py`: tests in
   throw-away repositories covering every pass/fail rule, including signed
   approval commits with throw-away SSH keys. Always blocking: a broken
   checker must never silently pass everything.
@@ -661,6 +681,11 @@ through gpg-agent, minimum versions, and a table of common signing errors);
   signers read from the base; the agent-environment refusal as a speed bump.
 - **Signatures lost on merge.** Rebase- and squash-merge recreate commits.
   Mitigation: merge commits only; re-sign on local rebase (§4a).
+- **A change loosens its own rules** (moves the baseline, adds a scope,
+  relaxes a schema, admits a key). Mitigation: policy, schemas and signers
+  are read from the base of the range (§6); merged schemas are immutable;
+  `verify` warns about rule changes, which the maintainer reviews before
+  attesting. Cost: a rule change needs a pull request of its own.
 
 ## Open questions
 
@@ -695,8 +720,14 @@ through gpg-agent, minimum versions, and a table of common signing errors);
       `verify`.
 - [ ] AI `code` in a critical path without a dissimilar-family reviewer
       fails; with one, passes.
-- [ ] Modifying or deleting a merged profile revision, manifest or
-      attestation fails.
+- [ ] Modifying or deleting a merged profile revision, manifest,
+      attestation or schema fails.
+- [ ] A rule change committed inside the verified range is not applied to
+      it: a baseline moved onto an undeclared agent commit, a scope added
+      and used, or a relaxed schema still fails, with a warning naming the
+      rule change; a manifest whose schema version is not on the base
+      fails with "merge the schema change first"; once merged, the new
+      rule applies.
 - [ ] `prov attest` adds the sign-off without changing trees,
       author or committer; a signed approval commit by an allowed key
       passes `verify`; an unsigned approval, a key added by the change
