@@ -207,8 +207,11 @@ def _read(git, rel):
         return None
 
 
-def load_schema(git, name):
-    text = _read(git, f"{PROV_DIR}/schema/{name}")
+def load_schema(git, name, rev):
+    """A schema is read from `rev`, which verify sets to the base of the
+    range: reviewed state, never the change under test, so a change cannot
+    validate itself with a schema it introduces or relaxes (principle 15)."""
+    text = git.show(rev, f"{PROV_DIR}/schema/{name}")
     return json.loads(text) if text else None
 
 
@@ -249,18 +252,23 @@ def is_critical(path, policy):
 # --------------------------------------------------------------------------
 # verify
 
-def verify_tree(git, report, policy, head):
-    """Profiles, manifests and legacy map as they exist at `head`."""
-    pschema = load_schema(git, "profile-v1.schema.json")
-    mschema = load_schema(git, "manifest-v1.schema.json")
+def verify_tree(git, report, policy, head, rules):
+    """Profiles, manifests and legacy map as they exist at `head`, validated
+    against the schemas at `rules` (the base of the range)."""
+    pschema = load_schema(git, "profile-v1.schema.json", rules)
+    mschema = load_schema(git, "manifest-v1.schema.json", rules)
     if pschema is None or mschema is None:
-        report.fail(f"{PROV_DIR}/schema: profile/manifest schema missing")
+        report.fail(f"{PROV_DIR}/schema: profile/manifest schema missing at "
+                    f"the base of the range ({rules[:12]})")
         return
-    aschema = load_schema(git, "attestation-v1.schema.json")
-    # v2 manifests validate against the v2 schema; v1 stays valid forever
-    m2schema = load_schema(git, "manifest-v2.schema.json")
+    aschema = load_schema(git, "attestation-v1.schema.json", rules)
+    # a schema the range itself adds is not reviewed state yet
+    first_merge = (f"is not on the base of the range ({rules[:12]}) -- merge "
+                   f"the schema change first, then the records that use it")
     pv, mv = validator_for(pschema), validator_for(mschema)
-    m2v = validator_for(m2schema) if m2schema else None
+    # a manifest validates against the schema of its own major version at
+    # the base (v1 stays valid forever); None: not on the base yet
+    mvs = {"1": mv}
     av = validator_for(aschema) if aschema else None
     if pv is None:
         report.fail("jsonschema not installed (pip install jsonschema, or "
@@ -304,13 +312,15 @@ def verify_tree(git, report, policy, head):
                 report.fail(f"{path}: invalid JSON: {e}")
                 continue
             ver = doc.get("schema_version") if isinstance(doc, dict) else None
-            if ver == "2.0":
-                if m2v is None:
-                    report.fail(f"{path}: manifest-v2 schema missing")
-                    continue
-                errs = schema_errors(m2v, doc)
-            else:
-                errs = schema_errors(mv, doc)
+            major = ver.split(".")[0] if isinstance(ver, str) \
+                and re.match(r"^[0-9]+\.[0-9]+$", ver) else "1"
+            if major not in mvs:
+                ms = load_schema(git, f"manifest-v{major}.schema.json", rules)
+                mvs[major] = validator_for(ms) if ms else None
+            if mvs[major] is None:
+                report.fail(f"{path}: manifest-v{major} schema {first_merge}")
+                continue
+            errs = schema_errors(mvs[major], doc)
             for e in errs:
                 report.fail(f"{path}: {e}")
             if errs:
@@ -326,7 +336,7 @@ def verify_tree(git, report, policy, head):
                             f"attestations/<YYYY>/<id>/<time>.json")
                 continue
             if av is None:
-                report.fail(f"{path}: attestation schema missing")
+                report.fail(f"{path}: attestation schema {first_merge}")
                 continue
             try:
                 doc = json.loads(git.show(head, path))
@@ -359,27 +369,28 @@ def verify_tree(git, report, policy, head):
 
 
 def verify_immutability(git, report, base, head):
-    """Profile revisions and manifests are append-only records."""
+    """Profile revisions, manifests, attestations and schemas are
+    append-only: once merged, a file never changes (a schema describes
+    itself as frozen per version; a change means a new version file)."""
     if base is None:
         report.ok("no base revision: immutability check skipped")
         return
     before = git.ls_tree(base, f"{PROV_DIR}/profiles/")
-    for sub in ("manifests", "attestations"):
+    for sub in ("manifests", "attestations", "schema"):
         before.update({k: v for k, v in git.ls_tree(base, f"{PROV_DIR}/{sub}/").items()
                        if not k.endswith(".gitkeep")})
     after = git.ls_tree(head, f"{PROV_DIR}/")
     bad = 0
     for path, blob in sorted(before.items()):
         if path not in after:
-            report.fail(f"{path}: deleted (profile revisions and manifests are "
-                        f"immutable; retire a profile with a new revision)")
+            report.fail(f"{path}: deleted (records and schemas are immutable; "
+                        f"retire a profile with a new revision)")
             bad += 1
         elif after[path] != blob:
             report.fail(f"{path}: modified (create a new revision instead)")
             bad += 1
     if not bad:
-        report.ok(f"{len(before)} existing profile/manifest/attestation "
-                  f"file(s) unchanged")
+        report.ok(f"{len(before)} existing record/schema file(s) unchanged")
 
 
 def verify_commits(git, report, policy, commits, base=None, head="HEAD"):
@@ -532,15 +543,16 @@ def verify_commits(git, report, policy, commits, base=None, head="HEAD"):
 
 def _deployment_known(dep, profile, policy):
     """True when dep names a disclosed model of this profile. A policy
-    release registry could be added later; unknown stays unknown."""
+    release registry could be added later; unknown stays unknown. The match
+    is exact (case-insensitive): a deployment that merely contains a model
+    name as a substring is a different deployment, and calling it known
+    would credit a model identity that did not run (principle 12)."""
     lowered = dep.lower()
     for role in (profile.get("roles") or []):
         if role.get("disclosure") == "withheld":
             continue
         for v in (role.get("model_id"), role.get("model_family")):
-            if v and (lowered == str(v).lower()
-                      or lowered in str(v).lower()
-                      or str(v).lower() in lowered):
+            if v and lowered == str(v).lower():
                 return True
     return False
 
@@ -586,10 +598,11 @@ def verify_session(git, report, policy, pid, s):
                 report.fail(msg + " -- configured/declared model must match "
                             "the profile; create a new profile revision")
         # observed[] (schema 2.0): tool-read observations of what answered.
-        # An observation never rewrites the profile; a deployment no policy
-        # release names is a WARN, so verify fails only on what the record
-        # itself contradicts. A v1 envelope with observed[] is rejected by
-        # schema validation before this point, so no version check here.
+        # An observation never rewrites the profile; a deployment that does
+        # not exactly match this contribution's own profile's disclosed model
+        # is a WARN, so verify fails only on what the record itself
+        # contradicts. A v1 envelope with observed[] is rejected by schema
+        # validation before this point, so no version check here.
         obs = contrib.get("observed", [])
         differing = sorted({str(o["id"]) for o in obs
                             if o.get("id") and o["id"] != model.get("id")})
@@ -606,7 +619,7 @@ def verify_session(git, report, policy, pid, s):
         if unmapped:
             report.warn(f"{where}: observed deployment(s) "
                         f"{', '.join(sorted(set(unmapped)))} match no "
-                        f"disclosed model in any profile: a release may be "
+                        f"disclosed model in this profile: a release may be "
                         f"undisclosed or retired (not a failure)")
 
         files = contrib.get("files", [])
@@ -738,13 +751,12 @@ def verify_attestation(git, report, policy, pid, s, head, signers):
                   f"by a signed human attestation")
 
 
-def default_range(git, policy):
+def default_range(git):
+    """@{upstream}..HEAD, or None: nothing is taken from the working tree,
+    whose policy could narrow the range verified (principle 15)."""
     p = git.run("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}",
                 check=False)
-    if p.returncode == 0:
-        return f"{p.stdout.strip()}..HEAD"
-    base = policy.get("enforcement", {}).get("baseline")
-    return f"{base}..HEAD" if base else "HEAD"
+    return f"{p.stdout.strip()}..HEAD" if p.returncode == 0 else None
 
 
 ADVISORY_SUMMARY = """\
@@ -775,18 +787,38 @@ def write_summary(path, report):
 def cmd_verify(args):
     git = Git(args.repo)
     report = Report(args.quiet, advisory=args.advisory)
-    policy = load_policy(git, report)
-    if policy is None:
-        return 1
-    rng = args.range or default_range(git, policy)
+    # The rules (policy and schemas) come from the BASE of the range, like
+    # the allowed signers: reviewed state, never the change being checked,
+    # so a range cannot loosen its own rules (principle 15). A rule change
+    # takes effect once it is merged. Without --range the range is
+    # @{upstream}..HEAD; without an upstream, a range must be passed.
+    rng = args.range or default_range(git) or "HEAD"
     head = rng.split("..")[-1].lstrip(".") if ".." in rng else rng
     head = head or "HEAD"
     base = rng.split("..")[0] if ".." in rng else None
-    if base and not git.exists(f"{base}^{{commit}}"):
-        report.warn(f"base {base} not found; immutability check skipped")
-        base = None
     print(f"prov verify: range {rng}")
-    verify_tree(git, report, policy, head)
+    if base is None:
+        report.fail("no base revision to read the policy and schemas from "
+                    "-- verify a range BASE..HEAD")
+    elif not git.exists(f"{base}^{{commit}}"):
+        report.fail(f"base {base} not found (shallow clone?): the policy and "
+                    f"schemas are read from the base of the range")
+        base = None
+    policy = load_policy(git, report, base) if base else None
+    if policy is None:
+        print(f"prov verify: {report.fails} failure(s), {report.warns} warning(s)")
+        return 1
+    rule_files = [f"{PROV_DIR}/policy.toml", f"{PROV_DIR}/schema",
+                  policy.get("attestation", {}).get(
+                      "allowed_signers", f"{PROV_DIR}/allowed_signers")]
+    changed = git.out("diff", "--name-only", base, head, "--",
+                      *rule_files).split()
+    if changed:
+        report.warn(f"rules change in this range ({', '.join(changed)}): "
+                    f"verified with the rules of the base ({base[:12]}); the "
+                    f"new rules take effect after merge -- review them before "
+                    f"attesting")
+    verify_tree(git, report, policy, head, base)
     verify_immutability(git, report, base, head)
     verify_commits(git, report, policy, git.commits(rng), base=base, head=head)
     if args.summary:
@@ -1172,7 +1204,7 @@ def cmd_attest(args):
     if git.out("status", "--porcelain", "--untracked-files=no").strip():
         _err("working tree has uncommitted changes")
         return 2
-    rng = args.range or default_range(git, policy)
+    rng = args.range or default_range(git) or ""
     if ".." not in rng:
         _err(f"need a range BASE..HEAD (got '{rng}'); use --range")
         return 2

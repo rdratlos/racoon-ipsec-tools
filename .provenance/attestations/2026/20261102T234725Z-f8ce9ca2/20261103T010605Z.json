@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261102T234725Z-f8ce9ca2",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261103T010605Z",
+  "commits": [
+    {
+      "patch_id": "c4debe85bad32a33211cc8af5f07c408e82e404d",
+      "subject": "prov: read policy and schemas from the revision verified; exact deployment match"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:8f68e4edadb1ff7dbe77dbf9b4c8d5472d38c4ba2df0b5d073a8d6ba43b6f72f",
+    "duration_s": 13.542
+  }
+}

@@ -920,6 +920,192 @@ class CaptureEvidenceTests(unittest.TestCase):
         self.assertNotIn("observed", doc["contributions"][0])
 
 
+    def test_partial_deployment_name_is_not_known(self):
+        # a deployment that only contains a disclosed model's name as a
+        # substring is not that model: a different deployment may share a
+        # prefix, and claiming it known would credit a model identity that
+        # did not run (principle 12). "claude-opus-5-5-beta" must not match
+        # the profile's "claude-opus-5-5"
+        self.r.write("src/x.c", "int x;\n")
+        tr = self._declare_router(deployment="claude-opus-5-5-beta")
+        self.r.commit("router session", tr + [HUMAN])
+        rc, out = self.r.attest()
+        self.assertEqual(rc, 0, out)
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("[WARN]", out)
+        self.assertIn("claude-opus-5-5-beta", out)
+
+    def test_exact_deployment_name_is_known(self):
+        # the exact disclosed model name is known: no warning. This pins
+        # the tightening so it does not over-restrict and warn on the value
+        # it is supposed to accept
+        self.r.write("src/x.c", "int x;\n")
+        tr = self._declare_router(deployment="claude-opus-5-5")
+        self.r.commit("router session", tr + [HUMAN])
+        rc, out = self.r.attest()
+        self.assertEqual(rc, 0, out)
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("[WARN]", out)
+
+
+class RuleSourceTests(unittest.TestCase):
+    """Requirement (principle 15; PR #178 thread r4409414985, PR #190): the
+    rules verify applies -- policy.toml and the schemas -- come from the
+    base of the range, i.e. reviewed state, never from the change being
+    checked. A rule change committed inside the range is not applied to
+    that range, is reported, and takes effect once it is merged. Each test
+    commits the change inside the verified range, the way a pull request
+    would; CI checks out the head, so head and working tree are the same."""
+
+    def setUp(self):
+        self.r = Repo()
+
+    def tearDown(self):
+        self.r.cleanup()
+
+    def edit(self, rel, old, new):
+        path = os.path.join(self.r.dir, rel)
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn(old, text)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text.replace(old, new, 1))
+        self.r.git("add", rel)
+
+    def test_policy_loosened_inside_range_is_not_applied(self):
+        # an undeclared agent commit, then a human commit that moves the
+        # baseline onto it: with the policy of the range applied, the agent
+        # commit would be exempt and the range pass
+        self.r.write("src/x.c", "int x;\n")
+        self.r.git("commit", "-q", "-m", "undeclared", env=AGENT_ENV)
+        sneaked = self.r.head()
+        self.edit(".provenance/policy.toml", 'baseline = ""',
+                  f'baseline = "{sneaked}"')
+        self.r.commit("policy: move baseline", [HUMAN])
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("committed by an agent", out)
+        self.assertIn("rules change in this range", out)
+
+    def test_scope_added_and_used_in_same_range_fails(self):
+        self.edit(".provenance/policy.toml", '"refactor", "code"]',
+                  '"refactor", "code", "forged"]')
+        self.r.commit("policy: allow scope forged", [HUMAN])
+        policy_merged = self.r.head()
+        self.r.write("src/x.c", "int x;\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "forged")
+        self.r.commit("uses scope forged", tr + [HUMAN])
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("AI-Scope 'forged' -- allowed:", out)
+        # once the policy change is merged, it is the base and applies
+        rc, out = self.r.verify(rng=f"{policy_merged}..HEAD")
+        self.assertNotIn("AI-Scope 'forged'", out)
+        self.assertNotIn("rules change in this range", out)
+
+    def test_schema_relaxed_inside_range_is_not_applied(self):
+        schema = ".provenance/schema/manifest-v1.schema.json"
+        self.edit(schema, '"additionalProperties": false',
+                  '"additionalProperties": true')
+        self.r.commit("schema: allow extra fields", [HUMAN])
+        self.r.write("src/x.c", "int x;\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code")
+        pid = [t.split(": ", 1)[1] for t in tr if t.startswith("Provenance-Id")][0]
+        man = f".provenance/manifests/{pid[:4]}/{pid}.json"
+        with open(os.path.join(self.r.dir, man), encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["unreviewed_field"] = 1
+        with open(os.path.join(self.r.dir, man), "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        self.r.git("add", man)
+        self.r.commit("extra manifest field", tr + [HUMAN])
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("unreviewed_field", out)
+        self.assertIn("rules change in this range", out)
+        # a merged schema is frozen: changing it is a failure of its own
+        self.assertIn("manifest-v1.schema.json: modified", out)
+
+    def test_schema_introduced_in_range_must_be_merged_first(self):
+        schema = ".provenance/schema/manifest-v2.schema.json"
+        self.r.git("rm", "-q", schema)
+        self.r.commit("base without manifest-v2", [HUMAN])
+        base = self.r.head()
+        self.r.git("checkout", "HEAD~1", "--", schema)
+        self.r.commit("add manifest-v2", [HUMAN])
+        self.r.write("src/x.c", "int x;\n")
+        log = os.path.join(self.r.dir, "capture.jsonl")
+        with open(log, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"at": "2026-11-03T10:00:00Z",
+                                "path": "/v1/messages",
+                                "requested": "claude-opus-5-5",
+                                "response_model": "claude-opus-5-5",
+                                "deployments": {}, "status": 200,
+                                "endpoint": "https://api.example"}) + "\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", "capture-log:" + log)
+        self.r.commit("v2 manifest", tr + [HUMAN])
+        rc, out = self.r.verify(rng=f"{base}..HEAD")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("manifest-v2 schema is not on the base", out)
+
+    def test_new_schema_version_introduced_in_range_must_be_merged_first(self):
+        # a version the base has never seen: the same message, not a v1
+        # validation error ("'1.0' was expected") that hides the cause
+        src = os.path.join(self.r.dir, ".provenance/schema/manifest-v2.schema.json")
+        with open(src, encoding="utf-8") as f:
+            schema = json.load(f)
+        schema["properties"]["schema_version"] = {"const": "3.0"}
+        with open(src.replace("-v2.", "-v3."), "w", encoding="utf-8") as f:
+            json.dump(schema, f)
+        self.r.write("src/x.c", "int x;\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code")
+        pid = [t.split(": ", 1)[1] for t in tr if t.startswith("Provenance-Id")][0]
+        man = f".provenance/manifests/{pid[:4]}/{pid}.json"
+        with open(os.path.join(self.r.dir, man), encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["schema_version"] = "3.0"
+        with open(os.path.join(self.r.dir, man), "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        self.r.git("add", "-A")
+        self.r.commit("schema v3 and a v3 manifest", tr + [HUMAN])
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("manifest-v3 schema is not on the base", out)
+        self.assertNotIn("'1.0' was expected", out)
+
+    def test_rule_change_alone_passes_with_warning(self):
+        # a range that only changes the rules, with nothing relying on them,
+        # is verified under the base rules and passes; the change is
+        # reported so the reviewer does not miss it in a larger diff
+        self.edit(".provenance/policy.toml", '"refactor", "code"]',
+                  '"refactor", "code", "forged"]')
+        self.r.commit("policy: allow scope forged", [HUMAN])
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("rules change in this range "
+                      "(.provenance/policy.toml)", out)
+
+    def test_range_without_base_fails(self):
+        rc, out = self.r.verify(rng="HEAD")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("no base revision to read the policy and schemas", out)
+        # no --range and no upstream: the working-tree policy's baseline
+        # must not choose the range instead (principle 15)
+        self.edit(".provenance/policy.toml", 'baseline = ""',
+                  f'baseline = "{self.r.base}"')
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = prov.main(["-C", self.r.dir, "verify"])
+        self.assertEqual(rc, 1, buf.getvalue())
+        self.assertIn("no base revision", buf.getvalue())
+
+
 class ProxyTests(unittest.TestCase):
     """provcap-proxy.py: the proxy must pass a streaming response through
     as it arrives (an interactive client cannot wait for the end), and its

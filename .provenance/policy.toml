@@ -1,6 +1,8 @@
 # AI provenance policy -- RFC 0005 ("provpaws").
 # Read by tools/prov.py. Changes to this file are policy changes: review them
-# like code, and say why in the commit message.
+# like code, and say why in the commit message. verify reads this file (and
+# the schemas) from the BASE of the verified range, so a change takes effect
+# once it is merged, never for the range that introduces it (principle 15).
 
 schema_version = "1.0"
 

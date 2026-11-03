@@ -128,8 +128,14 @@ One-time setup: an SSH signing key (preferably on a hardware token) and its
 public key in `.provenance/allowed_signers` -- see "Maintainer workstation"
 below, including how to use an existing OpenPGP key.
 
-CI reads `allowed_signers` from the **base** of a change, so a pull request
-cannot admit its own key; a base without signers fails. Merge into
+CI reads the rules -- `policy.toml`, the schemas in `schema/` and
+`allowed_signers` -- from the **base** of a change, so a pull request
+cannot loosen its own rules or admit its own key; a base without them
+fails (principle 15). A rule change therefore takes effect once it is
+merged: put it in a pull request of its own, ahead of the one that relies
+on it (for example a new schema version, then the first manifest that
+uses it). `verify` warns when a range changes the rules, so the change is
+not missed when you review before attesting. Merge into
 `develop` with merge commits: GitHub's rebase- and squash-merge recreate
 commits without your signature.
 
@@ -279,7 +285,7 @@ needs Git >= 2.35, and Git 2.34 reads it as a file name.
 | --- | --- | --- |
 | `PRINCIPLES.md` | guiding principles for humans and agents; identical on `main` and `develop` | approved; changed only by the maintainer's decision |
 | `policy.toml` | baseline, allowed scopes, critical paths, rules | reviewed like code |
-| `schema/*.schema.json` | manifest and profile schemas (v1, frozen) | new major = new file |
+| `schema/*.schema.json` | manifest, profile and attestation schemas | **immutable** once merged; a change = new version file |
 | `profiles/<id>/r<N>.toml` | which model per role in a setup | **immutable**; change = `r<N+1>` |
 | `manifests/<YYYY>/<id>.json` | one per AI-assisted session | **immutable** |
 | `attestations/<YYYY>/<id>/<time>.json` | human approval, in a signed commit | **immutable** |

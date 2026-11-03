@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261103T002801Z-c8d1b69b",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261103T010605Z",
+  "commits": [
+    {
+      "patch_id": "2c4b1b1f86bf9e50d5a854100499648ff1464b43",
+      "subject": "prov: read policy and schemas from the base of the range, not from head"
+    },
+    {
+      "patch_id": "ee2fc61d5498d8a1914fa7485ae2354fddaba79d",
+      "subject": "prov: verify takes nothing from the working tree; merged schemas frozen"
+    },
+    {
+      "patch_id": "8e34588b7910d69211a57a9cf65c5382bfe46924",
+      "subject": "prov: pick the manifest schema by version; name a missing one plainly"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:8f68e4edadb1ff7dbe77dbf9b4c8d5472d38c4ba2df0b5d073a8d6ba43b6f72f",
+    "duration_s": 13.542
+  }
+}
