@@ -128,8 +128,14 @@ One-time setup: an SSH signing key (preferably on a hardware token) and its
 public key in `.provenance/allowed_signers` -- see "Maintainer workstation"
 below, including how to use an existing OpenPGP key.
 
-CI reads `allowed_signers` from the **base** of a change, so a pull request
-cannot admit its own key; a base without signers fails. Merge into
+CI reads the rules -- `policy.toml`, the schemas in `schema/` and
+`allowed_signers` -- from the **base** of a change, so a pull request
+cannot loosen its own rules or admit its own key; a base without them
+fails (principle 15). A rule change therefore takes effect once it is
+merged: put it in a pull request of its own, ahead of the one that relies
+on it (for example a new schema version, then the first manifest that
+uses it). `verify` warns when a range changes the rules, so the change is
+not missed when you review before attesting. Merge into
 `develop` with merge commits: GitHub's rebase- and squash-merge recreate
 commits without your signature.
 

@@ -4,9 +4,9 @@
 #   self-test  -- tools/prov.py's own tests. Blocking: a broken checker must
 #                 never silently pass everything.
 #   verify     -- trailers, manifests, attestations (signed approval commits,
-#                 checked with ssh-keygen against .provenance/allowed_signers
-#                 at the base) and policy over the commits a
-#                 PR/push introduces. Blocking since Phase 1 (RFC 0005,
+#                 checked with ssh-keygen against .provenance/allowed_signers)
+#                 over the commits a PR/push introduces, with the policy,
+#                 schemas and signers read from the base of the range. Blocking since Phase 1 (RFC 0005,
 #                 Rollout); Phase 0 ran it with continue-on-error.
 #                 Pull requests from a fork (guests, RFC 0005 §11.4) run in
 #                 advisory mode: always green, findings go to the job summary

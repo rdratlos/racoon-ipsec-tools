@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261103T002801Z-c8d1b69b",
+  "created": "2026-11-03T00:28:01Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        ".github/workflows/develop-provenance.yml",
+        ".provenance/README.md",
+        ".provenance/policy.toml",
+        "tools/prov.py",
+        "tools/test_prov.py"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "noreply@anthropic.com",
+    "statement": "pending"
+  }
+}

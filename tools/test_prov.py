@@ -950,11 +950,14 @@ class CaptureEvidenceTests(unittest.TestCase):
         self.assertNotIn("[WARN]", out)
 
 
-class SchemaSourceTests(unittest.TestCase):
-    """Requirement from PR #178 (principle 15), checked with the same
-    verify path CI runs: the schemas that decide validity are read from
-    the commit being verified, not from the working tree, so a change
-    cannot rewrite its own validator."""
+class RuleSourceTests(unittest.TestCase):
+    """Requirement (principle 15; PR #178 thread r4409414985, PR #190): the
+    rules verify applies -- policy.toml and the schemas -- come from the
+    base of the range, i.e. reviewed state, never from the change being
+    checked. A rule change committed inside the range is not applied to
+    that range, is reported, and takes effect once it is merged. Each test
+    commits the change inside the verified range, the way a pull request
+    would; CI checks out the head, so head and working tree are the same."""
 
     def setUp(self):
         self.r = Repo()
@@ -962,69 +965,108 @@ class SchemaSourceTests(unittest.TestCase):
     def tearDown(self):
         self.r.cleanup()
 
-    def _attest_session(self):
-        self.r.write("src/x.c", "int x;\n")
-        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
-                            "--scope", "code", "--reported-by", "manual")
-        self.r.commit("a change", tr + [HUMAN])
-        rc, out = self.r.attest()
-        self.assertEqual(rc, 0, out)
-        return tr
+    def edit(self, rel, old, new):
+        path = os.path.join(self.r.dir, rel)
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn(old, text)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text.replace(old, new, 1))
+        self.r.git("add", rel)
 
-    def test_verify_reads_schema_from_head_not_worktree(self):
-        # the schemas at head are removed in a commit, but the working
-        # tree still has them. verify must fail (head's tree has no
-        # schemas), not pass by finding the working-tree files that head
-        # does not carry. This fails against the old code, which read
-        # schemas via _read(git, path) = working tree (principle 15).
-        self._attest_session()
-        self.r.git("rm", "-r", os.path.join(".provenance", "schema"))
-        self.r.commit("remove schemas from tree", trailers=[HUMAN])
-        # schemas are back in the working tree (git rm leaves them deleted;
-        # restore without committing so head lacks them but the work tree
-        # has them)
-        self.r.git("checkout", "HEAD~1", "--", ".provenance/schema")
-        self.r.git("reset", "HEAD", "--", ".provenance/schema")
+    def test_policy_loosened_inside_range_is_not_applied(self):
+        # an undeclared agent commit, then a human commit that moves the
+        # baseline onto it: with the policy of the range applied, the agent
+        # commit would be exempt and the range pass
+        self.r.write("src/x.c", "int x;\n")
+        self.r.git("commit", "-q", "-m", "undeclared", env=AGENT_ENV)
+        sneaked = self.r.head()
+        self.edit(".provenance/policy.toml", 'baseline = ""',
+                  f'baseline = "{sneaked}"')
+        self.r.commit("policy: move baseline", [HUMAN])
         rc, out = self.r.verify()
-        self.assertNotEqual(rc, 0,
-                            "verify passed even though head has no schemas; "
-                            "it read the working tree instead of head:\n" + out)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("committed by an agent", out)
+        self.assertIn("rules change in this range", out)
 
-    def test_verify_reads_policy_from_head_not_worktree(self):
-        # verify validates AI-Scope against allowed_scopes, and that list
-        # comes from the policy. an uncommitted loosening of policy.toml in
-        # the working tree must not turn a commit that uses a scope the
-        # committed policy forbids green: verify reads the policy from the
-        # revision it verifies, never from the working tree the change could
-        # edit (principle 15). the old code read policy via _read = working
-        # tree, so the loosened file silenced the rejection.
+    def test_scope_added_and_used_in_same_range_fails(self):
+        self.edit(".provenance/policy.toml", '"refactor", "code"]',
+                  '"refactor", "code", "forged"]')
+        self.r.commit("policy: allow scope forged", [HUMAN])
+        policy_merged = self.r.head()
         self.r.write("src/x.c", "int x;\n")
         tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
-                            "--scope", "code", "--reported-by", "manual")
-        self.r.commit("a change", tr)
-        # head now forbids "forged". the working tree is loosened to allow
-        # it, left uncommitted, and is what the old code would read. the
-        # range starts at the commit before this one, so the commit whose
-        # tree verify reads for the policy (head) is the loosening's parent.
-        self.r.git("commit", "-q", "--allow-empty", "-m", "baseline")
+                            "--scope", "forged")
+        self.r.commit("uses scope forged", tr + [HUMAN])
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("AI-Scope 'forged' -- allowed:", out)
+        # once the policy change is merged, it is the base and applies
+        rc, out = self.r.verify(rng=f"{policy_merged}..HEAD")
+        self.assertNotIn("AI-Scope 'forged'", out)
+        self.assertNotIn("rules change in this range", out)
+
+    def test_schema_relaxed_inside_range_is_not_applied(self):
+        schema = ".provenance/schema/manifest-v1.schema.json"
+        self.edit(schema, '"additionalProperties": false',
+                  '"additionalProperties": true')
+        self.r.commit("schema: allow extra fields", [HUMAN])
+        self.r.write("src/x.c", "int x;\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code")
+        pid = [t.split(": ", 1)[1] for t in tr if t.startswith("Provenance-Id")][0]
+        man = f".provenance/manifests/{pid[:4]}/{pid}.json"
+        with open(os.path.join(self.r.dir, man), encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["unreviewed_field"] = 1
+        with open(os.path.join(self.r.dir, man), "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        self.r.git("add", man)
+        self.r.commit("extra manifest field", tr + [HUMAN])
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("unreviewed_field", out)
+        self.assertIn("rules change in this range", out)
+
+    def test_schema_introduced_in_range_must_be_merged_first(self):
+        schema = ".provenance/schema/manifest-v2.schema.json"
+        self.r.git("rm", "-q", schema)
+        self.r.commit("base without manifest-v2", [HUMAN])
         base = self.r.head()
-        loosen = os.path.join(self.r.dir, ".provenance", "policy.toml")
-        with open(loosen, encoding="utf-8") as f:
-            ptext = f.read()
-        with open(loosen, "w", encoding="utf-8") as f:
-            f.write(ptext.replace('"refactor", "code"]',
-                                  '"refactor", "code", "forged"]'))
-        self.r.write("src/y.c", "int y;\n")
-        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/y.c",
-                            "--scope", "forged", "--reported-by", "manual")
-        self.r.commit("scope forged", tr + [HUMAN])
+        self.r.git("checkout", "HEAD~1", "--", schema)
+        self.r.commit("add manifest-v2", [HUMAN])
+        self.r.write("src/x.c", "int x;\n")
+        log = os.path.join(self.r.dir, "capture.jsonl")
+        with open(log, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"at": "2026-11-03T10:00:00Z",
+                                "path": "/v1/messages",
+                                "requested": "claude-opus-5-5",
+                                "response_model": "claude-opus-5-5",
+                                "deployments": {}, "status": 200,
+                                "endpoint": "https://api.example"}) + "\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--evidence", "capture-log:" + log)
+        self.r.commit("v2 manifest", tr + [HUMAN])
         rc, out = self.r.verify(rng=f"{base}..HEAD")
-        self.assertNotEqual(
-            rc, 0,
-            "verify passed with the scope list loosened only in the working "
-            "tree: the policy was read from the working tree, not from the "
-            f"revision being verified (principle 15):\n{out}")
-        self.assertIn("forged", out)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("merge the schema change first", out)
+
+    def test_rule_change_alone_passes_with_warning(self):
+        # a range that only changes the rules, with nothing relying on them,
+        # is verified under the base rules and passes; the change is
+        # reported so the reviewer does not miss it in a larger diff
+        self.edit(".provenance/policy.toml", '"refactor", "code"]',
+                  '"refactor", "code", "forged"]')
+        self.r.commit("policy: allow scope forged", [HUMAN])
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("rules change in this range "
+                      "(.provenance/policy.toml)", out)
+
+    def test_range_without_base_fails(self):
+        rc, out = self.r.verify(rng="HEAD")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("no base revision to read the policy and schemas", out)
 
 
 class ProxyTests(unittest.TestCase):

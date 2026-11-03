@@ -208,9 +208,9 @@ def _read(git, rel):
 
 
 def load_schema(git, name, rev):
-    """A schema is read from the revision being verified, never from the
-    working tree: a change must not validate itself with a schema it
-    introduces (principle 15)."""
+    """A schema is read from `rev`, which verify sets to the base of the
+    range: reviewed state, never the change under test, so a change cannot
+    validate itself with a schema it introduces or relaxes (principle 15)."""
     text = git.show(rev, f"{PROV_DIR}/schema/{name}")
     return json.loads(text) if text else None
 
@@ -252,16 +252,21 @@ def is_critical(path, policy):
 # --------------------------------------------------------------------------
 # verify
 
-def verify_tree(git, report, policy, head):
-    """Profiles, manifests and legacy map as they exist at `head`."""
-    pschema = load_schema(git, "profile-v1.schema.json", head)
-    mschema = load_schema(git, "manifest-v1.schema.json", head)
+def verify_tree(git, report, policy, head, rules):
+    """Profiles, manifests and legacy map as they exist at `head`, validated
+    against the schemas at `rules` (the base of the range)."""
+    pschema = load_schema(git, "profile-v1.schema.json", rules)
+    mschema = load_schema(git, "manifest-v1.schema.json", rules)
     if pschema is None or mschema is None:
-        report.fail(f"{PROV_DIR}/schema: profile/manifest schema missing")
+        report.fail(f"{PROV_DIR}/schema: profile/manifest schema missing at "
+                    f"the base of the range ({rules[:12]})")
         return
-    aschema = load_schema(git, "attestation-v1.schema.json", head)
+    aschema = load_schema(git, "attestation-v1.schema.json", rules)
     # v2 manifests validate against the v2 schema; v1 stays valid forever
-    m2schema = load_schema(git, "manifest-v2.schema.json", head)
+    m2schema = load_schema(git, "manifest-v2.schema.json", rules)
+    # a schema the range itself adds is not reviewed state yet
+    first_merge = (f"is not on the base of the range ({rules[:12]}) -- merge "
+                   f"the schema change first, then the records that use it")
     pv, mv = validator_for(pschema), validator_for(mschema)
     m2v = validator_for(m2schema) if m2schema else None
     av = validator_for(aschema) if aschema else None
@@ -309,7 +314,7 @@ def verify_tree(git, report, policy, head):
             ver = doc.get("schema_version") if isinstance(doc, dict) else None
             if ver == "2.0":
                 if m2v is None:
-                    report.fail(f"{path}: manifest-v2 schema missing")
+                    report.fail(f"{path}: manifest-v2 schema {first_merge}")
                     continue
                 errs = schema_errors(m2v, doc)
             else:
@@ -329,7 +334,7 @@ def verify_tree(git, report, policy, head):
                             f"attestations/<YYYY>/<id>/<time>.json")
                 continue
             if av is None:
-                report.fail(f"{path}: attestation schema missing")
+                report.fail(f"{path}: attestation schema {first_merge}")
                 continue
             try:
                 doc = json.loads(git.show(head, path))
@@ -780,25 +785,40 @@ def write_summary(path, report):
 def cmd_verify(args):
     git = Git(args.repo)
     report = Report(args.quiet, advisory=args.advisory)
-    # verify reads policy from the revision being verified, not from the
-    # working tree, so a change cannot loosen its own rules (principle 15).
-    # The range is needed first: take it from the argument when given, else
-    # from the upstream baseline read from the working tree (an operator
-    # setting, not the change under test).
+    # The rules (policy and schemas) come from the BASE of the range, like
+    # the allowed signers: reviewed state, never the change being checked,
+    # so a range cannot loosen its own rules (principle 15). A rule change
+    # takes effect once it is merged. Only the default range, when none is
+    # given, comes from the working tree (an operator setting).
     rng = args.range
     if rng is None:
         rng = default_range(git, load_policy(git, report) or {})
     head = rng.split("..")[-1].lstrip(".") if ".." in rng else rng
     head = head or "HEAD"
-    policy = load_policy(git, report, head)
-    if policy is None:
-        return 1
     base = rng.split("..")[0] if ".." in rng else None
-    if base and not git.exists(f"{base}^{{commit}}"):
-        report.warn(f"base {base} not found; immutability check skipped")
-        base = None
     print(f"prov verify: range {rng}")
-    verify_tree(git, report, policy, head)
+    if base is None:
+        report.fail("no base revision to read the policy and schemas from "
+                    "-- verify a range BASE..HEAD")
+    elif not git.exists(f"{base}^{{commit}}"):
+        report.fail(f"base {base} not found (shallow clone?): the policy and "
+                    f"schemas are read from the base of the range")
+        base = None
+    policy = load_policy(git, report, base) if base else None
+    if policy is None:
+        print(f"prov verify: {report.fails} failure(s), {report.warns} warning(s)")
+        return 1
+    rule_files = [f"{PROV_DIR}/policy.toml", f"{PROV_DIR}/schema",
+                  policy.get("attestation", {}).get(
+                      "allowed_signers", f"{PROV_DIR}/allowed_signers")]
+    changed = git.out("diff", "--name-only", base, head, "--",
+                      *rule_files).split()
+    if changed:
+        report.warn(f"rules change in this range ({', '.join(changed)}): "
+                    f"verified with the rules of the base ({base[:12]}); the "
+                    f"new rules take effect after merge -- review them before "
+                    f"attesting")
+    verify_tree(git, report, policy, head, base)
     verify_immutability(git, report, base, head)
     verify_commits(git, report, policy, git.commits(rng), base=base, head=head)
     if args.summary:
