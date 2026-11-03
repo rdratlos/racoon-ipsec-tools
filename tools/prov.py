@@ -207,8 +207,11 @@ def _read(git, rel):
         return None
 
 
-def load_schema(git, name):
-    text = _read(git, f"{PROV_DIR}/schema/{name}")
+def load_schema(git, name, rev):
+    """A schema is read from the revision being verified, never from the
+    working tree: a change must not validate itself with a schema it
+    introduces (principle 15)."""
+    text = git.show(rev, f"{PROV_DIR}/schema/{name}")
     return json.loads(text) if text else None
 
 
@@ -251,14 +254,14 @@ def is_critical(path, policy):
 
 def verify_tree(git, report, policy, head):
     """Profiles, manifests and legacy map as they exist at `head`."""
-    pschema = load_schema(git, "profile-v1.schema.json")
-    mschema = load_schema(git, "manifest-v1.schema.json")
+    pschema = load_schema(git, "profile-v1.schema.json", head)
+    mschema = load_schema(git, "manifest-v1.schema.json", head)
     if pschema is None or mschema is None:
         report.fail(f"{PROV_DIR}/schema: profile/manifest schema missing")
         return
-    aschema = load_schema(git, "attestation-v1.schema.json")
+    aschema = load_schema(git, "attestation-v1.schema.json", head)
     # v2 manifests validate against the v2 schema; v1 stays valid forever
-    m2schema = load_schema(git, "manifest-v2.schema.json")
+    m2schema = load_schema(git, "manifest-v2.schema.json", head)
     pv, mv = validator_for(pschema), validator_for(mschema)
     m2v = validator_for(m2schema) if m2schema else None
     av = validator_for(aschema) if aschema else None
@@ -532,15 +535,16 @@ def verify_commits(git, report, policy, commits, base=None, head="HEAD"):
 
 def _deployment_known(dep, profile, policy):
     """True when dep names a disclosed model of this profile. A policy
-    release registry could be added later; unknown stays unknown."""
+    release registry could be added later; unknown stays unknown. The match
+    is exact (case-insensitive): a deployment that merely contains a model
+    name as a substring is a different deployment, and calling it known
+    would credit a model identity that did not run (principle 12)."""
     lowered = dep.lower()
     for role in (profile.get("roles") or []):
         if role.get("disclosure") == "withheld":
             continue
         for v in (role.get("model_id"), role.get("model_family")):
-            if v and (lowered == str(v).lower()
-                      or lowered in str(v).lower()
-                      or str(v).lower() in lowered):
+            if v and lowered == str(v).lower():
                 return True
     return False
 
@@ -586,10 +590,11 @@ def verify_session(git, report, policy, pid, s):
                 report.fail(msg + " -- configured/declared model must match "
                             "the profile; create a new profile revision")
         # observed[] (schema 2.0): tool-read observations of what answered.
-        # An observation never rewrites the profile; a deployment no policy
-        # release names is a WARN, so verify fails only on what the record
-        # itself contradicts. A v1 envelope with observed[] is rejected by
-        # schema validation before this point, so no version check here.
+        # An observation never rewrites the profile; a deployment that does
+        # not exactly match this contribution's own profile's disclosed model
+        # is a WARN, so verify fails only on what the record itself
+        # contradicts. A v1 envelope with observed[] is rejected by schema
+        # validation before this point, so no version check here.
         obs = contrib.get("observed", [])
         differing = sorted({str(o["id"]) for o in obs
                             if o.get("id") and o["id"] != model.get("id")})
@@ -606,7 +611,7 @@ def verify_session(git, report, policy, pid, s):
         if unmapped:
             report.warn(f"{where}: observed deployment(s) "
                         f"{', '.join(sorted(set(unmapped)))} match no "
-                        f"disclosed model in any profile: a release may be "
+                        f"disclosed model in this profile: a release may be "
                         f"undisclosed or retired (not a failure)")
 
         files = contrib.get("files", [])
@@ -775,12 +780,19 @@ def write_summary(path, report):
 def cmd_verify(args):
     git = Git(args.repo)
     report = Report(args.quiet, advisory=args.advisory)
-    policy = load_policy(git, report)
-    if policy is None:
-        return 1
-    rng = args.range or default_range(git, policy)
+    # verify reads policy from the revision being verified, not from the
+    # working tree, so a change cannot loosen its own rules (principle 15).
+    # The range is needed first: take it from the argument when given, else
+    # from the upstream baseline read from the working tree (an operator
+    # setting, not the change under test).
+    rng = args.range
+    if rng is None:
+        rng = default_range(git, load_policy(git, report) or {})
     head = rng.split("..")[-1].lstrip(".") if ".." in rng else rng
     head = head or "HEAD"
+    policy = load_policy(git, report, head)
+    if policy is None:
+        return 1
     base = rng.split("..")[0] if ".." in rng else None
     if base and not git.exists(f"{base}^{{commit}}"):
         report.warn(f"base {base} not found; immutability check skipped")

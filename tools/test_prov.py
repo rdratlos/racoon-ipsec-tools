@@ -920,6 +920,113 @@ class CaptureEvidenceTests(unittest.TestCase):
         self.assertNotIn("observed", doc["contributions"][0])
 
 
+    def test_partial_deployment_name_is_not_known(self):
+        # a deployment that only contains a disclosed model's name as a
+        # substring is not that model: a different deployment may share a
+        # prefix, and claiming it known would credit a model identity that
+        # did not run (principle 12). "claude-opus-5-5-beta" must not match
+        # the profile's "claude-opus-5-5"
+        self.r.write("src/x.c", "int x;\n")
+        tr = self._declare_router(deployment="claude-opus-5-5-beta")
+        self.r.commit("router session", tr + [HUMAN])
+        rc, out = self.r.attest()
+        self.assertEqual(rc, 0, out)
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("[WARN]", out)
+        self.assertIn("claude-opus-5-5-beta", out)
+
+    def test_exact_deployment_name_is_known(self):
+        # the exact disclosed model name is known: no warning. This pins
+        # the tightening so it does not over-restrict and warn on the value
+        # it is supposed to accept
+        self.r.write("src/x.c", "int x;\n")
+        tr = self._declare_router(deployment="claude-opus-5-5")
+        self.r.commit("router session", tr + [HUMAN])
+        rc, out = self.r.attest()
+        self.assertEqual(rc, 0, out)
+        rc, out = self.r.verify()
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("[WARN]", out)
+
+
+class SchemaSourceTests(unittest.TestCase):
+    """Requirement from PR #178 (principle 15), checked with the same
+    verify path CI runs: the schemas that decide validity are read from
+    the commit being verified, not from the working tree, so a change
+    cannot rewrite its own validator."""
+
+    def setUp(self):
+        self.r = Repo()
+
+    def tearDown(self):
+        self.r.cleanup()
+
+    def _attest_session(self):
+        self.r.write("src/x.c", "int x;\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--reported-by", "manual")
+        self.r.commit("a change", tr + [HUMAN])
+        rc, out = self.r.attest()
+        self.assertEqual(rc, 0, out)
+        return tr
+
+    def test_verify_reads_schema_from_head_not_worktree(self):
+        # the schemas at head are removed in a commit, but the working
+        # tree still has them. verify must fail (head's tree has no
+        # schemas), not pass by finding the working-tree files that head
+        # does not carry. This fails against the old code, which read
+        # schemas via _read(git, path) = working tree (principle 15).
+        self._attest_session()
+        self.r.git("rm", "-r", os.path.join(".provenance", "schema"))
+        self.r.commit("remove schemas from tree", trailers=[HUMAN])
+        # schemas are back in the working tree (git rm leaves them deleted;
+        # restore without committing so head lacks them but the work tree
+        # has them)
+        self.r.git("checkout", "HEAD~1", "--", ".provenance/schema")
+        self.r.git("reset", "HEAD", "--", ".provenance/schema")
+        rc, out = self.r.verify()
+        self.assertNotEqual(rc, 0,
+                            "verify passed even though head has no schemas; "
+                            "it read the working tree instead of head:\n" + out)
+
+    def test_verify_reads_policy_from_head_not_worktree(self):
+        # verify validates AI-Scope against allowed_scopes, and that list
+        # comes from the policy. an uncommitted loosening of policy.toml in
+        # the working tree must not turn a commit that uses a scope the
+        # committed policy forbids green: verify reads the policy from the
+        # revision it verifies, never from the working tree the change could
+        # edit (principle 15). the old code read policy via _read = working
+        # tree, so the loosened file silenced the rejection.
+        self.r.write("src/x.c", "int x;\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/x.c",
+                            "--scope", "code", "--reported-by", "manual")
+        self.r.commit("a change", tr)
+        # head now forbids "forged". the working tree is loosened to allow
+        # it, left uncommitted, and is what the old code would read. the
+        # range starts at the commit before this one, so the commit whose
+        # tree verify reads for the policy (head) is the loosening's parent.
+        self.r.git("commit", "-q", "--allow-empty", "-m", "baseline")
+        base = self.r.head()
+        loosen = os.path.join(self.r.dir, ".provenance", "policy.toml")
+        with open(loosen, encoding="utf-8") as f:
+            ptext = f.read()
+        with open(loosen, "w", encoding="utf-8") as f:
+            f.write(ptext.replace('"refactor", "code"]',
+                                  '"refactor", "code", "forged"]'))
+        self.r.write("src/y.c", "int y;\n")
+        tr = self.r.declare("--contrib", "claude-opus@r1:implementer=src/y.c",
+                            "--scope", "forged", "--reported-by", "manual")
+        self.r.commit("scope forged", tr + [HUMAN])
+        rc, out = self.r.verify(rng=f"{base}..HEAD")
+        self.assertNotEqual(
+            rc, 0,
+            "verify passed with the scope list loosened only in the working "
+            "tree: the policy was read from the working tree, not from the "
+            f"revision being verified (principle 15):\n{out}")
+        self.assertIn("forged", out)
+
+
 class ProxyTests(unittest.TestCase):
     """provcap-proxy.py: the proxy must pass a streaming response through
     as it arrives (an interactive client cannot wait for the end), and its
