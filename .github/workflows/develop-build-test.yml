@@ -116,7 +116,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - name: Checkout requested branch
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.ref.outputs.ref }}
           persist-credentials: false
@@ -146,7 +146,7 @@ jobs:
   ci:
     needs: resolve-ref
     if: needs.resolve-ref.outputs.run == 'true'
-    uses: rdratlos/shared-ci/.github/workflows/ccpp-autotools.yml@2a397883257287d8d68e0f66aae45eceeb368fa6 # v1.0.0
+    uses: rdratlos/shared-ci/.github/workflows/ccpp-autotools.yml@74a0f2f6f84f72b1e14530825606f6ff4c886b61 # v1.1.0
     with:
       ref: ${{ needs.resolve-ref.outputs.ref }}
       # racoon-ipsec-tools requires these runtime libraries at build time.
@@ -246,13 +246,13 @@ jobs:
       checks: write
     steps:
       - name: Checkout (for the shared annotation script)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve-ref.outputs.ref }}
           persist-credentials: false
 
       - name: Download build tree
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: build-tree
           path: build-tree-download
@@ -268,7 +268,7 @@ jobs:
           rm -rf build-tree-download
 
       - name: Publish annotations
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           TARGET_SHA: ${{ needs.resolve-ref.outputs.sha }}
           PUBLISH_CHECKS: ${{ needs.resolve-ref.outputs.publish-checks }}
@@ -315,7 +315,7 @@ jobs:
       # "vmbuf.c", no directory) back to a real repo path -- see
       # buildBasenameIndex() in the shared annotation script below.
       - name: Checkout (for Valgrind annotation path resolution)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve-ref.outputs.ref }}
           persist-credentials: false
@@ -324,7 +324,7 @@ jobs:
       # Valgrind messages): like the branch name, they enter the script
       # only through env.
       - name: Publish check
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           TARGET_LABEL: ${{ needs.resolve-ref.outputs.label }}
           TARGET_SHA: ${{ needs.resolve-ref.outputs.sha }}
