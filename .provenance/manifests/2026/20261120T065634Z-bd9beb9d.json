@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261120T065634Z-bd9beb9d",
+  "created": "2026-11-20T06:56:34Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        "tools/provprobe/analyze.py",
+        "tools/provprobe/provider-probe.sh"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "reimth@etik.com",
+    "statement": "pending"
+  }
+}
