@@ -2390,7 +2390,10 @@ AM_TESTS_ENVIRONMENT = X509_FIXTURE_SRCDIR='$(abs_srcdir)'; export X509_FIXTURE_
 EXTRA_DIST = README.md valgrind.supp cert-framework gen-x509-fixtures.sh \
 	$(CERT_FRAMEWORK_TESTS) \
 	unit/cert-framework/test_helper.sh \
-	unit/cert-framework/run_tests.sh
+	unit/cert-framework/run_tests.sh \
+	netns-matrix/README.md netns-matrix/cases.tsv netns-matrix/lib.sh \
+	netns-matrix/run.sh netns-matrix/selftest.sh \
+	netns-matrix/kinds/preflight.sh netns-matrix/kinds/psk.sh
 
 # Clean generated files
 CLEANFILES = *.log *.trs
