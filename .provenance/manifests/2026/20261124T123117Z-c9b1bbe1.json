@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261124T123117Z-c9b1bbe1",
+  "created": "2026-11-24T12:31:17Z",
+  "contributions": [
+    {
+      "profile": "kitch-deepseek-v4-1@r1",
+      "role": "implementer",
+      "model": {
+        "family": "kitch-deepseek",
+        "id": "hosted_vllm/Deepseek-V4.1-Flash"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        ".provenance/profiles/kitch-deepseek-v4-1/r1.toml"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "reimth@etik.com",
+    "statement": "pending"
+  }
+}
