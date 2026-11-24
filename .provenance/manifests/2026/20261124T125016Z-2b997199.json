@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261124T125016Z-2b997199",
+  "created": "2026-11-24T12:50:16Z",
+  "contributions": [
+    {
+      "profile": "kitch-qwen3-8@r1",
+      "role": "implementer",
+      "model": {
+        "family": "kitch-qwen",
+        "id": "hosted_vllm/Qwen3.8-Flash-Next-FP8"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        ".provenance/profiles/kitch-qwen3-8/r1.toml"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "reimth@etik.com",
+    "statement": "pending"
+  }
+}
