@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261124T125016Z-2b997199",
+  "reviewer": "thomas.reim@airbus.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261124T142409Z",
+  "commits": [
+    {
+      "patch_id": "d56af17022a23b2fa8983e6f76847240555b886c",
+      "subject": "provenance: add profile kitch-qwen3-8"
+    }
+  ],
+  "tests": {
+    "command": "python3.11 -m unittest tools.test_prov",
+    "exit": 0,
+    "log_digest": "sha256:e5d5720b7225ae0eef9fb5359f367c6441fcea794c0c833909dd888708fe4b92",
+    "duration_s": 31.081
+  }
+}

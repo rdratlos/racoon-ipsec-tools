@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261120T065634Z-bd9beb9d",
+  "reviewer": "thomas.reim@airbus.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261124T142409Z",
+  "commits": [
+    {
+      "patch_id": "065476bc82c35e32439455a24afcf0084bde96ed",
+      "subject": "tools: add provider probe for provenance evidence (draft)"
+    }
+  ],
+  "tests": {
+    "command": "python3.11 -m unittest tools.test_prov",
+    "exit": 0,
+    "log_digest": "sha256:e5d5720b7225ae0eef9fb5359f367c6441fcea794c0c833909dd888708fe4b92",
+    "duration_s": 31.081
+  }
+}

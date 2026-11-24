@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261124T123117Z-c9b1bbe1",
+  "reviewer": "thomas.reim@airbus.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261124T142409Z",
+  "commits": [
+    {
+      "patch_id": "f3dbc19ff939309dc9050688bd01e73bffda166a",
+      "subject": "provenance: add profile kitch-deepseek-v4-1"
+    }
+  ],
+  "tests": {
+    "command": "python3.11 -m unittest tools.test_prov",
+    "exit": 0,
+    "log_digest": "sha256:e5d5720b7225ae0eef9fb5359f367c6441fcea794c0c833909dd888708fe4b92",
+    "duration_s": 31.081
+  }
+}
