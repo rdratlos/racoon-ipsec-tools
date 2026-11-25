@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Mint a GitHub App installation token for racoon-opencode.
+"""Mint a GitHub App installation token for one agent's app.
 
-Runs as the key-owning user (ghapp), never as the agent's user. Prints the
-token on stdout. Reuses a cached token until 5 minutes before it expires.
+Usage: mint-token /etc/racoon-<app>/app.json
+
+Runs as the key-owning user (ghapp), never as the agent's user. The app
+is chosen by its app.json; sudoers pins that argument per agent user, so
+an agent cannot mint another app's token. Prints the token on stdout.
+Reuses a cached token, one per app, until 5 minutes before it expires.
 Standard library plus the openssl CLI only.
 """
 import base64, calendar, json, os, subprocess, sys, time, urllib.request
 
-CONF = os.environ.get("RACOON_APP_CONF", "/etc/racoon-opencode/app.json")
 # app.json: {"client_id": "Iv23...", "installation_id": 12345678,
-#            "key": "/etc/racoon-opencode/app.pem",
+#            "key": "/etc/racoon-<app>/app.pem",
 #            "repo": "racoon-ipsec-tools"}
-CACHE = os.path.expanduser("~/.cache/racoon-opencode-token.json")
+CACHE_DIR = os.path.expanduser("~/.cache")
 PERMISSIONS = {"contents": "write", "pull_requests": "write",
                "issues": "write", "metadata": "read"}
 
@@ -31,9 +34,13 @@ def jwt(client_id, key):
     return f"{head}.{body}.{b64(sig)}"
 
 
-def cached():
+def cache_path(conf):
+    return os.path.join(CACHE_DIR, f"racoon-token-{conf['client_id']}.json")
+
+
+def cached(conf):
     try:
-        with open(CACHE) as f:
+        with open(cache_path(conf)) as f:
             c = json.load(f)
         if c["expires"] - time.time() > 300:
             return c["token"]
@@ -56,17 +63,20 @@ def mint(conf):
         res = json.load(r)
     expires = calendar.timegm(time.strptime(res["expires_at"],
                                             "%Y-%m-%dT%H:%M:%SZ"))
-    os.makedirs(os.path.dirname(CACHE), mode=0o700, exist_ok=True)
-    fd = os.open(CACHE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
+    fd = os.open(cache_path(conf), os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump({"token": res["token"], "expires": expires}, f)
     return res["token"]
 
 
 def main():
-    with open(CONF) as f:
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: mint-token /etc/racoon-<app>/app.json")
+    with open(sys.argv[1]) as f:
         conf = json.load(f)
-    print(cached() or mint(conf))
+    print(cached(conf) or mint(conf))
 
 
 if __name__ == "__main__":
