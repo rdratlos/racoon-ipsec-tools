@@ -1,5 +1,7 @@
 #!/bin/sh
-# gh wrapper: every call runs as racoon-opencode[bot].
-GH_TOKEN=$(sudo -n -u ghapp /usr/local/libexec/mint-token) || exit 1
+# gh wrapper: every call runs as the agent's app bot, chosen by
+# RACOON_APP_CONF (for example /etc/racoon-opencode/app.json).
+: "${RACOON_APP_CONF:?gh: RACOON_APP_CONF is not set}"
+GH_TOKEN=$(sudo -n -u ghapp /usr/local/libexec/mint-token "$RACOON_APP_CONF") || exit 1
 export GH_TOKEN
 exec /usr/bin/gh "$@"

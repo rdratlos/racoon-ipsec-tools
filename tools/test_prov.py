@@ -198,7 +198,9 @@ class ProvTests(unittest.TestCase):
                 ("Claude Code", "agent@agents.invalid"),
                 ("OpenCode", "agent@agents.invalid"),
                 ("racoon-opencode[bot]",
-                 "12345678+racoon-opencode[bot]@users.noreply.github.com")):
+                 "12345678+racoon-opencode[bot]@users.noreply.github.com"),
+                ("racoon-claude[bot]",
+                 "87654321+racoon-claude[bot]@users.noreply.github.com")):
             with self.subTest(committer=name):
                 self.r.write("src/x.c", f"int x; /* {name} */\n")
                 self.r.commit("undeclared agent change", [HUMAN], env={
