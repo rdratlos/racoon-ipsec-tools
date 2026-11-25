@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261125T183402Z-0fbb3139",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261125T225431Z",
+  "commits": [
+    {
+      "patch_id": "56661a2a1b31dace768a589bf7567975c07af051",
+      "subject": "agent-identity: mint-token takes the app's app.json as argument"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:a22bc5444ee1d83948d8376406cd276fb066eadde06154aaf38d59b471cb88c4",
+    "duration_s": 13.966
+  }
+}
