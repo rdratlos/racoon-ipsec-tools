@@ -36,7 +36,7 @@ jobs:
     name: Schema is valid Draft 2020-12
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install jsonschema
         run: pip install --quiet jsonschema
@@ -65,7 +65,7 @@ jobs:
     name: Provenance annotations match cited source
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: tools/schema_cross_check.py
         run: python3 tools/schema_cross_check.py
