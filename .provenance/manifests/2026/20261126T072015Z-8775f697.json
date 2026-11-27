@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261126T072015Z-8775f697",
+  "created": "2026-11-26T07:20:15Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        "tools/test_prov.py"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "reimth@etik.com",
+    "statement": "pending"
+  }
+}
