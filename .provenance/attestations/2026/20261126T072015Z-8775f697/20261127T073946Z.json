@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261126T072015Z-8775f697",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261127T073946Z",
+  "commits": [
+    {
+      "patch_id": "a8c2d2a730b354f35c63f4c1adfc347228be7e71",
+      "subject": "test_prov: keep host git hooks out of the fixture repositories"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:31bc34e3c287b18c440a0e59f34fb0bf0e40a6837366360b1ddd12cf95b92a0b",
+    "duration_s": 15.202
+  }
+}
