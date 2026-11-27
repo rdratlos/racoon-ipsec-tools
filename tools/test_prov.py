@@ -56,7 +56,15 @@ AGENT_ENV = {"GIT_COMMITTER_NAME": "Claude Code",
 class Repo:
     def __init__(self, signers=True):
         self.dir = tempfile.mkdtemp(prefix="prov-test-")
-        self.git("init", "-q", "-b", "develop")
+        # Hooks from the host (a global core.hooksPath, as sandboxes set to
+        # guard develop and to strip AI trailers) must not run here: they
+        # refuse the fixture commits or rewrite their messages. An empty
+        # directory turns all hooks off for this repository only; init
+        # needs it too, as it already updates refs.
+        no_hooks = self.dir + "-hooks"
+        os.mkdir(no_hooks)
+        self.git("-c", f"core.hooksPath={no_hooks}", "init", "-q", "-b", "develop")
+        self.git("config", "core.hooksPath", no_hooks)
         self.git("config", "user.name", "Jane Doe")
         self.git("config", "user.email", "jane@example.org")
         self.git("config", "commit.gpgsign", "false")
@@ -159,6 +167,37 @@ class Repo:
     def cleanup(self):
         shutil.rmtree(self.dir, ignore_errors=True)
         shutil.rmtree(self.dir + "-keys", ignore_errors=True)
+        shutil.rmtree(self.dir + "-hooks", ignore_errors=True)
+
+
+class HostHooksTests(unittest.TestCase):
+    """The fixtures give the same results on any host as in CI, whatever
+    hooks the host's global git config points to."""
+
+    def test_global_hooks_do_not_run_in_fixtures(self):
+        host = tempfile.mkdtemp(prefix="prov-host-")
+        self.addCleanup(shutil.rmtree, host, ignore_errors=True)
+        hooks = os.path.join(host, "hooks")
+        os.mkdir(hooks)
+        ran = os.path.join(host, "ran")
+        # a host that refuses every commit and ref update, as a sandbox
+        # guarding develop does
+        for name in ("pre-commit", "commit-msg", "reference-transaction"):
+            path = os.path.join(hooks, name)
+            with open(path, "w") as f:
+                f.write(f"#!/bin/sh\necho {name} >> '{ran}'\nexit 1\n")
+            os.chmod(path, 0o755)
+        gitconfig = os.path.join(host, "gitconfig")
+        with open(gitconfig, "w") as f:
+            f.write(f"[core]\n\thooksPath = {hooks}\n")
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": gitconfig}):
+            r = Repo()
+            self.addCleanup(r.cleanup)
+            r.write("src/x.c", "int x;\n")
+            trailer = "Co-Authored-By: Claude <noreply@anthropic.com>"
+            r.commit("second commit on develop", [trailer, HUMAN])
+            self.assertIn(trailer, r.git("log", "-1", "--format=%B"))
+        self.assertFalse(os.path.exists(ran), "a host hook ran")
 
 
 class ProvTests(unittest.TestCase):
