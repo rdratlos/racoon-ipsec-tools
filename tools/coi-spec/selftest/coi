@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+case "$1" in
+ shell) shift; P=
+   while [[ $# -gt 0 && "$1" != -- ]]; do [[ $1 == --profile ]] && P=$2; shift; done
+   [[ $# -eq 0 ]] && { echo "stub help"; exit 0; }
+   shift
+   T_ENV=$(grep -h T_ENV "$HOME/.coi/profiles/$P/config.toml" "$HOME/.coi/profiles/t-base/config.toml" | head -1 | cut -d'"' -f2)
+   T_WHO=$(grep -h T_WHO "$HOME/.coi/profiles/$P/config.toml" | cut -d'"' -f2)
+   export T_ENV T_WHO T_CMD=$(date +%s.%N); exec "$@";;
+ version) echo "coi stub 0";;
+ *) echo "stub $*";;
+esac

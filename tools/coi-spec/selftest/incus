@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+case "$1" in list) echo "t-shared-1";; exec) shift 2; exec "$@";; *) echo "stub incus $*";; esac
