@@ -15,6 +15,13 @@ new container could not be created while the existing `coi-7abad93b-1` is presen
 `coi run` stops (does not delete) a persistent container after each command, so
 `incus_exec` steps only work while a container is running; they report that otherwise.
 
+**uid/gid evidence (2nd discovery):** root has one usable subuid/subgid block (`root:100000:65536`)
+shared by all existing containers; `coi health` still failed to create containers. Do not run g1/g2
+until `coi health` shows no "Not enough uid/gid". Confirmation check (creates and deletes only `t-probe`):
+`incus launch images:alpine/edge t-probe` (shared range, expected to work) and
+`incus launch images:alpine/edge t-probe2 -c security.idmap.isolated=true` (expected to show the same error if
+coi asks for an exclusive range); then `incus delete -f t-probe t-probe2`.
+
 Results: `results/<ID>.txt` in the spec's result-sheet format, `results/_summary.tsv`.
 `adapter.sh` is the only file that knows coi's CLI. It uses `coi run --profile P -- CMD`
 (from `coi --help`); whether `coi run` reuses a persistent container and which slot it

@@ -27,9 +27,19 @@ t_begin G1.3 "env_commands per session?"
 t_run coi_exec t-a bash -c 'echo $T_CMD'; a="$LAST_OUT"
 sleep 2
 t_run coi_exec_resume t-a bash -c 'echo $T_CMD'; b="$LAST_OUT"
-if [[ -z "$a$b" ]]; then t_end FAIL "T_CMD empty: table name wrong? check schema" "fixtures"
+if [[ -z "$a$b" ]]; then t_end OBSERVED "T_CMD empty from a profile: env_commands is trusted-scope only (schema); profile info t-a also omitted it" "env_commands must come from ~/.coi/config.toml or \$COI_CONFIG; see G1.3b"
 elif [[ "$a" != "$b" ]]; then t_end OBSERVED "values differ: executed per session" "what applies when"
 else t_end OBSERVED "values equal: cached at creation" "what applies when"; fi
+
+t_begin G1.3b "env_commands from a trusted scratch config via COI_CONFIG" "COI_CONFIG=scratch file (may REPLACE ~/.coi/config.toml: network mode etc. fall back to defaults)"
+printf '[env_commands]\nT_CMD = "date +%%s.%%N"\n' > "$RESULTS/t-config.toml"
+export COI_CONFIG="$RESULTS/t-config.toml"
+t_run coi_exec t-a bash -c 'echo $T_CMD'; a="$LAST_OUT"; sleep 2
+t_run coi_exec_resume t-a bash -c 'echo $T_CMD'; b="$LAST_OUT"; unset COI_CONFIG
+t_run $COI_BIN profile info t-a
+if [[ -z "$a$b" ]]; then t_end FAIL "T_CMD still empty via COI_CONFIG" "env_commands unusable here: token design cannot rely on it"
+elif [[ "$a" != "$b" ]]; then t_end OBSERVED "trusted env_commands run per session (values differ)" "token design: env_commands can mint per session"
+else t_end OBSERVED "trusted env_commands present but cached (values equal)" "token design: not refreshed per session"; fi
 
 t_begin G1.4 "two concurrent sessions, t-a and t-b"
 ( coi_exec t-a bash -c 'sleep 25; echo S1-late WHO=$T_WHO CMD=$T_CMD' > "$RESULTS/.g14-s1" 2>&1 ) &
