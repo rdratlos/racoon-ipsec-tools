@@ -7,6 +7,9 @@ RESULTS="${COI_RESULTS:-$HERE/results}"
 PROFILES="${COI_PROFILES_DIR:-$HOME/.coi/profiles}"
 SCRATCH_MOUNT="${COI_SCRATCH_MOUNT:-/tmp/t-mount}"
 WORKSPACE="${COI_WORKSPACE:-$PWD}"          # W: scratch project dir, NOT a real repo
+if [[ -e "$WORKSPACE/.git" && "${COI_ALLOW_REPO:-0}" != 1 ]]; then
+  echo "refusing: $WORKSPACE is a git checkout and coi mounts it. Run from an empty scratch directory." >&2; exit 2
+fi
 mkdir -p "$RESULTS"
 # shellcheck source=adapter.sh
 . "$HERE/adapter.sh"

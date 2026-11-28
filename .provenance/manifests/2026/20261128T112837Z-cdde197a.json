@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261128T112837Z-cdde197a",
+  "created": "2026-11-28T11:28:37Z",
+  "contributions": [
+    {
+      "profile": "claude-sonnet@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-sonnet-5"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        "tools/coi-spec/adapter.sh",
+        "tools/coi-spec/lib.sh",
+        "tools/coi-spec/tests/g1.sh"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "noreply@anthropic.com",
+    "statement": "pending"
+  }
+}

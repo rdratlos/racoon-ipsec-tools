@@ -42,6 +42,14 @@ if contains "$LAST_OUT" WHO=profile-a; then t_end OBSERVED "S2 did not change S1
 else t_end OBSERVED "S1 changed after S2: sessions interfere" "concurrency caveat"; fi
 rm -f "$RESULTS/.g14-s1"
 
+t_begin G1.4b "same, both sessions pinned to slot 1" "COI_SLOT=1"
+export COI_SLOT=1
+( coi_exec t-a bash -c 'sleep 25; echo S1-late WHO=$T_WHO' > "$RESULTS/.g14b" 2>&1 ) & bgpid=$!
+sleep 5
+t_run coi_exec t-b bash -c 'echo S2 WHO=$T_WHO'
+wait "$bgpid"; t_sh "cat '$RESULTS/.g14b'; $COI_BIN list"; rm -f "$RESULTS/.g14b"; unset COI_SLOT
+t_end OBSERVED "slot-pinned concurrent sessions: refused, queued or shared; see raw output" "coi caveat: concurrency and slots"
+
 t_begin G1.5 "which process environment gets T_*"
 t_run coi_exec t-a bash -c 'tr "\0" "\n" </proc/1/environ | grep ^T_; echo ---; tr "\0" "\n" </proc/$$/environ | grep ^T_'
 t_run incus_exec bash -c 'tr "\0" "\n" </proc/1/environ | grep ^T_ || echo "none in pid 1"'

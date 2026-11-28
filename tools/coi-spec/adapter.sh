@@ -10,11 +10,12 @@ COI_BIN="${COI_BIN:-coi}"
 INCUS_BIN="${INCUS_BIN:-incus}"
 : "${COI_SESSION_SESSION_NAME:=t-shared}"
 
+# COI_SLOT=N (exported) adds --slot N; unset = coi auto-allocates (a held session pushes the next to another slot).
 # Calibrated from coi-help.txt: `coi run -- CMD` runs a command in the sandbox;
 # --profile is a global flag. Whether `coi run` reuses a persistent container
 # and which slot it gets is NOT yet verified: G1.2 records `coi list` for that.
-[[ -n "${COI_EXEC_TEMPLATE:-}" ]]   || COI_EXEC_TEMPLATE="$COI_BIN run --profile {P} -- {CMD}"
-[[ -n "${COI_RESUME_TEMPLATE:-}" ]] || COI_RESUME_TEMPLATE="$COI_BIN run --profile {P} -- {CMD}"
+[[ -n "${COI_EXEC_TEMPLATE:-}" ]]   || COI_EXEC_TEMPLATE="$COI_BIN run --profile {P} "'${COI_SLOT:+--slot $COI_SLOT}'" -- {CMD}"
+[[ -n "${COI_RESUME_TEMPLATE:-}" ]] || COI_RESUME_TEMPLATE="$COI_EXEC_TEMPLATE"
 
 _expand() { # template profile cmd-string
   local t="$1"; t="${t//\{P\}/$2}"; t="${t//\{CMD\}/$3}"; bash -c "$t"
