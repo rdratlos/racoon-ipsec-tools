@@ -7,6 +7,14 @@ Run on the workstation, from a scratch project directory (not a real repo):
     tools/coi-spec/run.sh g2
     tools/coi-spec/run.sh cleanup
 
+**Before g1/g2:** `run.sh discover` must show no uid/gid warning. On the first discovery run
+`coi health` failed with "Not enough uid/gid available for the container" (four times), so a
+new container could not be created while the existing `coi-7abad93b-1` is present. Read
+`results/discovery/idmap.txt` first. Tests only use containers that are not in
+`results/_baseline_containers`; existing containers are never touched or deleted.
+`coi run` stops (does not delete) a persistent container after each command, so
+`incus_exec` steps only work while a container is running; they report that otherwise.
+
 Results: `results/<ID>.txt` in the spec's result-sheet format, `results/_summary.tsv`.
 `adapter.sh` is the only file that knows coi's CLI. It uses `coi run --profile P -- CMD`
 (from `coi --help`); whether `coi run` reuses a persistent container and which slot it

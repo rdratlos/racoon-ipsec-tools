@@ -15,6 +15,7 @@ container = \"/run/t-mount\""
 t_begin G2.1 "[[mounts]] outside workspace"
 t_run coi_exec t-mnt ls -la /run/t-mount
 t_sh "$INCUS_BIN config device show \"$(coi_container)\""
+t_note "Profile mounts outside the workspace may be gated like project mounts (see coi trust help); if the device is missing, that is the finding."
 if contains "$LAST_OUT" /run/t-mount; then t_end PASS "device present" "-"; else t_end FAIL "mount not configured" "check schema table name"; fi
 
 t_begin G2.2 "read-only flag"

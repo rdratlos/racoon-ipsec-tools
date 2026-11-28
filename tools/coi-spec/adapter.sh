@@ -21,6 +21,17 @@ _expand() { # template profile cmd-string
 }
 coi_exec()        { local p="$1"; shift; _expand "$COI_EXEC_TEMPLATE"   "$p" "$(printf '%q ' "$@")"; }
 coi_exec_resume() { local p="$1"; shift; _expand "$COI_RESUME_TEMPLATE" "$p" "$(printf '%q ' "$@")"; }
-# GUESS: first container whose name contains the session name.
-coi_container() { "$INCUS_BIN" list -f csv -c n 2>/dev/null | grep -m1 -- "${COI_CONTAINER_MATCH:-$COI_SESSION_SESSION_NAME}"; }
-incus_exec() { local c; c="$(coi_container)"; "$INCUS_BIN" exec "$c" -- "$@"; }
+# Container names are coi-<hash>-<slot>, not derived from session_name. So the test container is
+# "the container that did not exist when discovery ran" (results/_baseline_containers). Existing
+# containers are never used or touched. Override with COI_TEST_CONTAINER.
+coi_container() {
+  [[ -n "${COI_TEST_CONTAINER:-}" ]] && { echo "$COI_TEST_CONTAINER"; return; }
+  "$INCUS_BIN" list -f csv -c n 2>/dev/null | sort | comm -13 "${RESULTS:-.}/_baseline_containers" - | head -1
+}
+# incus_exec runs only in a Running test container (coi run stops persistent containers after each command).
+incus_exec() {
+  local c; c="$(coi_container)"
+  [[ -n "$c" ]] || { echo "no test container (baseline-diff empty)"; return 3; }
+  [[ "$("$INCUS_BIN" list "$c" -f csv -c s 2>/dev/null)" == RUNNING ]] || { echo "test container $c not running"; return 3; }
+  "$INCUS_BIN" exec "$c" -- "$@"
+}
