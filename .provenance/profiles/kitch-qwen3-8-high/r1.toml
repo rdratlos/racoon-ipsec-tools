@@ -1,0 +1,21 @@
+schema_version = "1.0"
+id = "kitch-qwen3-8-high"
+revision = 1
+harness = "opencode"
+owner = "rdratlos"
+status = "active"
+description = "OpenCode via the KITCH router, high-reasoning Qwen3.8 Flash Next. User-visible name: KITCH-Qwen3.8. OpenCode model key: kitch/Qwen3.8-Flash-Next-HighReasoning. KITCH route group: Qwen3.8-Flash-Next-HighReasoning. Router-reported deployment: hosted_vllm/Qwen3.8-Flash-Next-FP8. The family kitch is the router/provider boundary, not the upstream vendor. The route alias is not evidence of what ran; the gateway deployment is. Same family as the DeepSeek KITCH profile, so not a dissimilar reviewer for critical-path KITCH output."
+
+[[roles]]
+name = "implementer"
+model_family = "kitch"
+model_id = "hosted_vllm/Qwen3.8-Flash-Next-FP8"
+disclosure = "public"
+description = "Coding, tests, docs and other implementer scopes; AI-Scope records which."
+
+[[roles]]
+name = "reviewer"
+model_family = "kitch"
+model_id = "hosted_vllm/Qwen3.8-Flash-Next-FP8"
+disclosure = "public"
+description = "Review work. Same family as the implementer and as the DeepSeek KITCH profile, so not a dissimilar reviewer for KITCH critical-path output."

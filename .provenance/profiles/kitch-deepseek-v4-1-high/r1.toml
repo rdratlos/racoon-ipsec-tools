@@ -1,0 +1,21 @@
+schema_version = "1.0"
+id = "kitch-deepseek-v4-1-high"
+revision = 1
+harness = "opencode"
+owner = "rdratlos"
+status = "active"
+description = "OpenCode via the KITCH router, high-reasoning DeepSeek V4.1 Flash. User-visible name: KITCH-Deepseek-V4.1. OpenCode model key: kitch/Deepseek-V4.1-Flash-HighReasoning. KITCH route group: Deepseek-V4.1-Flash-HighReasoning. Router-reported deployment: hosted_vllm/Deepseek-V4.1-Flash. The family kitch is the router/provider boundary, not the upstream vendor. The route alias is not evidence of what ran; the gateway deployment is. Same family as the Qwen KITCH profile, so not a dissimilar reviewer for critical-path KITCH output."
+
+[[roles]]
+name = "implementer"
+model_family = "kitch"
+model_id = "hosted_vllm/Deepseek-V4.1-Flash"
+disclosure = "public"
+description = "Coding, tests, docs and other implementer scopes; AI-Scope records which."
+
+[[roles]]
+name = "reviewer"
+model_family = "kitch"
+model_id = "hosted_vllm/Deepseek-V4.1-Flash"
+disclosure = "public"
+description = "Review work. Same family as the implementer and as the Qwen KITCH profile, so not a dissimilar reviewer for KITCH critical-path output."

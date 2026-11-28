@@ -1,0 +1,40 @@
+{
+  "schema_version": "2.0",
+  "provenance_id": "20261125T075550Z-12b1285a",
+  "created": "2026-11-25T07:55:50Z",
+  "contributions": [
+    {
+      "profile": "kitch-deepseek-v4-1-high@r1",
+      "role": "implementer",
+      "model": {
+        "family": "kitch",
+        "id": "hosted_vllm/Deepseek-V4.1-Flash"
+      },
+      "model_reported_by": "router",
+      "files": [
+        ".provenance/profiles/kitch-deepseek-v4-1-high/r1.toml"
+      ],
+      "observed": [
+        {
+          "source": "capture-proxy",
+          "requests": 106,
+          "deployment": "hosted_vllm/Deepseek-V4.1-Flash"
+        }
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "thomas.reim@airbus.com",
+    "statement": "pending"
+  },
+  "session": {
+    "capture": {
+      "log_digest": "sha256:8c2edaaa31625b3357cf6f59e5d45a845c3b57686c4a3db1be59bd57e49f9533",
+      "requests": 106,
+      "window": [
+        "2026-11-24T12:01:19Z",
+        "2026-11-25T07:55:04Z"
+      ]
+    }
+  }
+}
