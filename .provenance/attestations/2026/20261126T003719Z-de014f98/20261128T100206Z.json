@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261126T003719Z-de014f98",
+  "reviewer": "reimth@etik.com",
+  "statement": "reviewed-and-tested",
+  "attested": "20261128T100206Z",
+  "commits": [
+    {
+      "patch_id": "4c3a95bfed7eeccceab751feecb2903fe76a7ccb",
+      "subject": "claude: turn off the cloud environment's commit signing"
+    }
+  ],
+  "tests": {
+    "command": "python3 -m unittest tools/test_prov.py",
+    "exit": 0,
+    "log_digest": "sha256:aeb8fc305e66bc94d4f9941b565700635e5faf343bb446fc08898ec69d4d8b77",
+    "duration_s": 14.999
+  }
+}

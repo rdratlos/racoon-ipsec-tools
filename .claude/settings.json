@@ -6,5 +6,17 @@
   "env": {
     "GIT_COMMITTER_NAME": "Claude Code",
     "GIT_COMMITTER_EMAIL": "agent@agents.invalid"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git -C \"$CLAUDE_PROJECT_DIR\" config --local commit.gpgsign false"
+          }
+        ]
+      }
+    ]
   }
 }
