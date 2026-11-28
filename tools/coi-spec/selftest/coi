@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 case "$1" in
- shell) shift; P=
+ run|shell) shift; P=
    while [[ $# -gt 0 && "$1" != -- ]]; do [[ $1 == --profile ]] && P=$2; shift; done
    [[ $# -eq 0 ]] && { echo "stub help"; exit 0; }
    shift

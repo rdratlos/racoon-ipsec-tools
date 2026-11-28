@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# G2.1-G2.5, G2.8: mounts. (G2.6, G2.7, G2.9 need manual variants; see README.)
+# G2.1-G2.5, G2.8: mounts. G2.7 is answered by the schema (flat [[mounts]] and [[mounts.default]] are both accepted).
+# G2.6, G2.9 need manual variants. Note `coi trust` approves out-of-workspace mounts from a PROJECT .coi/config.toml;
+# profiles under ~/.coi/profiles are expected to be trusted scope (unverified).
 . "$(dirname "$0")/../lib.sh"
 bash "$(dirname "$0")/fixtures.sh" >/dev/null
 M="$SCRATCH_MOUNT"; rm -rf "$M"; mkdir -p "$M"; echo token-v1 > "$M/token"
-# Table/key names per spec; verify against schema (G2.7 is about exactly this).
+# Keys per schema MountEntry: host, container, readonly, shift.
 write_profile t-mnt "$(cat "$PROFILES/t-a/config.toml")
 
 [[mounts]]
@@ -16,9 +18,15 @@ t_sh "$INCUS_BIN config device show \"$(coi_container)\""
 if contains "$LAST_OUT" /run/t-mount; then t_end PASS "device present" "-"; else t_end FAIL "mount not configured" "check schema table name"; fi
 
 t_begin G2.2 "read-only flag"
-t_sh "$COI_BIN schema profile | grep -i -B2 -A2 -E 'read.?only|ro\b'"
-t_run coi_exec t-mnt bash -c 'touch /run/t-mount/x && echo WRITABLE'
-t_end OBSERVED "schema excerpt and write attempt in raw output; set the key by hand if present" "setup page: mounts"
+write_profile t-mnt-ro "$(cat "$PROFILES/t-a/config.toml")
+
+[[mounts]]
+host = \"$M\"
+container = \"/run/t-mount\"
+readonly = true"
+t_run coi_exec t-mnt    bash -c 'touch /run/t-mount/rw && echo WRITABLE; rm -f /run/t-mount/rw'
+t_run coi_exec t-mnt-ro bash -c 'touch /run/t-mount/ro && echo WRITABLE || echo READONLY'
+if contains "$LAST_OUT" READONLY; then t_end PASS "readonly = true blocks writes" "setup page: mounts"; else t_end FAIL "readonly mount was writable" "coi caveat"; fi
 
 t_begin G2.3 "host atomic replace"
 t_run coi_exec t-mnt cat /run/t-mount/token; a="$LAST_OUT"

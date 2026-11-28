@@ -15,7 +15,7 @@ else t_end FAIL "inconclusive, adapter probably wrong; read raw output" "-"; fi
 
 t_begin G1.2 "t-b against the container created by t-a"
 t_run coi_exec t-b bash -c 'echo WHO=$T_WHO; hostname'
-t_sh "$INCUS_BIN list -f csv -c n"
+t_sh "$INCUS_BIN list -f csv -c n"; t_run $COI_BIN list   # slots may give each session its own container
 n="$(grep -c . <<<"$LAST_OUT")"
 t_run coi_exec t-b bash -c 'echo $T_WHO'
 who="$LAST_OUT"

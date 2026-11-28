@@ -12,6 +12,9 @@ $COI_BIN --help                > "$d/coi-help.txt"      2>&1
 $COI_BIN shell --help          > "$d/coi-shell-help.txt" 2>&1
 $COI_BIN schema profile        > "$d/schema-profile.txt" 2>&1
 $COI_BIN profile --help        > "$d/profile-help.txt"   2>&1
+for c in run list container trust info file schema attach persist tmux; do $COI_BIN $c --help > "$d/coi-$c-help.txt" 2>&1; done
+$COI_BIN list                  > "$d/coi-list.txt"      2>&1
+$COI_BIN health                > "$d/coi-health.txt"    2>&1
 echo "Saved to $d. Read coi-shell-help.txt, then fix COI_EXEC_TEMPLATE in adapter.sh"
 echo "and the table names in tests/fixtures.sh against schema-profile.txt."
 echo "Smoke check that the adapter works:"; coi_exec t-base echo adapter-ok 2>&1 | tail -3
