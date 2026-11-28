@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "provenance_id": "20261126T003719Z-de014f98",
+  "created": "2026-11-26T00:37:19Z",
+  "contributions": [
+    {
+      "profile": "claude-opus@r1",
+      "role": "implementer",
+      "model": {
+        "family": "anthropic-claude",
+        "id": "claude-opus-5-5"
+      },
+      "model_reported_by": "manual",
+      "files": [
+        ".claude/CLAUDE.md",
+        ".claude/settings.json"
+      ]
+    }
+  ],
+  "human_review": {
+    "reviewer": "noreply@anthropic.com",
+    "statement": "pending"
+  }
+}
